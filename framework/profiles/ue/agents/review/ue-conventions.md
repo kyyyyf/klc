@@ -77,6 +77,11 @@ store `TWeakObjectPtr<AAIEnemy>` if "reference, may become null" is the
 intent.
 ```
 
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
+```
+
 Empty case:
 ```
 ## UE Conventions Review
@@ -88,6 +93,28 @@ Empty case:
 ```
 ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 ```
+
+## Examples from real diffs
+
+**HIGH (virtual that the subclass silently missed).** CRUSH-3020: a new
+engine-part class `UCrushBehaviorPart_PalvHovercraftEngine` inherited
+from `UCrushBehaviorPart` directly but skipped the
+`UpdateForwardMaxSpeedRuntimeProperty` virtual that every sibling
+(SimpleVehicleEngine, WotEngine, PalvEngine) overrides. With the
+override missing the call silently no-ops under UCrushBehaviorPart's
+default, and GAS-driven forward-speed effects vanish.
+
+```
+### [HIGH] Missing Update*MaxSpeedRuntimeProperty override — Parts/CrushBehaviorPart_PalvHovercraftEngine.cpp
+**Issue**: every other engine-part subclass forwards
+`UpdateForwardMaxSpeedRuntimeProperty` into its vehicle-type; this one
+skips it, so GAS attribute changes don't reach physics.
+**Fix**: add the override (mirror `PalvEngine::UpdateForwardMaxSpeedRuntimeProperty`).
+```
+
+**Anti-example.** A new `UCLASS()` without an explicit
+`Category="Custom"` UPROPERTY tag is a style nit, not a MEDIUM. Do not
+flag cosmetic defaults.
 
 ## Hard rules
 - Before emitting any finding, scan `framework/config/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.

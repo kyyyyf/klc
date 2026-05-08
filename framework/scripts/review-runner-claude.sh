@@ -53,6 +53,7 @@ PROMPT_FILE="$(grep -m1 '^Prompt file:' "$JOB_CARD" | awk '{print $3}')"
 DIFF_FILE="$(grep -m1 '^- diff:' "$JOB_CARD" | awk '{print $3}')"
 SPEC_FILE="$(grep -m1 '^- spec:' "$JOB_CARD" | awk '{print $3}')"
 CTX_FILE="$(grep -m1 '^- claude_md_context:' "$JOB_CARD" | awk '{print $3}')"
+ALLOWLIST_FILE="$(grep -m1 '^- allowlist:' "$JOB_CARD" | awk '{print $3}')"
 
 for f in "$PROMPT_FILE" "$DIFF_FILE" "$SPEC_FILE" "$CTX_FILE"; do
   if [ ! -f "$f" ]; then
@@ -60,6 +61,8 @@ for f in "$PROMPT_FILE" "$DIFF_FILE" "$SPEC_FILE" "$CTX_FILE"; do
     exit 2
   fi
 done
+# Allowlist is optional — older job cards may not reference it.
+[ -n "$ALLOWLIST_FILE" ] && [ ! -f "$ALLOWLIST_FILE" ] && ALLOWLIST_FILE=""
 
 # Compose the full prompt: system instruction = the reviewer role file;
 # user message = concatenated diff + spec + claude_md_context, with clear
@@ -89,6 +92,13 @@ PROMPT="$WORK_DIR/prompt.md"
   echo '```'
   cat "$CTX_FILE"
   echo '```'
+  if [ -n "$ALLOWLIST_FILE" ]; then
+    echo
+    echo "### reviewer-allowlist"
+    echo '```yaml'
+    cat "$ALLOWLIST_FILE"
+    echo '```'
+  fi
   echo
   echo "---"
   echo

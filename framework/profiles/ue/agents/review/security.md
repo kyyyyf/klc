@@ -59,6 +59,11 @@ server; cap `Amount` by weapon's `MaxDamage`.
 **References**: Unreal Network Programming §"RPCs and Validation".
 ```
 
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
+```
+
 Empty case:
 ```
 ## Security Review

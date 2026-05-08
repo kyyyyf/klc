@@ -52,6 +52,25 @@ stability) belong to the UE profile version.
   non-constant-time hot path in cold code).
 - `INFO`     — observation.
 
+## Examples from real diffs
+
+**HIGH (new circular edge).** A PR added
+`from billing import invoice` to `accounts/service.py`. The project's
+import graph already has `billing -> accounts`, so this closes a cycle.
+Flag because `decompose` builds module boundaries on acyclic edges.
+
+```
+### [HIGH] New import cycle accounts ↔ billing — accounts/service.py:4
+**Issue**: this import adds the edge `accounts -> billing`; the graph
+already contains `billing -> accounts` (see `framework/index/depgraph.json`).
+**Fix**: move the shared contract to a third module (`accounts.types`)
+or invert the dependency (`billing` imports a callback).
+```
+
+**Anti-example.** A PR added `import logging` to a leaf module. No new
+project-internal edge — logging is an external dep already declared.
+Do not flag as "new coupling".
+
 ## Hard rules
 - Before emitting any finding, scan `framework/config/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.
 - Always quote `file:line` — the aggregator's scope-check depends on it.
@@ -70,6 +89,11 @@ stability) belong to the UE profile version.
 but no ADR in `docs/adr/` covers this module.
 **Fix**: Run `adr --phase propose` and link the ADR from the module's
 `CLAUDE.md` before merging.
+```
+
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
 ```
 
 Empty case:

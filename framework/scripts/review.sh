@@ -183,6 +183,14 @@ for r in d.get("always", []):
 # Conditional reviewers: include only if the diff matches the trigger.
 while IFS=$'\t' read -r name path trigger filter; do
   [ -z "$name" ] && continue
+  # Validate the trigger regex first. grep exit codes: 0=match, 1=no match,
+  # 2+=invocation error (bad regex, missing file). Without this split a
+  # broken regex in manifest would masquerade as "no match" and silently
+  # drop the reviewer.
+  echo "" | grep -qE "$trigger" 2>/dev/null; rc=$?
+  if [ "$rc" -ge 2 ]; then
+    die "reviewer '$name': bad trigger regex in profile manifest: $trigger"
+  fi
   if grep -qE "$trigger" "$DIFF_FILE" 2>/dev/null; then
     REVIEWERS+=("$name")
     REVIEWER_PROMPT[$name]="$path"
@@ -233,9 +241,21 @@ for r in "${REVIEWERS[@]}"; do
   if [ -n "$filter" ] && [ -f "$MODS_JSON" ]; then
     reviewer_ctx="$PENDING_DIR/ctx-$r.md"
     : > "$reviewer_ctx"
-    # Always include the root CLAUDE.md so the reviewer has project-level
-    # conventions and module list.
-    [ -f "$PROJECT_ROOT/CLAUDE.md" ] && cat "$PROJECT_ROOT/CLAUDE.md" >> "$reviewer_ctx"
+    # Include only the <!-- BEGIN: head --> ... <!-- END: head --> slice
+    # of the root CLAUDE.md — conventions and languages are relevant to
+    # every reviewer, the module table is not (we already picked the
+    # relevant modules below).
+    ROOT_MD="$PROJECT_ROOT/CLAUDE.md"
+    if [ -f "$ROOT_MD" ]; then
+      python3 - "$ROOT_MD" >> "$reviewer_ctx" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"<!--\s*BEGIN:\s*head\s*-->(.*?)<!--\s*END:\s*head\s*-->", text, re.DOTALL)
+# If the template lacks head markers (older CLAUDE.md), fall back to the
+# full file — not our job to refuse.
+print(m.group(1).strip() if m else text)
+PY
+    fi
     # Affected modules for this reviewer's trimmed diff only.
     reviewer_mods=$(python3 framework/core/skills/diff-modules.py \
                       "$reviewer_diff" --modules "$MODS_JSON" 2>/dev/null || true)
@@ -258,6 +278,7 @@ for r in "${REVIEWERS[@]}"; do
     fi
   fi
 
+  allowlist="$FRAMEWORK_ROOT/config/reviewer-allowlist.yml"
   cat > "$card" <<EOF
 # Review sub-agent job: $r
 
@@ -266,6 +287,11 @@ Inputs:
 - diff:              $reviewer_diff
 - spec:              $SPEC_ARG
 - claude_md_context: $reviewer_ctx
+- allowlist:         $allowlist
+
+Before emitting any finding, read the allowlist. If a finding matches
+an entry whose \`reviewer\` is "$r" or "*", downgrade to INFO and append
+\`(allowlisted: <reason>)\` to the title, per the prompt's Hard rules.
 
 Write the sub-agent's output to: $partial
 
@@ -389,42 +415,45 @@ fw_root = Path(fw_root); partials_dir = Path(partials_dir); final_path = Path(fi
 
 SEVERITY_RE = re.compile(r'^###\s+\[(?P<sev>[A-Z]+)\]\s+(?P<rest>.+)$')
 
-# Out-of-scope heuristic. Parse the diff once: for every touched file build
-# the set of line numbers that the patch added/modified on the "+" side.
-# Any issue that names a file:line pair outside that set is flagged as
-# suspect_out_of_scope. We keep the issue in the report but list it in a
-# separate table so reviewers can see what's diff-local vs commentary on
-# surrounding code. Issues with no file:line reference are never flagged.
+# Out-of-scope heuristic. Parse the diff once: for every touched file
+# build two sets of line numbers — the `+` side (new file) and the `-`
+# side (old file). A reviewer's file:line is in-scope if it lands in
+# either set, so "reviewer points at an old-file line number that was
+# modified by this diff" still counts as in-scope.
 def parse_diff_scope(path: str):
     try:
         text = Path(path).read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return {}
-    scope: dict[str, set[int]] = {}
+    scope: dict[str, dict[str, set[int]]] = {}
     current_file = None
     new_line = None
-    HUNK = re.compile(r'^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@')
+    old_line = None
+    HUNK = re.compile(r'^@@ -(?P<ostart>\d+)(?:,\d+)? \+(?P<nstart>\d+)(?:,\d+)? @@')
     for line in text.splitlines():
         if line.startswith("+++ b/"):
             current_file = line[6:].strip()
-            scope.setdefault(current_file, set())
+            scope.setdefault(current_file, {"new": set(), "old": set()})
             continue
         if line.startswith("--- ") or line.startswith("diff "):
             current_file = None
             continue
         m = HUNK.match(line)
         if m and current_file is not None:
-            new_line = int(m.group("start"))
+            new_line = int(m.group("nstart"))
+            old_line = int(m.group("ostart"))
             continue
-        if current_file is None or new_line is None:
+        if current_file is None or new_line is None or old_line is None:
             continue
         if line.startswith("+") and not line.startswith("+++"):
-            scope[current_file].add(new_line)
+            scope[current_file]["new"].add(new_line)
             new_line += 1
-        elif line.startswith("-"):
-            pass  # removed line: counter doesn't advance on the + side
+        elif line.startswith("-") and not line.startswith("---"):
+            scope[current_file]["old"].add(old_line)
+            old_line += 1
         elif line.startswith(" "):
             new_line += 1
+            old_line += 1
 
     return scope
 
@@ -439,19 +468,21 @@ def classify_scope(title: str) -> bool | None:
     Strict longest-suffix match: among diff paths, pick the one that
     equals `file` or ends with `/<file>` (so `Log.cpp` matches
     `CrushNetworkPrediction/Log.cpp` but not `AnotherLog.cpp`); tie-
-    break on the longest diff path."""
+    break on the longest diff path. In-scope if the line was touched
+    on either the new or the old side of the hunk."""
     m = FILE_LINE_RE.search(title)
     if not m:
         return None
     file, line_s = m.group(1), int(m.group(2))
     candidates = []
     for f in DIFF_SCOPE:
-        if f == file or f.endswith("/" + file) or file.endswith("/" + f) or file == f:
+        if f == file or f.endswith("/" + file) or file.endswith("/" + f):
             candidates.append(f)
     if not candidates:
         return False
     best = max(candidates, key=len)
-    return line_s in DIFF_SCOPE[best]
+    buckets = DIFF_SCOPE[best]
+    return line_s in buckets["new"] or line_s in buckets["old"]
 
 def parse_partial(p: Path):
     if not p.exists():
@@ -506,12 +537,24 @@ for p in sorted(partials_dir.glob("*.partial.md")):
     key = p.name[:-len(".partial.md")]
     reviewers[key] = parse_partial(p)
 
+def is_skip_partial(rev: dict) -> bool:
+    """A conditional reviewer whose trigger didn't match gets a partial
+    with no `[SEVERITY]` headers and the `reviewer skipped` marker. We
+    detect it so the report can call it out as "skipped" instead of
+    letting the reader mistake 0/0 for "analysed and found clean"."""
+    if rev["total"] != 0 or rev["blocking"] != 0:
+        return False
+    if rev["issues"]:
+        return False
+    return "reviewer skipped" in (rev.get("raw") or "")
+
 reviewer_rows = [
     {
         "key":      k,
         "label":    reviewer_label(k),
         "total":    reviewers[k]["total"],
         "blocking": reviewers[k]["blocking"],
+        "skipped":  is_skip_partial(reviewers[k]),
     }
     for k in reviewers
 ]

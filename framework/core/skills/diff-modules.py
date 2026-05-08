@@ -14,6 +14,14 @@ touching `CrushDemo/Source/CrushDemoTests/...` would also match the
 module rooted at `CrushDemo/Source/CrushDemo/` — a false positive.
 Longest-prefix resolution fixes it and is the same logic the decompose
 agent uses when assigning symbols to modules.
+
+Preconditions:
+- Diff paths (the `+++ b/<path>` / `--- a/<path>` headers) MUST be
+  relative to the project root — same root that `modules.json:path`
+  entries are relative to. `git diff HEAD` from the project root
+  produces this shape by default. When callers stitch a diff from a
+  different CWD they must strip or rewrite the prefix first; this skill
+  does not auto-detect the root.
 """
 from __future__ import annotations
 

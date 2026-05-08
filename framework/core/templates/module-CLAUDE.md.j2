@@ -21,7 +21,7 @@
 {% endfor %}
 {% if module.public_api|length > 15 %}
 - _… {{ module.public_api|length - 15 }} more; use Serena `find_symbol` or see `framework/index/inventory.json`._
-{% elif module.public_api_note %}
+{% elif module.get("public_api_note") %}
 - _{{ module.public_api_note }}_
 {% endif %}
 

@@ -81,7 +81,16 @@ def trim_modules(inv: dict, mods: dict, cap: int) -> tuple[int, int]:
     removed_total = 0
 
     for m in mods.get("modules", []):
-        path = m["path"]
+        path = m.get("path") or ""
+        # Empty path happens for modules derived from import-graph nodes
+        # that don't own a directory (e.g. UE modules resolved by name
+        # only). `str.startswith("")` is True for every file, so without
+        # this guard the module would swallow every symbol in the project.
+        if not path:
+            m.setdefault("public_api", [])
+            m["public_api_total"] = 0
+            m.pop("public_api_note", None)
+            continue
         # All symbols authored inside this module.
         local_items: list[dict] = []
         for f, items in by_file.items():

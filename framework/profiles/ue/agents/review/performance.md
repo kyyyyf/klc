@@ -62,6 +62,11 @@ the frame when the icon is not already in the pak.
 callback; show a placeholder meanwhile.
 ```
 
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
+```
+
 Empty case:
 ```
 ## Performance Review
