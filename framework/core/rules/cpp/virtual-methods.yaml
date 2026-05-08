@@ -1,0 +1,21 @@
+# ast-grep rule: C++ virtual methods (including pure virtuals). Useful to find
+# interface-like classes even without a formal `interface` keyword.
+
+id: cpp-virtual-methods
+language: cpp
+rule:
+  any:
+    - pattern: virtual $RET $NAME($$$ARGS);
+    - pattern: virtual $RET $NAME($$$ARGS) = 0;
+    - pattern: virtual $RET $NAME($$$ARGS) override;
+message: Virtual method declaration
+
+tests:
+  valid:
+    - |
+      class Shape { public: virtual double Area() const = 0; };
+    - |
+      class Circle : public Shape { public: virtual double Area() const override; };
+  invalid:
+    - |
+      class Plain { public: double Area() const { return 1.0; } };

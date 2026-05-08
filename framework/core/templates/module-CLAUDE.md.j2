@@ -1,0 +1,46 @@
+{# Hard caps: keep module CLAUDE.md under ~80 lines; list at most 15
+   public_api names. public-api-filter.py should have trimmed the list
+   upstream, but we keep the slice here as a safety net. #}
+# Module: {{ module.name }}
+
+> Path: `{{ module.path }}`
+> Language: {{ module.language or "-" }}
+> Generated at {{ generated_at }}.
+
+{% if module.entry %}
+## Entry point
+
+`{{ module.entry }}`
+
+{% endif %}
+{% if module.public_api %}
+## Public API
+
+{% for sym in module.public_api[:15] %}
+- `{{ sym }}`
+{% endfor %}
+{% if module.public_api|length > 15 %}
+- _… {{ module.public_api|length - 15 }} more; use Serena `find_symbol` or see `framework/index/inventory.json`._
+{% elif module.public_api_note %}
+- _{{ module.public_api_note }}_
+{% endif %}
+
+{% endif %}
+## Dependencies
+
+- **Depends on**: {{ (module.depends_on or []) | join(", ") or "_none_" }}
+- **Depended by**: {{ (module.depended_by or []) | join(", ") or "_none_" }}
+
+## Invariants
+
+<!-- BEGIN: manual -->
+{{ manual_block }}
+<!-- END: manual -->
+
+{% if adrs %}
+## ADRs
+
+{% for adr in adrs %}
+- [{{ adr.title }}](../{{ adr.file }})
+{% endfor %}
+{% endif %}

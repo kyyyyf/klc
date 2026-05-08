@@ -1,0 +1,22 @@
+# ast-grep rule: Python classes that declare at least one base class.
+#
+# Used to build a rough class hierarchy when the LSP is unavailable.
+
+id: py-class-hierarchy
+language: python
+rule:
+  pattern: "class $NAME($$$BASES): $$$BODY"
+message: Class with explicit bases
+
+tests:
+  valid:
+    - |
+      class Child(Parent):
+          pass
+    - |
+      class S(Base, Mixin):
+          pass
+  invalid:
+    - |
+      class Orphan:
+          pass

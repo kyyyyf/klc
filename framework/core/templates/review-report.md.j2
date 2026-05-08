@@ -1,0 +1,30 @@
+# Code Review Report
+Generated: {{ timestamp }}
+Spec: {{ spec_path }}
+
+## Summary
+| Reviewer | Issues | Blocking |
+|----------|--------|----------|
+{% for r in reviewers %}
+| {{ r.label }} | {{ r.total }} | {{ r.blocking }} |
+{% endfor %}
+{% if external %}
+| External ({{ external.model }}) | {{ external.total }} | {{ external.blocking }} |
+{% endif %}
+
+## Blocking Issues (must fix before merge)
+{{ blocking_issues }}
+
+## Non-blocking Issues (recommended)
+{{ non_blocking_issues }}
+
+## Suspected Out-of-Scope (reviewer touched code outside this diff)
+{{ out_of_scope_issues }}
+
+{% if external %}
+## External Reviewer Notes
+{{ external.notes }}
+{% endif %}
+
+---
+## Verdict: {{ verdict }}

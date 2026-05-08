@@ -1,0 +1,10 @@
+# Generated indexes and transient state.
+index/*
+!index/.gitkeep
+logs/*
+!logs/.gitkeep
+
+.last-run
+
+# Local caches created by Serena when pointed at the framework dir.
+.serena-cache/
