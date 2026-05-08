@@ -1,0 +1,23 @@
+# ast-grep rule: async boundary surface — async functions and await-heavy
+# arrow functions. Used by higher-level analyses to find async seams that
+# often imply error-handling / cancellation invariants.
+
+id: ts-async-patterns
+language: typescript
+rule:
+  any:
+    - pattern: async function $NAME($$$ARGS) { $$$BODY }
+    - pattern: export async function $NAME($$$ARGS) { $$$BODY }
+    - pattern: async ($$$ARGS) => { $$$BODY }
+    - pattern: const $NAME = async ($$$ARGS) => { $$$BODY }
+message: Async function / arrow boundary
+
+tests:
+  valid:
+    - |
+      export async function fetchUser(id: string) { return await api.get(id); }
+    - |
+      const load = async (x: number) => { return await db.read(x); };
+  invalid:
+    - |
+      function syncFetch() { return 1; }

@@ -1,0 +1,21 @@
+# ast-grep project configuration used by the codebase-intelligence framework.
+#
+# Point the MCP server and CLI at this file via `ast-grep scan -c
+# framework/sgconfig.yml` or by placing an `sgconfig.yml` at the repo root.
+#
+# The `languageGlobs` block overrides ast-grep's default extension-to-language
+# mapping, which treats .h as C. In UE projects .h is virtually always C++
+# (UCLASS/UFUNCTION/UPROPERTY), so we route all .h/.hh/.hpp/.hxx to cpp.
+
+ruleDirs:
+  - rules
+
+languageGlobs:
+  cpp:
+    - "**/*.h"
+    - "**/*.hh"
+    - "**/*.hpp"
+    - "**/*.hxx"
+    - "**/*.cpp"
+    - "**/*.cc"
+    - "**/*.cxx"

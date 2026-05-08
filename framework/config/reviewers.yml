@@ -1,0 +1,51 @@
+# Reviewer configuration for the Codebase Intelligence Framework.
+#
+# Controls the multi-agent code-review pipeline, the mutation-score gate for
+# the test agent, and the optional external reviewer.
+#
+# When adding new keys here, ensure external-review.md and review.md honour
+# the defaults they list. Do not commit secrets to this file; API keys are
+# read from the environment variable named in api_key_env.
+
+external_reviewer:
+  enabled:      false
+  provider:     openai            # openai | anthropic | google | ollama
+  model:        gpt-4o
+  api_key_env:  OPENAI_API_KEY
+  focus:
+    - security
+    - architecture
+    - performance
+    - readability
+    - test_coverage
+  output_format: markdown
+  report_path:   framework/reports/external-review-{timestamp}.md
+
+test:
+  # Minimum mutation score (percent). The test agent iterates up to three
+  # times to reach this threshold before proceeding.
+  mutation_score_threshold: 80
+
+  # Per-language overrides of the mutation gate. Use this for languages or
+  # build systems where the mutation tool is impractical (e.g. cpp-unreal
+  # under UnrealBuildTool). Keys match the `language` field that the test
+  # agent writes into framework/index/test-framework.json.
+  per_language:
+    cpp-unreal:
+      mutation_enabled: false
+      reason: "UBT + mull are not compatible; mutation testing is skipped for UE projects."
+
+review:
+  # Severity levels that block merge. Anything in this list contributes to
+  # ISSUES_BLOCKING counters returned by each sub-agent.
+  blocking_severity:
+    - CRITICAL
+    - HIGH
+  # Whether to launch the five internal sub-agents concurrently.
+  parallel_subagents: true
+
+reports:
+  # Retention policy for framework/reports/. Older runs are pruned at the
+  # start of each review.sh invocation.
+  retention_runs: 30          # keep the 30 most recent review-*.md files
+  retention_partials_days: 7  # delete partials-*/pending-* older than N days

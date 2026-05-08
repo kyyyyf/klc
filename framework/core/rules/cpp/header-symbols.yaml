@@ -1,0 +1,18 @@
+# ast-grep rule: C++ header-declared symbols.
+#
+# Scope this rule to header files (*.hpp, *.h, *.hxx) when invoking ast-grep:
+#   ast-grep --lang cpp --pattern-file ... --glob "**/*.hpp" --glob "**/*.h"
+#
+# Note: ast-grep 0.42 parses the right-hand `;` in `class X { ... };` as a
+# sibling statement, so patterns with a trailing semicolon fail with "Multiple
+# AST nodes detected". We match the declaration without the semicolon; the
+# class/struct node itself is what we want.
+
+id: cpp-header-symbols
+language: cpp
+rule:
+  any:
+    - pattern: "class $NAME"
+    - pattern: "struct $NAME"
+    - pattern: "namespace $NS { $$$BODY }"
+message: Header-visible C++ symbol
