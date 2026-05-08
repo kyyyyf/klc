@@ -3,10 +3,10 @@ Generated: {{ timestamp }}
 Spec: {{ spec_path }}
 
 ## Summary
-| Reviewer | Issues | Blocking |
-|----------|--------|----------|
+| Reviewer | Issues | Blocking | Status |
+|----------|--------|----------|--------|
 {% for r in reviewers %}
-| {{ r.label }} | {{ r.total }} | {{ r.blocking }} |
+| {{ r.label }} | {{ r.total }} | {{ r.blocking }} | {% if r.skipped %}_skipped_{% else %}run{% endif %} |
 {% endfor %}
 {% if external %}
 | External ({{ external.model }}) | {{ external.total }} | {{ external.blocking }} |

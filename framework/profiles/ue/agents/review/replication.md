@@ -77,10 +77,37 @@ Empty case (reviewer was invoked but found nothing):
 ### [INFO] No issues found
 ```
 
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
+```
+
 ## Trailer
 ```
 ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 ```
+
+## Examples from real diffs
+
+**CRITICAL (ReplicatedUsing without DOREPLIFETIME).** A new UPROPERTY
+`UPROPERTY(ReplicatedUsing = OnRep_Foo) int32 Foo;` added without a
+matching `DOREPLIFETIME_CONDITION_NOTIFY(MyClass, Foo, COND_None, …)` in
+`GetLifetimeReplicatedProps`. The property compiles but never replicates;
+the `OnRep_Foo` never fires on clients.
+
+```
+### [CRITICAL] ReplicatedUsing without DOREPLIFETIME — Pawn/PlayerState.h:42
+**Issue**: `Foo` is `ReplicatedUsing=OnRep_Foo` but absent from
+`GetLifetimeReplicatedProps`.
+**Fix**: add
+`DOREPLIFETIME_CONDITION_NOTIFY(AMyPlayerState, Foo, COND_None, REPNOTIFY_Always)`
+in the same module.
+```
+
+**Anti-example.** A `bReplicates = true` on the actor root without per-
+property `Replicated` flags is not a CRITICAL — it just means no
+properties will replicate, which may be intentional for a relevancy
+beacon.
 
 ## Hard rules
 - Before emitting any finding, scan `framework/config/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.

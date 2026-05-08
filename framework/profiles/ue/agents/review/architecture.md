@@ -71,6 +71,11 @@ PrivateDependencyModuleNames.
 in `Gameplay.Build.cs:23`.
 ```
 
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
+```
+
 Empty case:
 ```
 ## Architecture Review

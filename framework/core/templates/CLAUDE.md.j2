@@ -4,6 +4,7 @@
 > Do not edit above this line. Manual notes go inside the `<!-- BEGIN: manual -->`
 > block at the bottom of the file.
 
+<!-- BEGIN: head -->
 ## Overview
 
 - **Total files**: {{ total_files }}
@@ -12,6 +13,14 @@
 {% for lang, stats in languages %}
   - `{{ lang }}` — {{ stats.files }} files, {{ stats.lines }} lines
 {% endfor %}
+
+## Conventions for Claude
+
+- Prefer editing the affected module's local `CLAUDE.md` before the root.
+- Touch only the modules listed in the task spec's `affected_modules`.
+- If a change crosses a module boundary, create or update an ADR.
+- Never bypass the validator agent — if a spec is incomplete, ask questions.
+<!-- END: head -->
 
 ## Modules
 
@@ -36,13 +45,6 @@
 {% endfor %}
 
 {% endif %}
-## Conventions for Claude
-
-- Prefer editing the affected module's local `CLAUDE.md` before the root.
-- Touch only the modules listed in the task spec's `affected_modules`.
-- If a change crosses a module boundary, create or update an ADR.
-- Never bypass the validator agent — if a spec is incomplete, ask questions.
-
 {% if notes %}
 ## Notes from the indexer
 

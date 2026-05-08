@@ -14,7 +14,7 @@ when the orchestrator's trigger pattern matches (declared in
 Before LLM review, call the hook declared in the active profile:
 
 ```
-./framework/core/skills/run-hook.sh validate_assets <files-in> <out-json>
+python3 framework/core/skills/run-hook.py validate_assets <files-in> <out-json>
 ```
 
 Where `<files-in>` is a tempfile with one changed path per line (any
@@ -91,6 +91,11 @@ but the asset registry has no entry at that path (nearest match:
 **Fix**: Verify the asset path matches the imported asset; if the asset
 was renamed, add a `+ActiveGameNameRedirects` entry to
 `DefaultEngine.ini`.
+```
+
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
 ```
 
 Empty case:

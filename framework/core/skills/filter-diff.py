@@ -8,9 +8,13 @@ Contract:
 - Input is a standard unified diff (`git diff` output).
 - Output keeps every `diff --git`, `index`, `---`, `+++`, `@@` line plus
   each hunk of every file whose `+++ b/<path>` matches the regex.
-- File blocks that don't match are dropped whole. Files without a clear
-  `+++` header (rare binary chunks, mode-only changes) are kept
-  defensively — reviewers prefer extra context to missing context.
+- Files that were deleted (`+++ /dev/null`) are matched on their `--- a/<path>`
+  header.
+- Blocks without enough signal to decide (binary-only chunks, mode-only
+  changes that carry neither `+++` nor a meaningful `---`) are dropped,
+  because per-reviewer diffs have a narrow-by-default contract — the
+  reviewer sees only what its filter opts in. Callers that need mode-only
+  changes should widen the regex.
 """
 from __future__ import annotations
 import re

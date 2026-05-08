@@ -52,6 +52,11 @@ regression test.
 the ledger entry is produced.
 ```
 
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
+```
+
 Empty case:
 
 ```
@@ -64,6 +69,27 @@ Empty case:
 ```
 ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 ```
+
+## Examples from real diffs
+
+**CRITICAL (bug fix without regression test).** CRUSH-3020 fixed the
+"sprint ability silent on PALV hovercraft" bug by adding a fallback to
+the GAS controller and a new Parts entry in a CBP asset. The PR shipped
+without a test that pinned `sprint → forward max speed increases on
+Hovercraft_Palv`. A regression will go unnoticed.
+
+```
+### [CRITICAL] Missing regression test — CrushDemoSprintGATest.cpp
+**Issue**: the fix adds no test that exercises the broken path.
+**Fix**: add a regression subclass that runs the sprint scenario on
+`BP_HovercraftTepmplate_PALV` and asserts forward max speed increases.
+The spec's "expected result" (sprint speeds the vehicle up) maps
+1:1 to the test.
+```
+
+**Anti-example.** A PR adds a refactor that does not change observable
+behaviour. Existing tests still pass. Do not flag "no new tests" as
+CRITICAL — the bar is "introduced or worsened by this diff".
 
 ## Hard rules
 - Before emitting any finding, scan `framework/config/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.

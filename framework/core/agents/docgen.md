@@ -48,9 +48,10 @@ Generate the `CLAUDE.md` documentation tree:
      (`.editorconfig`, `.prettierrc`, `ruff.toml`, etc.). Do not invent.
 
 4. **Module `CLAUDE.md`.** Per module: name, path, language, entry file,
-   `public_api` (one line per symbol + signature if available),
-   `depends_on` / `depended_by`, an empty manual block placeholder, and
-   ADRs whose body mentions this module's name or path.
+   `public_api` (symbol names only, capped at 15 — readers who need
+   signatures should ask Serena via `find_symbol`), `depends_on` /
+   `depended_by`, an empty manual block placeholder, and ADRs whose body
+   mentions this module's name or path.
 
 5. **Preserve manual edits.** Before overwriting any `CLAUDE.md`, extract
    the block between `<!-- BEGIN: manual -->` and `<!-- END: manual -->`,

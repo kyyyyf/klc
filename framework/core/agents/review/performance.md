@@ -45,6 +45,25 @@ version.
 - `LOW`      — minor hotspot (one extra allocation per request).
 - `INFO`     — observation.
 
+## Examples from real diffs
+
+**HIGH (N+1).** A PR added
+`for order in orders: order.customer.load()` inside a request handler
+that is documented to paginate by 500. N+1 queries hit the DB 501 times
+per request.
+
+```
+### [HIGH] N+1 query in paginated list — api/orders.py:88
+**Issue**: `order.customer.load()` per iteration; the endpoint ships up
+to 500 orders per page.
+**Fix**: `orders.prefetch_related("customer")` (Django) /
+`selectinload(Order.customer)` (SQLA) / single `IN (...)` batch.
+```
+
+**Anti-example.** A PR added a nested loop `for i in CONST_GROUPS: for j
+in CONST_GROUPS: …`. Both collections are module-level `List[str]`
+with 8 items. O(n²) on a constant size is not a Big-O finding.
+
 ## Hard rules
 - Before emitting any finding, scan `framework/config/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.
 - Do not flag allocations in cold startup / init code.
@@ -61,6 +80,11 @@ version.
 query per order; the spec calls 500–1000 orders per page.
 **Fix**: Use `orders.prefetch_related('customer')` (Django) /
 `selectinload` (SQLA) / single `IN (...)` batch.
+```
+
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
 ```
 
 Empty case:

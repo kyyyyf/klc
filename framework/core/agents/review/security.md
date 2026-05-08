@@ -49,6 +49,25 @@ aggregator's out-of-scope list.
 - `LOW`      — style-level; convention drift.
 - `INFO`     — observation.
 
+## Examples from real diffs
+
+**CRITICAL (prefix-based secret detection).** A PR added a new
+integration test fixture `services/billing.test.py` whose body contained
+`STRIPE_KEY = "sk_live_51ABCabcXYZ"`. The surrounding identifier (`KEY`)
+plus the `sk_live_` prefix are enough to flag — do not wait to verify
+with Stripe's API.
+
+```
+### [CRITICAL] Live Stripe secret — services/billing.test.py:14
+**Issue**: `sk_live_51ABCabcXYZ` committed in a test fixture.
+**Fix**: revoke the key in Stripe dashboard, rewrite history before the
+PR leaves the branch, and move the fixture to an env var.
+```
+
+**Anti-example.** A new test added `token = "xxx"` as a placeholder; no
+real secret leaks. The reviewer must not flag — placeholders are
+documented in Hard rules.
+
 ## Hard rules
 - Before emitting any finding, scan `framework/config/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.
 - Secrets detection doesn't require value validation: if the surrounding
@@ -68,6 +87,11 @@ aggregator's out-of-scope list.
 from request body and no scheme / host allow-list is checked.
 **Fix**: Resolve the URL, reject non-`https://` or non-allow-listed
 hosts, disable redirect-follow.
+```
+
+Allowlisted case (see Hard rules):
+```
+### [INFO] <original title> (allowlisted: <reason from yaml>)
 ```
 
 Empty case:
