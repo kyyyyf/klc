@@ -1,3 +1,4 @@
+<<<<<<< README.md
 # Codebase Intelligence Framework (klc)
 
 Helps Claude (or any MCP-capable agent) work on a large codebase
