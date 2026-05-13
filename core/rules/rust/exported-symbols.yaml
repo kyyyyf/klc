@@ -1,0 +1,34 @@
+# ast-grep rule: Rust `pub` items at module level.
+#
+# Covers the declarations most likely to be part of a crate's public API.
+# Nested visibility modifiers (`pub(crate)`, `pub(super)`) are intentionally
+# excluded — those are internal.
+
+id: rust-exported-symbols
+language: rust
+rule:
+  any:
+    - pattern: "pub fn $NAME($$$ARGS) $$$RET { $$$BODY }"
+    - pattern: "pub async fn $NAME($$$ARGS) $$$RET { $$$BODY }"
+    - pattern: "pub struct $NAME { $$$FIELDS }"
+    - pattern: "pub struct $NAME($$$TUPLE);"
+    - pattern: "pub enum $NAME { $$$VARIANTS }"
+    - pattern: "pub trait $NAME { $$$BODY }"
+    - pattern: "pub type $NAME = $RHS;"
+    - pattern: "pub const $NAME: $T = $RHS;"
+    - pattern: "pub static $NAME: $T = $RHS;"
+message: Public Rust item
+
+tests:
+  valid:
+    - |
+      pub fn add(a: i32, b: i32) -> i32 { a + b }
+    - |
+      pub struct Point { pub x: i32, pub y: i32 }
+    - |
+      pub const MAX_SIZE: usize = 1024;
+  invalid:
+    - |
+      fn internal() -> i32 { 0 }
+    - |
+      pub(crate) fn crate_only() {}

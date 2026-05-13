@@ -1,0 +1,16 @@
+# ast-grep rule: Unreal UFUNCTION declarations (including RPC / Blueprint).
+#
+# Used by the decompose agent to mark a module's public-API surface and by
+# the replication review sub-agent to locate server/client RPCs.
+#
+# Matches the UFUNCTION(...) macro call itself — the following method
+# prototype is a separate sibling node in tree-sitter-cpp. Callers recover the
+# method name by walking one node forward.
+
+id: cpp-unreal-ufunction
+language: cpp
+rule:
+  any:
+    - pattern: "UFUNCTION($$$SPECS)"
+    - pattern: "UFUNCTION()"
+message: Unreal UFUNCTION declaration

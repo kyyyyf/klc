@@ -1,0 +1,24 @@
+{# Auto-regenerated summary; links to every artefact in the ticket dir. #}
+# {{ ticket }} — {{ title or "(untitled)" }}
+
+{% if jira_url %}[Jira]({{ jira_url }}) · {% endif %}**Phase**: `{{ phase }}` · **Track**: `{{ track or "?" }}` · **Kind**: `{{ kind or "?" }}`
+
+## Artefacts
+
+{% for a in artefacts %}
+- [`{{ a.name }}`]({{ a.name }}) — {{ a.desc }}
+{% endfor %}
+
+## Inline items (from `.index.json`)
+
+- FACT: {{ counts.FACT or 0 }}
+- ASSUMPTION: {{ counts.ASSUMPTION or 0 }}
+- DECISION: {{ counts.DECISION or 0 }}
+- QUESTION: {{ counts.QUESTION or 0 }} (orphans: {{ orphan_questions or 0 }})
+- CONFLICT: {{ counts.CONFLICT or 0 }} (unresolved: {{ unresolved_conflicts or 0 }})
+
+## Metrics (so far)
+
+```json
+{{ metrics_pretty }}
+```

@@ -1,0 +1,15 @@
+{# XS/S-track impl plan. Cap ~10 lines, one step. #}
+---
+ticket: {{ ticket }}
+authority: hybrid
+---
+
+# Implementation plan (short) — {{ ticket }}
+
+## step-1 — {{ step.title }}
+
+{{ step.description }}
+
+Affected: {% for f in step.files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
+
+Test: `{{ step.tests[0] if step.tests else "see test-plan.md" }}`

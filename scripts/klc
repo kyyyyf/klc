@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""klc — unified dispatcher for the Codebase Intelligence Framework.
+
+Single entry point for every phase script and operational command.
+Feature / bug / review scripts wrap into `klc intake / discover /
+design / build / review / …` — see process-phases.md for the full
+phase map.
+
+The dispatcher does four things:
+
+  1. Accept one of ~20 subcommands and route to the matching phase
+     script or skill.
+  2. Enforce lifecycle transitions (via lifecycle.py) before phase
+     scripts touch any artefact.
+  3. Resolve $PROJECT_ROOT uniformly for every call so skills never
+     have to guess.
+  4. Pass a consistent --ticket argument shape down.
+
+Subcommand registry:
+
+    intake        phase 0 — create ticket
+    discover      phase 1 — spec + track + estimate
+    test-plan     phase 2 — AC → tests mapping
+    design        phase 3 — options + ADR + impl-plan
+    build         phase 4 — tests-first loop
+    review        phase 5 — multi-agent review
+    manual        phase 6 — human checklist
+    integrate     phase 7 — pre-merge snapshot, post-merge bookkeeping
+    observe       phase 8 — optional merge watch
+    learn         phase 9 — retrospective + metrics + archive
+    ack           human confirmation at a gate
+    back          rework — move backward with an audit entry
+    status        per-ticket diagnosis
+    resume        re-enter the interrupted phase
+    doctor        install-level health check
+    board         kanban view of all tickets
+    metrics       show per-ticket or rollup metrics
+    reindex       rebuild a ticket's .index.json
+
+Each subcommand has its own --help.
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+
+SCRIPT = Path(__file__).resolve()
+FRAMEWORK_ROOT = SCRIPT.parent.parent
+SKILLS_DIR = FRAMEWORK_ROOT / "core" / "skills"
+PHASES_DIR = FRAMEWORK_ROOT / "core" / "phases"
+
+sys.path.insert(0, str(SKILLS_DIR))
+
+
+def _load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot import {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _phase_script(name: str) -> Path:
+    """Phase scripts live at core/phases/<name>.py. They each expose a
+    `run(argv: list[str]) -> int` entry point."""
+    return PHASES_DIR / f"{name}.py"
+
+
+def _run_phase(name: str, argv: list[str]) -> int:
+    path = _phase_script(name)
+    if not path.exists():
+        sys.stderr.write(f"klc: phase script not implemented yet: {name}\n")
+        return 2
+    mod = _load_module(path, f"klc_phase_{name.replace('-', '_')}")
+    if not hasattr(mod, "run"):
+        sys.stderr.write(f"klc: {path} has no run() entry point\n")
+        return 2
+    return int(mod.run(argv))
+
+
+def _run_skill_subcommand(skill: str, subcommand: str, argv: list[str]) -> int:
+    """Delegate to a skill script treating it like a subcommand."""
+    path = SKILLS_DIR / f"{skill}.py"
+    if not path.exists():
+        sys.stderr.write(f"klc: skill not found: {skill}\n")
+        return 2
+    import subprocess
+    return subprocess.call(
+        ["python3", str(path), subcommand, *argv],
+        env={**os.environ, "PROJECT_ROOT": _project_root()},
+    )
+
+
+def _project_root() -> str:
+    env = os.environ.get("PROJECT_ROOT")
+    if env:
+        return str(Path(env).resolve())
+    return str(FRAMEWORK_ROOT.parent)
+
+
+# --- subcommand handlers ------------------------------------------------------
+
+PHASE_CMDS = {
+    "intake":    "intake",
+    "discover":  "discover",
+    "test-plan": "test_plan",
+    "design":    "design",
+    "build":     "build",
+    "review":    "review",
+    "manual":    "manual",
+    "integrate": "integrate",
+    "observe":   "observe",
+    "learn":     "learn",
+}
+
+OPERATIONAL_CMDS = ("ack", "back", "status", "resume", "doctor", "board",
+                    "metrics", "reindex")
+
+
+def _dispatch(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help"):
+        _print_help()
+        return 0
+    cmd, rest = argv[0], argv[1:]
+
+    if cmd in PHASE_CMDS:
+        return _run_phase(PHASE_CMDS[cmd], rest)
+
+    if cmd == "reindex":
+        if not rest:
+            sys.stderr.write("usage: klc reindex <ticket>\n"); return 2
+        return _run_skill_subcommand("items", "index", ["--ticket", rest[0]])
+
+    if cmd == "metrics":
+        if rest and rest[0] == "--rollup":
+            return _run_skill_subcommand("metrics", "rollup", rest[1:])
+        if not rest:
+            sys.stderr.write("usage: klc metrics <ticket> | klc metrics --rollup\n"); return 2
+        return _run_skill_subcommand("metrics", "show", ["--ticket", rest[0]])
+
+    if cmd in ("ack", "back", "status", "resume", "doctor", "board"):
+        # These live at core/phases/<cmd>.py (op scripts mirror phase scripts)
+        return _run_phase(cmd, rest)
+
+    if cmd in ("--version", "-V"):
+        print("klc 0.1")
+        return 0
+
+    sys.stderr.write(f"klc: unknown subcommand: {cmd}\n")
+    _print_help()
+    return 2
+
+
+def _print_help() -> None:
+    print(__doc__.strip())
+
+
+if __name__ == "__main__":
+    sys.exit(_dispatch(sys.argv[1:]))

@@ -1,0 +1,10 @@
+# klc ships clean. Per-project state lives in $PROJECT_ROOT/.klc/
+# (see MIGRATION.md).  The repo itself is the framework; there is no
+# inner framework/ directory any more.
+
+# Local caches created by Serena when pointed at the repo.
+.serena-cache/
+
+# Python bytecode.
+__pycache__/
+*.pyc

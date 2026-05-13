@@ -1,93 +1,239 @@
-# klc
+<<<<<<< README.md
+# Codebase Intelligence Framework (klc)
 
+Helps Claude (or any MCP-capable agent) work on a large codebase
+without reading every file every turn. Two moving parts:
 
+1. **Indexing loop** — `scripts/init.sh` + `scripts/update.sh`.
+   Produces a stable module map, per-module `CLAUDE.md`, dep graph
+   and the per-module symbol index.
+2. **Ticket workflow** — one dispatcher `scripts/klc` with
+   subcommands for every phase: `intake → discover → test-plan →
+   design → build → review → manual → integrate → observe → learn`.
+   See `docs/process-phases.md`.
 
-## Getting started
+Both halves are profile-driven. The active profile
+(`config/profile.yml`, or per-project override at
+`.klc/config/profile.yml`) decides which rules, reviewers, excludes,
+and module-discovery mode to use. Ships with `ue` (Unreal Engine)
+and `generic`.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Install
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Decide where the klc repo lives **before** running anything. Two
+supported layouts:
 
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+### Layout A — klc as a subdirectory of the project (simplest)
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.rnd.wargaming.net/e_konchikov/klc.git
-git branch -M master
-git push -uf origin master
+my-project/            ← $PROJECT_ROOT
+  klc/                 ← this repo, cloned as a subdir (any name OK)
+  src/
+  docs/
 ```
 
-## Integrate with your tools
+Add klc as a submodule, subtree, or plain clone — any subdirectory
+name works, the scripts don't hard-code `klc/`. Every command runs
+from the project root:
 
-* [Set up project integrations](https://gitlab.rnd.wargaming.net/e_konchikov/klc/-/settings/integrations)
+```bash
+cd my-project/
+./klc/scripts/install-deps.sh
+./klc/scripts/init.sh
+./klc/scripts/klc intake PROJ-1 --kind feature "..."
+```
 
-## Collaborate with your team
+`PROJECT_ROOT` defaults to the parent of the klc repo — no env var
+needed.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### Layout B — one klc checkout, many projects
 
-## Test and Deploy
+```
+/opt/klc/              ← one clone
+/work/project-a/       ← independent projects
+/work/project-b/
+```
 
-Use the built-in continuous integration in GitLab.
+Every invocation must export `PROJECT_ROOT`. An alias per project
+keeps it ergonomic:
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+```bash
+# one-off
+PROJECT_ROOT=/work/project-a /opt/klc/scripts/install-deps.sh
 
-***
+# persistent
+alias klc-a='PROJECT_ROOT=/work/project-a /opt/klc/scripts/klc'
+klc-a intake PROJ-1 --kind feature "..."
+```
 
-# Editing this README
+Both layouts keep all generated state in `$PROJECT_ROOT/.klc/` —
+nothing is ever written inside the klc repo itself.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Quick start (layout A)
 
-## Suggestions for a good README
+```bash
+cd my-project/
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+# 1. One-time: system deps (ast-grep, jq, python, jinja2, ...)
+./klc/scripts/install-deps.sh
 
-## Name
-Choose a self-explaining name for your project.
+# 2. Bootstrap the index + per-module CLAUDE.md.
+./klc/scripts/init.sh                 # scans, prepares agent prompts
+# run the inventory / decompose / docgen agents in Claude Code, then:
+./klc/scripts/init.sh --finalize
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+# 3. For a new ticket:
+./klc/scripts/klc intake PROJ-123 --kind feature "short description"
+./klc/scripts/klc discover PROJ-123
+# ... follow the prompts; dispatcher walks you through each phase
+```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Incremental refresh after pushes: `./klc/scripts/update.sh`.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+## Documentation
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+All stable docs live in `docs/`:
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+- [`docs/process-phases.md`](docs/process-phases.md) — the 9-phase
+  model, entry points, track-aware skip rules.
+- [`docs/process-roles.md`](docs/process-roles.md) — who does what
+  (human / agent / script / tool) per phase.
+- [`docs/process-artifacts.md`](docs/process-artifacts.md) —
+  file-by-file schema for every artefact the ticket produces.
+- [`docs/process-metrics.md`](docs/process-metrics.md) — metric
+  catalogue and rollups.
+- [`MIGRATION.md`](MIGRATION.md) — how per-project state moved into
+  `.klc/`.
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## Picking a profile
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Default lives at `config/profile.yml`. Any project can override with
+`.klc/config/profile.yml`:
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```yaml
+profile: ue   # or: generic, or any directory under profiles/
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+A profile's `manifest.yml` lists:
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+- `rules` — ast-grep rule directories.
+- `sgconfig` — project-level ast-grep config (e.g. `.h → cpp`).
+- `reviewers.always` / `reviewers.conditional` — review sub-agents.
+- `excludes` — directories never scanned.
+- `module_discovery.mode` — `build-cs` (UE) / `conventional-dirs`.
+- `content_extensions` — what counts as non-code content.
+- `large_project_threshold_files` — advisory size threshold.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## Layout
 
-## License
-For open source projects, say how it is licensed.
+The klc repo is itself the framework; per-project state lives under
+`$PROJECT_ROOT/.klc/` (see `MIGRATION.md`).
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```
+klc/                           # this repo
+  core/
+    agents/                    # LLM prompts (intake, discovery, test-planner, ...)
+    agents/review/             # sub-agents invoked by phase 5
+    phases/                    # Python phase scripts (intake.py, discover.py, ...)
+    skills/                    # supporting tools (lifecycle, items, metrics, ...)
+    rules/                     # ast-grep rules for generic languages
+    templates/                 # Jinja2 templates (spec, options, impl-plan, ...)
+  profiles/
+    ue/                        # Unreal Engine profile
+    generic/                   # default profile
+  config/
+    profile.yml                # active profile (project may override)
+    reviewers.yml              # review gates, mutation threshold
+    reviewer-allowlist.seed.yml
+    serena-deny.yml            # seed for the Serena denylist
+    ticket-id.yml              # regex for ticket keys
+    jira.yml                   # url_template for link-backs
+  hooks/
+    pre-commit                 # opt-in consistency gate
+  scripts/
+    klc                        # the dispatcher
+    klc-completion.bash        # bash completion
+    init.sh / update.sh        # indexing loop
+    install-deps.sh
+    review.sh                  # invoked by `klc review`
+    feature.sh / bug.sh        # deprecated wrappers (one release)
+  tests/
+    smoke.sh                   # end-to-end acceptance test
+  docs/                        # see above
+
+<project_root>/
+  .klc/                        # per-project state
+    config/                    # optional overrides
+    index/                     # deterministic indices regenerated by init/update
+    reports/                   # review reports
+    logs/                      # install/update logs
+    tickets/                   # per-ticket artefacts
+      <JIRA-KEY>/              # spec, design/, impl-plan, scratch/, serena-cache/, ...
+      archive/                 # finished tickets
+    knowledge/                 # allowlist, serena-deny, process-metrics, few-shot
+  CLAUDE.md                    # root, generated by docgen
+  <modules>/<mod>/CLAUDE.md    # per-module, generated
+  docs/adr/                    # ADR files (project-owned)
+```
+
+## MCP servers
+
+| Server   | Role                                      | Used by                              |
+|----------|-------------------------------------------|--------------------------------------|
+| Serena   | LSP-backed symbol queries.                | Design/Build/Review on M/L tickets   |
+| ast-grep | Structural AST search.                    | Inventory, discovery hints           |
+
+Serena is gated by `core/skills/serena-call.py` — every call goes
+through a track-aware policy + per-ticket cache + denylist. See
+`docs/process-roles.md` for when each tool is called.
+
+## Ticket workflow at a glance
+
+```
+klc intake <key> "<desc>"           # phase 0
+klc discover <key>                  # phase 1 — writes spec.md
+klc ack <key> --for discovery       # pull-ready gate
+klc test-plan <key>                 # phase 2 — AC → e2e tests (S / M / L)
+klc design <key>                    # phase 3 — options + ADR + impl-plan (M / L)
+klc ack <key> --for design          # direction gate
+klc test-plan <key> --detailed      # phase 4 — unit/integration plan (M / L)
+klc build <key>                     # phase 5 — test-first loop
+klc review <key>                    # phase 6 — multi-agent review
+klc ack <key> --for review          # merge-approval gate
+klc manual <key>                    # phase 7 — only if estimate.manual ≥ 2
+klc integrate pre <key>             # phase 8 — preflight before human merge
+# human merges via their team's flow
+klc integrate post <key> --merge-sha <sha>
+klc observe <key>                   # phase 9 — optional
+klc learn <key>                     # phase 10 — retrospective + archive
+```
+
+Diagnostics anytime:
+
+```
+klc status <key>              # where is it, what's pending
+klc resume <key>              # re-enter the interrupted phase
+klc board                     # kanban view
+klc doctor                    # install-level health check
+klc metrics <key>             # per-ticket metrics JSON
+klc metrics --rollup          # 30-day aggregate
+```
+
+## Conventions
+
+- **Inline markup** for facts / assumptions / decisions — see the
+  format in `docs/process-artifacts.md` and the consistency checker
+  at `core/skills/consistency_check.py`.
+- **Manual blocks** inside generated files are preserved verbatim:
+  `<!-- BEGIN: manual --> ... <!-- END: manual -->`.
+- **ADRs are not mandatory.** The design agent signals
+  `ADR_NEEDED=yes|no`; the adr agent fires only on real triggers.
+
+## External reviewer (optional)
+
+Edit `config/reviewers.yml`, set `external_reviewer.enabled: true`,
+export the API key env var named there, then:
+
+```bash
+./klc/scripts/klc review <key> --external
+```

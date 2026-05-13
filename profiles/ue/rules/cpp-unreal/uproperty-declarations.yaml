@@ -1,0 +1,15 @@
+# ast-grep rule: Unreal UPROPERTY declarations.
+#
+# Used by the decompose agent to count module symbols and by the UE-conventions
+# review sub-agent to flag UPROPERTY mistakes (missing specifiers, missing
+# ReplicatedUsing on replicated props, etc).
+#
+# Matches the macro call only — see cpp-unreal/uclass-symbols.yaml for why.
+
+id: cpp-unreal-uproperty
+language: cpp
+rule:
+  any:
+    - pattern: "UPROPERTY($$$SPECS)"
+    - pattern: "UPROPERTY()"
+message: Unreal UPROPERTY declaration

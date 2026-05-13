@@ -1,0 +1,39 @@
+# ast-grep rule: Python module-level public definitions.
+#
+# Treats `def foo`, `async def foo`, `class Foo`, and simple assignment targets
+# as public when the identifier does not start with `_`. This is the
+# convention followed by most codebases and by tools like pdoc.
+
+id: py-public-api
+language: python
+rule:
+  any:
+    - pattern: "def $NAME($$$ARGS): $$$BODY"
+    - pattern: "async def $NAME($$$ARGS): $$$BODY"
+    - pattern: "class $NAME: $$$BODY"
+    - pattern: "class $NAME($$$BASES): $$$BODY"
+    - pattern: "$NAME = $RHS"
+constraints:
+  NAME:
+    regex: '^[A-Za-z][A-Za-z0-9_]*$'
+    not:
+      regex: '^_'
+message: Public Python definition
+
+tests:
+  valid:
+    - |
+      def add(a, b):
+          return a + b
+    - |
+      class Point:
+          pass
+    - |
+      MAX_SIZE = 1024
+  invalid:
+    - |
+      def _internal():
+          return 1
+    - |
+      class _Hidden:
+          pass
