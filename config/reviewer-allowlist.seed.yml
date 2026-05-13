@@ -1,0 +1,31 @@
+# Reviewer allowlist. Each entry suppresses recurring false positives
+# that a reviewer has already flagged and a human has decided are fine.
+#
+# Contract: before emitting an issue, each reviewer MUST check this
+# file. If the issue matches an entry, the reviewer downgrades it to
+# INFO and appends "allowlisted: <reason>" to the title. The aggregator
+# treats INFO findings as non-blocking regardless of their original
+# severity.
+#
+# Fields:
+#   reviewer  — the reviewer short name (security, architecture, ...).
+#               Use "*" to apply to every reviewer.
+#   pattern   — regex matched against the finding title. Case-sensitive.
+#               Use `file:line` fragments for precise scoping, or an
+#               issue-title substring for semantic matching.
+#   reason    — short note the reviewer echoes when it downgrades.
+#   added     — ISO date. Audit aid; no behaviour attached.
+#
+# Example (uncomment and tailor before the first allowlisted issue):
+#
+# - reviewer: security
+#   pattern:  'hard-coded.*password.*config/dev\.yml'
+#   reason:   'dev-only fixture, not shipped; CI strips config/dev.yml'
+#   added:    2026-05-08
+#
+# - reviewer: '*'
+#   pattern:  'TODO\(legacy\)'
+#   reason:   'legacy-code TODOs are tracked in JIRA, not PR review'
+#   added:    2026-05-08
+
+entries: []

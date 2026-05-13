@@ -1,0 +1,54 @@
+# ADR-{{ number }}: {{ title }}
+
+## Status
+
+{{ status }} | {{ date }}
+{% if status_history %}
+
+### Status history
+{% for entry in status_history %}
+- {{ entry.date }} — {{ entry.status }}{% if entry.note %}: {{ entry.note }}{% endif %}
+{% endfor %}
+{% endif %}
+
+## Context
+
+{{ context }}
+
+## Options considered
+
+{% for opt in options %}
+- **Option {{ opt.label }}** — {{ opt.summary }}
+  {% if opt.accepted %}**Accepted.**{% else %}Rejected because {{ opt.rejection_reason }}.{% endif %}
+{% endfor %}
+
+## Decision
+
+Chose Option **{{ chosen_label }}** because {{ decision_rationale }}.
+
+## Consequences
+
+{% if status == "Proposed" %}
+> _Consequences are provisional until the ADR is upgraded to `Accepted` after
+> implementation + review._
+
+{% endif %}
+- **Positive**: {{ consequences_positive }}
+- **Negative / risks**: {{ consequences_negative }}
+- **Affected modules**: {{ affected_modules | join(", ") or "_none recorded_" }}
+
+{% if lessons_learned %}
+## Lessons learned (added at acceptance)
+
+{% for lesson in lessons_learned %}
+- {{ lesson }}
+{% endfor %}
+{% endif %}
+
+{% if references %}
+## References
+
+{% for ref in references %}
+- {{ ref }}
+{% endfor %}
+{% endif %}

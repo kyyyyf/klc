@@ -1,0 +1,24 @@
+# ast-grep rule: Unreal Engine UCLASS / USTRUCT / UINTERFACE / UENUM macro
+# declarations.
+#
+# We match the macro invocation itself (e.g. `UCLASS(...)`) because tree-sitter
+# parses it as a preproc macro call that sits as a sibling of the following
+# class declaration. Patterns that try to glue `UCLASS(...) class X { };`
+# together fail under ast-grep 0.42 with "Multiple AST nodes detected".
+#
+# To recover the class/struct name, the caller walks to the next sibling node
+# (which is the actual class/struct declaration).
+
+id: cpp-unreal-uclass-symbols
+language: cpp
+rule:
+  any:
+    - pattern: "UCLASS($$$SPECS)"
+    - pattern: "UCLASS()"
+    - pattern: "USTRUCT($$$SPECS)"
+    - pattern: "USTRUCT()"
+    - pattern: "UINTERFACE($$$SPECS)"
+    - pattern: "UINTERFACE()"
+    - pattern: "UENUM($$$SPECS)"
+    - pattern: "UENUM()"
+message: Unreal UCLASS/USTRUCT/UINTERFACE/UENUM declaration

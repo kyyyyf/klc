@@ -1,0 +1,66 @@
+---
+ticket: {{ ticket }}
+kind: {{ kind }}
+authority: human
+last_generated: {{ generated_at }}
+{%- if jira_url %}
+jira_url: {{ jira_url }}
+{%- endif %}
+---
+
+# {{ ticket }} — {{ title }}
+
+## Goals
+
+{{ goals }}
+
+## Problem / Context
+
+{{ context }}
+
+## Acceptance Criteria
+
+{% for ac in acceptance_criteria %}
+{{ loop.index }}. AC-{{ loop.index }}: {{ ac }}
+{% endfor %}
+
+## Non-goals
+
+{% for ng in non_goals or [] %}
+- {{ ng }}
+{% else %}
+- _none stated_
+{% endfor %}
+
+## Constraints
+
+{% for c in constraints or [] %}
+> [!CONSTRAINT C-{{ "%03d" | format(loop.index) }}] source={{ c.source }}
+> {{ c.text }}
+{% endfor %}
+
+## Affected modules
+
+{% for m in affected_modules or [] %}
+- `{{ m.name }}` — {{ m.reason }}
+{% endfor %}
+
+## Open questions
+
+{% for q in questions or [] %}
+> [!QUESTION Q-{{ "%03d" | format(loop.index) }}]{% if q.blocks %} blocks={{ q.blocks }}{% endif %}
+> {{ q.text }}
+{% endfor %}
+
+## Estimate
+
+- complexity: {{ estimate.complexity }}
+- uncertainty: {{ estimate.uncertainty }}
+- risk: {{ estimate.risk }}
+- manual: {{ estimate.manual }}
+- total: {{ estimate.total }}
+- track: {{ track }}
+
+<!-- BEGIN: manual -->
+<!-- Free-form notes from humans. Not regenerated. -->
+<!-- END: manual -->

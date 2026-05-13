@@ -1,0 +1,32 @@
+---
+created: {{ created }}
+agent: {{ agent }}
+ticket: {{ ticket }}
+phase: {{ phase }}
+purpose: {{ purpose }}
+session: {{ session }}
+---
+
+# Scratch session {{ session }} — {{ purpose }}
+
+> **Read this before writing anything.**
+>
+> - Inline items (FACT, ASSUMPTION, DECISION, HYPOTHESIS, QUESTION,
+>   RISK, CONFLICT) use the same tags and ID rules as ticket artefacts.
+>   See `process-proposal.md` section 2.
+> - Provisional items must carry `provisional=true`. They get promoted
+>   to the artefact or dropped when the work is finished.
+> - If you run out of token budget and a new session picks this up, it
+>   MUST read every `*.md` under `scratch/` and summarise the state in
+>   ≤ 5 lines before continuing (read-back protocol).
+> - If you emit a `CONFLICT`, STOP. Do not auto-resolve across sessions.
+
+## Findings
+
+<!-- Write FACT / ASSUMPTION / DECISION / ... items here, newest last. -->
+
+## Next step
+
+<!-- One sentence: what the next session (or this one after a break)
+     must do first. Keep this line current; it is the first thing the
+     next invocation reads. -->

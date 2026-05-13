@@ -1,0 +1,41 @@
+# ast-grep rule: TypeScript/JavaScript exported declarations.
+#
+# Captures the common forms of module-level exports. Default exports, named
+# re-exports from other modules, and CommonJS `module.exports` are covered.
+
+id: ts-exported-symbols
+language: typescript
+rule:
+  any:
+    - pattern: export function $NAME($$$ARGS) { $$$BODY }
+    - pattern: export async function $NAME($$$ARGS) { $$$BODY }
+    - pattern: export class $NAME { $$$BODY }
+    - pattern: export interface $NAME { $$$BODY }
+    - pattern: export type $NAME = $RHS
+    - pattern: export enum $NAME { $$$BODY }
+    - pattern: export const $NAME = $RHS
+    - pattern: export let $NAME = $RHS
+    - pattern: export var $NAME = $RHS
+    - pattern: export default function $NAME($$$ARGS) { $$$BODY }
+    - pattern: export default class $NAME { $$$BODY }
+    - pattern: module.exports.$NAME = $RHS
+    - pattern: module.exports = { $$$FIELDS }
+message: Exported TS/JS declaration
+
+tests:
+  valid:
+    - |
+      export function add(a: number, b: number): number { return a + b; }
+    - |
+      export class Point { x = 0; y = 0; }
+    - |
+      export const MAX_SIZE = 1024;
+    - |
+      export type ID = string;
+    - |
+      export default class App {}
+  invalid:
+    - |
+      function addInternal(a: number, b: number) { return a + b; }
+    - |
+      class PrivatePoint { x = 0; }
