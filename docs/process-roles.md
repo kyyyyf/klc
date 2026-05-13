@@ -55,171 +55,403 @@ deprecated; see `MIGRATION.md`.
 
 ## Data stores and command I/O
 
-The diagram below shows which data store each principal command
-reads from and writes to. Its purpose is architectural: it makes
-explicit which stores would otherwise be loaded into an agent's
-context on every invocation — and why indirection via a store is
-what keeps that context small.
+Four diagrams. The first is a high-level summary: who writes to
+each data store and who reads it, at the level of command groups.
+The next three drill into the heavy-context phases — Discovery,
+Design, Build — where the I/O decisions directly drive how much
+context each agent consumes.
 
-Conventions:
+**Conventions (shared across all four diagrams):**
 
-- Boxes with **rounded** corners (`([...])`) are durable data
-  stores on disk (or in Serena's own cache).
-- Rectangles are commands (phase scripts from `core/phases/` plus
+- Rounded nodes (`([...])`) are durable data stores.
+- Rectangles are commands (phase scripts from `core/phases/`, plus
   the two indexing-loop scripts `init.sh` / `update.sh`).
-- **Solid** arrows are reads, **dashed** arrows are writes.
-- Dotted edges carry a label when the flow is conditional on
-  track or phase.
+- Solid arrows are reads, dashed arrows are writes.
+- Labels on arrows mark conditional flow (track-specific, or only
+  on certain inputs).
+
+### Diagram 1 — Overview: who writes / who reads
+
+Per-store summary at the group level. Discovery, Design, Build,
+Review and Learn are shown as monolithic blocks — detail lives in
+the next three diagrams and in the overall phase map. The point of
+this one is to see the **asymmetry**: Learn is almost the only
+writer of knowledge; indexing is almost the only writer of indices;
+every phase script reads its predecessors' artefacts.
 
 ```mermaid
 flowchart LR
-    %% ============ data stores ============
-    code(["Source code<br/>(project tree)"])
-    projdocs(["Project docs<br/>docs/adr, README,<br/>external wiki"])
-    index(["Deterministic indices<br/>.klc/index/<br/>(structural / inventory /<br/>modules / symbols_by_module /<br/>depgraph)"])
-    tickets(["Ticket artefacts<br/>.klc/tickets/&lt;KEY&gt;/<br/>spec, design, impl-plan,<br/>test-plan, .index.json"])
-    knowledge(["Knowledge base<br/>.klc/knowledge/<br/>tickets-index, process-metrics,<br/>reviewer-allowlist, serena-deny,<br/>few-shot"])
-    scratch(["Scratchpad<br/>.klc/tickets/&lt;KEY&gt;/scratch/"])
-    serena(["Serena LSP graph<br/>+ per-ticket cache<br/>.klc/tickets/&lt;KEY&gt;/serena-cache/"])
+    %% stores
+    code(["Source code"])
+    projdocs(["Project docs<br/>(docs/adr, README, wiki)"])
+    index(["Indices<br/>.klc/index/"])
+    tickets(["Ticket artefacts<br/>.klc/tickets/&lt;KEY&gt;/"])
+    knowledge(["Knowledge base<br/>.klc/knowledge/"])
+    scratch(["Scratchpad"])
+    serena(["Serena LSP + cache"])
     reviews(["Review artefacts<br/>.klc/reports/"])
-    logs(["Logs &amp; metrics<br/>.klc/logs/,<br/>serena-calls.log"])
+    logs(["Logs &amp; metrics"])
 
-    %% ============ indexing loop ============
-    init[init.sh]
-    update[update.sh]
+    %% command groups
+    idxloop[Indexing loop<br/>init / update]
+    intake[Intake]
+    discovery[Discovery]
+    design[Design]
+    testplan[Test planning]
+    build[Build]
+    review[Review]
+    manualmerge[Manual +<br/>Integrate +<br/>Observe]
+    learn[Learn]
 
-    code -->|scan| init
-    projdocs -->|read| init
-    init -.->|write| index
-    init -.->|seed| knowledge
+    %% indexing
+    code --> idxloop
+    projdocs --> idxloop
+    idxloop -.-> index
 
-    code -->|diff since last run| update
-    index -->|old snapshot| update
-    update -.->|patch| index
+    %% tickets — who writes
+    intake -.-> tickets
+    discovery -.-> tickets
+    design -.-> tickets
+    testplan -.-> tickets
+    build -.-> tickets
+    manualmerge -.-> tickets
+    learn -.-> tickets
 
-    %% ============ ticket flow ============
-    intake[klc intake]
-    discover[klc discover]
-    design[klc design]
-    testplan[klc test-plan /<br/>--detailed]
-    build[klc build]
-    review[klc review]
-    manual[klc manual]
-    integrate[klc integrate<br/>pre / post]
-    observe[klc observe]
-    learn[klc learn]
+    %% tickets — who reads
+    tickets --> discovery
+    tickets --> design
+    tickets --> testplan
+    tickets --> build
+    tickets --> review
+    tickets --> manualmerge
+    tickets --> learn
 
-    %% intake: creates ticket, touches knowledge index only.
-    intake -.->|create| tickets
-    intake -.->|append row| knowledge
+    %% code / docs as read inputs
+    code --> discovery
+    code --> build
+    code --> review
+    projdocs --> discovery
+    projdocs --> design
 
-    %% discover: reads heavy; no Serena on M/L by policy.
-    tickets -->|raw.md| discover
-    index -->|modules,<br/>symbols_by_module| discover
-    projdocs -->|CLAUDE.md<br/>+ external docs| discover
-    knowledge -->|related tickets| discover
-    discover -.->|write spec.md,<br/>meta.json| tickets
+    %% index used by design-time phases
+    index --> discovery
+    index --> design
+    index --> testplan
+    index --> build
 
-    %% design: reads ticket + indices + Serena (M/L only).
-    tickets -->|spec,<br/>test-plan| design
-    index -->|symbols_by_module| design
-    serena -.->|verify symbols<br/>M/L only| design
-    design -.->|options, adr,<br/>impl-plan| tickets
-    design -.->|Serena writes| serena
+    %% serena only on M/L ticket-time phases
+    design <-.M/L only.-> serena
+    build <-.-> serena
+    review <-.verify.-> serena
 
-    %% test planning: reads spec (acceptance)
-    %% or spec+design (detailed). No code reads; it only plans.
-    tickets -->|spec, design,<br/>impl-plan| testplan
-    testplan -.->|test-plan.md| tickets
+    %% scratch lives with ticket phases that need long traces
+    build <-.-> scratch
+    review -.overflow.-> scratch
+    scratch --> manualmerge
 
-    %% build: the heavy loop.
-    tickets -->|impl-plan,<br/>test-plan| build
-    code -->|source reads| build
-    index -->|symbols_by_module| build
-    serena -.->|symbol checks| build
-    build -.->|code &amp; tests| code
-    build -.->|commits| code
-    build -.->|impl-plan updates| tickets
-    build -.->|scratch sessions| scratch
-    scratch -->|resume-read| build
+    %% reviews
+    review -.-> reviews
+    reviews --> learn
 
-    %% review: reads only; cites findings into reports.
-    tickets -->|spec,<br/>CLAUDE.md bundle| review
-    code -->|diff| review
-    knowledge -->|reviewer-allowlist| review
-    serena -.->|verify cited symbols| review
-    review -.->|partials, report| reviews
-    review -.->|overflow findings| scratch
+    %% knowledge asymmetry
+    knowledge --> discovery
+    knowledge --> review
+    knowledge --> learn
+    learn -.-> knowledge
+    intake -.append.-> knowledge
 
-    %% manual: reads spec + test-plan, writes checklist outcome.
-    tickets -->|spec,<br/>test-plan| manual
-    manual -.->|checklist,<br/>outcome| tickets
-
-    %% integrate: consistency-check reads everything,
-    %% post archives scratch.
-    tickets -->|all artefacts| integrate
-    integrate -.->|snapshot,<br/>merge_sha| tickets
-    scratch -.->|archived-scratch-&lt;ts&gt;/| tickets
-
-    %% observe: alerts, timing only.
-    integrate -.->|start window| observe
-    observe -.->|alerts, hours| tickets
-
-    %% learn: the only phase that writes knowledge.
-    tickets -->|all artefacts,<br/>metrics| learn
-    logs -->|serena-calls| learn
-    knowledge -->|rollup history| learn
-    learn -.->|retrospective.md,<br/>archive ticket| tickets
-    learn -.->|process-metrics,<br/>proposed allowlist /<br/>deny / few-shot| knowledge
-
-    %% ============ cross-cutting log ============
-    discover -.->|token log| logs
-    design -.->|token log| logs
-    build -.->|token log| logs
-    review -.->|token log| logs
-    serena -.->|call log| logs
+    %% logs — write by many, read by Learn
+    discovery -.-> logs
+    design -.-> logs
+    build -.-> logs
+    review -.-> logs
+    serena -.-> logs
+    logs --> learn
 
     classDef store fill:#fef3c7,stroke:#a16207,stroke-width:1px;
     classDef cmd   fill:#e0f2fe,stroke:#075985,stroke-width:1px;
     class code,projdocs,index,tickets,knowledge,scratch,serena,reviews,logs store;
-    class init,update,intake,discover,design,testplan,build,review,manual,integrate,observe,learn cmd;
+    class idxloop,intake,discovery,design,testplan,build,review,manualmerge,learn cmd;
 ```
 
-### Architectural notes
+Key observations:
 
-Why these edges exist (and why collapsing them would bloat context):
+- **Knowledge** has one regular writer (Learn) plus a single
+  append-only touch from Intake. Every other phase only reads it.
+- **Indices** are written by the indexing loop and read by every
+  design-time phase. No ticket script writes them.
+- **Serena** is gated: always dashed + conditional. XS tickets
+  don't talk to it at all.
+- **Logs** are fan-in from most phases, fan-out to Learn only.
 
-- **Index as a buffer between code and agents.** Discovery, Design,
-  Test planning and Build all read `symbols_by_module.json`
-  instead of the inventory or the code itself. Without this store
-  every phase would either walk the source tree or hit Serena for
-  every symbol mention — tens of thousands of tokens per run.
-- **Serena cache per ticket.** Keyed by operation + symbol + file
-  SHA. A symbol verified in Design does not get re-verified in
-  Review; aggregated cost drops by an order of magnitude on M/L
-  tickets.
-- **Knowledge base is write-mostly for Learn.** Nothing else
-  writes retrospectives or process metrics. Discovery and Review
-  only read. This asymmetry keeps Learn as the single source of
-  truth for cross-ticket state.
-- **Scratchpad outside ticket artefacts.** Long agent traces
-  (build iterations, review overflow) never enter `spec.md` /
-  `impl-plan.md`. Without scratch, agents would either dump
-  intermediate state into durable artefacts (polluting them) or
-  lose it between sessions.
-- **Logs not read on the hot path.** Only Learn consumes them at
-  rollup time. Token, Serena and phase logs are write-only during
-  the ticket's life; this prevents per-invocation I/O growth.
+### Diagram 2 — Discovery
 
-Commands absent from the diagram by design:
+Discovery is the widest fan-in of the ticket flow and the second-
+biggest LLM spend after Build. The agent is deliberately kept off
+Serena on M / L (track-policy in `core/skills/serena-call.py`); it
+leans on the materialized indices instead.
 
-- Operational commands (`klc status`, `klc board`, `klc doctor`,
-  `klc ack`, `klc back`, `klc reindex`) read `meta.json` and
-  `.klc/knowledge/tickets-index.jsonl` only; drawing them would
-  crowd the picture without new signal.
-- The multi-agent review sub-agents (security, architecture,
-  performance, test-coverage, + profile-specific) share the same
-  inputs/outputs as `klc review`; they sit behind that one node.
+```mermaid
+flowchart LR
+    %% stores (ticket artefacts grouped)
+    code(["Source code"])
+    projdocs(["Project docs<br/>docs/adr, external wiki"])
+    rootclaude(["Root &amp; module<br/>CLAUDE.md"])
+    modules(["index/modules.json"])
+    sbm(["index/symbols_by_module.json"])
+    structural(["index/structural.json"])
+    raw(["ticket/raw.md"])
+    meta(["ticket/meta.json"])
+    spec(["ticket/spec.md"])
+    tindex(["ticket/.index.json"])
+    related(["knowledge/<br/>tickets-index.jsonl"])
+    rolldex(["knowledge/<br/>process-metrics.json"])
+    deny(["knowledge/serena-deny.yml"])
+    tokenlog(["logs/tokens.jsonl"])
+    serena(["Serena LSP +<br/>per-ticket cache"])
+    scratch(["ticket/scratch/"])
+
+    %% command
+    discovery[klc discover<br/>core/agents/discovery.md]
+
+    %% reads
+    raw --> discovery
+    meta --> discovery
+    modules --> discovery
+    sbm --> discovery
+    structural --> discovery
+    rootclaude --> discovery
+    projdocs --> discovery
+    related --> discovery
+    rolldex --> discovery
+    deny --> discovery
+
+    %% optional deeper reads — only when a QUESTION points back to code
+    code -.on-demand.-> discovery
+
+    %% Serena — disabled by default on M/L by policy; override via
+    %% .klc/config/serena-policy.yml
+    serena <-.project<br/>override only.-> discovery
+
+    %% scratch — opened when related-ticket chase or cross-ticket
+    %% reasoning gets long
+    scratch <-.long traces.-> discovery
+
+    %% writes
+    discovery -.-> spec
+    discovery -.track, estimate,<br/>affected_modules.-> meta
+    discovery -.-> tindex
+    discovery -.-> tokenlog
+    discovery -.append entry.-> related
+
+    classDef store fill:#fef3c7,stroke:#a16207,stroke-width:1px;
+    classDef cmd   fill:#e0f2fe,stroke:#075985,stroke-width:1px;
+    class code,projdocs,rootclaude,modules,sbm,structural,raw,meta,spec,tindex,related,rolldex,deny,tokenlog,serena,scratch store;
+    class discovery cmd;
+```
+
+Why so many read arrows: Discovery is the only phase that has to
+bridge between raw human text (`raw.md`), project structure
+(indices + CLAUDE.md), institutional memory (knowledge base) and —
+rarely — code. Without the indices this fan-in would be direct from
+source, which is what the overall design prevents.
+
+### Diagram 3 — Design
+
+Design's I/O is narrower but deeper. It reads the acceptance
+test plan written in phase 2 to make sure the option choice
+respects it. Serena access is the first heavy use: symbol
+verification is mandatory for every symbol mentioned in options /
+ADR on M/L tickets.
+
+```mermaid
+flowchart LR
+    %% stores
+    spec(["ticket/spec.md"])
+    tplan(["ticket/test-plan.md<br/>(acceptance section)"])
+    meta(["ticket/meta.json"])
+    options(["ticket/design/options.md"])
+    adr(["ticket/design/adr.md"])
+    implplan(["ticket/impl-plan.md"])
+    tindex(["ticket/.index.json"])
+    rootclaude(["Root &amp; module<br/>CLAUDE.md"])
+    modules(["index/modules.json"])
+    sbm(["index/symbols_by_module.json"])
+    adrhist(["docs/adr/<br/>project-owned"])
+    deny(["knowledge/serena-deny.yml"])
+    tokenlog(["logs/tokens.jsonl"])
+    serenacalls(["ticket/serena-calls.log"])
+    serena(["Serena LSP +<br/>per-ticket cache"])
+    scratch(["ticket/scratch/"])
+
+    %% command
+    design[klc design<br/>core/agents/design.md<br/>+ adr.md + plan.md]
+
+    %% reads
+    spec --> design
+    tplan --> design
+    meta --> design
+    rootclaude --> design
+    modules --> design
+    sbm --> design
+    adrhist --> design
+    deny --> design
+
+    %% serena mandatory on M/L for any symbol cited in options
+    serena <-.M/L:<br/>verify symbols.-> design
+
+    %% scratch for options comparison / decision trace
+    scratch <-.-> design
+
+    %% writes
+    design -.-> options
+    design -.ADR_NEEDED=yes.-> adr
+    design -.-> implplan
+    design -.adr_triggered.-> meta
+    design -.-> tindex
+    design -.-> tokenlog
+    design -.serena-call save.-> serenacalls
+
+    classDef store fill:#fef3c7,stroke:#a16207,stroke-width:1px;
+    classDef cmd   fill:#e0f2fe,stroke:#075985,stroke-width:1px;
+    class spec,tplan,meta,options,adr,implplan,tindex,rootclaude,modules,sbm,adrhist,deny,tokenlog,serenacalls,serena,scratch store;
+    class design cmd;
+```
+
+Three edges worth noting:
+
+- `tplan → design` is what makes TDD real: the option evaluation
+  knows which acceptance tests must stay easy to write.
+- `adrhist → design` brings prior project-wide decisions into the
+  options context; it's why design starts inside known constraints.
+- Every arrow into `serena` is gated by `serena-call.py` — the
+  denylist (`deny` node) and per-ticket cache filter each query.
+
+### Diagram 4 — Build
+
+Build is where everything meets: code changes, test writes, Serena
+reads to avoid hallucinating signatures, scratch for long iteration
+traces, budget counters to bound the loop. Most store edges here
+are bidirectional because the TDD loop reads, writes, re-reads.
+
+```mermaid
+flowchart LR
+    %% stores
+    spec(["ticket/spec.md"])
+    tplan(["ticket/test-plan.md<br/>(both sections)"])
+    implplan(["ticket/impl-plan.md"])
+    meta(["ticket/meta.json"])
+    tindex(["ticket/.index.json"])
+    code(["Source code"])
+    tests(["Test files under<br/>modules' test/ dirs"])
+    modules(["index/modules.json"])
+    sbm(["index/symbols_by_module.json"])
+    testfw(["index/test-framework.json"])
+    phash(["index/per-module-hash.json"])
+    budgets(["ticket/meta.json:<br/>budgets counter"])
+    tokenlog(["logs/tokens.jsonl"])
+    serenacalls(["ticket/serena-calls.log"])
+    serena(["Serena LSP +<br/>per-ticket cache"])
+    scratch(["ticket/scratch/"])
+
+    %% commands inside Build (test-first loop)
+    build[klc build]
+    testw[test-writer.py<br/>core/agents/test.md]
+    implw[impl agent<br/>core/agents/impl.md]
+    verify[verifier<br/>core/agents/validator.md]
+
+    build --> testw
+    build --> implw
+    build --> verify
+
+    %% read heavy from ticket + indices + code
+    spec --> testw
+    tplan --> testw
+    sbm --> testw
+    testfw --> testw
+    tests --> testw
+    code --> testw
+
+    spec --> implw
+    implplan --> implw
+    sbm --> implw
+    modules --> implw
+    code --> implw
+    phash --> implw
+
+    tests --> verify
+    code --> verify
+
+    %% Serena — unfettered on M/L, Build-only on S, denied on XS.
+    serena <-.S/M/L.-> testw
+    serena <-.S/M/L.-> implw
+    serena <-.S/M/L.-> verify
+
+    %% writes — code / tests land on disk, plan is updated when
+    %% reality diverges, scratch holds intermediate state, logs
+    %% grow on every iteration.
+    testw -.-> tests
+    implw -.-> code
+    implw -.DECISION items<br/>on divergence.-> implplan
+    verify -.iterations,<br/>mutation_score.-> meta
+    verify -.red-fix,<br/>mutation-fix counters.-> budgets
+
+    testw -.-> scratch
+    implw -.-> scratch
+    scratch --> testw
+    scratch --> implw
+
+    testw -.-> tokenlog
+    implw -.-> tokenlog
+    verify -.-> tokenlog
+    testw -.serena-call save.-> serenacalls
+    implw -.serena-call save.-> serenacalls
+
+    build -.-> tindex
+    build -.build_head_sha<br/>at --continue.-> meta
+
+    classDef store fill:#fef3c7,stroke:#a16207,stroke-width:1px;
+    classDef cmd   fill:#e0f2fe,stroke:#075985,stroke-width:1px;
+    class spec,tplan,implplan,meta,tindex,code,tests,modules,sbm,testfw,phash,budgets,tokenlog,serenacalls,serena,scratch store;
+    class build,testw,implw,verify cmd;
+```
+
+Four things to read off this diagram:
+
+- **Tests and code are the only durable outputs** — everything else
+  is meta. The whole diagram exists to make that one arrow
+  (`implw -.-> code`) trustworthy.
+- **Bidirectional with `scratch`**: the test and impl agents dump
+  intermediate reasoning (failing stack traces, candidate fixes) to
+  the scratchpad and re-read it on the next iteration. Without it
+  the TDD loop either pollutes `impl-plan.md` or re-does the same
+  reasoning.
+- **`per-module-hash.json` is the drift alarm**: if an impl step
+  changes a module's public API, the hash changes, periodic flags
+  it, and the next Discovery on a related ticket knows the
+  surroundings shifted.
+- **Budget counters live in `meta.json`** (shown as a separate node
+  for clarity). The verifier bumps them; when a counter trips its
+  limit the phase script writes `meta.json:blocked_reason` and
+  stops — the human takes over.
+
+### Commands absent from these diagrams by design
+
+- **Operational commands** (`klc status`, `klc board`, `klc doctor`,
+  `klc ack`, `klc back`, `klc reindex`). They read
+  `ticket/meta.json` and `knowledge/tickets-index.jsonl` only;
+  drawing them on top of diagrams 2–4 would clutter the I/O story
+  without new architectural signal.
+- **Review sub-agents** (security, architecture, performance,
+  test-coverage, + profile-specific ones for UE etc.). They share
+  the same inputs/outputs as `klc review`; they sit behind that one
+  node on diagram 1. Per-sub-agent I/O is not architectural — each
+  one reads the same bundle and writes a partial.
+- **Test planning, Manual, Integrate, Observe, Learn**. Their I/O
+  is either obvious from the artefact naming (manual,
+  retrospective) or already implied by diagram 1. If a later
+  agent-context review shows one of them grew expensive, it earns
+  its own diagram.
 
 ## Human-gate summary
 
