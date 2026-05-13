@@ -1,0 +1,65 @@
+---
+ticket: {{ ticket }}
+authority: human
+last_generated: {{ generated_at }}
+---
+
+# Retrospective — {{ ticket }}
+
+## Facts
+
+{% for f in facts %}
+> [!FACT F-R{{ "%02d" | format(loop.index) }}] src={{ f.src }}
+> {{ f.text }}
+
+{% endfor %}
+
+## What went well
+
+{% for item in went_well %}
+- {{ item }}
+{% endfor %}
+
+## What went wrong
+
+{% for item in went_wrong %}
+- {{ item }}
+{% endfor %}
+
+## Lessons
+
+{% for lesson in lessons %}
+- {{ lesson }}
+{% endfor %}
+
+## Proposed knowledge-base updates
+
+{% if proposed.allowlist %}
+### reviewer-allowlist.yml
+{% for e in proposed.allowlist %}
+- pattern: `{{ e.pattern }}`
+  reason:  {{ e.reason }}
+{% endfor %}
+{% endif %}
+
+{% if proposed.deny %}
+### serena-deny.yml
+{% for e in proposed.deny %}
+- pattern: `{{ e.pattern }}`
+  reason:  {{ e.reason }}
+{% endfor %}
+{% endif %}
+
+{% if proposed.few_shot %}
+### Reviewer prompt few-shot additions
+{% for e in proposed.few_shot %}
+- `{{ e.prompt }}`: {{ e.summary }}
+{% endfor %}
+{% endif %}
+
+## Estimate accuracy
+
+- estimate.total = {{ estimate.total }}, actual (rollup median for track) = {{ actual_total or "n/a" }}
+{% if drift %}
+- drift: {{ drift }} — {{ drift_reason }}
+{% endif %}

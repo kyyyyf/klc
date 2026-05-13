@@ -1,0 +1,55 @@
+---
+ticket: {{ ticket }}
+authority: hybrid
+last_generated: {{ generated_at }}
+---
+
+# Test plan — {{ ticket }}
+
+## Acceptance coverage
+
+| AC | Test type | Test name / location | Notes |
+|----|-----------|----------------------|-------|
+{% for row in acceptance %}
+| {{ row.ac }} | {{ row.kind }} | `{{ row.location }}` | {{ row.notes }} |
+{% endfor %}
+
+## Edge cases
+
+{% for e in edges or [] %}
+- {{ e }}
+{% else %}
+- _none enumerated in spec_
+{% endfor %}
+
+## Regression scenarios
+
+{% for r in regressions or [] %}
+- {{ r }}
+{% else %}
+- _none_
+{% endfor %}
+
+{% if manual_items %}
+## Manual checklist (estimate.manual >= 2)
+
+{% for m in manual_items %}
+- [ ] {{ m }}
+{% endfor %}
+{% endif %}
+
+## Detailed coverage
+
+{% if detailed %}
+| step | Test type | Test name / location | Target symbol(s) | Notes |
+|------|-----------|----------------------|------------------|-------|
+{% for row in detailed %}
+| {{ row.step }} | {{ row.kind }} | `{{ row.location }}` | `{{ row.target }}` | {{ row.notes }} |
+{% endfor %}
+{% else %}
+<!-- TBD — populated in phase 4 after Design (M / L only) -->
+{% endif %}
+
+<!-- BEGIN: manual -->
+<!-- Human additions -->
+<!-- END: manual -->

@@ -1,0 +1,45 @@
+name: generic
+summary: Default profile. No build-system assumptions. Scans src/lib/pkg trees.
+
+rules:
+  - core/rules/cpp
+  - core/rules/python
+  - core/rules/typescript
+  - core/rules/rust
+
+# No sgconfig — ast-grep uses its built-in language mapping.
+
+reviewers:
+  # `filter` is an optional regex over file paths; review.sh produces a
+  # per-reviewer diff containing only matching files. Omit to feed the
+  # full diff.
+  always:
+    - path: core/agents/review/security.md
+      # full diff — security needs surrounding context
+    - path: core/agents/review/architecture.md
+      filter: '\.(py|ts|tsx|js|jsx|rs|go|java|kt|cs|cpp|cc|h|hpp)$|(^|/)(pyproject\.toml|package\.json|Cargo\.toml|go\.mod)$'
+    - path: core/agents/review/performance.md
+      filter: '\.(py|ts|tsx|js|jsx|rs|go|java|kt|cs|cpp|cc|h|hpp)$'
+    - path: core/agents/review/test-coverage.md
+      filter: '(^|/)(tests?|__tests__|spec)/|_test\.|\.test\.|_spec\.|\.spec\.'
+  conditional: []
+
+excludes: []
+
+# Advisory threshold. Bootstrap never calls Serena; ticket-time agents
+# on M/L tracks prefer Serena above this count. See the UE profile
+# manifest for a longer explanation.
+large_project_threshold_files: 500
+
+module_discovery:
+  mode: conventional-dirs   # src/, lib/, pkg/, internal/, app/, apps/, services/
+  entry_patterns: []
+
+content_extensions: []
+
+# Profile hooks (optional). Receive <files-list-file> + <out-json-file>.
+hooks:
+  # Sanity-checks JSON and YAML files changed by the diff. Narrow on purpose;
+  # projects plug deeper validators (OpenAPI, Terraform, Helm, dbt, ...) by
+  # writing their own hook and pointing `validate_assets` at it.
+  validate_assets: profiles/generic/hooks/validate-syntax.sh

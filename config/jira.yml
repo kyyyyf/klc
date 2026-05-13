@@ -1,0 +1,6 @@
+# Jira integration. Copy to `.klc/config/jira.yml` and set url_template
+# for your instance; `klc intake` writes `raw.md` with a ready-made
+# link to the external ticket.
+#
+# Optional — the framework works without any Jira wiring.
+url_template: "https://jira.example.com/browse/{key}"
