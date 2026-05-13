@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# klc pre-commit hook.
+#
+# Install (klc cloned as subdir `klc-fw/` of the project):
+#   ln -s ../../klc-fw/hooks/pre-commit .git/hooks/pre-commit
+#
+# Install (klc elsewhere):
+#   KLC_FRAMEWORK_ROOT=/opt/klc ln -s $KLC_FRAMEWORK_ROOT/hooks/pre-commit .git/hooks/pre-commit
+#
+# Runs consistency_check.py over every ticket that has staged files
+# inside .klc/tickets/. Passes when no violations are reported.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+export PROJECT_ROOT="$REPO_ROOT"
+
+# klc repo path resolution: either a subdir of the project, or an
+# explicit env override. Look for any directory that contains
+# `scripts/klc` — that's the framework root marker.
+FW=""
+if [ -n "${KLC_FRAMEWORK_ROOT:-}" ] && [ -x "$KLC_FRAMEWORK_ROOT/scripts/klc" ]; then
+    FW="$KLC_FRAMEWORK_ROOT"
+else
+    for cand in "$REPO_ROOT"/*/scripts/klc; do
+        if [ -x "$cand" ]; then
+            FW="$(dirname "$(dirname "$cand")")"
+            break
+        fi
+    done
+fi
+
+if [ -z "$FW" ]; then
+    echo "pre-commit: klc repo not found; set KLC_FRAMEWORK_ROOT or clone klc as a subdirectory of the project" >&2
+    exit 0   # don't block commits if the hook itself is misconfigured
+fi
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACM | grep '^\.klc/tickets/' || true)"
+if [ -z "$STAGED" ]; then
+    exit 0
+fi
+
+# Unique ticket ids from staged paths.
+TICKETS="$(printf '%s\n' "$STAGED" | awk -F/ '{print $3}' | sort -u)"
+
+fail=0
+for t in $TICKETS; do
+    if [ "$t" = "archive" ]; then continue; fi
+    if ! python3 "$FW/core/skills/consistency_check.py" --ticket "$t"; then
+        fail=1
+    fi
+done
+
+exit $fail

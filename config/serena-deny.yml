@@ -1,0 +1,22 @@
+# Serena query denylist (framework-shipped seed).
+#
+# Some LSP queries are high-cost / zero-signal on typical projects:
+# engine-wide symbols, vendored headers, generated code. Listing them
+# here lets serena-call.py short-circuit with DENIED instead of letting
+# the agent pay for a useless round-trip.
+#
+# This file is a seed; the live copy lives in
+# .klc/knowledge/serena-deny.yml and is accumulated over retrospectives.
+# serena-call.py reads both (project copy takes precedence).
+#
+# Fields:
+#   pattern  — regex matched against "<operation> <symbol>" joined with a
+#              space, e.g. "find_symbol AActor" or
+#              "get_hover_info /Engine/Source/Runtime/Core/.../Object.h".
+#   reason   — short note echoed back to the agent when the entry hits.
+#   added    — ISO date, audit aid.
+#
+# Populate from retrospectives: when an agent flagged a Serena call as
+# "noise", harvest into this file. Start empty.
+
+entries: []
