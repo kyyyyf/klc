@@ -5,8 +5,8 @@ Produce `.klc/index/inventory.json` — a complete, language-aware
 snapshot of the project. Never read source files line by line.
 
 ## Inputs
-- `.klc/index/structural.json` (from `file-scanner.sh`).
-- `.klc/index/depgraph.json`  (from `dep-graph.sh`).
+- `.klc/index/structural.json` (from `file_scanner.py`).
+- `.klc/index/depgraph.json`  (from `dep_graph.py`).
 - Active profile — pulled from `config/profile.yml`
   (or the per-project override at `.klc/config/profile.yml`).
 - MCP server: **ast-grep** (structural search using the profile's
@@ -94,6 +94,6 @@ INVENTORY_OK <abs path to inventory.json>
 
 ## Failure handling
 - `structural.json` or `depgraph.json` missing — exit 1 with a message
-  asking the caller to run `init.sh`.
+  asking the caller to run `init.py`.
 - If ast-grep rules fail to parse — exit 1, name the broken rule file,
-  and instruct the caller to run `install-deps.sh` (it validates rules).
+  and instruct the caller to run `install_deps.py` (it validates rules).

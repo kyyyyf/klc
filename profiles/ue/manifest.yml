@@ -74,4 +74,4 @@ content_extensions:
 hooks:
   # Validates non-code artefacts changed by the diff. Reviewer content-pipeline
   # consumes the findings and turns them into [SEVERITY] issues.
-  validate_assets: profiles/ue/hooks/validate-cbp.sh
+  validate_assets: profiles/ue/hooks/validate_cbp.py

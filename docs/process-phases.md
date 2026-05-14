@@ -1,7 +1,18 @@
-# Process phases (0–7 and 9; 8 optional)
+# Process phases
 
-The framework drives a 9-phase flow. Each phase has a single entry
-point under `scripts/klc`. Companion documents:
+The framework drives a linear flow through 10 phases defined in
+[`config/phases.yml`](../config/phases.yml). Each phase has three
+states — `:work`, `:ack-needed`, `:ack` — plus one terminal
+`archived`. Six verbs drive every transition:
+
+- `klc intake <key> "<desc>"` — create the ticket
+- `klc status <key>` — show the path through the current track
+- `klc next <key>` — advance `:ack` → next phase's `:work`
+- `klc ack <key> [--pick N]` — confirm `:ack-needed`
+- `klc jump <phase> <key> [--yes]` — cross-cut (with dry-run)
+- `klc abort <key>` — cancel `:work`, return to previous `:ack`
+
+Companion documents:
 
 - [`process-roles.md`](process-roles.md) — who does what (human /
   agent / script / tool) per phase.
@@ -12,19 +23,28 @@ point under `scripts/klc`. Companion documents:
 
 ## Phase map
 
-| # | Name | Entry point | Human gate? | Skip rule |
-|---|------|-------------|-------------|-----------|
-| 0 | Intake | `klc intake <key> "<desc>"` | — | never |
-| 1 | Discovery | `klc discover <key>` | ack (pull-ready, track) | never |
-| 2 | Acceptance test plan | `klc test-plan <key>` | — | XS (tests land in Build) |
-| 3 | Design | `klc design <key>` | ack (direction) | XS / S (jump to Build) |
-| 4 | Detailed test plan | `klc test-plan <key> --detailed` | — | XS / S |
-| 5 | Build | `klc build <key>` | — | never |
-| 6 | Review | `klc review <key>` | ack (merge-approval) | never |
-| 7 | Manual check | `klc manual <key>` | ack (manual) | `estimate.manual` ≤ 1 |
-| 8 | Integrate | `klc integrate pre <key>` → human `git merge` → `klc integrate post <key> --merge-sha <sha>` | — | never |
-| 9 | Observe (optional) | `klc observe <key>` | — | projects without deploy automation |
-| 10 | Learn | `klc learn <key>` | — | never |
+Every phase is entered the same way — `klc next <key>` from the
+previous phase's `:ack`, or `klc jump <phase> <key> --yes` to
+cross-cut. The picks listed at `:ack-needed` are the ones the user
+selects with `klc ack <key> --pick N`.
+
+| # | Phase id               | Tracks       | Picks at `:ack-needed` | Skip rule |
+|---|------------------------|--------------|------------------------|-----------|
+| 0 | `intake`               | XS, S, M, L  | 1 = confirm            | never |
+| 1 | `discovery`            | S, M, L      | 1 = approve · 2 = needs-rework | XS |
+| 2 | `acceptance-test-plan` | S, M, L      | 1 = approve · 2 = needs-rework | XS |
+| 3 | `design`               | M, L         | 1 = option-A · 2 = option-B · 3 = option-C · 4 = needs-rework | XS, S |
+| 4 | `detailed-test-plan`   | M, L         | 1 = approve · 2 = needs-rework | XS, S |
+| 5 | `build`                | XS, S, M, L  | 1 = approve           | never |
+| 6 | `review`               | XS, S, M, L  | 1 = approve · 2 = request-changes (→ build:work, supersedes review) | never |
+| 7 | `manual`               | M, L         | 1 = passed · 2 = failed (→ build:work, supersedes review+manual) | XS, S |
+| 8 | `integrate`            | XS, S, M, L  | 1 = merged             | never |
+| 9 | `observe`              | S, M, L      | 1 = clean · 2 = regression (→ build:work) · 3 = rollback (→ learn:work) | XS |
+| 10 | `learn`               | XS, S, M, L  | 1 = archive · 2 = extract-to-CLAUDE.md | never |
+
+The authoritative definition lives in
+[`config/phases.yml`](../config/phases.yml) — track filters, picks,
+and auto-jumps are all data. To change the process, edit that file.
 
 ### Why test planning is split
 
@@ -48,21 +68,21 @@ XS / S skip phase 4: XS plans nothing (test lands in Build), S's
 acceptance table is enough and unit tests emerge during the TDD
 loop.
 
-### How phase 8 works
+### How `integrate` works
 
-The framework **never runs `git merge`**. Phase 7 is two thin
-bookends around the team's actual merge flow:
+The framework **never runs `git merge`**. `integrate:work` is a
+two-tick phase that bookends the team's actual merge flow:
 
-- `klc integrate pre` — runs after Review ack. Executes the
-  consistency gate, snapshots artefact hashes, prints go / no-go.
-- Human performs `git merge` (or opens PR, pushes, anything the
-  team's branch policy asks).
-- `klc integrate post --merge-sha <sha>` — records the SHA, verifies
-  the snapshot still matches, archives scratch, bumps phase to
-  `observe` (or `learn` if observe is disabled).
+- **Tick 1 — pre-merge.** Run the consistency gate, snapshot
+  artefact hashes, print go / no-go. Kick off the team's PR / merge
+  request.
+- **Tick 2 — post-merge.** Record the merge SHA in `meta.json`,
+  verify the snapshot still matches, archive scratch.
 
-This keeps us out of the merge-policy business while still giving
-Observe / Learn a stable handoff.
+Both ticks happen inside one `:work` state (the tick is internal
+state in `meta.json`). `klc ack <key> --pick 1` closes the phase
+once both ticks are done. This keeps klc out of the merge-policy
+business while still giving `observe` / `learn` a stable handoff.
 
 ## Tracks
 
@@ -79,36 +99,68 @@ mapping sits in `core/agents/discovery.md`; short version:
 Guard invariants:
 - Any axis = 3 floors the track at M.
 - Uncertainty = 3 with total ≥ 7 forces L.
-- Downgrading the track is forbidden. Upgrading is allowed at the
-  discovery ack via `klc ack ... --upgrade-track L`.
+- Downgrading the track is forbidden. Upgrading the track between
+  phases is the discovery agent's responsibility — if discovery
+  returns from rework with a higher track, the downstream phase set
+  widens accordingly.
 
 ## Lifecycle
 
-`core/skills/lifecycle.py` owns the phase state machine. Each phase
-script reads `meta.json:phase` and calls `lifecycle.advance(target)`
-on success. Illegal jumps raise and are rejected before any artefact
-is touched. Full transition graph is in `lifecycle.py:TRANSITIONS`.
+`core/skills/lifecycle.py` + `core/skills/phases.py` own the state
+machine. `lifecycle.py` knows the five operations (`set_state`,
+`apply_ack`, `advance_to_next`, `jump`, `abort`); `phases.py` loads
+`config/phases.yml` and resolves per-track phase sequences, pick
+definitions, and auto-jump targets. Neither module hardcodes phase
+names.
 
-Only two ways to move backwards:
+Movement primitives:
 
-- `klc back <key> --to <phase> --reason "..."` — audited rework jump
-  (increments `rework_count` for the source phase).
-- `klc manual ... --outcome=fail` — suggests `klc back` to the human
-  without running it automatically.
+- `klc next` — only legal from `<X>:ack`; picks the next
+  track-applicable phase's `:work`.
+- `klc ack --pick N` — only from `<X>:ack-needed`; follows the
+  pick's `goto` (usually `next`, sometimes `<phase>:work` with a
+  supersede list — e.g. review pick 2 auto-reopens `build:work` and
+  moves the stale review report to `_superseded/`).
+- `klc jump <phase> --yes` — only from `<X>:ack`; cross-cut to any
+  `<phase>:work`. Backward jumps supersede downstream artefacts;
+  budgets always reset. Without `--yes` the command is a dry run
+  that prints the plan.
+- `klc abort` — only from `<X>:work`; supersedes current-phase
+  artefacts and drops back to the previous phase's `:ack`. This is
+  how you leave a stuck `:work` without a successful `ack`.
+
+Rework is not a special verb. The two common flows are:
+
+- Reviewer rejects → `klc ack <key> --pick 2` → `build:work` again.
+- Decision to rework after an earlier ack → `klc jump <phase> <key>
+  --yes` from the `:ack` you reached → fresh `:work`, downstream
+  artefacts parked under `_superseded/<ts>/`.
 
 ## Human gates
 
-Default count: **3 mandatory + 1 conditional**.
+Every phase with `pick_required: true` in `config/phases.yml` is
+effectively a gate. The human doesn't tick a checkbox — they hit
+`klc ack <key> --pick N` with a pick that carries meaning for the
+downstream flow. Default obligatory gates (always-on):
 
-| # | Gate | Command | Condition |
-|---|------|---------|-----------|
-| 1 | Pull-ready | `klc ack <key> --for discovery` | always |
-| 2 | Direction | `klc ack <key> --for design` | when phase 3 ran |
-| 3 | Merge approval | `klc ack <key> --for review` | always |
-| 4 | Manual check | `klc ack <key> --for manual` | only when `estimate.manual` ≥ 2 |
+| Gate | At phase | Picks |
+|------|----------|-------|
+| Pull-ready | `discovery:ack-needed` | 1 = approve · 2 = needs-rework |
+| Direction  | `design:ack-needed`    | 1..3 = option A/B/C · 4 = needs-rework |
+| Merge approval | `review:ack-needed` | 1 = approve · 2 = request-changes |
 
-Everything else is agent-driven; agents escalate on signals listed
-in §11 below.
+Conditional gates (only when the track includes the phase):
+
+| Gate | At phase | Picks |
+|------|----------|-------|
+| Acceptance test plan | `acceptance-test-plan:ack-needed` (S, M, L) | 1 = approve · 2 = needs-rework |
+| Detailed test plan | `detailed-test-plan:ack-needed` (M, L) | 1 = approve · 2 = needs-rework |
+| Manual check | `manual:ack-needed` (M, L) | 1 = passed · 2 = failed |
+| Observation outcome | `observe:ack-needed` (S, M, L) | 1 = clean · 2 = regression · 3 = rollback |
+| Learn outcome | `learn:ack-needed` | 1 = archive · 2 = extract-to-CLAUDE.md |
+
+Everything else is agent-driven; agents escalate on the signals
+listed below.
 
 ## Signals that escalate to the human
 
@@ -130,16 +182,16 @@ them.
 
 | Command | Purpose |
 |---------|---------|
-| `klc ack <key> --for <gate>` | satisfy a gate |
-| `klc back <key> --to <phase> --reason "..."` | audited rework |
-| `klc status <key>` | human-readable diagnosis (read-only) |
-| `klc resume <key>` | re-enter the interrupted phase |
+| `klc status <key>` | vertical path view; read-only |
+| `klc board` | kanban view across live tickets |
 | `klc doctor` | install-level health check |
-| `klc board` | kanban view of every live ticket |
 | `klc metrics <key>` / `klc metrics --rollup` | per-ticket / aggregate metrics |
 | `klc reindex <key>` | rebuild `.index.json` of inline items |
+| `klc install <project>` | bootstrap a project to use this klc checkout |
+| `klc init` / `klc update` | run / refresh the indexing loop |
 
-All share the same `$PROJECT_ROOT` resolution as phase scripts.
+All share the same `$PROJECT_ROOT` resolution as the lifecycle
+verbs.
 
 ## Artefact rule of thumb
 
