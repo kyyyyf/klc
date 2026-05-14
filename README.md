@@ -19,75 +19,73 @@ and `generic`.
 
 ## Install
 
-Decide where the klc repo lives **before** running anything. Two
-supported layouts:
+klc lives **outside** your project — one checkout drives many
+projects. Inside each project you get a tiny shim at
+`.klc/bin/klc` that forwards calls to the outer klc checkout.
 
-### Layout A — klc as a subdirectory of the project (simplest)
-
-```
-my-project/            ← $PROJECT_ROOT
-  klc/                 ← this repo, cloned as a subdir (any name OK)
-  src/
-  docs/
-```
-
-Add klc as a submodule, subtree, or plain clone — any subdirectory
-name works, the scripts don't hard-code `klc/`. Every command runs
-from the project root:
+### Install the klc checkout (once per machine)
 
 ```bash
-cd my-project/
-./klc/scripts/install-deps.sh
-./klc/scripts/init.sh
-./klc/scripts/klc intake PROJ-1 --kind feature "..."
+git clone <klc-repo-url> /opt/klc      # or any other path
+/opt/klc/scripts/install-deps.sh       # system deps: jq, python, jinja2, ast-grep, ...
 ```
 
-`PROJECT_ROOT` defaults to the parent of the klc repo — no env var
-needed.
+### Bootstrap a project
 
-### Layout B — one klc checkout, many projects
-
-```
-/opt/klc/              ← one clone
-/work/project-a/       ← independent projects
-/work/project-b/
-```
-
-Every invocation must export `PROJECT_ROOT`. An alias per project
-keeps it ergonomic:
+From any directory:
 
 ```bash
-# one-off
-PROJECT_ROOT=/work/project-a /opt/klc/scripts/install-deps.sh
-
-# persistent
-alias klc-a='PROJECT_ROOT=/work/project-a /opt/klc/scripts/klc'
-klc-a intake PROJ-1 --kind feature "..."
+/opt/klc/scripts/klc install /path/to/my-project
 ```
 
-Both layouts keep all generated state in `$PROJECT_ROOT/.klc/` —
-nothing is ever written inside the klc repo itself.
+That creates:
 
-## Quick start (layout A)
+- `.klc/bin/klc` — shim that exports `PROJECT_ROOT=/path/to/my-project`
+  and forwards to `/opt/klc/scripts/klc`.
+- `.klc/config/profile.yml` — `profile: generic` by default
+  (override with `--profile ue` etc.).
+- `.klc/config/ticket-id.yml` — regex for ticket keys.
+- `.klc/knowledge/{reviewer-allowlist.yml, serena-deny.yml}` — seeded
+  from framework templates.
+- `.klc/{index,logs,reports,tickets}/` — empty.
+- `.mcp.json` in the project root (copied from the active profile).
+- `.gitignore` gets a klc-state block appended (no-op if already
+  present).
+
+Re-running `klc install` is idempotent; add `--force` only when you
+want to regenerate configs.
+
+## Quick start
 
 ```bash
-cd my-project/
+cd /path/to/my-project
 
-# 1. One-time: system deps (ast-grep, jq, python, jinja2, ...)
-./klc/scripts/install-deps.sh
+# Everything after install uses the shim. No PATH tricks needed.
+.klc/bin/klc doctor                    # verify the install
 
-# 2. Bootstrap the index + per-module CLAUDE.md.
-./klc/scripts/init.sh                 # scans, prepares agent prompts
+# 1. Bootstrap the index + per-module CLAUDE.md.
+.klc/bin/klc init                      # scans, prepares agent prompts
 # run the inventory / decompose / docgen agents in Claude Code, then:
-./klc/scripts/init.sh --finalize
+.klc/bin/klc init --finalize
 
-# 3. For a new ticket:
-./klc/scripts/klc intake PROJ-123 --kind feature "short description"
-./klc/scripts/klc discover PROJ-123
-# ... follow the prompts; dispatcher walks you through each phase
+# 2. For a new ticket:
+.klc/bin/klc intake PROJ-123 --kind feature "short description"
+.klc/bin/klc discover PROJ-123
+# ... follow the prompts; the dispatcher walks you through each phase
 ```
 
-Incremental refresh after pushes: `./klc/scripts/update.sh`.
+Incremental refresh after pushes: `.klc/bin/klc update`.
+
+### Updating klc itself
+
+```bash
+cd /opt/klc
+git pull
+```
+
+Every project's shim picks up the new code automatically. Regenerate
+the shim (`/opt/klc/scripts/klc install <project> --force`) only if
+the klc repo moved or the install layout changed.
 
 ## Documentation
 
@@ -188,6 +186,11 @@ through a track-aware policy + per-ticket cache + denylist. See
 
 ## Ticket workflow at a glance
 
+All commands run via the shim at `.klc/bin/klc` inside the project
+root. For brevity the snippets below show just `klc ...` — add the
+shim prefix yourself, or add `alias klc='./.klc/bin/klc'` to your
+shell.
+
 ```
 klc intake <key> "<desc>"           # phase 0
 klc discover <key>                  # phase 1 — writes spec.md
@@ -230,9 +233,10 @@ klc metrics --rollup          # 30-day aggregate
 
 ## External reviewer (optional)
 
-Edit `config/reviewers.yml`, set `external_reviewer.enabled: true`,
+Edit `config/reviewers.yml` inside the klc checkout (e.g.
+`/opt/klc/config/reviewers.yml`), set `external_reviewer.enabled: true`,
 export the API key env var named there, then:
 
 ```bash
-./klc/scripts/klc review <key> --external
+.klc/bin/klc review <key> --external
 ```

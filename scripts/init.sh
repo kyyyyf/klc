@@ -39,7 +39,7 @@ log "State dir:      $KLC_DIR"
 # 1. Dependencies ------------------------------------------------------------
 #log "Step 1/8: checking dependencies"
 #if ! bash "$FRAMEWORK_ROOT/scripts/install-deps.sh"; then
-#  die "dependencies missing — resolve the suggestions above and rerun ./framework/scripts/init.sh"
+#  die "dependencies missing — resolve the suggestions above and rerun .klc/bin/klc init.sh"
 #fi
 
 # 2. Structural scan --------------------------------------------------------
@@ -59,7 +59,7 @@ if [ -f "$PROJECT_ROOT/.mcp.json" ]; then
   log "  .mcp.json already present; assuming ast-grep (and optionally Serena) are configured."
 else
   log "  No project-level .mcp.json found — init will still work without it."
-  log "  When you're ready for ticket work, copy framework/profiles/<profile>/mcp.json"
+  log "  When you're ready for ticket work, copy profiles/<profile>/mcp.json"
   log "  to .mcp.json (gives you ast-grep + Serena)."
 fi
 
@@ -74,7 +74,7 @@ log "  -> .klc/index/depgraph.json"
 log "Step 5/8: run the inventory agent from Claude Code"
 cat <<EOF
   Prompt:
-    Read framework/core/agents/inventory.md and execute it.
+    Read core/agents/inventory.md and execute it.
     Inputs are .klc/index/structural.json and .klc/index/depgraph.json.
     Produce .klc/index/inventory.json and print INVENTORY_OK.
 EOF
@@ -82,7 +82,7 @@ EOF
 log "Step 6/8: run the decompose agent"
 cat <<EOF
   Prompt:
-    Read framework/core/agents/decompose.md and execute it.
+    Read core/agents/decompose.md and execute it.
     Input is .klc/index/inventory.json.
     Produce .klc/index/modules.json and print DECOMPOSE_OK.
 EOF
@@ -90,7 +90,7 @@ EOF
 log "Step 7/8: run the docgen agent"
 cat <<EOF
   Prompt:
-    Read framework/core/agents/docgen.md and execute it.
+    Read core/agents/docgen.md and execute it.
     Inputs are .klc/index/inventory.json and .klc/index/modules.json.
     Produce the root CLAUDE.md plus a CLAUDE.md for each module. Print DOCGEN_OK.
 EOF

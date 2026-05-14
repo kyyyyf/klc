@@ -36,6 +36,10 @@ Subcommand registry:
     board         kanban view of all tickets
     metrics       show per-ticket or rollup metrics
     reindex       rebuild a ticket's .index.json
+    install       bootstrap a project to use this klc checkout
+    init          scan project + prepare inventory / decompose / docgen
+                  agent prompts (first-time bootstrap of a project)
+    update        incremental refresh after commits
 
 Each subcommand has its own --help.
 """
@@ -143,9 +147,22 @@ def _dispatch(argv: list[str]) -> int:
             sys.stderr.write("usage: klc metrics <ticket> | klc metrics --rollup\n"); return 2
         return _run_skill_subcommand("metrics", "show", ["--ticket", rest[0]])
 
-    if cmd in ("ack", "back", "status", "resume", "doctor", "board"):
+    if cmd in ("ack", "back", "status", "resume", "doctor", "board",
+               "install"):
         # These live at core/phases/<cmd>.py (op scripts mirror phase scripts)
         return _run_phase(cmd, rest)
+
+    if cmd in ("init", "update"):
+        # Indexing-loop shell scripts. Execute them directly so stdout
+        # / stderr / exit code pass through untouched.
+        script = FRAMEWORK_ROOT / "scripts" / f"{cmd}.sh"
+        if not script.exists():
+            sys.stderr.write(f"klc: {script} missing\n"); return 2
+        import subprocess
+        return subprocess.call(
+            ["bash", str(script), *rest],
+            env={**os.environ, "PROJECT_ROOT": _project_root()},
+        )
 
     if cmd in ("--version", "-V"):
         print("klc 0.1")

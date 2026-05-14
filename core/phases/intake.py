@@ -36,13 +36,28 @@ DEFAULT_KEY_RE = r"^[A-Z][A-Z0-9]+-\d+$"
 
 
 def _load_key_pattern() -> re.Pattern:
+    r"""Read the regex from .klc/config/ticket-id.yml.
+
+    YAML semantics we honour (by hand — PyYAML isn't a hard dep of this
+    skill): single-quoted strings are literal; double-quoted strings
+    obey backslash escapes (so `"\\d"` means `\d`, as it would through
+    a real parser).
+    """
     cfg = klc_config_dir() / "ticket-id.yml"
-    if cfg.exists():
-        for line in cfg.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("pattern:"):
-                raw = line.split(":", 1)[1].strip().strip('"').strip("'")
-                return re.compile(raw)
+    if not cfg.exists():
+        return re.compile(DEFAULT_KEY_RE)
+    for line in cfg.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line.startswith("pattern:"):
+            continue
+        value = line.split(":", 1)[1].strip()
+        if value.startswith("'") and value.endswith("'"):
+            raw = value[1:-1]        # single-quoted → literal
+        elif value.startswith('"') and value.endswith('"'):
+            raw = bytes(value[1:-1], "utf-8").decode("unicode_escape")
+        else:
+            raw = value              # bare scalar, no escapes in YAML
+        return re.compile(raw)
     return re.compile(DEFAULT_KEY_RE)
 
 
