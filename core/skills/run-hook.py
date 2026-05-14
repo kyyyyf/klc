@@ -35,7 +35,7 @@ def main() -> int:
     resolve = framework_root() / "core" / "skills" / "profile-resolve.py"
     try:
         result = subprocess.run(
-            ["python3", str(resolve), "--field", "hooks"],
+            [sys.executable, str(resolve), "--field", "hooks"],
             check=True, capture_output=True, text=True,
         )
         hooks = json.loads(result.stdout or "{}")
@@ -53,16 +53,37 @@ def main() -> int:
         }, indent=2), encoding="utf-8")
         return 0
 
-    repo_root = framework_root().parent
-    hook_path = repo_root / "framework" / rel
+    # `rel` is a path relative to framework root (e.g.
+    # "profiles/generic/hooks/validate-syntax.sh"). In Layout B
+    # framework_root() is the klc checkout itself — no `framework/`
+    # prefix.
+    hook_path = framework_root() / rel
     if not hook_path.exists():
         sys.stderr.write(f"run-hook: {hook_path} not found\n")
         return 1
-    if not os.access(hook_path, os.X_OK):
-        sys.stderr.write(f"run-hook: {hook_path} exists but is not executable; chmod +x it\n")
+    # On Windows executable bit is meaningless; trust the file's
+    # suffix instead (.py runs via sys.executable; .sh via bash; .ps1
+    # via pwsh). POSIX: honour the x bit.
+    if sys.platform != "win32" and not os.access(hook_path, os.X_OK):
+        sys.stderr.write(
+            f"run-hook: {hook_path} exists but is not executable; chmod +x it\n"
+        )
         return 1
 
-    os.execv(str(hook_path), [str(hook_path), files_in, out_json])
+    suffix = hook_path.suffix.lower()
+    if suffix == ".py":
+        argv = [sys.executable, str(hook_path), files_in, out_json]
+    elif suffix == ".ps1":
+        argv = ["pwsh", "-File", str(hook_path), files_in, out_json]
+    elif suffix == ".sh" or not suffix:
+        argv = [str(hook_path), files_in, out_json]
+    else:
+        argv = [str(hook_path), files_in, out_json]
+
+    # os.execv is POSIX-semantics only; use subprocess so Windows
+    # gets identical behaviour.
+    r = subprocess.run(argv)
+    return r.returncode
 
 
 if __name__ == "__main__":

@@ -11,11 +11,13 @@ by the active profile, aggregate their output, render a binary verdict.
 - `--ticket <TICK-NNN>` — used to address the scratchpad.
 - `--external` (optional) — force-run the external reviewer.
 
-## Phase bump
+## Serena policy in Review
 
-First action: open `.klc/tickets/<TICK-NNN>/meta.json` and set
-`phase: "review"`. Review-time Serena calls (sub-agents verifying a
-signature cited in a finding) key off this.
+You don't touch `meta.json:phase` — the lifecycle is bumped by
+phase scripts (`review.py --continue`), not by agents. Sub-agents
+that verify a cited signature invoke `serena-call.py check` with
+`--phase review` passed explicitly by review.py, so the track-aware
+gate sees the right category.
 
 ## Scratchpad (overflow and read-back)
 
@@ -110,7 +112,7 @@ Exit `0` if `APPROVED`, `1` if `CHANGES REQUESTED`.
 - `reviewers.yml` missing → use defaults; proceed.
 
 ## Execution modes
-By default `review.sh` only *stages* job cards — an operator (or Claude
+By default `review.py` only *stages* job cards — an operator (or Claude
 Code) fulfils each card manually and writes partials to
 `partials-<TS>/`.
 
@@ -121,13 +123,15 @@ runner when both conditions hold:
 - `REVIEW_RUNNER` points to an executable that accepts
   `<job-card-path> <partial-output-path>` and produces the partial.
 
-A reference runner ships as `scripts/review-runner-claude.sh`
-(Claude CLI). Usage:
+The framework-shipped runner is `scripts/review-runner.py`. It reads
+`config/models.yml` to decide the provider / model (anthropic / openai /
+ollama / google), composes the combined prompt, and dispatches via
+`core/skills/runner.py`. Usage:
 
 ```bash
 RUN_LOCAL_SUBAGENTS=1 \
-REVIEW_RUNNER="$PWD/scripts/review-runner-claude.sh" \
-./scripts/review.sh --diff HEAD --spec .klc/index/pending-feature.md
+REVIEW_RUNNER="$PWD/scripts/review-runner.py" \
+python scripts/review.py --diff HEAD --spec .klc/index/pending-feature.md
 ```
 
 Runner contract: write the partial atomically (move-into-place); on
@@ -135,7 +139,7 @@ failure, produce a partial with a `[CRITICAL]` synthetic issue so
 aggregation still proceeds with `CHANGES REQUESTED`.
 
 ## Integrity checks
-- `review.sh` records `diff.sha256` in each partials directory. Reuse
+- `review.py` records `diff.sha256` in each partials directory. Reuse
   is refused when the hash does not match the current diff.
 - Issues are counted from `[SEVERITY]` headers only; the human-readable
   trailer cannot distort the verdict.

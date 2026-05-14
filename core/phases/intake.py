@@ -3,7 +3,7 @@
 
 Creates `.klc/tickets/<KEY>/`, writes meta.json + raw.md, appends to
 the global index. Does NOT call Serena, does NOT touch Jira, does NOT
-create git branches. Hands off to `klc discover <KEY>`.
+create git branches. Leaves the ticket in `intake:ack-needed`.
 
 Usage:
     klc intake <JIRA-KEY> [--kind feature|bug|tech] "<desc>"
@@ -127,10 +127,10 @@ def run(argv: list[str]) -> int:
     existing = klc_ticket_meta_file(args.ticket).exists()
     if existing and not args.force:
         meta = json.loads(klc_ticket_meta_file(args.ticket).read_text(encoding="utf-8"))
-        if meta.get("phase") != "intake":
+        if not (meta.get("phase") or "").startswith("intake"):
             sys.stderr.write(
                 f"klc intake: ticket {args.ticket} already in phase "
-                f"{meta.get('phase')!r}. Use `klc status` or `klc back`.\n"
+                f"{meta.get('phase')!r}. Use `klc status` or `klc abort`.\n"
             )
             return 1
         sys.stderr.write(
@@ -162,8 +162,8 @@ def run(argv: list[str]) -> int:
         "ticket":        args.ticket,
         "kind":          args.kind or "unknown",
         "kind_source":   "user" if args.kind else "intake-agent-pending",
-        "phase":         "intake",
-        "phase_history": [{"phase": "intake", "started_at": _now()}],
+        "phase":         "intake:ack-needed",
+        "phase_history": [{"phase": "intake:ack-needed", "started_at": _now()}],
         "track":         None,
         "estimate":      None,
         "layer":         None,
@@ -193,7 +193,8 @@ def run(argv: list[str]) -> int:
     print(f"INTAKE_OK {args.ticket}")
     print(f"  dir:   {tdir}")
     print(f"  kind:  {meta['kind']}")
-    print(f"  next:  klc discover {args.ticket}")
+    print(f"  → intake:ack-needed")
+    print(f"  next:  klc ack {args.ticket}")
     return 0
 
 

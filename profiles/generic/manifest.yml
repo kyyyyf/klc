@@ -42,4 +42,4 @@ hooks:
   # Sanity-checks JSON and YAML files changed by the diff. Narrow on purpose;
   # projects plug deeper validators (OpenAPI, Terraform, Helm, dbt, ...) by
   # writing their own hook and pointing `validate_assets` at it.
-  validate_assets: profiles/generic/hooks/validate-syntax.sh
+  validate_assets: profiles/generic/hooks/validate_syntax.py
