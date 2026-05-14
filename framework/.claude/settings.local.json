@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /mnt/d/a_work/klc/framework/scripts/klc)",
+      "Bash(python3 *)",
+      "Bash(bash tests/smoke.sh)"
+    ]
+  }
+}

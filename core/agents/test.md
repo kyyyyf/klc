@@ -21,12 +21,13 @@ regression test that reproduces the bug (RED before GREEN).
 - `.klc/index/modules.json` — resolves module paths.
 - `core/skills/test-writer.py` — produces tests and runs mutation.
 
-## Phase bump
+## Serena policy in Build
 
-First action: open `.klc/tickets/<TICK-NNN>/meta.json` and set
-`phase: "build"`. `serena-call.py` enforces phase-aware access; forget
-this, and every Serena call you wanted to make in build will be
-DENIED because the phase is still `design`.
+You don't touch `meta.json:phase` — the lifecycle is bumped by
+phase scripts (`build.py --continue`), not by agents. Every Serena
+call goes through `serena-call.py check` with `--phase build`
+passed explicitly by the invoking script, so the track-aware gate
+sees the right category without you doing anything.
 
 ## Scratchpad (read-back and triggers)
 

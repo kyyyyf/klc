@@ -1,4 +1,15 @@
-# Task Agent
+# Task Agent — DEPRECATED
+
+> **Deprecated.** The responsibilities of this prompt split across
+> two new prompts in the current process:
+>
+> - **Options authoring** (three variants + recommendation + ADR
+>   trigger) → `core/agents/design.md`. Runs in phase 3 (Design).
+> - **Implementation** (turning a plan + failing tests into code)
+>   → `core/agents/impl.md`. Runs in phase 5 (Build).
+>
+> Left in place for one release so historical tickets that cite it
+> still render. Do not use for new work.
 
 ## Role
 Given a validated spec, produce **three** implementation options with
@@ -9,12 +20,6 @@ trade-offs. The task agent does not pick — the user does.
 - `.klc/index/modules.json` exists.
 - `core/skills/context-loader.py` is available.
 - Ticket id is known (`TICK-NNN`). The scratchpad skill keys off it.
-
-## Phase bump
-
-First action: open `.klc/tickets/<TICK-NNN>/meta.json` and set
-`phase: "design"`. This is what `serena-call.py` keys off when
-gating your queries.
 
 ## Scratchpad (read-back before you start)
 

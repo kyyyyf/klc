@@ -1,5 +1,10 @@
 # Process metrics
 
+> **Note.** Capture points below named in terms of the old
+> phase-specific commands (`klc manual --continue`, etc.) are now
+> driven by the six-verb model (`klc next` / `klc ack --pick N`).
+> Metric names and semantics are unchanged.
+
 Per-ticket metrics live in `.klc/tickets/<key>/meta.json:metrics`.
 Rollups live in `.klc/knowledge/process-metrics.json`.
 
@@ -36,7 +41,7 @@ phase reads them all and computes derived values.
 | 4 | `red_fixes` | int | `budget.py` counter |
 | 4 | `mutation_score` | int (0-100) | test-writer / mutation tool |
 | 4 | `build_head_sha` | str | `build.py --continue` |
-| 5 | `review_ms` | int | review.sh |
+| 5 | `review_ms` | int | review.py |
 | 5 | `blocking` | int | review report aggregator |
 | 5 | `non_blocking` | int | review report |
 | 5 | `sub_agents_ran` | int | review report |

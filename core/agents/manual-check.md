@@ -23,7 +23,7 @@ authority: hybrid
 
 Tick each box as you walk through. If anything fails, stop and run:
 
-    klc manual <KEY> --continue --outcome=fail
+    klc ack <KEY> --pick 2    # 2 = failed (reopens build, supersedes review/manual)
 
 ## From AC
 

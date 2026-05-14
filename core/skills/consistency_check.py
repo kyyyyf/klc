@@ -5,7 +5,7 @@ Thin umbrella over `items.py validate`, extended with rules that
 cross the ticket boundary:
 
   - every artefact referenced from `README.md` / `.index.json` exists
-  - meta.json:phase is one of lifecycle.PHASES
+  - meta.json:phase parses as a valid `<phase>:<state>` under phases.yml
   - meta.json:pre_merge_snapshot (if present) still matches artefact
     hashes — catches last-second edits that skipped consistency
 
@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _paths import klc_ticket_dir, klc_ticket_meta_file, klc_tickets_dir  # noqa: E402
-import lifecycle  # noqa: E402
+import phases as _phases  # noqa: E402
 
 
 def _load_meta(ticket: str) -> dict | None:
@@ -67,9 +67,13 @@ def check_ticket(ticket: str) -> list[str]:
     if meta is None:
         return [f"{ticket}: meta.json missing or malformed"]
 
-    phase = meta.get("phase")
-    if phase not in lifecycle.PHASES:
-        errs.append(f"{ticket}: meta.json:phase={phase!r} not in lifecycle.PHASES")
+    phase = meta.get("phase") or ""
+    try:
+        pid, state = _phases.parse_state(phase)
+        if pid != _phases.STATE_ARCHIVED:
+            _phases.load_phases().by_id(pid)
+    except (ValueError, KeyError) as e:
+        errs.append(f"{ticket}: meta.json:phase={phase!r} invalid ({e})")
 
     rc, out = _run_items_validate(ticket)
     if rc != 0:

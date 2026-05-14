@@ -128,5 +128,5 @@ for cron, a git hook, or CI.
 
 ## Cron hook
 ```cron
-0 */6 * * * cd /path/to/project && ./scripts/update.sh >> .klc/logs/update.log 2>&1
+0 */6 * * * cd /path/to/project && python /opt/klc/scripts/update.py >> .klc/logs/update.log 2>&1
 ```

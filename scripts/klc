@@ -1,51 +1,32 @@
 #!/usr/bin/env python3
 """klc — unified dispatcher for the Codebase Intelligence Framework.
 
-Single entry point for every phase script and operational command.
-Feature / bug / review scripts wrap into `klc intake / discover /
-design / build / review / …` — see process-phases.md for the full
-phase map.
+The ticket lifecycle is driven by six verbs:
 
-The dispatcher does four things:
+    intake   — create a ticket (puts it in `intake:ack-needed`)
+    status   — show the current path through the ticket's track
+    next     — advance from `:ack` to the next `:work`
+    ack      — confirm `:ack-needed`; optionally pick a variant
+    jump     — cross-cut from `<X>:ack` to any `<phase>:work`
+    abort    — cancel `<X>:work`, return to the previous `:ack`
 
-  1. Accept one of ~20 subcommands and route to the matching phase
-     script or skill.
-  2. Enforce lifecycle transitions (via lifecycle.py) before phase
-     scripts touch any artefact.
-  3. Resolve $PROJECT_ROOT uniformly for every call so skills never
-     have to guess.
-  4. Pass a consistent --ticket argument shape down.
+Plus a few operational commands:
 
-Subcommand registry:
+    board    — kanban view across tickets
+    doctor   — install-level health check
+    metrics  — per-ticket or rollup metrics
+    reindex  — rebuild a ticket's .index.json
 
-    intake        phase 0 — create ticket
-    discover      phase 1 — spec + track + estimate
-    test-plan     phase 2 — AC → tests mapping
-    design        phase 3 — options + ADR + impl-plan
-    build         phase 4 — tests-first loop
-    review        phase 5 — multi-agent review
-    manual        phase 6 — human checklist
-    integrate     phase 7 — pre-merge snapshot, post-merge bookkeeping
-    observe       phase 8 — optional merge watch
-    learn         phase 9 — retrospective + metrics + archive
-    ack           human confirmation at a gate
-    back          rework — move backward with an audit entry
-    status        per-ticket diagnosis
-    resume        re-enter the interrupted phase
-    doctor        install-level health check
-    board         kanban view of all tickets
-    metrics       show per-ticket or rollup metrics
-    reindex       rebuild a ticket's .index.json
-    install       bootstrap a project to use this klc checkout
-    init          scan project + prepare inventory / decompose / docgen
-                  agent prompts (first-time bootstrap of a project)
-    update        incremental refresh after commits
+And install-time:
+
+    install  — bootstrap a project to use this klc checkout
+    init     — scan project + prepare inventory
+    update   — incremental refresh after commits
 
 Each subcommand has its own --help.
 """
 from __future__ import annotations
 
-import argparse
 import importlib.util
 import os
 import sys
@@ -69,16 +50,10 @@ def _load_module(path: Path, name: str):
     return mod
 
 
-def _phase_script(name: str) -> Path:
-    """Phase scripts live at core/phases/<name>.py. They each expose a
-    `run(argv: list[str]) -> int` entry point."""
-    return PHASES_DIR / f"{name}.py"
-
-
 def _run_phase(name: str, argv: list[str]) -> int:
-    path = _phase_script(name)
+    path = PHASES_DIR / f"{name}.py"
     if not path.exists():
-        sys.stderr.write(f"klc: phase script not implemented yet: {name}\n")
+        sys.stderr.write(f"klc: command not implemented: {name}\n")
         return 2
     mod = _load_module(path, f"klc_phase_{name.replace('-', '_')}")
     if not hasattr(mod, "run"):
@@ -88,14 +63,13 @@ def _run_phase(name: str, argv: list[str]) -> int:
 
 
 def _run_skill_subcommand(skill: str, subcommand: str, argv: list[str]) -> int:
-    """Delegate to a skill script treating it like a subcommand."""
     path = SKILLS_DIR / f"{skill}.py"
     if not path.exists():
         sys.stderr.write(f"klc: skill not found: {skill}\n")
         return 2
     import subprocess
     return subprocess.call(
-        ["python3", str(path), subcommand, *argv],
+        [sys.executable, str(path), subcommand, *argv],
         env={**os.environ, "PROJECT_ROOT": _project_root()},
     )
 
@@ -107,23 +81,14 @@ def _project_root() -> str:
     return str(FRAMEWORK_ROOT.parent)
 
 
-# --- subcommand handlers ------------------------------------------------------
+# --- subcommand dispatch ------------------------------------------------------
 
-PHASE_CMDS = {
-    "intake":    "intake",
-    "discover":  "discover",
-    "test-plan": "test_plan",
-    "design":    "design",
-    "build":     "build",
-    "review":    "review",
-    "manual":    "manual",
-    "integrate": "integrate",
-    "observe":   "observe",
-    "learn":     "learn",
-}
-
-OPERATIONAL_CMDS = ("ack", "back", "status", "resume", "doctor", "board",
-                    "metrics", "reindex")
+LIFECYCLE_CMDS = (
+    "intake", "status", "next", "ack", "jump", "abort",
+)
+OPERATIONAL_CMDS = (
+    "board", "doctor", "metrics", "reindex", "install",
+)
 
 
 def _dispatch(argv: list[str]) -> int:
@@ -132,8 +97,12 @@ def _dispatch(argv: list[str]) -> int:
         return 0
     cmd, rest = argv[0], argv[1:]
 
-    if cmd in PHASE_CMDS:
-        return _run_phase(PHASE_CMDS[cmd], rest)
+    if cmd in ("--version", "-V"):
+        print("klc 0.2")
+        return 0
+
+    if cmd in LIFECYCLE_CMDS or cmd in OPERATIONAL_CMDS:
+        return _run_phase(cmd, rest)
 
     if cmd == "reindex":
         if not rest:
@@ -147,26 +116,15 @@ def _dispatch(argv: list[str]) -> int:
             sys.stderr.write("usage: klc metrics <ticket> | klc metrics --rollup\n"); return 2
         return _run_skill_subcommand("metrics", "show", ["--ticket", rest[0]])
 
-    if cmd in ("ack", "back", "status", "resume", "doctor", "board",
-               "install"):
-        # These live at core/phases/<cmd>.py (op scripts mirror phase scripts)
-        return _run_phase(cmd, rest)
-
     if cmd in ("init", "update"):
-        # Indexing-loop shell scripts. Execute them directly so stdout
-        # / stderr / exit code pass through untouched.
-        script = FRAMEWORK_ROOT / "scripts" / f"{cmd}.sh"
+        script = FRAMEWORK_ROOT / "scripts" / f"{cmd}.py"
         if not script.exists():
             sys.stderr.write(f"klc: {script} missing\n"); return 2
         import subprocess
         return subprocess.call(
-            ["bash", str(script), *rest],
+            [sys.executable, str(script), *rest],
             env={**os.environ, "PROJECT_ROOT": _project_root()},
         )
-
-    if cmd in ("--version", "-V"):
-        print("klc 0.1")
-        return 0
 
     sys.stderr.write(f"klc: unknown subcommand: {cmd}\n")
     _print_help()

@@ -1,5 +1,13 @@
 # Process overview
 
+> **Note.** As of 2026-05 the lifecycle is driven by six verbs
+> (`intake` / `status` / `next` / `ack` / `jump` / `abort`) and the
+> state machine lives in [`config/phases.yml`](../config/phases.yml).
+> Older docs in this directory may still reference phase-specific
+> commands (`klc discover`, `klc design`, ...) — those are gone; run
+> `klc next` / `klc ack` instead. The **concepts** (phases, tracks,
+> gates, artefacts) are unchanged.
+
 High-level, kanban-oriented description. The items below are **columns**
 on the board, not steps in a workflow — tickets dwell in each column
 for as long as the work inside takes, and enter the next one when its
@@ -420,7 +428,7 @@ reads it, decides merge.
   bundle, `.klc/knowledge/reviewer-allowlist.yml`.
 
 **Scripts & agents**:
-- `core/phases/review.py` → `scripts/review.sh` → profile's
+- `core/phases/review.py` → `scripts/review.py` → profile's
   reviewer agents.
 - `core/agents/review.md` — orchestrator.
 - `core/agents/review/{security,architecture,performance,test-coverage}.md`
@@ -429,7 +437,7 @@ reads it, decides merge.
 - Serena allowed for verifying signatures cited in a finding.
 
 **Steps by role**:
-- **review.sh**: fans out job cards to the sub-agents; collects
+- **review.py**: fans out job cards to the sub-agents; collects
   partials; runs the aggregator.
 - **Sub-agents**: emit findings; downgrade to INFO when matched by
   `reviewer-allowlist.yml`.
