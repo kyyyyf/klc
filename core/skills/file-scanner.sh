@@ -27,7 +27,7 @@ command -v jq >/dev/null 2>&1 || { echo "file-scanner: jq required" >&2; exit 2;
 command -v python3 >/dev/null 2>&1 || { echo "file-scanner: python3 required" >&2; exit 2; }
 
 FWROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# core/skills -> framework dir
+# core/skills -> klc repo root (the framework itself)
 FWROOT="$(cd "$FWROOT/.." && pwd)"
 RESOLVE="python3 $FWROOT/core/skills/profile-resolve.py"
 
@@ -35,10 +35,24 @@ PROFILE="$($RESOLVE --field name)"
 PROFILE_EXCLUDES="$($RESOLVE --field excludes-regex)"
 # Baseline excludes always on; profile extends.
 BASELINE_RE='(^|/)(\.git|\.klc|node_modules|\.venv|venv|__pycache__|target|build|dist|out|bin|obj|\.gradle|\.idea|\.vs|\.next|\.cache|\.serena-cache)(/|$)'
+# When the klc repo is cloned as a subdirectory of the scanned project
+# (layout A from README.md), exclude that subdirectory itself — it's
+# the framework, not project code. We compute its path relative to
+# $ROOT and inject as one more alternation in the regex.
+FW_REL=""
+case "$FWROOT/" in
+  "$ROOT/"*)
+    FW_REL="${FWROOT#$ROOT/}"
+    ;;
+esac
+EXCLUDES_RE="$BASELINE_RE"
+if [ -n "$FW_REL" ]; then
+  # Escape slashes and dots; the path segment is a literal.
+  FW_ESC="$(printf '%s' "$FW_REL" | sed -e 's/[][\/.^$*+?()|{}]/\\&/g')"
+  EXCLUDES_RE="$EXCLUDES_RE|(^|/)$FW_ESC(/|$)"
+fi
 if [ -n "$PROFILE_EXCLUDES" ]; then
-  EXCLUDES_RE="$BASELINE_RE|$PROFILE_EXCLUDES"
-else
-  EXCLUDES_RE="$BASELINE_RE"
+  EXCLUDES_RE="$EXCLUDES_RE|$PROFILE_EXCLUDES"
 fi
 
 MODULE_DISCOVERY="$($RESOLVE --field module_discovery)"

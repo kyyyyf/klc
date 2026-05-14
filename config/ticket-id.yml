@@ -3,4 +3,4 @@
 # file to `.klc/config/ticket-id.yml`.
 #
 # Defaults to Jira-style keys: 2+ letters, dash, digits.
-pattern: "^[A-Z][A-Z0-9]+-\\d+$"
+pattern: '^[A-Z][A-Z0-9]+-\d+$'
