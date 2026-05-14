@@ -1,5 +1,11 @@
 # Artefact reference
 
+> **Note.** CLI examples below using `klc <phase>` commands predate
+> the six-verb model (`intake` / `status` / `next` / `ack` / `jump` /
+> `abort`); the artefacts themselves and their schemas are unchanged.
+> See [`config/phases.yml`](../config/phases.yml) for the current
+> state machine.
+
 Every ticket lives at `.klc/tickets/<JIRA-KEY>/`. After Learn the
 directory moves to `.klc/tickets/archive/<JIRA-KEY>/` unchanged.
 

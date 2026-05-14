@@ -1,16 +1,21 @@
 # Migration notes
 
-Two layout changes have happened since the original nested-framework
-shape. This document covers both so upgraders can skip straight to
-the relevant step.
+Three changes of note since the earliest shape. New installs need
+none of them; this file documents the trail.
 
 - **Migration 1** — per-project state moved out of the framework
   tree into `$PROJECT_ROOT/.klc/`.
 - **Migration 2** — the framework repo flattened: what used to be
   `framework/core/...` is now just `core/...` at the repo root.
+- **Migration 3 (2026-05)** — shell scripts ported to Python.
+  `init.sh` / `update.sh` / `install-deps.sh` / `review.sh` /
+  `review-runner-claude.sh` / `file-scanner.sh` / `dep-graph.sh` /
+  `run-hook.sh` / `smoke.sh` became `init.py` / `update.py` / ... .
+  The dispatcher (`scripts/klc`) picks up the `.py` files
+  automatically. Windows PowerShell is now a supported platform.
 
-New installs need neither migration. `init.sh` already creates the
-right layout.
+New installs run the Python versions. Older references below
+(`init.sh`, `review.sh`, ...) are kept as historical breadcrumbs.
 
 ## Migration 1: per-project state → `.klc/`
 

@@ -1,0 +1,253 @@
+# phases.yml — source of truth for the klc state machine.
+#
+# The klc CLI (next / ack / jump / abort / status) is data-driven:
+# this file describes every phase, every pick, every transition.
+# No phase names are hardcoded in Python — change this file to reshape
+# the process.
+#
+# Semantics:
+#
+#   Each phase has three states:
+#     <id>:work         — work to be done (agent / human action)
+#     <id>:ack-needed   — work claims to be done, awaiting confirmation
+#     <id>:ack          — confirmed; `next` moves on to the next phase
+#
+#   Plus one terminal pseudo-state: `archived`.
+#
+#   A ticket's `meta.json:phase` always holds `<phase-id>:<state>`.
+#
+# Fields per phase:
+#
+#   id           — string. Must be unique.
+#   tracks       — list of [XS, S, M, L]. Phase is skipped for tracks
+#                  not listed.
+#   work.prompt  — path (relative to framework_root) to the agent prompt
+#                  rendered into .klc/tickets/<key>/<id>/_prompt.md.
+#                  Empty string = no agent (e.g. intake, observe:work).
+#   work.auto_to_ack — optional. When true, :work state is a no-op and
+#                  the state machine moves directly to :ack-needed on
+#                  entry (used for XS stubs).
+#   ack.pick_required — bool. If true, `klc ack <t>` without --pick errors.
+#   ack.picks    — list. Each pick:
+#                    id:       1..9
+#                    label:    short string shown in errors
+#                    goto:     "next" | "<phase>:work"
+#                    supersede: optional list of phase ids whose
+#                               artefacts should be moved to
+#                               _superseded/<ts>/ on this pick.
+#   ack.pick_records_to — optional. Dotted path inside meta.json where
+#                  the chosen pick label is recorded (e.g. "design_choice").
+#   inputs       — list of artefact paths (relative to ticket dir) that
+#                  must exist to enter :work. Used by `jump` to warn.
+#   outputs      — list of artefact paths produced by :work. Used by
+#                  `ack` to verify before allowing :ack-needed → :ack.
+#   auto_ack_after — optional duration ("3d", "1w"). Currently
+#                  informational; future: cron bumps :work → :ack-needed.
+
+phases:
+
+  # -------------------------------------------------------------------
+  - id: intake
+    tracks: [XS, S, M, L]
+    work:
+      # intake:work is the act of running `klc intake <key>`; there is
+      # no separate agent step. Creating the ticket lands you on
+      # intake:ack-needed directly.
+      prompt: ""
+    ack:
+      pick_required: false
+      picks:
+        - id: 1
+          label: "confirm"
+          goto: "next"
+    inputs: []
+    outputs: ["raw.md", "meta.json"]
+
+  # -------------------------------------------------------------------
+  - id: discovery
+    tracks: [S, M, L]
+    work:
+      prompt: "core/agents/discovery.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "approve"
+          goto: "next"
+        - id: 2
+          label: "needs-rework"
+          goto: "discovery:work"
+    inputs: ["raw.md"]
+    outputs: ["spec.md"]
+
+  # -------------------------------------------------------------------
+  - id: acceptance-test-plan
+    tracks: [S, M, L]
+    work:
+      prompt: "core/agents/test-planner.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "approve"
+          goto: "next"
+        - id: 2
+          label: "needs-rework"
+          goto: "acceptance-test-plan:work"
+    inputs: ["spec.md"]
+    outputs: ["test-plan.md"]
+
+  # -------------------------------------------------------------------
+  - id: design
+    tracks: [M, L]
+    work:
+      prompt: "core/agents/design.md"
+    ack:
+      pick_required: true
+      pick_records_to: "design_choice"
+      picks:
+        - id: 1
+          label: "option-A-minimal"
+          goto: "next"
+        - id: 2
+          label: "option-B-clean"
+          goto: "next"
+        - id: 3
+          label: "option-C-scalable"
+          goto: "next"
+        - id: 4
+          label: "needs-rework"
+          goto: "design:work"
+    inputs: ["spec.md", "test-plan.md"]
+    outputs: ["design/options.md", "impl-plan.md"]
+
+  # -------------------------------------------------------------------
+  - id: detailed-test-plan
+    tracks: [M, L]
+    work:
+      prompt: "core/agents/test-planner.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "approve"
+          goto: "next"
+        - id: 2
+          label: "needs-rework"
+          goto: "detailed-test-plan:work"
+    inputs: ["spec.md", "test-plan.md", "design/options.md", "impl-plan.md"]
+    outputs: ["test-plan.md"]
+
+  # -------------------------------------------------------------------
+  - id: build
+    tracks: [XS, S, M, L]
+    work:
+      # build:work is a multi-step impl loop. The state machine treats
+      # it as atomic from outside — ack is only valid when impl_done
+      # flag is set in meta by the impl agent.
+      prompt: "core/agents/impl.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "approve"
+          goto: "next"
+    inputs: ["spec.md", "impl-plan.md"]
+    outputs: []
+
+  # -------------------------------------------------------------------
+  - id: review
+    tracks: [XS, S, M, L]
+    work:
+      prompt: "core/agents/review.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "approve"
+          goto: "next"
+        - id: 2
+          label: "request-changes"
+          goto: "build:work"
+          supersede: ["review"]
+    inputs: ["spec.md"]
+    outputs: ["review-report.md"]
+
+  # -------------------------------------------------------------------
+  - id: manual
+    tracks: [M, L]
+    work:
+      prompt: "core/agents/manual-check.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "passed"
+          goto: "next"
+        - id: 2
+          label: "failed"
+          goto: "build:work"
+          supersede: ["review", "manual"]
+    inputs: ["spec.md"]
+    outputs: ["manual-checklist.md"]
+
+  # -------------------------------------------------------------------
+  - id: integrate
+    tracks: [XS, S, M, L]
+    work:
+      # integrate is a two-tick phase: pre-merge snapshot + post-merge
+      # bookkeeping. Both ticks happen inside :work (the tick is
+      # internal state in meta); :ack-needed fires after post-merge.
+      # No agent prompt — artefacts.py renders a built-in checklist
+      # when prompt is empty.
+      prompt: ""
+    ack:
+      pick_required: false
+      picks:
+        - id: 1
+          label: "merged"
+          goto: "next"
+    inputs: []
+    outputs: []
+
+  # -------------------------------------------------------------------
+  - id: observe
+    tracks: [S, M, L]
+    work:
+      # No agent prompt — observe:work is a wait state. The _prompt.md
+      # generator instead writes a monitoring checklist from the ticket.
+      prompt: ""
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "clean"
+          goto: "next"
+        - id: 2
+          label: "regression"
+          goto: "build:work"
+          supersede: ["review", "manual", "integrate", "observe"]
+        - id: 3
+          label: "rollback"
+          goto: "learn:work"
+          supersede: ["integrate", "observe"]
+    inputs: []
+    outputs: []
+    auto_ack_after: null   # null = manual; overridable per track in the future
+
+  # -------------------------------------------------------------------
+  - id: learn
+    tracks: [XS, S, M, L]
+    work:
+      prompt: "core/agents/retrospective.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "archive"
+          goto: "archived"
+        - id: 2
+          label: "extract-to-claudemd"
+          goto: "learn:work"
+    inputs: []
+    outputs: ["retrospective.md"]

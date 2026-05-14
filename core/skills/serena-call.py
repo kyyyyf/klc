@@ -62,14 +62,71 @@ from _paths import (  # noqa: E402
 )
 
 # --- policy: track → phase whitelist ------------------------------------------
-# Keys: track label (XS / S / M / L). Values: set of phases in which
-# Serena is allowed to be called. Empty set = forbidden everywhere.
+# Keys: track label (XS / S / M / L). Values: set of *semantic* phases
+# (categories of work) in which Serena is allowed. Empty set =
+# forbidden everywhere. These phase names are deliberately distinct
+# from `lifecycle.PHASES` (which enumerates micro-states like
+# `build-pending`, `review-pending-ack`, ...). Phase scripts pass the
+# semantic label via `--phase`; if omitted, we map from the lifecycle
+# state via _phase_to_semantic below.
 DEFAULT_POLICY: dict[str, set[str]] = {
     "XS": set(),
     "S":  {"build"},
     "M":  {"design", "impl", "build", "review"},
     "L":  {"discovery", "design", "impl", "build", "review", "learn"},
 }
+
+# State-string → semantic-phase mapping. Called only when `--phase` is
+# not passed explicitly. New-format states are `<phase-id>:<state>`; we
+# map by phase-id (the state suffix doesn't matter for track-gate
+# purposes). Legacy lifecycle states are kept here so old meta.json
+# files still resolve to a sane semantic bucket until they're migrated.
+SEMANTIC_BY_PHASE_ID: dict[str, str] = {
+    "intake":              "intake",
+    "discovery":           "discovery",
+    "acceptance-test-plan": "test-plan",
+    "detailed-test-plan":  "test-plan",
+    "design":              "design",
+    "build":               "build",
+    "review":              "review",
+    "manual":              "manual",
+    "integrate":           "integrate",
+    "observe":             "observe",
+    "learn":               "learn",
+    "archived":            "archived",
+}
+
+LEGACY_LIFECYCLE_TO_SEMANTIC: dict[str, str] = {
+    "intake":                     "intake",
+    "discovery-running":          "discovery",
+    "discovery-pending-ack":      "discovery",
+    "test-plan-pending":          "test-plan",
+    "design-pending":             "design",
+    "design-pending-ack":         "design",
+    "detailed-test-plan-pending": "test-plan",
+    "build-pending":              "build",
+    "review-pending":             "review",
+    "review-pending-ack":         "review",
+    "manual-pending":             "manual",
+    "manual-pending-ack":         "manual",
+    "integrate-pre":              "integrate",
+    "integrate-post":             "integrate",
+    "observe":                    "observe",
+    "learn":                      "learn",
+    "archived":                   "archived",
+}
+
+
+def _phase_to_semantic(phase_value: str) -> str:
+    """Map the meta.json:phase value (new or legacy format) to a
+    semantic-phase string. Returns '' on unknown input."""
+    if not phase_value:
+        return ""
+    if ":" in phase_value:
+        pid = phase_value.split(":", 1)[0]
+        return SEMANTIC_BY_PHASE_ID.get(pid, "")
+    # legacy fallback
+    return LEGACY_LIFECYCLE_TO_SEMANTIC.get(phase_value, "")
 
 
 def _now_iso() -> str:
@@ -196,7 +253,21 @@ def _deny_hit(op: str, subject: str, file: str | None) -> dict | None:
 def cmd_check(args: argparse.Namespace) -> int:
     meta = _read_ticket_meta(args.ticket)
     track = (args.track or meta.get("track") or "M").upper()
-    phase = (args.phase or meta.get("phase") or "build").lower()
+    # --phase on the CLI is authoritative (phase scripts pass a
+    # semantic label). If omitted, map from the lifecycle state in
+    # meta.json via LIFECYCLE_TO_SEMANTIC. The pre-map value in meta
+    # is NOT a valid Serena phase; using it directly would always
+    # trip the whitelist.
+    if args.phase:
+        phase = args.phase.lower()
+    else:
+        phase = _phase_to_semantic((meta.get("phase") or "").lower())
+        if not phase:
+            # Unknown state — no safe mapping. Fall back to the most
+            # restrictive interpretation: pretend we're in a category
+            # absent from every track's whitelist, so the gate denies.
+            # Caller should pass --phase explicitly.
+            phase = "unknown"
 
     # 1. Track-aware gate.
     policy = _load_track_policy()
