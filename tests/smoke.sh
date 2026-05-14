@@ -35,16 +35,14 @@ cleanup() { [ "$KEEP" = "1" ] || rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
 cp -a "$FIXTURE/." "$SCRATCH/"
-# Fresh framework — copy the live one but scrub runtime artefacts.
-# After the .klc migration the framework dir is clean on purpose; the
-# excludes are defensive in case someone ran the older pipeline.
-rsync -a --exclude='__pycache__' --exclude='*.pyc' --exclude='.git' \
-  "$FW_ROOT/" "$SCRATCH/klc/"
-# The scratch project is our PROJECT_ROOT.
+# Layout B: install the live klc repo into the scratch project via
+# `klc install`. The shim at .klc/bin/klc will forward every call to
+# $FW_ROOT/scripts/klc with PROJECT_ROOT pinned.
+"$FW_ROOT/scripts/klc" install "$SCRATCH" >/dev/null
 export PROJECT_ROOT="$SCRATCH"
-mkdir -p "$SCRATCH/.klc/index" "$SCRATCH/.klc/logs" "$SCRATCH/.klc/reports"
-mkdir -p "$SCRATCH/.klc/config"
-echo "profile: generic" > "$SCRATCH/.klc/config/profile.yml"
+# Heredoc python snippets need the klc repo path; quoted heredocs
+# don't expand shell vars, so expose via env.
+export KLC_FW="$FW_ROOT"
 
 cd "$SCRATCH"
 
@@ -54,12 +52,12 @@ fail() { printf '[smoke] FAIL: %s\n' "$*" >&2; [ "$KEEP" = "1" ] && printf '[smo
 say "scratch: $SCRATCH"
 
 say "1/4 file-scanner.sh"
-bash klc/core/skills/file-scanner.sh > .klc/index/structural.json
+bash $FW_ROOT/core/skills/file-scanner.sh > .klc/index/structural.json
 python3 -c "import json; json.load(open('.klc/index/structural.json'))" \
   || fail "structural.json did not parse"
 
 say "2/4 dep-graph.sh"
-bash klc/core/skills/dep-graph.sh > .klc/index/depgraph.json
+bash $FW_ROOT/core/skills/dep-graph.sh > .klc/index/depgraph.json
 python3 -c "
 import json, sys
 d = json.load(open('.klc/index/depgraph.json'))
@@ -132,8 +130,8 @@ pathlib.Path(".klc/index/modules.json").write_text(json.dumps({
 PY
 
 say "4/4 public-api-filter + module-writer --all"
-python3 klc/core/skills/public-api-filter.py
-python3 klc/core/skills/module-writer.py --all > /dev/null
+python3 $FW_ROOT/core/skills/public-api-filter.py
+python3 $FW_ROOT/core/skills/module-writer.py --all > /dev/null
 
 # per-module-hash.py contract: public-api-filter must have written
 # the hash file; diff against the stored baseline returns an empty
@@ -146,7 +144,7 @@ if not p.exists():
 
 env = os.environ.copy(); env["PROJECT_ROOT"] = os.getcwd()
 r = subprocess.run(
-    ["python3", "klc/core/skills/per_module_hash.py", "diff"],
+    ["python3", os.environ["KLC_FW"] + "/core/skills/per_module_hash.py", "diff"],
     capture_output=True, text=True, env=env,
 )
 if r.returncode != 0:
@@ -164,7 +162,7 @@ target = mods["modules"][0]["name"]
 mods["modules"][0]["public_api"] = list(mods["modules"][0].get("public_api", [])) + ["__smoke_sentinel__"]
 mods_path.write_text(json.dumps(mods, indent=2))
 r = subprocess.run(
-    ["python3", "klc/core/skills/per_module_hash.py", "diff"],
+    ["python3", os.environ["KLC_FW"] + "/core/skills/per_module_hash.py", "diff"],
     capture_output=True, text=True, env=env,
 )
 d = json.loads(r.stdout)
@@ -173,7 +171,7 @@ if target not in d["changed"]:
 
 # module-writer --only regenerates just the named module.
 r = subprocess.run(
-    ["python3", "klc/core/skills/module-writer.py",
+    ["python3", os.environ["KLC_FW"] + "/core/skills/module-writer.py",
      "--only", target],
     capture_output=True, text=True, env=env,
 )
@@ -227,7 +225,7 @@ try:
         print("no modules to check", file=sys.stderr); sys.exit(1)
     names = ",".join(m["name"] for m in mods[:1])
     r = subprocess.run(
-        ["python3", "klc/core/skills/context-loader.py",
+        ["python3", os.environ["KLC_FW"] + "/core/skills/context-loader.py",
          "--modules", names, "--format", "json"],
         capture_output=True, text=True, env=env,
     )
@@ -249,7 +247,7 @@ import json, os, pathlib, subprocess, sys, time
 env = os.environ.copy(); env["PROJECT_ROOT"] = os.getcwd()
 
 def run(*args, expect_ok=True):
-    r = subprocess.run(["python3", "klc/core/skills/serena-call.py", *args],
+    r = subprocess.run(["python3", os.environ["KLC_FW"] + "/core/skills/serena-call.py", *args],
                        capture_output=True, text=True, env=env)
     if expect_ok and r.returncode != 0:
         print("serena-call", args, "exit", r.returncode, r.stderr, file=sys.stderr)
@@ -320,7 +318,7 @@ for t in ("TICK-a", "TICK-b", "TICK-c"):
     (d / "serena-calls.log").write_text(json.dumps(rec) + "\n")
 
 def run(*args, expect_ok=True):
-    r = subprocess.run(["python3", "klc/core/skills/serena_deny.py", *args],
+    r = subprocess.run(["python3", os.environ["KLC_FW"] + "/core/skills/serena_deny.py", *args],
                        capture_output=True, text=True, env=env)
     if expect_ok and r.returncode != 0:
         print("serena_deny", args, "exit", r.returncode, r.stderr, file=sys.stderr)
@@ -412,7 +410,7 @@ subprocess.run(["git", "add", "src-fact/drift.py"], check=True, env=e)
 subprocess.run(["git", "commit", "-q", "-m", "drift"], check=True, env=e)
 
 r = subprocess.run(
-    ["python3", "klc/core/skills/items_verify.py", "scan", "--top", "10"],
+    ["python3", os.environ["KLC_FW"] + "/core/skills/items_verify.py", "scan", "--top", "10"],
     capture_output=True, text=True, env=env,
 )
 if r.returncode != 0:
@@ -448,7 +446,7 @@ env = os.environ.copy(); env["PROJECT_ROOT"] = os.getcwd()
 ticket = "TICK-smoke"
 
 def run(*args):
-    r = subprocess.run(["python3", "klc/core/skills/scratch.py", *args],
+    r = subprocess.run(["python3", os.environ["KLC_FW"] + "/core/skills/scratch.py", *args],
                        capture_output=True, text=True, env=env)
     if r.returncode != 0:
         print("scratch.py", args, "exit", r.returncode, r.stderr, file=sys.stderr)
@@ -490,7 +488,7 @@ PY
 # simulated with a dummy merge-sha.
 say "phase loop: intake → discover → build → review → integrate → observe → learn"
 
-KLC="$SCRATCH/klc/scripts/klc"
+KLC="$SCRATCH/.klc/bin/klc"
 
 # init a git repo so integrate and doctor don't complain.
 git init -q

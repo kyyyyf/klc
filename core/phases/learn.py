@@ -25,7 +25,14 @@ import lifecycle  # noqa: E402
 
 
 def _meta(ticket: str) -> dict:
-    return json.loads(klc_ticket_meta_file(ticket).read_text(encoding="utf-8"))
+    p = klc_ticket_meta_file(ticket)
+    if not p.exists():
+        sys.stderr.write(
+            f"klc: unknown ticket {ticket!r}; run `klc intake {ticket}` "
+            f"or `klc board` to list live tickets\n"
+        )
+        raise SystemExit(1)
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 def _write(ticket: str, meta: dict) -> None:

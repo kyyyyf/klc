@@ -22,7 +22,7 @@ log()  { echo "[update] $*"; }
 die()  { echo "[update][err] $*" >&2; exit 1; }
 
 [ -f "$INDEX_DIR/.last-run" ] || \
-  die ".klc/index/.last-run missing; run ./framework/scripts/init.sh first"
+  die ".klc/index/.last-run missing; run .klc/bin/klc init.sh first"
 
 LAST="$(tr -d '[:space:]' < "$INDEX_DIR/.last-run")"
 HEAD_SHA="$(git rev-parse HEAD)"
@@ -43,7 +43,7 @@ log "Changed files -> .klc/index/changed-files.txt"
 log "Now run the periodic agent inside Claude Code:"
 cat <<EOF
   Prompt:
-    Read framework/core/agents/periodic.md and execute it.
+    Read core/agents/periodic.md and execute it.
     Inputs:
       - .klc/index/.last-run (SHA: $LAST)
       - .klc/index/changed-files.txt
