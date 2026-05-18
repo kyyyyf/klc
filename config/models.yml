@@ -1,0 +1,120 @@
+# models.yml — per-phase LLM model selection.
+#
+# klc's agent prompts at `core/agents/*.md` are model-agnostic. This
+# file tells the host-side runner (`core/skills/runner.py`) which
+# model to dispatch to when a given phase's agent is asked to run.
+#
+# Shape:
+#
+#   defaults      — provider / model / api_key_env used when a role
+#                   doesn't declare its own.
+#   roles         — named "model types" the user thinks in terms of
+#                   (heavy-reasoning, coding, local-simple, ...).
+#                   Each role maps to a concrete provider + model.
+#   phase_roles   — which role runs at each phase in config/phases.yml.
+#                   Keys are phase ids; values are role names. Every
+#                   phase with `work.prompt` declared in phases.yml
+#                   must be covered here.
+#   per_track     — optional overrides keyed by track (XS, S, M, L).
+#                   Format: `per_track.<track>.<phase> = <role>`. XS
+#                   tickets might not warrant Opus; L tickets might
+#                   upgrade the external reviewer to Opus.
+#
+# Resolution order for a given (phase, track):
+#   1. per_track[track][phase] if present
+#   2. phase_roles[phase]
+#   3. falls through to `defaults` if the role entry is missing fields.
+#
+# Providers supported by core/skills/runner.py:
+#   - anthropic  — invokes the `claude` CLI (non-interactive).
+#                  Override the binary via CLAUDE_CLI env.
+#   - openai     — urllib POST to /v1/chat/completions.
+#                  Requires api_key_env set.
+#   - ollama     — `ollama run <model>` on stdin.
+#                  No api_key_env needed (local runtime).
+#   - google     — deferred; raises NotImplementedError today.
+#
+# Project override: `.klc/config/models.yml` shadows this file per
+# project (same pattern as `.klc/config/profile.yml`).
+#
+# Change this file to reshape which models run where — the runner is
+# data-driven and holds no hardcoded model names.
+
+version: 1
+
+defaults:
+  provider:    anthropic
+  model:       claude-sonnet-4-5
+  api_key_env: ANTHROPIC_API_KEY
+  extra_args:  []
+
+# --- roles (named "model types") --------------------------------------------
+#
+# Add as many slots as make sense for your team's mental model. The
+# runner doesn't care about names — phase_roles below decides which
+# slot fires when.
+
+roles:
+  heavy-reasoning:
+    provider:    anthropic
+    model:       claude-opus-4-5
+    api_key_env: ANTHROPIC_API_KEY
+
+  coding:
+    provider:    anthropic
+    model:       claude-sonnet-4-5
+    api_key_env: ANTHROPIC_API_KEY
+
+  local-simple:
+    provider:    ollama
+    model:       qwen2.5:7b
+    api_key_env: null   # local runtime; no API key
+
+  local-coding:
+    provider:    ollama
+    model:       qwen2.5-coder:14b
+    api_key_env: null
+
+  external:
+    provider:    openai
+    model:       gpt-4o
+    api_key_env: OPENAI_API_KEY
+
+# --- phase → role mapping ---------------------------------------------------
+#
+# Keys are phase ids from config/phases.yml. Two pseudo-phases that do
+# not appear in phases.yml are also honoured by the runner:
+#   - indexing       : inventory / decompose / docgen / periodic
+#                      (run through `klc init` and `klc update`)
+#   - review-external: the optional external reviewer invoked from
+#                      scripts/review.py. Maps to the `external_reviewer`
+#                      block in config/reviewers.yml when enabled.
+
+phase_roles:
+  indexing:             local-coding
+  intake:               heavy-reasoning
+  discovery:            heavy-reasoning
+  acceptance-test-plan: coding
+  design:               heavy-reasoning
+  detailed-test-plan:   coding
+  build:                coding
+  review:               coding
+  review-internal:      coding         # alias of `review` for sub-agents
+  review-external:      external
+  manual:               coding
+  integrate:            local-simple
+  observe:              local-simple
+  learn:                local-simple
+
+# --- per-track overrides ----------------------------------------------------
+#
+# XS tickets are small fixes — Opus is overkill. L tickets touch more
+# surface, so the external reviewer is upgraded. Leave a track out
+# entirely to accept the defaults above.
+
+per_track:
+  XS:
+    design: local-simple
+    build:  local-coding
+  L:
+    review-external: heavy-reasoning

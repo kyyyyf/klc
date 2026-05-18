@@ -1,0 +1,13 @@
+{# Short test plan. Cap ~10 lines. #}
+---
+ticket: {{ ticket }}
+authority: hybrid
+---
+
+# Test plan (short) — {{ ticket }}
+
+| AC | Test |
+|----|------|
+{% for row in coverage %}
+| {{ row.ac }} | `{{ row.location }}` |
+{% endfor %}

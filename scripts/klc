@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""klc — unified dispatcher for the Codebase Intelligence Framework.
+
+The ticket lifecycle is driven by six verbs:
+
+    intake   — create a ticket (puts it in `intake:ack-needed`)
+    status   — show the current path through the ticket's track
+    next     — advance from `:ack` to the next `:work`
+    ack      — confirm `:ack-needed`; optionally pick a variant
+    jump     — cross-cut from `<X>:ack` to any `<phase>:work`
+    abort    — cancel `<X>:work`, return to the previous `:ack`
+
+Plus a few operational commands:
+
+    board    — kanban view across tickets
+    doctor   — install-level health check
+    metrics  — per-ticket or rollup metrics
+    reindex  — rebuild a ticket's .index.json
+
+And install-time:
+
+    install  — bootstrap a project to use this klc checkout
+    init     — scan project + prepare inventory
+    update   — incremental refresh after commits
+
+Each subcommand has its own --help.
+"""
+from __future__ import annotations
+
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+
+SCRIPT = Path(__file__).resolve()
+FRAMEWORK_ROOT = SCRIPT.parent.parent
+SKILLS_DIR = FRAMEWORK_ROOT / "core" / "skills"
+PHASES_DIR = FRAMEWORK_ROOT / "core" / "phases"
+
+sys.path.insert(0, str(SKILLS_DIR))
+
+
+def _load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot import {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _run_phase(name: str, argv: list[str]) -> int:
+    path = PHASES_DIR / f"{name}.py"
+    if not path.exists():
+        sys.stderr.write(f"klc: command not implemented: {name}\n")
+        return 2
+    mod = _load_module(path, f"klc_phase_{name.replace('-', '_')}")
+    if not hasattr(mod, "run"):
+        sys.stderr.write(f"klc: {path} has no run() entry point\n")
+        return 2
+    return int(mod.run(argv))
+
+
+def _run_skill_subcommand(skill: str, subcommand: str, argv: list[str]) -> int:
+    path = SKILLS_DIR / f"{skill}.py"
+    if not path.exists():
+        sys.stderr.write(f"klc: skill not found: {skill}\n")
+        return 2
+    import subprocess
+    return subprocess.call(
+        [sys.executable, str(path), subcommand, *argv],
+        env={**os.environ, "PROJECT_ROOT": _project_root()},
+    )
+
+
+def _project_root() -> str:
+    env = os.environ.get("PROJECT_ROOT")
+    if env:
+        return str(Path(env).resolve())
+    return str(FRAMEWORK_ROOT.parent)
+
+
+# --- subcommand dispatch ------------------------------------------------------
+
+LIFECYCLE_CMDS = (
+    "intake", "status", "next", "ack", "jump", "abort",
+)
+OPERATIONAL_CMDS = (
+    "board", "doctor", "metrics", "reindex", "install",
+)
+
+
+def _dispatch(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help"):
+        _print_help()
+        return 0
+    cmd, rest = argv[0], argv[1:]
+
+    if cmd in ("--version", "-V"):
+        print("klc 0.2")
+        return 0
+
+    if cmd in LIFECYCLE_CMDS or cmd in OPERATIONAL_CMDS:
+        return _run_phase(cmd, rest)
+
+    if cmd == "reindex":
+        if not rest:
+            sys.stderr.write("usage: klc reindex <ticket>\n"); return 2
+        return _run_skill_subcommand("items", "index", ["--ticket", rest[0]])
+
+    if cmd == "metrics":
+        if rest and rest[0] == "--rollup":
+            return _run_skill_subcommand("metrics", "rollup", rest[1:])
+        if not rest:
+            sys.stderr.write("usage: klc metrics <ticket> | klc metrics --rollup\n"); return 2
+        return _run_skill_subcommand("metrics", "show", ["--ticket", rest[0]])
+
+    if cmd in ("init", "update"):
+        script = FRAMEWORK_ROOT / "scripts" / f"{cmd}.py"
+        if not script.exists():
+            sys.stderr.write(f"klc: {script} missing\n"); return 2
+        import subprocess
+        return subprocess.call(
+            [sys.executable, str(script), *rest],
+            env={**os.environ, "PROJECT_ROOT": _project_root()},
+        )
+
+    sys.stderr.write(f"klc: unknown subcommand: {cmd}\n")
+    _print_help()
+    return 2
+
+
+def _print_help() -> None:
+    print(__doc__.strip())
+
+
+if __name__ == "__main__":
+    sys.exit(_dispatch(sys.argv[1:]))
