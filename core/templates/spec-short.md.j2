@@ -1,0 +1,18 @@
+{# XS-track spec. Hard cap ~15 lines. #}
+---
+ticket: {{ ticket }}
+kind: {{ kind }}
+track: XS
+authority: human
+---
+
+# {{ ticket }} — {{ title }}
+
+{{ context }}
+
+## AC
+{% for ac in acceptance_criteria %}
+- AC-{{ loop.index }}: {{ ac }}
+{% endfor %}
+
+Track: XS (complexity={{ estimate.complexity }} uncertainty={{ estimate.uncertainty }} risk={{ estimate.risk }} manual={{ estimate.manual }})

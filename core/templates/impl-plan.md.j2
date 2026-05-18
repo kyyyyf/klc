@@ -1,0 +1,34 @@
+---
+ticket: {{ ticket }}
+authority: hybrid
+last_generated: {{ generated_at }}
+---
+
+# Implementation plan — {{ ticket }}
+
+Chosen option: **{{ chosen_option }}**
+
+{% for step in steps %}
+## step-{{ loop.index }} — {{ step.title }}
+
+{{ step.description }}
+
+**Affected files**:
+{% for f in step.files %}
+- `{{ f }}`
+{% endfor %}
+
+**Expected tests**:
+{% for t in step.tests or [] %}
+- `{{ t }}`
+{% endfor %}
+
+{% if step.rollback %}
+**Rollback**: {{ step.rollback }}
+{% endif %}
+
+{% endfor %}
+
+<!-- BEGIN: manual -->
+<!-- Human additions to the plan -->
+<!-- END: manual -->

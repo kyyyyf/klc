@@ -1,0 +1,41 @@
+---
+ticket: {{ ticket }}
+authority: generated
+last_generated: {{ generated_at }}
+---
+
+# Options — {{ ticket }}
+
+{% for opt in options %}
+## Option {{ opt.label }} — {{ opt.title }}
+{% if opt.recommended %}**Recommended.**{% endif %}
+
+**Trade-off**: {{ opt.tradeoff }}
+
+**Affected files**:
+{% for f in opt.files %}
+- `{{ f }}`
+{% endfor %}
+
+**Affected public APIs**: {{ opt.public_apis or "none" }}
+
+**New dependencies**: {{ opt.deps or "none" }}
+
+**Risks**:
+{% for r in opt.risks %}
+- {{ r }}
+{% endfor %}
+
+**Rollout**: {{ opt.rollout }}
+
+**Estimate**: {{ opt.estimate }}
+
+{% endfor %}
+
+## Recommendation
+
+{{ recommendation }}
+
+```
+ADR_NEEDED={{ "yes" if adr_needed else "no" }} REASON="{{ adr_reason }}"
+```
