@@ -11,17 +11,16 @@ Generate the `CLAUDE.md` documentation tree:
   `CLAUDE.md` ends up in `claude_md_context` on every review and task
   invocation, so length multiplies across runs. The templates enforce a
   15-symbol cap on `public_api` and a 10-item cap on `notes`; reviewers
-  that need more go through `serena-call.py` (`--op find_symbol ...`)
-  or read `.klc/index/symbols_by_module.json` for the module-scoped
-  slice. Docgen itself never calls Serena — generation is deterministic.
+  that need more read `.klc/index/symbols_by_module.json` for the
+  module-scoped slice or use LSP `documentSymbol` directly.
 - **Describe invariants, not code.** If it is visible in the code, don't
   repeat. If it isn't (why a boundary exists, why this pattern), record it.
 - **Link, don't copy.** Point at ADRs, entry files, the inventory.
 - **No signatures in module `CLAUDE.md`.** The template must render
   public API entries as names only — never include parameters, return
-  types, or bodies. Signatures live in code, are fetched through
-  `serena-call.py` during design/impl, and double the size of every
-  `claude_md_context` bundle if let in. The `--all` / `--only` verify
+  types, or bodies. Signatures are fetched via LSP during design/impl
+  and would double the size of every `claude_md_context` bundle if let
+  in. The `--all` / `--only` verify
   step fails the render if any line under `## Public API` looks like
   it contains `(` or `→` — those are signature tells.
 
@@ -57,7 +56,7 @@ Generate the `CLAUDE.md` documentation tree:
 
 4. **Module `CLAUDE.md`.** Per module: name, path, language, entry file,
    `public_api` (symbol names only, capped at 15 — readers who need
-   signatures resolve them through `serena-call.py` during design/impl),
+   signatures use LSP during design/impl),
    `depends_on` / `depended_by`, an empty manual block placeholder, and
    ADRs whose body mentions this module's name or path.
 

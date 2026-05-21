@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
-"""update.py — incremental refresh after commits.
+"""update.py — deterministic incremental refresh after commits.
 
-Port of update.sh. Computes the change window between the recorded
-last-run SHA and the current HEAD, writes the changed-file list, and
-prints the periodic agent prompt for the operator to paste into
-Claude Code (or, with `--auto`, runs it through core/skills/runner.py
-once that lands).
+Runs the deterministic pipeline:
+  1. git diff since .last-run → changed-files.txt
+  2. file_scanner → structural.json (refresh)
+  3. dep_graph    → depgraph.json (refresh)
+  4. per_module_hash diff → stale.json (which modules need doc regen)
+  5. Write stale.json; advance .last-run
+
+No LLM is called. Designed to run in a post-commit hook (~1-3s).
+
+When modules are stale:
+  klc intake will warn the operator.
+  To regenerate docs for stale modules run:
+    klc update --regen        (skeleton CLAUDE.md, no LLM)
+    klc update --regen --llm  (one LLM call per stale module, expensive)
 
 Per-project state lives in $PROJECT_ROOT/.klc/.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -33,17 +43,20 @@ def err(msg: str) -> int:
     return 1
 
 
-def _git_head() -> str:
-    r = subprocess.run(["git", "rev-parse", "HEAD"],
+# --------------------------------------------------------------------------- #
+# git helpers
+# --------------------------------------------------------------------------- #
+
+def _git_head(root: Path) -> str:
+    r = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
                        capture_output=True, text=True, timeout=5)
-    if r.returncode != 0:
-        return ""
-    return r.stdout.strip()
+    return r.stdout.strip() if r.returncode == 0 else ""
 
 
-def _changed_files(last: str, head: str) -> list[str]:
+def _changed_files(root: Path, last: str, head: str) -> list[str]:
     r = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=ACMRD", last, head],
+        ["git", "-C", str(root), "diff", "--name-only",
+         "--diff-filter=ACMRD", last, head],
         capture_output=True, text=True, timeout=15,
     )
     if r.returncode != 0:
@@ -51,11 +64,122 @@ def _changed_files(last: str, head: str) -> list[str]:
     return [line for line in r.stdout.splitlines() if line.strip()]
 
 
+# --------------------------------------------------------------------------- #
+# deterministic scan helpers
+# --------------------------------------------------------------------------- #
+
+def _run_scanner(script: Path, out_file: Path) -> int:
+    r = subprocess.run([sys.executable, str(script)],
+                       capture_output=True, text=True, timeout=300)
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr)
+        return 1
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError as e:
+        sys.stderr.write(f"[update] {script.name} produced invalid JSON: {e}\n")
+        return 1
+    out_file.write_text(json.dumps(data, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
+    return 0
+
+
+def _compute_stale(index_dir: Path, changed: list[str]) -> dict:
+    """Given changed file list, return stale module info.
+
+    Loads modules.json, maps changed files to modules, walks depended_by
+    for transitive closure, returns:
+      {"stale_modules": [...], "changed_files": N, "total_modules": N}
+    """
+    modules_file = index_dir / "modules.json"
+    if not modules_file.exists():
+        return {"stale_modules": [], "changed_files": len(changed), "total_modules": 0}
+
+    try:
+        modules: list[dict] = json.loads(modules_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"stale_modules": [], "changed_files": len(changed), "total_modules": 0}
+
+    total = len(modules)
+    if not changed or not modules:
+        return {"stale_modules": [], "changed_files": len(changed), "total_modules": total}
+
+    # Build path→module map
+    path_to_mod: dict[str, str] = {}
+    for m in modules:
+        mpath = (m.get("path") or "").rstrip("/")
+        if mpath:
+            path_to_mod[mpath] = m["name"]
+
+    # Map changed files to modules
+    directly_stale: set[str] = set()
+    for f in changed:
+        for mpath, mname in path_to_mod.items():
+            if f.startswith(mpath + "/") or f == mpath:
+                directly_stale.add(mname)
+
+    # Transitive closure via depended_by
+    name_to_mod = {m["name"]: m for m in modules}
+    visited: set[str] = set(directly_stale)
+    queue = list(directly_stale)
+    while queue:
+        mname = queue.pop()
+        mod = name_to_mod.get(mname, {})
+        for dep in (mod.get("depended_by") or []):
+            if dep not in visited:
+                visited.add(dep)
+                queue.append(dep)
+
+    # Fallback: if >20% of tracked files changed, mark everything stale
+    tracked_files = sum(len(m.get("files") or []) for m in modules) or 1
+    if len(changed) / tracked_files > 0.2:
+        visited = {m["name"] for m in modules}
+        log(f"  >20% of tracked files changed — marking all {total} modules stale")
+
+    return {
+        "stale_modules": sorted(visited),
+        "changed_files": len(changed),
+        "total_modules": total,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# skeleton CLAUDE.md regen (no LLM)
+# --------------------------------------------------------------------------- #
+
+def _regen_skeleton(index_dir: Path, stale_names: list[str]) -> int:
+    """Regenerate CLAUDE.md skeleton for stale modules without LLM.
+    Delegates to module-writer.py --only <names>."""
+    if not stale_names:
+        log("No stale modules to regenerate.")
+        return 0
+    writer = FRAMEWORK_ROOT / "core" / "skills" / "module-writer.py"
+    if not writer.exists():
+        return err(f"module-writer.py not found at {writer}")
+    names_arg = ",".join(stale_names)
+    log(f"Regenerating skeleton CLAUDE.md for: {names_arg}")
+    r = subprocess.run(
+        [sys.executable, str(writer), "--only", names_arg],
+        capture_output=True, text=True, timeout=300,
+    )
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr)
+        return err("module-writer.py failed")
+    log(r.stdout.strip())
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# main
+# --------------------------------------------------------------------------- #
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc update", description=__doc__)
-    ap.add_argument("--auto", action="store_true",
-                    help="Run the periodic agent via core/skills/runner.py "
-                         "(requires config/models.yml).")
+    ap.add_argument("--regen", action="store_true",
+                    help="Regenerate skeleton CLAUDE.md for stale modules "
+                         "(deterministic, no LLM).")
+    ap.add_argument("--force", action="store_true",
+                    help="Run even if HEAD == .last-run (useful after manual edits).")
     args = ap.parse_args(argv)
 
     root = project_root()
@@ -70,64 +194,69 @@ def main(argv: list[str]) -> int:
         return err(".klc/index/.last-run missing; run `klc init` first")
     last = last_file.read_text(encoding="utf-8").strip()
 
-    head = _git_head()
+    head = _git_head(root)
     if not head:
         return err("git rev-parse HEAD failed — is this a git repo?")
 
-    if last == head:
-        print("PERIODIC_NOOP")
+    if last == head and not args.force:
+        print("UPDATE_NOOP")
         return 0
 
-    log(f"Change window: {last}..{head}")
-    changed = _changed_files(last, head)
+    log(f"Change window: {last[:8]}..{head[:8]}")
+    changed = _changed_files(root, last, head)
+
+    # Filter out .klc/ internal files — they are not project source
+    changed = [f for f in changed if not f.startswith(".klc/")]
+
     changed_file = index_dir / "changed-files.txt"
     changed_file.write_text("\n".join(changed) + "\n", encoding="utf-8")
-    log(f"Changed files -> {changed_file.relative_to(root)} ({len(changed)} file(s))")
+    log(f"Changed source files: {len(changed)}")
 
-    if args.auto:
-        sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
-        from runner import run_agent  # noqa: E402
+    # Step 1: re-scan structure
+    log("Step 1/3: file_scanner")
+    rc = _run_scanner(
+        FRAMEWORK_ROOT / "core" / "skills" / "file_scanner.py",
+        index_dir / "structural.json",
+    )
+    if rc:
+        return err("file_scanner failed")
 
-        prompt = FRAMEWORK_ROOT / "core" / "agents" / "periodic.md"
-        out_path = index_dir / "_periodic.out.md"
-        log(f"Running periodic agent via runner → {out_path.relative_to(root)}")
-        rc = run_agent(
-            phase_id="indexing",
-            prompt_path=prompt,
-            out_path=out_path,
-        )
-        if rc != 0:
-            return err(
-                f"periodic agent failed (exit {rc}); "
-                f"see {out_path.relative_to(root)}"
-            )
-        text = out_path.read_text(encoding="utf-8") if out_path.exists() else ""
-        if "PERIODIC_NOOP" in text:
-            print("PERIODIC_NOOP")
-            return 0
-        if "PERIODIC_OK" not in text:
-            return err(
-                f"periodic agent produced no PERIODIC_OK / PERIODIC_NOOP trailer; "
-                f"inspect {out_path.relative_to(root)}"
-            )
-        last_file.write_text(head + "\n", encoding="utf-8")
-        print("PERIODIC_OK")
-        return 0
+    # Step 2: re-scan dep graph (non-fatal)
+    log("Step 2/3: dep_graph")
+    rc = _run_scanner(
+        FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
+        index_dir / "depgraph.json",
+    )
+    if rc:
+        log("  WARN: dep_graph failed; stale detection may be less precise")
 
-    log("Now run the periodic agent inside Claude Code:")
-    print("  Prompt:")
-    print("    Read core/agents/periodic.md and execute it.")
-    print("    Inputs:")
-    print(f"      - .klc/index/.last-run (SHA: {last})")
-    print( "      - .klc/index/changed-files.txt")
-    print( "      - .klc/index/inventory.json")
-    print( "      - .klc/index/modules.json")
-    print(f"    Current HEAD: {head}")
-    print(f"    On success, print PERIODIC_OK and overwrite .klc/index/.last-run with {head}.")
-    print( "    On no-op, print PERIODIC_NOOP.")
-    print("")
-    log("After the agent finishes:")
-    log(f"  echo {head} > .klc/index/.last-run")
+    # Step 3: compute stale modules
+    log("Step 3/3: computing stale modules")
+    stale = _compute_stale(index_dir, changed)
+    stale_file = index_dir / "stale.json"
+    stale_file.write_text(json.dumps(stale, indent=2, ensure_ascii=False),
+                          encoding="utf-8")
+
+    n_stale = len(stale["stale_modules"])
+    if n_stale:
+        log(f"  {n_stale} stale module(s): {', '.join(stale['stale_modules'])}")
+    else:
+        log("  No modules affected.")
+
+    # Optional: regenerate skeletons
+    if args.regen and n_stale:
+        rc = _regen_skeleton(index_dir, stale["stale_modules"])
+        if rc:
+            return rc
+
+    # Advance baseline only after everything succeeded
+    last_file.write_text(head + "\n", encoding="utf-8")
+
+    if n_stale:
+        print(f"UPDATE_OK {n_stale} module(s) stale"
+              + ("" if args.regen else " — run `klc update --regen` to refresh docs"))
+    else:
+        print("UPDATE_OK no stale modules")
     return 0
 
 

@@ -10,26 +10,24 @@ code changes plus an accurate updated plan.
 
 ## Inputs
 
-Mandatory:
-- `.klc/tickets/<KEY>/spec.md` — the contract. Read-only for you.
-- `.klc/tickets/<KEY>/impl-plan.md` — authoritative list of
-  `step-1`, `step-2`, … steps with `affected files` and expected
-  tests per step.
-- `.klc/tickets/<KEY>/test-plan.md` — test layout (acceptance section
-  + `## Detailed coverage` on M/L).
-- `.klc/tickets/<KEY>/meta.json` — `track`, `estimate`, current
-  `budgets` counters (`red_test_fix_attempts`, `mutation_fix_attempts`).
-- Source code under `affected_modules` (from meta).
-- Pending failing tests the `test` agent just wrote.
+Your prompt card (`_prompt_step_N.md`) contains only what you need for
+the current step. Do NOT pre-load full source files.
 
-Reachable on demand:
-- `.klc/index/modules.json`, `symbols_by_module.json` — when you
-  need to touch a symbol you didn't write and don't yet know.
-- Serena via `core/skills/serena-call.py` — **track-gated**. XS is
-  denied; S is allowed in Build only; M / L are allowed. Every
-  signature you cite in a commit message, a docstring, or
-  `impl-plan.md` must carry `cached at <path>` or
-  `verified-via-serena at <iso>` — no hallucinated symbols.
+In the step card:
+- Goals + Acceptance Criteria (from spec.md)
+- Current step: title, description, affected files, expected tests
+- Test run command
+
+Reachable on demand (read only when needed):
+- `.klc/tickets/<KEY>/impl-plan.md` — full plan. Read only for cross-step context.
+- `.klc/tickets/<KEY>/spec.md` — full spec. Read-only.
+- `.klc/tickets/<KEY>/test-plan.md` — test layout.
+- `.klc/tickets/<KEY>/meta.json` — `track`, `estimate`, `budgets`.
+- `.klc/index/modules.json`, `symbols_by_module.json` — symbol index.
+- LSP tool — use `goToDefinition`, `findReferences`, `hover`, or
+  `workspaceSymbol` directly for any symbol navigation. No wrapper
+  needed. Every signature you cite in a commit message, a docstring,
+  or `impl-plan.md` must be verified via LSP — no hallucinated symbols.
 
 ## TDD loop you participate in
 

@@ -50,7 +50,6 @@ not pick a track — that is Discovery's job.
   set by Discovery with more context.
 - Do not pick a track.
 - Do not write `spec.md` — that is Discovery.
-- Do not invoke Serena.
 - Do not call out to Jira or any external service.
 
 ## Completion signal

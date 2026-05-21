@@ -132,13 +132,10 @@ Rules for detailed mode:
   disables mutation (e.g. cpp-unreal), skip that column — do not
   invent numbers.
 
-## Serena policy
+## Symbol verification
 
-- Acceptance mode: not used.
-- Detailed mode: allowed on M / L through `serena-call.py` to verify
-  a target symbol's signature when the test name embeds it. Always
-  cite `cached at <path>` or `verified-via-serena at <iso-date>` in
-  a row's Notes when you did.
+- Detailed mode: use LSP `hover` or `goToDefinition` to verify a
+  target symbol's signature when the test name embeds it.
 
 ## Completion signals
 

@@ -56,7 +56,7 @@ def project_root() -> Path:
 
 
 def klc_index_dir() -> Path:
-    """Per-project index directory (see MIGRATION.md)."""
+    """Per-project index directory."""
     return project_root() / ".klc" / "index"
 
 
@@ -199,7 +199,7 @@ def _resolve_doc_filenames(modules: list[dict]) -> list[dict]:
     """Pick a unique CLAUDE.md filename for each module.
 
     When two modules share module.path (e.g. a C# Build.cs module and a
-    Python helpers module both living under CrushDemo/Plugins/Foo/), we
+    Python helpers module both living under MyProject/Plugins/Foo/), we
     write the second one to CLAUDE.<language>.md instead of silently
     overwriting the first. The chosen filename is stored back on the
     module dict as `doc_filename` so future runs are stable and so the
@@ -264,7 +264,7 @@ def _verify(modules: list[dict]) -> list[str]:
     # only. If a rendered file slipped through with `(` or `→` inside
     # the ## Public API block, the template drifted (or a manual edit
     # pasted signatures). Either way the reader pays tokens for data
-    # that belongs in Serena.
+    # that belongs in symbols_by_module.json / LSP.
     for m in modules:
         doc = project_root() / m["path"] / (m.get("doc_filename") or "CLAUDE.md")
         if not doc.exists():

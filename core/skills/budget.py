@@ -33,6 +33,7 @@ DEFAULT_LIMITS: dict[str, int] = {
     "red_test_fix_attempts":  3,
     "mutation_fix_attempts":  3,
     "rework_review_cycles":   3,
+    "xs_fix_attempts":        3,
 }
 
 

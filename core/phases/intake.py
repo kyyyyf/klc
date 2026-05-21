@@ -2,14 +2,14 @@
 """Phase 0 — Intake.
 
 Creates `.klc/tickets/<KEY>/`, writes meta.json + raw.md, appends to
-the global index. Does NOT call Serena, does NOT touch Jira, does NOT
+the global index. Does NOT touch Jira, does NOT
 create git branches. Leaves the ticket in `intake:ack-needed`.
 
 Usage:
     klc intake <JIRA-KEY> [--kind feature|bug|tech] "<desc>"
     cat bug.txt | klc intake <JIRA-KEY> --stdin [--kind bug]
 
-See process-phases.md §3 for the full contract.
+See docs/process.md for the full contract.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills"))
 from _paths import (  # noqa: E402
     klc_config_dir,
     klc_global_tickets_index,
+    klc_index_dir,
     klc_ticket_dir,
     klc_ticket_meta_file,
     klc_ticket_raw_file,
@@ -98,7 +99,7 @@ def run(argv: list[str]) -> int:
                     help="read description from stdin")
     ap.add_argument("--force", action="store_true",
                     help="overwrite existing intake data")
-    ap.add_argument("ticket", help="Jira-style ticket key, e.g. CRUSH-4502")
+    ap.add_argument("ticket", help="Jira-style ticket key, e.g. PROJ-4502")
     ap.add_argument("description", nargs="*",
                     help="description words (any position; quote if it contains options)")
     # parse_intermixed_args lets the positional description follow --kind
@@ -195,7 +196,29 @@ def run(argv: list[str]) -> int:
     print(f"  kind:  {meta['kind']}")
     print(f"  → intake:ack-needed")
     print(f"  next:  klc ack {args.ticket}")
+
+    _warn_stale_modules()
     return 0
+
+
+def _warn_stale_modules() -> None:
+    """Print a warning if stale.json reports modules with outdated docs."""
+    stale_file = klc_index_dir() / "stale.json"
+    if not stale_file.exists():
+        return
+    try:
+        data = json.loads(stale_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    modules = data.get("stale_modules") or []
+    if not modules:
+        return
+    sys.stderr.write(
+        f"\n  ⚠  {len(modules)} module doc(s) may be outdated: "
+        f"{', '.join(modules[:5])}"
+        + (" …" if len(modules) > 5 else "") + "\n"
+        f"     Run `klc update --regen` to refresh CLAUDE.md files.\n\n"
+    )
 
 
 if __name__ == "__main__":

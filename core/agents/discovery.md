@@ -13,24 +13,26 @@ revisions.
 
 - `00-raw.md` — the user's description plus intake-agent notes.
 - `10-root-CLAUDE.md` — project-level invariants.
-- `20-module-docs.md` — CLAUDE.md of candidate modules (if any
-  matched).
-- `30-module-symbols.md` — name list of public symbols in candidate
-  modules.
+- `20-module-docs.md` — CLAUDE.md of **at most 3** candidate modules.
+  Choose the 3 whose names / descriptions have the highest keyword
+  overlap with `raw.md`. Skip the rest — you can always read them on
+  demand if the top-3 prove insufficient.
 - `40-related.md` — up to N prior tickets with shared kind / modules.
 - `50-external-docs.md` — optional; pointers to external docs the
   team declared in `.klc/config/discovery.yml`.
 
+Do **not** pre-load a symbol list. Use the LSP tool on demand:
+```
+workspaceSymbol <name>   — find a class or function by name
+goToDefinition           — jump from usage to definition
+hover                    — inspect type / doc
+```
+This is cheaper than reading a static symbol dump and gives you the
+real, current signature.
+
 Reachable on demand but expensive:
 - `.klc/tickets/archive/<KEY>/retrospective.md` — lessons from past
   tickets you deem relevant. Read only those 40-related.md flagged.
-
-## Serena policy
-
-**Discovery does not call Serena** by default. Track-aware gate denies
-discovery even on M / L unless the project has
-`.klc/config/serena-policy.yml` explicitly enabling it. If you think
-you need Serena, add a `QUESTION` and move on — Design will verify.
 
 ## Steps
 
@@ -96,7 +98,7 @@ verifying — just link to it.
 
 ### 3. Track classification
 
-See process-phases.md §2 for the rubric. Scoring 0–3 on four axes:
+See `docs/process.md` §Tracks for the rubric. Scoring 0–3 on four axes:
 - **Complexity** — 0=trivial / 3=cross-module architectural.
 - **Uncertainty** — 0=fully specified / 3=needs a spike.
 - **Risk** — 0=no user impact / 3=data or security implications.
@@ -132,8 +134,7 @@ discovery.
 
 ## Hard rules
 
-- No Serena calls. If you need one, emit a QUESTION and stop.
-- Every FACT requires `src=<file:line or stable ref>`.
+- Every FACT requires `src=<file:line or stable ref>`. Use LSP to verify.
 - Downgrading the track is forbidden; the human may upgrade later
   via `klc ack ... --upgrade-track L`.
 - `affected_modules` must be a subset of `modules.json` names;

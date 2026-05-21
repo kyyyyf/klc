@@ -12,8 +12,7 @@ Creates inside <project-root>/.klc/:
     logs/
     reports/
     tickets/
-    knowledge/           — with seed copies of reviewer-allowlist
-                           and serena-deny
+    knowledge/           — with seed copy of reviewer-allowlist
 
 Plus, in <project-root>:
     .mcp.json            — copied from the active profile if none exists
@@ -102,13 +101,10 @@ def run(argv: list[str]) -> int:
                      config_dir / "ticket-id.yml",
                      force=args.force)
 
-    # Reviewer allowlist / serena deny: ship seeds into knowledge/ so the
-    # runtime picks up the project copy even before the first retrospective.
+    # Ship reviewer allowlist seed so the runtime picks up the project
+    # copy even before the first retrospective.
     _copy_if_missing(fw / "config" / "reviewer-allowlist.seed.yml",
                      knowledge_dir / "reviewer-allowlist.yml",
-                     force=args.force)
-    _copy_if_missing(fw / "config" / "serena-deny.yml",
-                     knowledge_dir / "serena-deny.yml",
                      force=args.force)
 
     # --- .mcp.json ---------------------------------------------------------
