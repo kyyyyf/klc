@@ -89,6 +89,22 @@ asserts a new session is issued. The spec's "expected result" maps
 behaviour. Existing tests still pass. Do not flag "no new tests" as
 CRITICAL — the bar is "introduced or worsened by this diff".
 
+## Verify before reporting
+
+Before writing any finding into the partial, **read the actual test
+file at `file:line` and confirm the gap is real**. Steps:
+
+1. Open the test file and read the surrounding context.
+2. For "missing test for AC X" — grep the test directory by AC keyword
+   and by name of the symbol under test; the coverage may live in a
+   file you didn't expect.
+3. For "brittle assertion" — confirm the assertion is on an
+   implementation detail, not on a contract from spec.md.
+4. Classify:
+   - **CONFIRMED** — write to partial.
+   - **FALSE POSITIVE** — drop silently. The partial is for actionable
+     findings only.
+
 ## Hard rules
 - Before emitting any finding, scan `.klc/knowledge/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.
 - If `test-framework.json` is missing, flag at `CRITICAL` — the test agent

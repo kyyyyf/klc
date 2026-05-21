@@ -68,6 +68,24 @@ PR leaves the branch, and move the fixture to an env var.
 real secret leaks. The reviewer must not flag — placeholders are
 documented in Hard rules.
 
+## Verify before reporting
+
+Before writing any finding into the partial, **read the actual code at
+`file:line` and confirm the issue is real**. Steps:
+
+1. Open the file and read the `±20` lines around the cited line.
+2. Confirm the construct described in the finding exists at that
+   location, not a similarly-named one elsewhere.
+3. Check whether an existing mitigation already neutralises the risk
+   (input validation upstream, guard clause, framework default).
+4. Classify:
+   - **CONFIRMED** — write to partial.
+   - **FALSE POSITIVE** — drop silently. The partial is for actionable
+     findings only.
+
+For secrets, the verification is the regex/prefix match itself; for
+everything else (injection, auth, deser, transport) read the code.
+
 ## Hard rules
 - Before emitting any finding, scan `.klc/knowledge/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.
 - Secrets detection doesn't require value validation: if the surrounding
