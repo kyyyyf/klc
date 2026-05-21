@@ -2,9 +2,11 @@
 
 Concept note, not a spec. Describes the minimum UI that removes the
 "two terminals" friction without binding the design to any particular
-LLM client or to the exact shape of klc's commands. Command names are
-placeholders — the framework's own CLI is the authority and will
-change; this document deliberately avoids echoing specific invocations.
+LLM client or to the exact shape of klc's commands.
+
+**Status (2026-05):** framework rework complete (M1–M6). Two data
+contract items below are marked TODO — event log and machine-readable
+status query are not yet implemented in klc.
 
 ## Problem
 
@@ -75,22 +77,28 @@ shape below is illustrative.
    - an optional next **shell step** (a lifecycle command, its working
      directory, a short explanation of what it will do, and a list of
      preconditions with pass/fail labels);
-   - an optional next **LLM step** (the prompt template path, the
-     input bundle path, the expected output file(s), the completion
-     signal the agent should print or the file the agent should
-     write to indicate "done");
+   - an optional next **LLM step** (the prompt card path, the
+     expected output file(s), the completion signal the agent should
+     print to indicate "done");
    - any blockers (unresolved questions in spec, failing guards, etc.).
 
-2. **A rendered prompt** — given the next LLM step, klc can produce
-   the full prompt text with every relative path resolved to an
-   absolute one and every placeholder substituted. The extension
-   requests this text and places it in the clipboard; it never
-   assembles prompts from templates itself.
+   **TODO:** `klc status` currently outputs human-readable text.
+   A `klc status --json` subcommand is needed to expose this contract
+   machine-readably. Until then the extension can parse
+   `.klc/tickets/<key>/meta.json` directly (fields: `phase`, `track`,
+   `kind`, `blocked_reason`).
 
-3. **Event log** — a plain append-only file under `.klc/` where
-   both lifecycle commands and agents record what happened: phase
-   transitions, exit codes, completion signals, artefact paths
-   touched. The extension watches this file to refresh its view.
+2. **A rendered prompt card** — klc already writes the full prompt
+   with every path resolved into `.klc/tickets/<key>/<phase>/_prompt.md`
+   (and `_prompt_step_N.md` during `build`). The extension reads this
+   file and copies it to the clipboard; it never assembles prompts
+   from templates itself.
+
+3. **Event log** — **TODO: not yet implemented.** A plain append-only
+   file under `.klc/` where lifecycle commands record phase
+   transitions, exit codes, and completion signals. The extension
+   watches this file to refresh its view. Until it exists, watching
+   `.klc/tickets/*/meta.json` for writes is a sufficient fallback.
 
 The contract is small enough that klc can add it without changing
 any phase script internals. The extension treats missing fields as
@@ -122,14 +130,14 @@ level is the ticket; children are the next available steps.
 ```
 ▼ <ticket-key>   <phase>   [ready | blocked | waiting]
     Next LLM step: <short description>
-        template : <path to prompt template>
-        bundle   : <path to input bundle directory>
-        output   : <file the agent is expected to produce>
-      [ copy prompt ]   [ open bundle ]   [ open template ]
+        prompt card : .klc/tickets/<key>/<phase>/_prompt.md
+                      (during build: _prompt_step_N.md)
+        output      : <file the agent is expected to produce>
+      [ copy prompt ]   [ open prompt card ]
 
     When the agent finishes:
       Next shell step: <what it does in one line>
-      [ copy command ]   [ run in terminal ]
+      [ copy command ]   [ run in terminal ]   [ ship (ack+next) ]
       preconditions:
         ✓ <label>
         ✓ <label>
@@ -141,16 +149,24 @@ level is the ticket; children are the next available steps.
 
 Important details:
 
-- **"copy prompt"** is the only interaction with the LLM. The
-  extension calls klc to render the full prompt (with resolved paths),
-  puts the result on the clipboard, shows a toast "prompt copied —
-  paste into your agent". That's it.
+- **"copy prompt"** reads `.klc/tickets/<key>/<phase>/_prompt.md`
+  (already rendered by klc on `next`/`ack`) and puts it on the
+  clipboard. Shows a toast "prompt copied — paste into your agent".
+  During `build`, each TDD step has its own minimal card
+  `_prompt_step_N.md`; the tree shows which step is current.
+- **"open prompt card"** opens the same file in the editor so the
+  person can read it before pasting.
 - **"run in terminal"** opens (or focuses) the integrated terminal,
   pastes the command, and presses nothing. The person decides when
   to press Enter. This deliberate friction prevents the extension
   from driving lifecycle on its own.
-- **"copy command"** is the clipboard variant, for users who prefer
-  typing themselves.
+- **"ship (ack+next)"** is a shortcut button that pastes
+  `klc ship <key> --pick N` — combines ack and next in one step.
+  Only shown when the current phase has a single unambiguous pick
+  (e.g. `intake` confirm, `build` approve). Hidden when pick
+  requires a human choice (e.g. `review` approve vs request-changes).
+- **"copy command"** is the clipboard variant of "run in terminal",
+  for users who prefer typing.
 - **preconditions** are rendered as-is from the klc endpoint. The
   extension does not interpret them.
 - **blockers** (e.g. unresolved questions in a spec) are rendered
@@ -217,20 +233,39 @@ A typical ticket advance, without a second terminal:
    local model's UI. The extension doesn't care which.
 3. The LLM writes the expected artefact to the path the prompt
    embedded. The file appears under `.klc/tickets/<key>/…` (or the
-   working tree, for build phases).
-4. File watch picks up the write. The extension re-queries klc.
-   The node updates: the LLM-step button is greyed out, the shell
-   step (the lifecycle command that consumes the artefact) becomes
-   active.
-5. Person clicks **run in terminal**. The integrated terminal opens,
-   the command is pasted, the person reads it and presses Enter.
-   They see stdout in the same pane.
+   working tree, for build phases). The agent prints the completion
+   signal defined in the phase (e.g. `DISCOVERY_SPEC_WRITTEN`,
+   `IMPL_STEP_OK`, `XS_IMPL_DONE`).
+4. File watch picks up the write to `meta.json` or the output file.
+   The extension refreshes the node: the LLM-step button is greyed
+   out, the shell step becomes active.
+5. Person clicks **run in terminal** (or **ship** for single-pick
+   phases). The integrated terminal opens, the command is pasted,
+   the person reads it and presses Enter. They see stdout in the
+   same pane.
 6. Event log picks up the exit. The extension re-queries klc. Phase
    advances. The node re-populates with the next round's steps.
 7. Repeat until the ticket is in a terminal phase.
 
 No second terminal; no copy-pasting out of stdout; no vendor API;
 no manual phase bookkeeping.
+
+## XS fast-track rendering
+
+XS tickets follow a compressed path (intake → xs-build → review-lite
+→ integrate → learn). Two rendering differences worth calling out:
+
+- **xs-build** has a single agent call (`xs-fasttrack.md`). The
+  prompt card is at `_prompt.md` as usual. The agent may emit either
+  `XS_IMPL_DONE` (success) or `XS_BLOCKED` (scope expanded or
+  ambiguous). On `XS_BLOCKED` the tree shows a warning node with the
+  blocker reason from `meta.json:blocked_reason`; the available
+  action is `klc jump discovery:work --yes` to upgrade the track.
+
+- **review-lite** has three picks: approve (1), request-changes (2),
+  override (3). Pick 3 is unusual — it advances despite a CRITICAL
+  finding. The extension should show all three as distinct buttons
+  with the pick label visible, not just a generic "ack".
 
 ## Non-goals
 
@@ -256,20 +291,23 @@ no manual phase bookkeeping.
 
 Four pieces, in order:
 
-1. **A tiny read-only query to klc** that returns "what's next" for
-   one ticket. Sufficient shape: current phase, next shell command
-   (if any), next LLM step (if any), blockers. Everything else on
-   the UI is derived from this.
-2. **Status-bar item** reading that query for the currently active
+1. **Read `meta.json` directly** for "what's next". Fields sufficient
+   for MVP: `phase`, `track`, `kind`, `blocked_reason`. Derive the
+   prompt card path as `.klc/tickets/<key>/<phase>/_prompt.md` (or
+   `_prompt_step_N.md` during `build`). Derive the ack command from
+   the phase's picks in `config/phases.yml` (load once, cache).
+   Everything else on the UI is derived from these two sources.
+2. **Status-bar item** reading that data for the currently active
    ticket (heuristic: the one most recently modified in
    `.klc/tickets/`; the person can switch via quick-pick).
-3. **Tree view** with `copy prompt`, `open bundle`, `copy command`,
-   `run in terminal`. No icons, no custom styling — default VS Code
+3. **Tree view** with `copy prompt`, `open prompt card`,
+   `copy command`, `run in terminal`, and `ship` for single-pick
+   phases. No icons, no custom styling — default VS Code
    `TreeDataProvider` is enough for MVP.
-4. **Two watchers**: `.klc/tickets/*/meta.json` and the event log.
-   Both debounce and re-query. That alone covers phase transitions
-   and command-exit surfacing; artefact watch can be added in a
-   follow-up once the first two are stable.
+4. **One watcher**: `.klc/tickets/*/meta.json`. Debounce + re-derive.
+   That alone covers phase transitions and command-exit surfacing.
+   Event log watch can be added later once the TODO item is
+   implemented in klc.
 
 This set is small enough to ship in one week and already removes the
 second terminal. Everything else — health panel, multi-ticket kanban,
