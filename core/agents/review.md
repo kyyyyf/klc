@@ -33,6 +33,29 @@ they know which issues the previous pass already resolved.
                         via `.klc/index/modules.json` — honour
                         `doc_filename` when present).
 
+## Rules every sub-agent must follow
+
+These rules apply to every reviewer (core and profile-specific). Each
+sub-agent prompt may add specifics, but cannot override these:
+
+1. **Verify before reporting.** Before writing any finding into the
+   partial, read the actual code at the cited `file:line` and the
+   ±20 lines around it. Confirm the construct described exists at that
+   location and is not already mitigated upstream. If the finding does
+   not survive that check, drop it silently — partials carry only
+   actionable issues.
+
+2. **Pre-existing issues are out of scope.** A reviewer may notice
+   issues that pre-date the diff (an old SQL-injection two functions
+   away, a long function the author didn't touch). Report these only
+   under `INFO` (informational, non-blocking) with `pre-existing:` as
+   the leading word in the title. Do **not** raise them at MEDIUM or
+   higher; the bar for blocking severities is "introduced or worsened
+   by this diff".
+
+3. **Cite `file:line` always.** The aggregator's scope-check needs it,
+   and it's the anchor for rule 1.
+
 Each sub-agent emits a markdown section plus a trailer:
 
 ```
@@ -83,8 +106,16 @@ Render `core/templates/review-report.md.j2` with:
 Save to `.klc/reports/review-<YYYY-MM-DD-HH-MM>.md`.
 
 ### 6. Verdict
-- `APPROVED` iff total blocking count is zero.
-- Otherwise `CHANGES REQUESTED`.
+
+`APPROVED` means **this iteration found zero blocking issues** — not
+"fixes were applied and all is well". Distinguish three outcomes:
+
+- **Zero blocking issues this iteration** → `APPROVED`.
+- **Blocking issues found AND fixed during this run** → `CHANGES REQUESTED`
+  with note `"fixes applied — re-review recommended"`. Do **not** emit
+  `APPROVED` after fixing findings: your edits may have introduced new
+  issues. The operator will schedule another review pass.
+- **Blocking issues found, unfixable here** → `CHANGES REQUESTED`.
 
 ### 7. Output
 Final two lines:

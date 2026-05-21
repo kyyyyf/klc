@@ -21,6 +21,7 @@ Filenames are stable — skills and agents look for them by name.
     options.md               # three options + recommendation
     adr.md                   # optional, only when ADR_NEEDED=yes
   impl-plan.md               # step list; bumped during Build
+  build-log.md               # running journal of build iterations (S/M/L)
   manual-checklist.md        # only when estimate.manual >= 2
   retrospective.md           # final, human-authority after Learn
   README.md                  # auto-generated summary from ticket-readme.md.j2
@@ -122,6 +123,22 @@ Full: step-1 ... step-N, each with description / affected files /
 expected tests / optional rollback note. Manual-blocks preserved.
 
 Short: exactly one step, ≤ 10 lines rendered.
+
+### `build-log.md`
+
+Append-only journal written by `core/agents/impl.md` during the Build
+phase (S/M/L tracks). Each iteration appends one entry:
+
+```markdown
+## Step N — <ISO datetime>
+**Attempt**: <brief description>
+**Outcome**: green | red | blocked
+**Notes**: <what changed, DECISION refs if plan diverged>
+```
+
+Authority: `generated` (agent appends; never overwritten). Persists
+through review rework cycles so reviewer and retrospective agent can
+see the full build history. Archived with the ticket.
 
 ### `manual-checklist.md`
 

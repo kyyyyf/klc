@@ -44,7 +44,7 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 | `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm                                                |
 | `discovery`            | S M L       | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
 | `acceptance-test-plan` | S M L       | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
-| `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework  |
+| `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
 | `detailed-test-plan`   | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
 | `xs-build`             | XS          | `core/agents/xs-fasttrack.md`     | 1 = approve · 2 = upgrade-to-S                            |
 | `build`                | S M L       | `core/agents/impl.md`             | 1 = approve                                                |
@@ -123,6 +123,17 @@ choose a pick before `next` proceeds.
    + current step only — no full spec/plan context).
 3. **Verifier** (`core/agents/validator.md`) runs the suite.
 4. Repeat until all steps are green, then `klc ack <key> --pick 1`.
+
+**`build-log.md`** is an append-only journal maintained by the impl
+agent: one entry per iteration with outcome (`green | red | blocked`)
+and notes. The reviewer reads it to understand what was attempted; the
+retrospective agent uses it for metrics.
+
+**Review signal rule.** `APPROVED` / `REVIEW_LITE_PASS` means "this
+iteration found zero issues". If the reviewer finds and fixes
+something during a pass, it emits `CHANGES REQUESTED` /
+`REVIEW_LITE_CRITICAL` — so the operator can schedule another pass to
+confirm the fix didn't introduce new problems.
 
 Budget counters in `meta.json:budgets` (limits in `config/budgets.yml`):
 
