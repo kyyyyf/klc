@@ -64,7 +64,7 @@ phase reads them all and computes derived values.
 ```json
 {
   "tokens":  {"total": 42310, "by_agent": {"discovery": 5120, ...}},
-  "serena":  {"live_calls": 12, "cache_hits": 34, "denied": 2},
+  "lsp":     {"calls": 12},
   "api":     {"anthropic": 57, "openai": 0},
   "ci":      {"runs": 3, "minutes": 18},
   "rework":  {"build": 1, "review": 0}
@@ -76,8 +76,7 @@ Sources:
 - `tokens.*` — per-phase token advisory (see `budget.py token_spend`
   handling) + agent-tail footer each prompt prints. `metrics.py`
   concatenates.
-- `serena.*` — counts from `.klc/tickets/<key>/serena-calls.log`
-  (`cache-hit` / `allowed` / `denied-*`) via `serena-call.py status`.
+- `lsp.*` — agent-reported count of LSP tool calls (optional, advisory).
 - `api.*` — populated only when a wrapper reports provider calls
   (external reviewer does). No pricing math.
 - `ci.*` — populated when CI posts run data into
@@ -108,4 +107,4 @@ Shape:
 Retrospective agent (phase 9) reads the rollup to flag outliers
 ("this ticket's cycle time is 3× the track median"). If a single
 lesson shows up in five retros in a row, that's a signal to promote
-it from "note in retro" to a process rule in `process-phases.md`.
+it from "note in retro" to a process rule in `docs/process.md`.

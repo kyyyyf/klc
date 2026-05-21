@@ -96,16 +96,16 @@ ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 
 ## Examples from real diffs
 
-**HIGH (virtual that the subclass silently missed).** CRUSH-3020: a new
-engine-part class `UCrushBehaviorPart_PalvHovercraftEngine` inherited
-from `UCrushBehaviorPart` directly but skipped the
+**HIGH (virtual that the subclass silently missed).** A new
+engine-part class `UMyBehaviorPart_PalvHovercraftEngine` inherited
+from `UMyBehaviorPart` directly but skipped the
 `UpdateForwardMaxSpeedRuntimeProperty` virtual that every sibling
 (SimpleVehicleEngine, WotEngine, PalvEngine) overrides. With the
-override missing the call silently no-ops under UCrushBehaviorPart's
-default, and GAS-driven forward-speed effects vanish.
+override missing the call silently no-ops under the base default,
+and GAS-driven forward-speed effects vanish.
 
 ```
-### [HIGH] Missing Update*MaxSpeedRuntimeProperty override — Parts/CrushBehaviorPart_PalvHovercraftEngine.cpp
+### [HIGH] Missing Update*MaxSpeedRuntimeProperty override — Parts/MyBehaviorPart_PalvHovercraftEngine.cpp
 **Issue**: every other engine-part subclass forwards
 `UpdateForwardMaxSpeedRuntimeProperty` into its vehicle-type; this one
 skips it, so GAS attribute changes don't reach physics.

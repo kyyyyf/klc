@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 """init.py — first-time bootstrap.
 
-Port of init.sh. Runs the pipeline:
+Runs the pipeline:
 
-  1. structural scan (core/skills/file_scanner.py)
-  2. dep graph      (core/skills/dep_graph.py)
-  3. inventory agent (LLM; paste into Claude Code or run with --auto)
-  4. decompose agent (LLM)
-  5. docgen agent    (LLM)
-  6. record baseline sha (with --finalize)
+  1. structural scan  (core/skills/file_scanner.py)       — always
+  2. MCP hint         (advisory)                          — always
+  3. dep graph        (core/skills/dep_graph.py)          — always
+  4. LLM agents       (inventory → decompose → docgen)    — opt-in
+  5. record baseline sha (--finalize or --scan-only)
+
+Modes
+-----
+  (default)      Print agent instructions for manual paste into Claude Code.
+  --scan-only    Run only the deterministic steps (1-3) and record the
+                 baseline SHA. No LLM calls. Produces structural.json,
+                 depgraph.json, and .last-run. Useful for CI or when the
+                 project already has CLAUDE.md files.
+  --auto         Run all LLM agents automatically via core/skills/runner.py
+                 (requires config/models.yml). Same as before.
+  --finalize     Record current HEAD as the baseline after the three LLM
+                 agents have been run manually.
 
 Per-project state lives in $PROJECT_ROOT/.klc/.
 """
@@ -62,6 +73,10 @@ def _finalize(index_dir: Path) -> int:
         return die("git rev-parse HEAD failed — is this a git repo?")
     head = r.stdout.strip()
     (index_dir / ".last-run").write_text(head + "\n", encoding="utf-8")
+    # Clear any stale.json left from a previous update cycle
+    stale = index_dir / "stale.json"
+    if stale.exists():
+        stale.unlink()
     log(f"Recorded {head} in .klc/index/.last-run")
     return 0
 
@@ -74,7 +89,6 @@ def _run_scanner(script: Path, out_file: Path, step: str) -> int:
         sys.stderr.write(r.stderr)
         return die(f"{script.name} failed")
     out_file.write_text(r.stdout, encoding="utf-8")
-    # Sanity: output must be valid JSON.
     try:
         json.loads(out_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -88,6 +102,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--finalize", action="store_true",
                     help="Record current HEAD as the baseline after the "
                          "three LLM agents have finished.")
+    ap.add_argument("--scan-only", action="store_true",
+                    help="Run only deterministic steps (file_scanner + dep_graph) "
+                         "and record baseline SHA. No LLM calls.")
     ap.add_argument("--auto", action="store_true",
                     help="Run inventory/decompose/docgen automatically via "
                          "core/skills/runner.py (requires config/models.yml).")
@@ -112,29 +129,40 @@ def main(argv: list[str]) -> int:
     rc = _run_scanner(
         FRAMEWORK_ROOT / "core" / "skills" / "file_scanner.py",
         index_dir / "structural.json",
-        "Step 1/5:",
+        "Step 1/3:" if args.scan_only else "Step 1/5:",
     )
     if rc:
         return rc
 
     # Step 2: MCP bootstrap hint (advisory).
-    log("Step 2/5: MCP configuration (advisory)")
+    log("Step 2/3: MCP configuration (advisory)" if args.scan_only
+        else "Step 2/5: MCP configuration (advisory)")
     if (root / ".mcp.json").exists():
-        log("  .mcp.json present; ast-grep (and optionally Serena) configured.")
+        log("  .mcp.json present; ast-grep configured.")
     else:
         log("  No project-level .mcp.json found — init will still work without it.")
         log("  When you're ready for ticket work, copy profiles/<profile>/mcp.json")
-        log("  to .mcp.json (gives you ast-grep + Serena).")
+        log("  to .mcp.json (gives you ast-grep).")
 
     # Step 3: dep graph.
     rc = _run_scanner(
         FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
         index_dir / "depgraph.json",
-        "Step 3/5:",
+        "Step 3/3:" if args.scan_only else "Step 3/5:",
     )
     if rc:
-        # dep-graph non-fatal — log and proceed.
         log("  WARN: dep_graph failed; inventory will note this")
+
+    # --scan-only: record baseline and stop — no LLM needed.
+    if args.scan_only:
+        rc = _finalize(index_dir)
+        if rc:
+            return rc
+        log("Scan-only init complete. No LLM agents were run.")
+        log("CLAUDE.md files will be generated on first ticket (klc intake)")
+        log("or run `klc init --auto` to generate them now.")
+        print("INIT_SCAN_OK")
+        return 0
 
     # Steps 4-5: LLM agents.
     if args.auto:
@@ -175,6 +203,10 @@ def main(argv: list[str]) -> int:
     log("Step 5/5: record baseline sha after the agents finish")
     log(f"  klc init --finalize     # writes HEAD to {index_dir / '.last-run'}")
     log("init done. Next: run the three agents above inside Claude Code.")
+    log("")
+    log("TIP: for a quick start without LLM, run:")
+    log("  klc init --scan-only")
+    log("  (generates structural.json + depgraph.json, no CLAUDE.md files)")
     return 0
 
 

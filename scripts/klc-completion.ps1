@@ -6,7 +6,7 @@
 # Completes subcommands and ticket keys (live tickets in .klc/tickets/).
 
 $script:KlcSubcmds = @(
-    'intake', 'status', 'next', 'ack', 'jump', 'abort',
+    'intake', 'status', 'next', 'ack', 'ship', 'jump', 'abort', 'step',
     'board', 'doctor', 'metrics', 'reindex', 'install',
     'init', 'update'
 )

@@ -14,16 +14,11 @@ orchestrating prompt for phase 3.
 - On demand: `core/skills/context-loader.py` for module CLAUDE.md
   bundles.
 
-## Serena policy
+## Symbol verification
 
-M / L tracks: Serena is **allowed** in design for verifying symbol
-signatures mentioned in options. Every call goes through
-`serena-call.py check` → `save`. Any symbol referenced in `options.md`
-/ `adr.md` must carry `cached at <path>` or
-`verified-via-serena at <iso-date>`.
-
-S track: Serena is denied here by policy. If you need it, emit a
-`QUESTION` blocking the option and wait for a human override.
+Use the LSP tool (`goToDefinition`, `hover`, `workspaceSymbol`) to
+verify any symbol signatures mentioned in options. Any symbol referenced
+in `options.md` / `adr.md` must be verified via LSP before citing it.
 
 ## Steps
 
@@ -77,8 +72,8 @@ otherwise.
 ### 4. Inline items
 
 Every DECISION in options / ADR gets an ID (`D-NNN`). FACT items
-that cite code must have `verified-via-serena` or `src=file:line` +
-`verified=<today>`. ASSUMPTION items need `if-false=...`.
+that cite code must have `src=file:line` + `verified=<today>` (use LSP
+to confirm the location). ASSUMPTION items need `if-false=...`.
 
 After writing, run:
 ```
@@ -88,7 +83,7 @@ python3 core/skills/items.py index --ticket <KEY>
 ## Hard rules
 
 - No signatures inside `options.md` or `impl-plan.md` on public_api —
-  names only. Full signatures live in Serena cache.
+  names only. Verify full signatures via LSP when needed.
 - Downgrading the track by adding a smaller option is not permitted;
   option A may be minimal but the user's track choice stands.
 - CONFLICT items stop the phase; never auto-resolve across spec vs

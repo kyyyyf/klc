@@ -4,7 +4,7 @@
 Not ticket-scoped. Walks the framework itself:
   - executables have correct shebang + permissions
   - templates parse
-  - active profile manifest + reviewer-allowlist + serena-deny are valid
+  - active profile manifest + reviewer-allowlist are valid
   - MCP servers respond (if .mcp.json is present — best-effort)
   - git is installed and the project root is a repo
   - Python deps (jinja2) are present
@@ -113,19 +113,6 @@ def _reviewer_allowlist() -> list[str]:
     cfg = CONFIG / "reviewer-allowlist.yml"
     if not cfg.exists():
         return []  # seed is optional
-    try:
-        import yaml
-        yaml.safe_load(cfg.read_text())
-    except Exception as exc:
-        return [f"{cfg}: {exc}"]
-    return []
-
-
-@check("serena-deny")
-def _serena_deny() -> list[str]:
-    cfg = CONFIG / "serena-deny.yml"
-    if not cfg.exists():
-        return []
     try:
         import yaml
         yaml.safe_load(cfg.read_text())

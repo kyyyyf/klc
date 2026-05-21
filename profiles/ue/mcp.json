@@ -1,19 +1,5 @@
 {
   "mcpServers": {
-    "serena": {
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/oraios/serena",
-        "serena",
-        "start-mcp-server",
-        "--project-from-cwd"
-      ],
-      "env": {
-        "SERENA_CACHE_DIR": "${HOME}/.serena-cache"
-      }
-    },
-
     "ast-grep": {
       "command": "npx",
       "args": [

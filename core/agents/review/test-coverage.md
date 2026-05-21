@@ -72,18 +72,16 @@ ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 
 ## Examples from real diffs
 
-**CRITICAL (bug fix without regression test).** CRUSH-3020 fixed the
-"sprint ability silent on PALV hovercraft" bug by adding a fallback to
-the GAS controller and a new Parts entry in a CBP asset. The PR shipped
-without a test that pinned `sprint → forward max speed increases on
-Hovercraft_Palv`. A regression will go unnoticed.
+**CRITICAL (bug fix without regression test).** PROJ-3020 fixed the
+"user session not refreshed after token expiry" bug by adding a retry
+in the auth middleware. The PR shipped without a test that pinned
+`expired token → new session issued`. A regression will go unnoticed.
 
 ```
-### [CRITICAL] Missing regression test — CrushDemoSprintGATest.cpp
+### [CRITICAL] Missing regression test — AuthMiddlewareTest.cpp
 **Issue**: the fix adds no test that exercises the broken path.
-**Fix**: add a regression subclass that runs the sprint scenario on
-`BP_HovercraftTepmplate_PALV` and asserts forward max speed increases.
-The spec's "expected result" (sprint speeds the vehicle up) maps
+**Fix**: add a regression test that runs the token-expiry scenario and
+asserts a new session is issued. The spec's "expected result" maps
 1:1 to the test.
 ```
 

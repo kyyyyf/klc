@@ -62,39 +62,12 @@ returns more, narrow the inputs (reduce depth, drop least-referenced
 modules) and retry once. If still over budget, proceed and record a
 `context_budget_exceeded` note.
 
-For **large projects** (`inventory.structural.total_files >=
-profile.large_project_threshold_files`): when you need to confirm a
-signature or trace a call site beyond what the loader returns, use
-**Serena** (`find_symbol`, `get_symbol_signature`, `find_references`) —
-don't open files.
-
-### Serena call protocol (mandatory)
-
-Every Serena query goes through the `serena-call.py` gate. Skipping
-the gate breaks the track-aware policy, the per-ticket cache, and the
-audit log — all three are policies your track signed up to when it was
-classified.
-
-```
-serena-call.py check --ticket <TICK-NNN> \
-  --op <operation> --subject <symbol> [--file <path> --line <N>]
-```
-
-Three outcomes:
-
-- `ALLOWED` — proceed with the Serena MCP call. Afterwards, store the
-  answer: `serena-call.py save ... --payload <answer.json>`.
-- `CACHED <path>` — do **not** call Serena. Read the cached record at
-  `<path>` instead (`serena-call.py lookup` emits the same content).
-- `DENIED <reason>` — reject the intent. Do not retry with different
-  wording. Either extract the answer from notes, or surface a
-  `CONFLICT` if you genuinely cannot proceed without Serena on this
-  phase/track.
+For **large projects**: when you need to confirm a signature or trace
+a call site beyond what the loader returns, use the LSP tool
+(`goToDefinition`, `findReferences`, `hover`) directly.
 
 Every DECISION or FACT in `options.md` / `adr.md` that references a
-concrete symbol must cite the Serena record (`cached at <path>` or
-`verified-via-serena at <iso-date>`). Unverified symbol references
-are grounds for a reviewer finding in architecture review.
+concrete symbol must be verified via LSP before citing it.
 
 ### 2. Generate three options
 Three distinct options, named A / B / C. The archetypes depend on

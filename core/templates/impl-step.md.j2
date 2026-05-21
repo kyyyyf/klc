@@ -1,0 +1,69 @@
+# Agent prompt — {{ ticket }} · build:work · step-{{ step }}
+
+Ticket: **{{ ticket }}** · track: **{{ track }}** · kind: **{{ kind }}**
+
+You are in the **Build** phase, TDD loop. Your job: make the failing
+test(s) for **step-{{ step }}** pass. Read the role prompt below, then
+produce the outputs listed at the bottom.
+
+---
+
+## Context (minimal — load more via LSP on demand)
+
+### Goals + Acceptance Criteria (from spec.md)
+
+{{ goals_block }}
+
+### Current step — step-{{ step }}
+
+**{{ step_title }}**
+
+{{ step_description }}
+
+**Affected files**:
+{% for f in step_files %}
+- `{{ f }}`
+{% endfor %}
+
+**Expected tests**:
+{% for t in step_tests %}
+- `{{ t }}`
+{% endfor %}
+{% if step_rollback %}
+
+**Rollback**: {{ step_rollback }}
+{% endif %}
+
+### Failing test(s) to make green
+
+`{{ test_file }}`
+
+Run with: `{{ run_command }}`
+
+---
+
+## Role prompt
+
+{{ impl_prompt }}
+
+---
+
+## Navigation
+
+- Full impl-plan: `.klc/tickets/{{ ticket }}/impl-plan.md`
+- Full spec: `.klc/tickets/{{ ticket }}/spec.md`
+- Full test-plan: `.klc/tickets/{{ ticket }}/test-plan.md`
+- Module index: `.klc/index/modules.json`
+- Symbols: `.klc/index/symbols_by_module.json`
+
+Use LSP (`goToDefinition`, `findReferences`, `hover`, `workspaceSymbol`)
+for any symbol navigation — do not open full source files unless
+LSP is insufficient.
+
+---
+
+## When done
+
+After tests are green, emit `IMPL_STEP_OK {{ ticket }} step-{{ step }}` and
+run `klc step {{ ticket }} {{ step + 1 }}` to get the next step's card,
+or `klc ack {{ ticket }} --pick 1` if this was the last step.

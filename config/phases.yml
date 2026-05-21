@@ -139,8 +139,27 @@ phases:
     outputs: ["test-plan.md"]
 
   # -------------------------------------------------------------------
+  - id: xs-build
+    tracks: [XS]
+    work:
+      # Single-agent fast-track for XS tickets. No spec, no plan.
+      prompt: "core/agents/xs-fasttrack.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "approve"
+          goto: "next"
+        - id: 2
+          label: "upgrade-to-S"
+          goto: "discovery:work"
+          supersede: ["xs-build"]
+    inputs: ["raw.md"]
+    outputs: []
+
+  # -------------------------------------------------------------------
   - id: build
-    tracks: [XS, S, M, L]
+    tracks: [S, M, L]
     work:
       # build:work is a multi-step impl loop. The state machine treats
       # it as atomic from outside — ack is only valid when impl_done
@@ -156,8 +175,29 @@ phases:
     outputs: []
 
   # -------------------------------------------------------------------
+  - id: review-lite
+    tracks: [XS]
+    work:
+      prompt: "core/agents/review-lite.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "approve"
+          goto: "next"
+        - id: 2
+          label: "request-changes"
+          goto: "xs-build:work"
+          supersede: ["review-lite"]
+        - id: 3
+          label: "override"
+          goto: "next"
+    inputs: ["raw.md"]
+    outputs: ["review-lite-report.md"]
+
+  # -------------------------------------------------------------------
   - id: review
-    tracks: [XS, S, M, L]
+    tracks: [S, M, L]
     work:
       prompt: "core/agents/review.md"
     ack:
