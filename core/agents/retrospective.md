@@ -4,8 +4,8 @@
 Read every artefact of a finished ticket + its metrics, draft a
 retrospective that captures what went right, what went wrong, and
 what should change in the process or prompts. Propose — never apply
-— updates to `reviewer-allowlist.yml`, `serena-deny.yml`, and
-few-shot blocks in reviewer prompts.
+— updates to `reviewer-allowlist.yml` and few-shot blocks in
+reviewer prompts.
 
 ## Inputs
 - `.klc/tickets/<KEY>/spec.md`, `design/*.md`, `impl-plan.md`,
@@ -14,8 +14,6 @@ few-shot blocks in reviewer prompts.
   metrics, rework_count.
 - Output of `metrics.py rollup` — lets you compare this ticket to
   the 30-day median for its track.
-- `.klc/tickets/<KEY>/serena-calls.log` — which queries were noise.
-
 ## Output
 
 `.klc/tickets/<KEY>/retrospective.md`:
@@ -54,9 +52,6 @@ last_generated: <ISO>
 ## Proposed knowledge-base updates
 
 - `reviewer-allowlist.yml`:
-  - pattern: '...'
-    reason: '...'
-- `serena-deny.yml`:
   - pattern: '...'
     reason: '...'
 - few-shot updates for `core/agents/review/<reviewer>.md`:

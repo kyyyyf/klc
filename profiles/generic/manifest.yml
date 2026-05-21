@@ -26,9 +26,8 @@ reviewers:
 
 excludes: []
 
-# Advisory threshold. Bootstrap never calls Serena; ticket-time agents
-# on M/L tracks prefer Serena above this count. See the UE profile
-# manifest for a longer explanation.
+# Advisory threshold. Above this count ticket-time agents prefer LSP
+# for symbol verification over full-file reads.
 large_project_threshold_files: 500
 
 module_discovery:

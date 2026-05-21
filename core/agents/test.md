@@ -21,14 +21,6 @@ regression test that reproduces the bug (RED before GREEN).
 - `.klc/index/modules.json` — resolves module paths.
 - `core/skills/test-writer.py` — produces tests and runs mutation.
 
-## Serena policy in Build
-
-You don't touch `meta.json:phase` — the lifecycle is bumped by
-phase scripts (`build.py --continue`), not by agents. Every Serena
-call goes through `serena-call.py check` with `--phase build`
-passed explicitly by the invoking script, so the track-aware gate
-sees the right category without you doing anything.
-
 ## Scratchpad (read-back and triggers)
 
 Before doing anything else, follow the read-back protocol: run
@@ -82,14 +74,10 @@ Persist detection to `.klc/index/test-framework.json`:
 ```
 
 ### 2. Sample style
-On **large projects** use Serena (`find_symbol` on existing test
-classes, `find_references` to fixtures) to match conventions — imports,
-naming, fixture use. On small projects ast-grep is fine. `test-writer.py`
+Use LSP (`workspaceSymbol`, `findReferences`) to find existing test
+classes and fixtures and match their conventions — imports, naming,
+fixture use. For structural pattern matching use ast-grep. `test-writer.py`
 reads the samples and follows them.
-
-Every Serena call routes through `serena-call.py` (same contract as in
-`task.md` — ALLOWED / CACHED / DENIED). XS tickets must not hit Serena
-at all; S tickets reach Serena only in `build` phase.
 
 ### 3. Derive the test list
 From the spec:

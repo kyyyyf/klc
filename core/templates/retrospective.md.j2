@@ -42,14 +42,6 @@ last_generated: {{ generated_at }}
 {% endfor %}
 {% endif %}
 
-{% if proposed.deny %}
-### serena-deny.yml
-{% for e in proposed.deny %}
-- pattern: `{{ e.pattern }}`
-  reason:  {{ e.reason }}
-{% endfor %}
-{% endif %}
-
 {% if proposed.few_shot %}
 ### Reviewer prompt few-shot additions
 {% for e in proposed.few_shot %}

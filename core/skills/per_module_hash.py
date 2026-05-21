@@ -60,9 +60,8 @@ def compute_hashes(modules: list[dict]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for m in modules:
         # public_api — canonical list (sorted, names only). We hash names,
-        # not signatures: signatures live in symbols_by_module.json and
-        # have their own change tracking through `source_sha` in the
-        # Serena cache. Names + count = "what this module exposes".
+        # not signatures: signatures live in symbols_by_module.json.
+        # Names + count = "what this module exposes".
         public_api = sorted(m.get("public_api") or [])
         depends_on = sorted(m.get("depends_on") or [])
         out[m["name"]] = {

@@ -10,8 +10,8 @@ Usage:
 Output: one module name per line on stdout, sorted, deduped. Exit 0.
 
 Why a dedicated skill: bash `grep -F` matches substrings, so a diff
-touching `CrushDemo/Source/CrushDemoTests/...` would also match the
-module rooted at `CrushDemo/Source/CrushDemo/` — a false positive.
+touching `MyProject/Source/MyProjectTests/...` would also match the
+module rooted at `MyProject/Source/MyProject/` — a false positive.
 Longest-prefix resolution fixes it and is the same logic the decompose
 agent uses when assigning symbols to modules.
 

@@ -11,14 +11,6 @@ by the active profile, aggregate their output, render a binary verdict.
 - `--ticket <TICK-NNN>` — used to address the scratchpad.
 - `--external` (optional) — force-run the external reviewer.
 
-## Serena policy in Review
-
-You don't touch `meta.json:phase` — the lifecycle is bumped by
-phase scripts (`review.py --continue`), not by agents. Sub-agents
-that verify a cited signature invoke `serena-call.py check` with
-`--phase review` passed explicitly by review.py, so the track-aware
-gate sees the right category.
-
 ## Scratchpad (overflow and read-back)
 
 Review itself does not usually need scratch; sub-agents do. When a

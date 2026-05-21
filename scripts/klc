@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """klc — unified dispatcher for the Codebase Intelligence Framework.
 
-The ticket lifecycle is driven by six verbs:
+The ticket lifecycle is driven by seven verbs:
 
     intake   — create a ticket (puts it in `intake:ack-needed`)
     status   — show the current path through the ticket's track
     next     — advance from `:ack` to the next `:work`
     ack      — confirm `:ack-needed`; optionally pick a variant
+    ship     — ack + next in one step (shortcut for no-pick or known pick)
     jump     — cross-cut from `<X>:ack` to any `<phase>:work`
     abort    — cancel `<X>:work`, return to the previous `:ack`
+    step     — generate minimal build step card (step N context only)
 
 Plus a few operational commands:
 
@@ -84,7 +86,7 @@ def _project_root() -> str:
 # --- subcommand dispatch ------------------------------------------------------
 
 LIFECYCLE_CMDS = (
-    "intake", "status", "next", "ack", "jump", "abort",
+    "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
 )
 OPERATIONAL_CMDS = (
     "board", "doctor", "metrics", "reindex", "install",

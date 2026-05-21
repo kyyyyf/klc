@@ -8,7 +8,7 @@ live here now.
 
 Responsibilities:
 
-  write_prompt_card(ticket, phase_id)
+  write_prompt_card(ticket, phase_id, meta, step=None)
       Render the prompt for a phase into
       `.klc/tickets/<ticket>/<phase>/_prompt.md`. Content:
         - a short preamble (ticket key, track, state, phase purpose)
@@ -16,6 +16,12 @@ Responsibilities:
         - pointers to relevant inputs (resolved from phase.inputs).
       For phases without a prompt (intake, observe), writes a
       checklist or pointer card instead. Returns the absolute path.
+      When phase_id == "build" and step is given, renders the minimal
+      impl-step.md.j2 card instead (only current step context).
+
+  write_step_card(ticket, step, meta)
+      Render `.klc/tickets/<ticket>/build/_prompt_step_N.md` for a
+      specific TDD step. Uses impl-step.md.j2. Returns the path.
 
   acquire_lock(ticket)
       Context manager. Writes PID + ISO timestamp to
@@ -28,11 +34,12 @@ import contextlib
 import datetime as _dt
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root, klc_ticket_dir  # noqa: E402
+from _paths import framework_root, klc_ticket_dir, klc_index_dir  # noqa: E402
 import phases as _ph  # noqa: E402
 
 
@@ -150,8 +157,16 @@ def _format_ack_instruction(ticket: str, phase: _ph.Phase) -> str:
     return f"`klc ack {ticket} --pick <N>`, where N is:\n\n{opts}"
 
 
-def write_prompt_card(ticket: str, phase_id: str, meta: dict) -> Path:
-    """Render `.klc/tickets/<ticket>/<phase>/_prompt.md`. Returns the path."""
+def write_prompt_card(ticket: str, phase_id: str, meta: dict,
+                      step: int | None = None) -> Path:
+    """Render `.klc/tickets/<ticket>/<phase>/_prompt.md`. Returns the path.
+
+    When phase_id == "build" and step is given, delegates to
+    write_step_card() which uses the minimal impl-step template.
+    """
+    if phase_id == "build" and step is not None:
+        return write_step_card(ticket, step, meta)
+
     ph = _ph.load_phases()
     phase = ph.by_id(phase_id)
     tdir = klc_ticket_dir(ticket)
@@ -203,6 +218,136 @@ def write_prompt_card(ticket: str, phase_id: str, meta: dict) -> Path:
     )
     card.write_text(text, encoding="utf-8")
     return card
+
+
+def write_step_card(ticket: str, step: int, meta: dict) -> Path:
+    """Render `.klc/tickets/<ticket>/build/_prompt_step_N.md` using the
+    minimal impl-step.md.j2 template. Returns the path."""
+    try:
+        from jinja2 import Environment, FileSystemLoader
+    except ImportError:
+        sys.stderr.write("artefacts: jinja2 not installed (pip install jinja2)\n")
+        sys.exit(1)
+
+    tdir = klc_ticket_dir(ticket)
+    build_dir = tdir / "build"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    card = build_dir / f"_prompt_step_{step}.md"
+
+    fw = framework_root()
+    env = Environment(loader=FileSystemLoader(str(fw / "core" / "templates")),
+                      keep_trailing_newline=True)
+    tmpl = env.get_template("impl-step.md.j2")
+
+    # --- extract goals+ACs from spec.md ---
+    goals_block = _extract_goals_acs(tdir / "spec.md")
+
+    # --- extract current step from impl-plan.md ---
+    step_data = _extract_impl_step(tdir / "impl-plan.md", step)
+
+    # --- detect test run command ---
+    test_fw_file = klc_index_dir() / "test-framework.json"
+    run_command = "# see test-framework.json"
+    test_file = "# run the failing test added by the test agent"
+    if test_fw_file.exists():
+        try:
+            tf = json.loads(test_fw_file.read_text(encoding="utf-8"))
+            run_command = tf.get("run_command") or run_command
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # --- read impl role prompt ---
+    impl_prompt_path = fw / "core" / "agents" / "impl.md"
+    impl_prompt = impl_prompt_path.read_text(encoding="utf-8") if impl_prompt_path.exists() else ""
+
+    rendered = tmpl.render(
+        ticket=ticket,
+        track=meta.get("track") or "?",
+        kind=meta.get("kind") or "?",
+        step=step,
+        goals_block=goals_block,
+        step_title=step_data.get("title", f"step-{step}"),
+        step_description=step_data.get("description", ""),
+        step_files=step_data.get("files", []),
+        step_tests=step_data.get("tests", []),
+        step_rollback=step_data.get("rollback", ""),
+        test_file=test_file,
+        run_command=run_command,
+        impl_prompt=impl_prompt,
+    )
+    card.write_text(rendered, encoding="utf-8")
+    return card
+
+
+def _extract_goals_acs(spec_path: Path) -> str:
+    """Extract Goals and Acceptance Criteria sections from spec.md."""
+    if not spec_path.exists():
+        return f"_(spec.md not found at {spec_path})_"
+    text = spec_path.read_text(encoding="utf-8")
+    # Pull ## Goals and ## Acceptance Criteria sections
+    sections = []
+    for header in ("## Goals", "## Acceptance Criteria"):
+        m = re.search(
+            rf"^{re.escape(header)}\s*\n(.*?)(?=\n## |\Z)",
+            text, re.MULTILINE | re.DOTALL
+        )
+        if m:
+            sections.append(f"{header}\n\n{m.group(1).strip()}")
+    return "\n\n".join(sections) if sections else "_(could not parse spec.md)_"
+
+
+def _extract_impl_step(plan_path: Path, step: int) -> dict:
+    """Parse impl-plan.md and extract step-N data."""
+    if not plan_path.exists():
+        return {}
+    text = plan_path.read_text(encoding="utf-8")
+
+    # Match ## step-N — <title> block
+    m = re.search(
+        rf"^## step-{step}\s+[—–-]\s*(.+?)\n(.*?)(?=\n## step-|\Z)",
+        text, re.MULTILINE | re.DOTALL
+    )
+    if not m:
+        # Also try without separator (## step-N\n)
+        m = re.search(
+            rf"^## step-{step}\b(.+?)\n(.*?)(?=\n## step-|\Z)",
+            text, re.MULTILINE | re.DOTALL
+        )
+    if not m:
+        return {"title": f"step-{step}", "description": "_(step not found in impl-plan.md)_"}
+
+    title = m.group(1).strip()
+    body = m.group(2).strip()
+
+    # Extract Affected files
+    files: list[str] = []
+    fm = re.search(r"\*\*Affected files\*\*:?\s*\n((?:- `.+`\n?)+)", body)
+    if fm:
+        files = re.findall(r"`([^`]+)`", fm.group(1))
+
+    # Extract Expected tests
+    tests: list[str] = []
+    tm = re.search(r"\*\*Expected tests\*\*:?\s*\n((?:- `.+`\n?)+)", body)
+    if tm:
+        tests = re.findall(r"`([^`]+)`", tm.group(1))
+
+    # Extract Rollback
+    rollback = ""
+    rm = re.search(r"\*\*Rollback\*\*:?\s*(.+)", body)
+    if rm:
+        rollback = rm.group(1).strip()
+
+    # Description: body minus the sub-sections
+    desc = re.sub(r"\*\*(?:Affected files|Expected tests|Rollback)\*\*.*?(?=\n\*\*|\Z)",
+                  "", body, flags=re.DOTALL).strip()
+
+    return {
+        "title": title,
+        "description": desc,
+        "files": files,
+        "tests": tests,
+        "rollback": rollback,
+    }
 
 
 def _observe_checklist(ticket: str, meta: dict) -> str:
