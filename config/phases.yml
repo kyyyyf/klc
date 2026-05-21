@@ -118,6 +118,13 @@ phases:
         - id: 4
           label: "needs-rework"
           goto: "design:work"
+        - id: 5
+          label: "revise-impl-plan"
+          # Human reviewed the impl-plan draft and wants changes before
+          # committing. Agent re-enters design:work with the feedback
+          # appended to design/options.md's manual block.
+          goto: "design:work"
+          supersede: ["design"]
     inputs: ["spec.md", "test-plan.md"]
     outputs: ["design/options.md", "impl-plan.md"]
 
@@ -172,7 +179,7 @@ phases:
           label: "approve"
           goto: "next"
     inputs: ["spec.md", "impl-plan.md"]
-    outputs: []
+    outputs: ["build-log.md"]
 
   # -------------------------------------------------------------------
   - id: review-lite

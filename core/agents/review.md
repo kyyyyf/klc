@@ -83,8 +83,16 @@ Render `core/templates/review-report.md.j2` with:
 Save to `.klc/reports/review-<YYYY-MM-DD-HH-MM>.md`.
 
 ### 6. Verdict
-- `APPROVED` iff total blocking count is zero.
-- Otherwise `CHANGES REQUESTED`.
+
+`APPROVED` means **this iteration found zero blocking issues** — not
+"fixes were applied and all is well". Distinguish three outcomes:
+
+- **Zero blocking issues this iteration** → `APPROVED`.
+- **Blocking issues found AND fixed during this run** → `CHANGES REQUESTED`
+  with note `"fixes applied — re-review recommended"`. Do **not** emit
+  `APPROVED` after fixing findings: your edits may have introduced new
+  issues. The operator will schedule another review pass.
+- **Blocking issues found, unfixable here** → `CHANGES REQUESTED`.
 
 ### 7. Output
 Final two lines:
