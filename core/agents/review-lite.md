@@ -97,13 +97,20 @@ Set `metrics.review_lite_tokens` (self-reported).
 
 ## Completion signal
 
-On PASS:
+Signal semantics: a signal means **"this iteration produced no
+CRITICAL issues"**, not "I reviewed and fixed everything". If you
+found and fixed a CRITICAL issue during this pass, do **not** emit
+`REVIEW_LITE_PASS` — emit `REVIEW_LITE_CRITICAL` so the operator
+can trigger another pass to confirm the fix didn't introduce new
+problems.
+
+On PASS (zero CRITICAL issues found in this pass):
 
 ```
 REVIEW_LITE_PASS <ticket-key>
 ```
 
-On CRITICAL:
+On CRITICAL (one or more CRITICAL issues found, fixed or not):
 
 ```
 REVIEW_LITE_CRITICAL <ticket-key>
@@ -111,6 +118,6 @@ REVIEW_LITE_CRITICAL <ticket-key>
 
 `REVIEW_LITE_CRITICAL` leaves the ticket at `review-lite:ack-needed`.
 The operator reads `review-lite-report.md`, chooses pick 2
-(`request-changes`) to loop back to `build:work`, or pick 3
+(`request-changes`) to loop back to `xs-build:work`, or pick 3
 (`override`) to advance despite the critical (with accountability
 noted in the report).

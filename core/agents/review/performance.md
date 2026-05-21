@@ -64,6 +64,21 @@ to 500 orders per page.
 in CONST_GROUPS: …`. Both collections are module-level `List[str]`
 with 8 items. O(n²) on a constant size is not a Big-O finding.
 
+## Verify before reporting
+
+Before writing any finding into the partial, **read the actual code at
+`file:line` and confirm the hot path is real**. Steps:
+
+1. Open the file and read the `±20` lines around the cited line.
+2. Confirm the loop / allocation actually runs on the hot path —
+   not in init, error branch, or test fixture.
+3. Check the collection size: a literal / enum / config constant is
+   not a Big-O finding regardless of nesting depth.
+4. Classify:
+   - **CONFIRMED** — write to partial.
+   - **FALSE POSITIVE** — drop silently. The partial is for actionable
+     findings only.
+
 ## Hard rules
 - Before emitting any finding, scan `.klc/knowledge/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.
 - Do not flag allocations in cold startup / init code.
