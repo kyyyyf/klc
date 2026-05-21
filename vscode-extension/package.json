@@ -1,0 +1,89 @@
+{
+  "name": "klc",
+  "displayName": "klc",
+  "description": "Codebase Intelligence Framework — ticket workflow navigator",
+  "version": "0.1.0",
+  "publisher": "klc",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceFolderContainsFiles:.klc/tickets"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "klcNextSteps",
+          "name": "klc · Next Steps"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "klc.copyPrompt",
+        "title": "klc: Copy prompt card"
+      },
+      {
+        "command": "klc.openPromptCard",
+        "title": "klc: Open prompt card"
+      },
+      {
+        "command": "klc.runInTerminal",
+        "title": "klc: Run command in terminal"
+      },
+      {
+        "command": "klc.copyCommand",
+        "title": "klc: Copy command"
+      },
+      {
+        "command": "klc.ship",
+        "title": "klc: Ship (ack + next)"
+      },
+      {
+        "command": "klc.refresh",
+        "title": "klc: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "klc.switchTicket",
+        "title": "klc: Switch active ticket"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "klc.refresh",
+          "when": "view == klcNextSteps",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "klc",
+      "properties": {
+        "klc.shimPath": {
+          "type": "string",
+          "default": ".klc/bin/klc",
+          "description": "Path to the klc shim, relative to workspace root (Unix) or .klc\\bin\\klc.ps1 on Windows."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.1",
+    "typescript": "^5.4.0"
+  }
+}
