@@ -94,7 +94,7 @@ def main(argv: list[str]) -> int:
                 "Parts list; for GAS vehicles both "
                 "CrushBehaviorPart_GASAttributeController_ForwardMaxSpeed and "
                 "CrushBehaviorPart_GASAttributeController_AuxEnginePowerScale "
-                "must be present (see CRUSH-3020)."
+                "must be present for GAS vehicles."
             ),
         })
 

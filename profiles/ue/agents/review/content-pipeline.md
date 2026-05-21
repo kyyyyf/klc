@@ -35,8 +35,8 @@ output (same severity label). Entries in `tools_missing[]` become
 is not declared for this profile, skip step 0 silently.
 
 For the UE profile the hook is `validate-cbp.sh`, which catches the
-CRUSH-3020-class regression: a CrushBehaviour (CBP) asset for a
-`ACrushDemoGASVehicleBase`-derived vehicle shipped without the required
+class of regression where a CrushBehaviour (CBP) asset for a
+`AGASVehicleBase`-derived vehicle ships without the required
 `CrushBehaviorPart_GASAttributeController_*` parts — GAS attribute
 changes then never reach physics.
 
@@ -112,9 +112,9 @@ ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 
 ## Examples from real diffs
 
-**Real CRITICAL (CRUSH-3020).** A PALV hovercraft vehicle silently
+**Real CRITICAL example.** A PALV hovercraft vehicle silently
 stopped responding to the sprint GA in production. Root cause: its
-`CBP_HovercraftTepmplate_PALV` asset had an empty Custom section in the
+`CBP_HovercraftTemplate_PALV` asset had an empty Custom section in the
 Parts list — both `CrushBehaviorPart_GASAttributeController_ForwardMaxSpeed`
 and `CrushBehaviorPart_GASAttributeController_AuxEnginePowerScale` were
 missing. The sprint `SprintSpeedEffect` modified the GAS attributes
@@ -123,7 +123,7 @@ was shipped; only the CBP needed the two parts added. Good finding:
 
 ```
 ### [CRITICAL] CBP asset missing GAS controller parts — CBP_MyNewGASVehicle.uasset
-**Issue**: the vehicle derives from `ACrushDemoGASVehicleBase` but its
+**Issue**: the vehicle derives from `AGASVehicleBase` but its
 CrushBehaviour template's Custom section has no
 `CrushBehaviorPart_GASAttributeController_ForwardMaxSpeed` / …AuxEnginePowerScale.
 GAS attribute changes (sprint, boost, damage) will not reach physics —
