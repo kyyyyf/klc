@@ -50,11 +50,9 @@ excludes:
   - Platforms
   - ThirdParty
 
-# "Large" threshold. Bootstrap (inventory/decompose/docgen) stays
-# deterministic regardless of size — Serena never runs during init.
-# Ticket-time agents (task/test/review) treat this number as an
-# advisory: at-or-above the threshold, Serena becomes the preferred
-# way to verify a signature during design/impl/build on M/L tracks;
+# Advisory threshold. Bootstrap stays deterministic regardless of size.
+# Ticket-time agents treat this as an advisory: at-or-above the threshold,
+# LSP becomes the preferred way to verify a signature during design/impl/build;
 # below, ast-grep over the profile rule set is usually enough.
 large_project_threshold_files: 500
 

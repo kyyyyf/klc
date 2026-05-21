@@ -10,16 +10,12 @@ snapshot of the project. Never read source files line by line.
 - Active profile — pulled from `config/profile.yml`
   (or the per-project override at `.klc/config/profile.yml`).
 - MCP server: **ast-grep** (structural search using the profile's
-  rule set). Serena is intentionally **not** listed here: bootstrap
-  is deterministic-only (see below); the Serena MCP is attached later,
-  after the first ticket reaches design/impl on an M/L track.
+  rule set).
 
 ## Symbol source of truth
-**Bootstrap is deterministic-only: do not call Serena from this agent.**
-A full Serena walk on a large project costs millions of tokens and
-returns raw signatures that the module CLAUDE.md templates do not
-consume anyway (names-only, capped at 15). See `notes-vs-serena.md`
-section 2 for the rationale.
+**Bootstrap is deterministic-only: do not call LSP from this agent.**
+A full LSP walk on a large project is expensive; symbol names (capped
+at 15) are all the module CLAUDE.md templates consume anyway.
 
 Order of preference inside this agent:
 
@@ -30,9 +26,8 @@ Order of preference inside this agent:
 3. Regex fallback — allowed, but record it in `source_of_truth` so
    downstream agents know the data is less precise.
 
-Serena enters the picture later, through `serena-call.py`, when a
-ticket reaches design/impl/build on an M- or L-track. It is never
-called from inventory or docgen.
+LSP enters the picture during ticket work (design/impl/build) when an
+agent needs to verify a specific symbol signature or find references.
 
 ## Steps
 

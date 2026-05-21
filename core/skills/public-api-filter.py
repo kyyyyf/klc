@@ -162,7 +162,7 @@ def main() -> int:
                     help="maximum symbols per module (default 15). Module "
                          "CLAUDE.md lands in every task/review context; keep "
                          "the list short on purpose — the reviewer will pull "
-                         "more via Serena when it needs detail.")
+                         "more via LSP when it needs detail.")
     ap.add_argument("--in-inventory", type=Path,
                     default=klc_index_dir() / "inventory.json")
     ap.add_argument("--in-modules", type=Path,

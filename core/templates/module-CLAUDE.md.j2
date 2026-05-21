@@ -20,7 +20,7 @@
 - `{{ sym }}`
 {% endfor %}
 {% if module.public_api|length > 15 %}
-- _… {{ module.public_api|length - 15 }} more; use Serena `find_symbol` or see `.klc/index/inventory.json`._
+- _… {{ module.public_api|length - 15 }} more; see `.klc/index/inventory.json` or use LSP `documentSymbol`._
 {% elif module.get("public_api_note") %}
 - _{{ module.public_api_note }}_
 {% endif %}

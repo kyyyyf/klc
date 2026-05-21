@@ -1,6 +1,6 @@
 """Shared path helpers for klc skills.
 
-Per-project state lives in $PROJECT_ROOT/.klc/ (see MIGRATION.md).
+Per-project state lives in $PROJECT_ROOT/.klc/.
 Skills never write inside the klc repo; they read templates / rules
 from there and write generated data into the per-project directory.
 
@@ -73,7 +73,7 @@ def klc_tickets_archive_dir() -> Path:
 
 def klc_ticket_dir(ticket_id: str) -> Path:
     """Live ticket directory: spec, design/, impl-plan, test-plan,
-    scratch/, serena-cache/, retrospective."""
+    scratch/, retrospective."""
     return klc_tickets_dir() / ticket_id
 
 
@@ -84,17 +84,8 @@ def klc_ticket_scratch_dir(ticket_id: str) -> Path:
     return klc_ticket_dir(ticket_id) / "scratch"
 
 
-def klc_ticket_serena_cache_dir(ticket_id: str) -> Path:
-    """Per-ticket Serena answer cache. One file per (operation, symbol,
-    file, line) tuple; invalidated automatically when the underlying
-    source file changes (git blob SHA mismatch)."""
-    return klc_ticket_dir(ticket_id) / "serena-cache"
-
-
 def klc_ticket_meta_file(ticket_id: str) -> Path:
-    """Tiny per-ticket metadata: track (XS/S/M/L), current phase, owner.
-    Used by serena-call.py to decide whether a given phase may call
-    Serena on this track."""
+    """Tiny per-ticket metadata: track (XS/S/M/L), current phase, owner."""
     return klc_ticket_dir(ticket_id) / "meta.json"
 
 
@@ -120,13 +111,6 @@ def klc_knowledge_dir() -> Path:
     """Cumulative, cross-ticket knowledge (allowlists, few-shot examples,
     global index, process metrics, promoted process rules)."""
     return klc_dir() / "knowledge"
-
-
-def klc_serena_deny_file() -> Path:
-    """Project-level Serena query denylist (accumulated over time). Has
-    the same fall-back semantics as the reviewer allowlist: if the
-    project file is missing, callers use the framework-shipped seed."""
-    return klc_knowledge_dir() / "serena-deny.yml"
 
 
 def klc_verification_log() -> Path:

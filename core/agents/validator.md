@@ -61,7 +61,7 @@ One JSON document on stdout:
 
 ### Track classification
 
-Score the change on four axes (see `process-phases.md` section 2 for
+Score the change on four axes (see `docs/process.md` §Tracks for
 the rubric): `complexity`, `uncertainty`, `risk`, `manual`, each 0–3.
 Track maps by total:
 
@@ -90,8 +90,7 @@ When `complete: true` and a ticket id is known, the validator writes
 ```
 
 Subsequent agents (`task`, `test`, `review`) bump the `phase` field
-as they run. `serena-call.py` keys its policy off this file; without
-it, every Serena call falls back to defaults (track=M, phase=build).
+as they run.
 
 `layer` tells the task agent which solution archetypes apply:
 

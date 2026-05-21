@@ -27,12 +27,11 @@ Output:
       "warnings": [ "..." ]
     }
 
-The skill does NOT talk to Serena directly. Its job is to compute *what to
-ask for*: the deterministic set of module paths, their CLAUDE.md files, and
-— using the dep-graph already captured in inventory.json — the referenced
-symbols of immediate neighbours up to `depth`. The task agent is expected to
-feed this selection into Serena for full symbol lookup; by then the scope is
-small.
+The skill is deterministic: it computes the set of module paths, their
+CLAUDE.md files, and — using the dep-graph already captured in
+inventory.json — the referenced symbols of immediate neighbours up to
+`depth`. The task agent may then use LSP for full symbol lookup on this
+narrowed scope.
 
 Reads .klc/index/symbols_by_module.json (materialized by
 public-api-filter.py) instead of walking inventory.json on every run.

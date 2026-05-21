@@ -10,7 +10,7 @@ _klc() {
     local cur prev words cword
     _init_completion || return
 
-    local subcmds="intake status next ack jump abort board doctor metrics reindex install init update"
+    local subcmds="intake status next ack ship jump abort step board doctor metrics reindex install init update"
 
     if [ "$cword" -eq 1 ]; then
         COMPREPLY=( $(compgen -W "$subcmds" -- "$cur") )

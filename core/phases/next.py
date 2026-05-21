@@ -79,10 +79,14 @@ def run(argv: list[str]) -> int:
                 return 0
 
             new_pid, _ = _ph.parse_state(new_state)
-            card = write_prompt_card(args.ticket, new_pid, meta)
+            step = 1 if new_pid == "build" else None
+            card = write_prompt_card(args.ticket, new_pid, meta, step=step)
             print(f"→ {new_state}")
             print(f"  cat {card}")
-            print(f"    # paste into your agent, then run `klc ack {args.ticket}`")
+            if new_pid == "build":
+                print(f"    # paste into your agent; use `klc step {args.ticket} N` for subsequent steps")
+            else:
+                print(f"    # paste into your agent, then run `klc ack {args.ticket}`")
             return 0
 
     except LockedError as e:
