@@ -69,6 +69,36 @@ logical commit. Per step:
 Short form for S track (≤ 10 lines, single step). Full form
 otherwise.
 
+**YAGNI validation before writing.** Before producing the final
+`impl-plan.md`, verify:
+
+- Tasks are reasonably sized (aim for 3–7 steps total; adjust if the
+  feature genuinely requires more).
+- Dependencies are linear — no step requires output from a later step.
+- No unnecessary abstractions or future-proofing not asked for in
+  `spec.md`.
+- No new external dependency unless spec or ADR calls for it.
+- New files only for genuinely new components (not minor additions to
+  existing files). One new file per step is the norm; more requires a
+  DECISION item.
+
+If validation reveals scope that wasn't in the spec, add a
+`[!CONFLICT C-NNN]` to `design/options.md` before writing the plan.
+
+**Draft signal.** After writing `impl-plan.md` (but before closing the
+phase), emit:
+
+```
+IMPL_PLAN_DRAFT <ticket-key>
+```
+
+This tells the operator that `impl-plan.md` is ready for review.
+The operator reads it and either picks 1/2/3 (approve one of the
+options, which also accepts the plan) or pick 5 (`revise-impl-plan`)
+to loop back with feedback. When pick 5 is used, the feedback is
+written to the `<!-- BEGIN: manual -->` block of `design/options.md`;
+read it at the top of the next iteration before regenerating the plan.
+
 ### 4. Inline items
 
 Every DECISION in options / ADR gets an ID (`D-NNN`). FACT items

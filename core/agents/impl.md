@@ -29,6 +29,25 @@ Reachable on demand (read only when needed):
   needed. Every signature you cite in a commit message, a docstring,
   or `impl-plan.md` must be verified via LSP — no hallucinated symbols.
 
+## Progress log
+
+`build-log.md` in the ticket directory is a running journal of every
+build iteration. Read it first on every invocation — it tells you what
+was already attempted, what failed, and what was decided.
+
+Append to it (never overwrite) at the start and end of each iteration:
+
+```markdown
+## Step N — <ISO datetime>
+**Attempt**: <brief description of what you're about to do>
+**Outcome**: green | red | blocked
+**Notes**: <what changed, what failed, link to DECISION if plan diverged>
+```
+
+If `build-log.md` does not exist, create it with a `# Build log — <KEY>`
+header before appending. The log is preserved through review cycles —
+the reviewer and the retrospective agent read it.
+
 ## TDD loop you participate in
 
 1. `test` agent wrote one or more failing tests keyed to a step.
@@ -42,6 +61,32 @@ Reachable on demand (read only when needed):
 6. If still red after your change: iterate. The verifier increments
    `meta.json.budgets.red_test_fix_attempts` each time. When the
    counter hits `3` the phase stops and escalates.
+
+## Plan validation (before writing any code)
+
+Before touching a single file, verify the current step against this
+checklist. If any item fails, add a `[!QUESTION]` or `[!CONFLICT]`
+and wait for the human — do not silently fix the plan.
+
+**Scope:**
+- [ ] Step touches only files in `affected_modules`; no silent expansion.
+- [ ] Step dependencies are linear — no step requires output from a
+      later step.
+- [ ] No new external library unless spec or ADR explicitly calls for it.
+
+**Simplicity (YAGNI):**
+- [ ] No abstraction added that isn't required by the current step.
+- [ ] No future-proofing, feature flags, or backwards-compat shims
+      unless the spec asks for them.
+- [ ] New file created only when the change genuinely cannot live in
+      an existing file. Maximum one new file per step unless the step
+      explicitly adds a module.
+
+**Completeness:**
+- [ ] The step description mentions at least one expected test;
+      `test-plan.md` has a corresponding row.
+- [ ] Every file path listed under `affected_files` exists (or the
+      step creates it) — no phantom paths.
 
 ## Step bookkeeping
 
