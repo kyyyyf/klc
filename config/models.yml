@@ -44,7 +44,7 @@ version: 1
 
 defaults:
   provider:    anthropic
-  model:       claude-sonnet-4-5
+  model:       claude-sonnet-4-6
   api_key_env: ANTHROPIC_API_KEY
   extra_args:  []
 
@@ -57,28 +57,28 @@ defaults:
 roles:
   heavy-reasoning:
     provider:    anthropic
-    model:       claude-opus-4-5
+    model:       claude-opus-4-7
     api_key_env: ANTHROPIC_API_KEY
 
   coding:
     provider:    anthropic
-    model:       claude-sonnet-4-5
+    model:       claude-sonnet-4-6
     api_key_env: ANTHROPIC_API_KEY
 
   local-simple:
-    provider:    ollama
-    model:       qwen2.5:7b
-    api_key_env: null   # local runtime; no API key
+    provider:    anthropic
+    model:       claude-haiku-4-5-20251001
+    api_key_env: ANTHROPIC_API_KEY
 
   local-coding:
-    provider:    ollama
-    model:       qwen2.5-coder:14b
-    api_key_env: null
+    provider:    anthropic
+    model:       claude-haiku-4-5-20251001
+    api_key_env: ANTHROPIC_API_KEY
 
   external:
-    provider:    openai
-    model:       gpt-4o
-    api_key_env: OPENAI_API_KEY
+    provider:    anthropic
+    model:       claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
 
 # --- phase → role mapping ---------------------------------------------------
 #
