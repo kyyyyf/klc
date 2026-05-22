@@ -16,8 +16,9 @@ is [`config/phases.yml`](../config/phases.yml).
 4. **Facts tagged in every artefact.** `[!FACT src=…]`,
    `[!ASSUMPTION if-false=…]`, `[!DECISION D-NNN]`. Enables
    retrospective verification and cuts hallucination.
-5. **Short XS path.** XS skips discovery, test-plan, design. One
-   agent call + review-lite.
+5. **Short XS path.** XS skips acceptance-test-plan, design, and
+   observe. Discovery runs as normal — that's where XS is confirmed.
+   One build agent call + review-lite.
 
 ---
 
@@ -42,7 +43,7 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 | Phase id               | Tracks      | Agent prompt                      | Picks at `:ack-needed`                                    |
 |------------------------|-------------|-----------------------------------|------------------------------------------------------------|
 | `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm                                                |
-| `discovery`            | S M L       | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
+| `discovery`            | XS S M L    | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
 | `acceptance-test-plan` | S M L       | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
 | `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
 | `detailed-test-plan`   | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
@@ -55,7 +56,7 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 | `observe`              | S M L       | _(monitoring checklist)_          | 1 = clean · 2 = regression · 3 = rollback                 |
 | `learn`                | XS S M L    | `core/agents/retrospective.md`    | 1 = archive · 2 = extract-to-CLAUDE.md                    |
 
-**XS path**: intake → xs-build → review-lite → integrate → learn
+**XS path**: intake → discovery → xs-build → review-lite → integrate → learn
 
 **S path**: intake → discovery → acceptance-test-plan → build → review → integrate → observe → learn
 
@@ -96,7 +97,7 @@ choose a pick before `next` proceeds.
 | Gate              | Phase                          | Tracks  |
 |-------------------|--------------------------------|---------|
 | confirm intake    | `intake:ack-needed`            | all     |
-| pull-ready        | `discovery:ack-needed`         | S M L   |
+| pull-ready        | `discovery:ack-needed`         | XS S M L |
 | accept test plan  | `acceptance-test-plan:ack-needed` | S M L |
 | direction         | `design:ack-needed`            | M L     |
 | detail test plan  | `detailed-test-plan:ack-needed`| M L     |
@@ -155,20 +156,25 @@ emits `[!QUESTION]` or `[!CONFLICT]`; human decides next action.
 Single-agent path for trivial changes (score 0–2).
 
 1. `klc intake <key> --kind bug "<desc>"` → `intake:ack-needed`
-2. `klc ack <key> --pick 1` → `xs-build:work`
-3. Run `xs-fasttrack` agent with prompt card at
+2. `klc ack <key> --pick 1` → `discovery:work`
+3. Run `discovery` agent. Produces `spec.md` with ACs and
+   `affected_modules`. This is where the XS score is confirmed.
+4. `klc ack <key> --pick 1` → `xs-build:work`
+5. Run `xs-fasttrack` agent with prompt card at
    `.klc/tickets/<key>/xs-build/_prompt.md`.
-   Agent: reads `raw.md` + root `CLAUDE.md` → locates code via LSP →
-   writes fix + test → commits → emits `XS_IMPL_DONE` or `XS_BLOCKED`.
-4. `klc ack <key> --pick 1` → `review-lite:work`
-5. Run `review-lite` agent. Blocks only on CRITICAL (security, API
+   Agent: reads `spec.md` + `raw.md` + root `CLAUDE.md` → locates
+   code via LSP → writes fix + test → commits → emits `XS_IMPL_DONE`
+   or `XS_BLOCKED`.
+6. `klc ack <key> --pick 1` → `review-lite:work`
+7. Run `review-lite` agent. Blocks only on CRITICAL (security, API
    break, data corruption). Emits `REVIEW_LITE_PASS` or
    `REVIEW_LITE_CRITICAL`.
-6. `klc ack <key> --pick 1` (approve) or `--pick 2` (request-changes
+8. `klc ack <key> --pick 1` (approve) or `--pick 2` (request-changes
    → back to `xs-build:work`) → `integrate:work` → `learn`.
 
 If scope expands beyond `affected_modules`: agent emits `XS_BLOCKED`,
-human uses `klc jump discovery:work --yes` to upgrade to S/M.
+human uses `klc jump acceptance-test-plan:work --yes` to upgrade to S/M
+(discovery is already done).
 
 ---
 

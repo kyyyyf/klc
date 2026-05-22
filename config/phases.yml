@@ -65,7 +65,7 @@ phases:
 
   # -------------------------------------------------------------------
   - id: discovery
-    tracks: [S, M, L]
+    tracks: [XS, S, M, L]
     work:
       prompt: "core/agents/discovery.md"
     ack:
@@ -159,9 +159,9 @@ phases:
           goto: "next"
         - id: 2
           label: "upgrade-to-S"
-          goto: "discovery:work"
+          goto: "acceptance-test-plan:work"
           supersede: ["xs-build"]
-    inputs: ["raw.md"]
+    inputs: ["raw.md", "spec.md"]
     outputs: []
 
   # -------------------------------------------------------------------
