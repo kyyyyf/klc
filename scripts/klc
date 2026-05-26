@@ -89,8 +89,19 @@ LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
 )
 OPERATIONAL_CMDS = (
-    "board", "doctor", "metrics", "reindex", "install",
+    "board", "doctor", "metrics", "reindex", "install", "jira-sync",
 )
+
+
+def _drain_jira_queue() -> None:
+    """Opportunistic drain — called on every klc command, no-op if queue empty."""
+    try:
+        sys.path.insert(0, str(SKILLS_DIR))
+        import jira_sync as _js
+        if _js.queue_size() > 0:
+            _js.flush_queue(timeout=2.0, quiet=True)
+    except Exception:
+        pass
 
 
 def _dispatch(argv: list[str]) -> int:
@@ -98,6 +109,10 @@ def _dispatch(argv: list[str]) -> int:
         _print_help()
         return 0
     cmd, rest = argv[0], argv[1:]
+
+    # drain Jira queue opportunistically on every command except jira-sync itself
+    if cmd != "jira-sync":
+        _drain_jira_queue()
 
     if cmd in ("--version", "-V"):
         print("klc 0.2")

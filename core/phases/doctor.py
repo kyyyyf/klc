@@ -142,6 +142,50 @@ def _klc() -> list[str]:
     return []
 
 
+@check("jira-sync-queue")
+def _jira_sync_queue() -> list[str]:
+    errs: list[str] = []
+    try:
+        import jira_sync
+        size = jira_sync.queue_size()
+        if size == 0:
+            return []
+        p = jira_sync._queue_path()
+        import json
+        import datetime as _dt
+        lines = [l for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+        oldest_at = None
+        for line in lines:
+            try:
+                e = json.loads(line)
+                at_str = e.get("at", "")
+                if at_str:
+                    at = _dt.datetime.fromisoformat(at_str.replace("Z", "+00:00"))
+                    if oldest_at is None or at < oldest_at:
+                        oldest_at = at
+            except Exception:
+                pass
+        age_msg = ""
+        if oldest_at:
+            age = _dt.datetime.now(_dt.timezone.utc) - oldest_at
+            days = age.days
+            age_msg = f", oldest {days}d ago"
+            if days >= 7:
+                errs.append(
+                    f"jira-sync queue has {size} pending entries{age_msg} — "
+                    f"run `klc jira-sync` to flush"
+                )
+                return errs
+        if size >= 100:
+            errs.append(
+                f"jira-sync queue has {size} pending entries{age_msg} — "
+                f"run `klc jira-sync` to flush"
+            )
+    except Exception as exc:
+        errs.append(f"jira-sync queue check failed: {exc}")
+    return errs
+
+
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc doctor")
     ap.add_argument("--json", action="store_true",

@@ -59,4 +59,7 @@ if [ -f "$REPO_ROOT/.klc/index/.last-run" ]; then
     python3 "$FW/scripts/update.py" >> "$REPO_ROOT/.klc/logs/update.log" 2>&1 || true
 fi
 
+# --- 3. Jira sync queue drain (non-blocking, timeout 2s) ---
+python3 "$FW/core/skills/jira_sync.py" flush --quiet --timeout=2 2>/dev/null || true
+
 exit 0
