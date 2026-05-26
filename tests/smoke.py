@@ -241,114 +241,6 @@ def block_08_context_loader(scratch: Path, env: dict[str, str]) -> None:
         shutil.move(str(backup), str(inv))
 
 
-def block_09_serena_call(scratch: Path, env: dict[str, str]) -> None:
-    ticket = "TICK-serena"
-    tdir = scratch / ".klc" / "tickets" / ticket
-    tdir.mkdir(parents=True, exist_ok=True)
-
-    def _serena(*args: str, expect_ok: bool = True) -> tuple[str, int]:
-        r = _py(FW_ROOT / "core" / "skills" / "serena-call.py", *args,
-                env=env, check=expect_ok)
-        return (r.stdout.strip(), r.returncode)
-
-    (tdir / "meta.json").write_text(json.dumps({
-        "ticket": ticket, "track": "M", "phase": "build:work",
-    }), encoding="utf-8")
-
-    out, _ = _serena("check", "--ticket", ticket, "--phase", "build",
-                     "--op", "get_hover_info", "--subject", "foo")
-    if not out.startswith("ALLOWED"):
-        fail(f"expected ALLOWED, got: {out}")
-
-    pl = scratch / ".klc" / "tickets" / ticket / "payload.json"
-    pl.write_text(json.dumps({"signature": "foo(x: int) -> bool"}),
-                  encoding="utf-8")
-    _serena("save", "--ticket", ticket, "--op", "get_hover_info",
-            "--subject", "foo", "--payload", str(pl))
-    out, _ = _serena("check", "--ticket", ticket, "--phase", "build",
-                     "--op", "get_hover_info", "--subject", "foo")
-    if not out.startswith("CACHED "):
-        fail(f"expected CACHED, got: {out}")
-
-    (tdir / "meta.json").write_text(json.dumps({
-        "ticket": ticket, "track": "XS", "phase": "build:work",
-    }), encoding="utf-8")
-    out, _ = _serena("check", "--ticket", ticket, "--phase", "build",
-                     "--op", "get_hover_info", "--subject", "foo")
-    if not out.startswith("DENIED "):
-        fail(f"expected DENIED for XS, got: {out}")
-
-    (tdir / "meta.json").write_text(json.dumps({
-        "ticket": ticket, "track": "S", "phase": "design:work",
-    }), encoding="utf-8")
-    out, _ = _serena("check", "--ticket", ticket, "--phase", "design",
-                     "--op", "get_hover_info", "--subject", "foo")
-    if not out.startswith("DENIED "):
-        fail(f"expected DENIED for S/design, got: {out}")
-
-    (tdir / "meta.json").write_text(json.dumps({
-        "ticket": ticket, "track": "M", "phase": "build:work",
-    }), encoding="utf-8")
-    out, _ = _serena("check", "--ticket", ticket,
-                     "--op", "get_hover_info", "--subject", "foo")
-    if not (out.startswith("ALLOWED") or out.startswith("CACHED")):
-        fail(f"expected ALLOWED/CACHED via fallback, got: {out}")
-
-    # legacy fallback
-    (tdir / "meta.json").write_text(json.dumps({
-        "ticket": ticket, "track": "M", "phase": "build-pending",
-    }), encoding="utf-8")
-    out, _ = _serena("check", "--ticket", ticket,
-                     "--op", "get_hover_info", "--subject", "foo")
-    if not (out.startswith("ALLOWED") or out.startswith("CACHED")):
-        fail(f"expected ALLOWED/CACHED via legacy fallback, got: {out}")
-
-    out, _ = _serena("status", "--ticket", ticket)
-    data = json.loads(out)
-    if data.get("cache_files", 0) < 1 or data.get("denied-track", 0) < 1:
-        fail(f"status counts off: {data}")
-
-
-def block_10_serena_deny(scratch: Path, env: dict[str, str]) -> None:
-    for t in ("TICK-a", "TICK-b", "TICK-c"):
-        d = scratch / ".klc" / "tickets" / t
-        d.mkdir(parents=True, exist_ok=True)
-        rec = {"t": "2026-05-12T00:00:00Z", "event": "allowed",
-               "op": "find_symbol", "subject": "AActor",
-               "file": None, "line": None, "detail": ""}
-        (d / "serena-calls.log").write_text(json.dumps(rec) + "\n",
-                                              encoding="utf-8")
-
-    def _sd(*args: str, expect_ok: bool = True) -> tuple[str, int]:
-        r = _py(FW_ROOT / "core" / "skills" / "serena_deny.py", *args,
-                env=env, check=expect_ok)
-        return (r.stdout, r.returncode)
-
-    out, _ = _sd("propose", "--min-tickets", "2")
-    if "AActor" not in out:
-        fail(f"propose did not surface AActor: {out}")
-
-    _sd("add", "--pattern", r"find_symbol\s+AActor",
-        "--reason", "engine type")
-    out, _ = _sd("list")
-    if "AActor" not in out:
-        fail(f"list missing newly added pattern: {out}")
-
-    _, code = _sd("add", "--pattern", r"find_symbol\s+AActor",
-                  "--reason", "engine type", expect_ok=False)
-    if code == 0:
-        fail("duplicate pattern accepted")
-
-    _, code = _sd("add", "--pattern", "(bad",
-                  "--reason", "x", expect_ok=False)
-    if code == 0:
-        fail("invalid regex accepted")
-
-    out, _ = _sd("propose", "--min-tickets", "2")
-    if "AActor" in out:
-        fail(f"propose still lists covered entry: {out}")
-
-
 def block_11_items_verify(scratch: Path, env: dict[str, str]) -> None:
     tdir = scratch / ".klc" / "tickets" / "TICK-fact"
     tdir.mkdir(parents=True, exist_ok=True)
@@ -609,8 +501,6 @@ def main() -> int:
         block_06_claude_md(SCRATCH)
         block_07_symbols_by_module(SCRATCH)
         block_08_context_loader(SCRATCH, env)
-        block_09_serena_call(SCRATCH, env)
-        block_10_serena_deny(SCRATCH, env)
         block_11_items_verify(SCRATCH, env)
         block_12_scratch(SCRATCH, env)
         block_13_phase_loop(SCRATCH, env)

@@ -12,6 +12,9 @@ right place in the code, write the fix plus at least one test, commit.
 
 - `raw.md` in the ticket directory — the full description as written
   during intake.
+- `spec.md` — structured spec produced by discovery: acceptance
+  criteria, affected_modules, constraints. Use this as the source of
+  truth for "done".
 - Root `CLAUDE.md` — project invariants, code conventions, test
   runner command.
 - `meta.json` — `track` (must be `XS`), `affected_modules`.
@@ -23,15 +26,17 @@ on demand.
 
 ### 1. Understand the request
 
-Read `raw.md`. Extract in your head:
+Read `spec.md` for the acceptance criteria and scope. Read `raw.md`
+for the original description and any intake-agent notes. From these
+extract:
 - What must change (behaviour or content).
-- What "done" looks like (the implicit acceptance criterion).
-- Which module / file is most likely involved (`affected_modules` in
-  meta, or your own judgement from the description).
+- What "done" looks like (the ACs in `spec.md`).
+- Which modules are in scope (`affected_modules` from `spec.md` /
+  `meta.json`).
 
-If the request is ambiguous beyond what you can resolve by reading
-the code, stop and emit `[!QUESTION Q-001]` in `raw.md`'s manual
-block, then signal `XS_BLOCKED <ticket>`. Do not guess.
+If any AC is ambiguous beyond what you can resolve by reading the
+code, stop and emit `[!QUESTION Q-001]` in `raw.md`'s manual block,
+then signal `XS_BLOCKED <ticket>`. Do not guess.
 
 ### 2. Locate the code
 
@@ -96,8 +101,9 @@ Refs: <ticket>
 
 ## Hard rules
 
-- Do not create `spec.md`, `impl-plan.md`, `test-plan.md`, or any
-  design artefact.
+- Do not create `impl-plan.md`, `test-plan.md`, or any design
+  artefact. `spec.md` is produced by discovery before this phase —
+  do not overwrite it.
 - Every symbol you reference in the commit message must be verified
   via LSP.
 - The test you write must be new — do not relabel an existing test.
