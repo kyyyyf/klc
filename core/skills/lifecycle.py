@@ -129,6 +129,11 @@ def set_state(ticket: str, phase_id: str, state: str, *,
     history.append(entry)
     meta["phase"] = new
     write_meta(ticket, meta)
+    try:
+        import jira_sync as _js
+        _js.push_phase(ticket, new, source=event)
+    except Exception as _e:
+        sys.stderr.write(f"[jira-sync] non-fatal: {_e}\n")
 
 
 # --- superseding downstream artefacts ----------------------------------------
