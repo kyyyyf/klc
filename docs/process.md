@@ -85,6 +85,8 @@ klc metrics <key>              # per-ticket JSON
 klc metrics --rollup           # 30-day aggregate
 klc init [--scan-only|--auto|--finalize]
 klc update [--regen] [--force]
+klc jira-sync [--dry-run]      # flush Jira push queue
+klc jira-sync status           # queue size + oldest entry age
 ```
 
 ---
@@ -318,7 +320,7 @@ klc/                           # framework repo
     reviewers.yml              # review gates, mutation threshold
     budgets.yml                # (optional) override budget limits
     ticket-id.yml              # regex for ticket keys
-    jira.yml                   # url_template for link-backs
+    jira.yml                   # Jira url_template + sync config (transport, mapping)
   core/
     agents/                    # LLM prompt files
     phases/                    # command implementations (*.py)
@@ -329,7 +331,7 @@ klc/                           # framework repo
     generic/                   # default profile
     ue/                        # Unreal Engine profile
   hooks/
-    pre-commit                 # runs update.py + consistency check
+    pre-commit                 # consistency check + update.py + jira-sync drain
   scripts/
     klc                        # dispatcher
     init.py / update.py        # indexing loop
