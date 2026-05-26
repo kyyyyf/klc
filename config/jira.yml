@@ -1,6 +1,55 @@
-# Jira integration. Copy to `.klc/config/jira.yml` and set url_template
-# for your instance; `klc intake` writes `raw.md` with a ready-made
-# link to the external ticket.
+# Jira integration. Copy to `.klc/config/jira.yml` and fill in your
+# instance details. The framework works without any Jira wiring —
+# sync.enabled defaults to false.
 #
-# Optional — the framework works without any Jira wiring.
+# Per-project overrides: create .klc/config/jira.yml in the project.
+# Settings there are merged on top of this file (deep merge).
+# Use it to set sync.enabled: true and your base_url / auth config.
+
 url_template: "https://jira.example.com/browse/{key}"
+
+sync:
+  # Set to true in your per-project .klc/config/jira.yml to activate.
+  enabled: false
+
+  # Transport: rest (direct Jira REST API) or mcp (mcp-atlassian HTTP mode).
+  transport: rest
+
+  # Seconds before a push attempt times out and falls back to the queue.
+  timeout_seconds: 2
+
+  # REST transport — direct Jira API calls via stdlib urllib.
+  rest:
+    base_url: "https://jira.example.com"
+    # Name of the env variable holding the Jira Personal Access Token.
+    auth_env: JIRA_TOKEN
+    # Optional: if set, Basic auth is used instead of Bearer.
+    # Set this to the env variable holding the Jira username/email.
+    auth_user_env: ""
+
+  # MCP transport — calls mcp-atlassian running in HTTP mode.
+  mcp:
+    url: "http://localhost:9000"
+    auth_env: JIRA_TOKEN
+
+  # phase → Jira status mapping.
+  # Keys can be a phase id (e.g. "build") or a full phase:state string
+  # (e.g. "build:work"). Full strings take precedence over phase ids.
+  # Only the phases listed here trigger a push — all other transitions
+  # are silently skipped.
+  # Adjust to match your Jira workflow's status names exactly.
+  phase_to_status:
+    intake:               "To Do"
+    discovery:            "Discovery"
+    acceptance-test-plan: "Planning"
+    design:               "Planning"
+    detailed-test-plan:   "Planning"
+    xs-build:             "In Progress"
+    build:                "In Progress"
+    review-lite:          "In Review"
+    review:               "In Review"
+    manual:               "Manual QA"
+    integrate:            "Merging"
+    observe:              "Observing"
+    learn:                "Done"
+    archived:             "Done"

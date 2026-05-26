@@ -245,6 +245,69 @@ and open questions. Items are indexed by `core/skills/items.py` into
 
 ---
 
+## Jira sync
+
+One-way push: klc → Jira. The filesystem and git remain the source of
+truth for ticket content. Jira is a mirror of the current phase.
+
+### Setup
+
+1. Copy `config/jira.yml` to `.klc/config/jira.yml` in the project.
+2. Set `sync.enabled: true` and fill in `rest.base_url`.
+3. Export `JIRA_TOKEN` (Personal Access Token). For basic auth also
+   export the variable named in `rest.auth_user_env`.
+4. Adjust `phase_to_status` to match your Jira workflow's status names.
+
+```yaml
+# .klc/config/jira.yml
+url_template: "https://jira.example.com/browse/{key}"
+sync:
+  enabled: true
+  transport: rest        # rest | mcp
+  rest:
+    base_url: "https://jira.example.com"
+    auth_env: JIRA_TOKEN
+  phase_to_status:
+    build: "In Progress"
+    review: "In Review"
+    archived: "Done"
+```
+
+For `transport: mcp`, set `sync.mcp.url` to the HTTP endpoint of a
+running `mcp-atlassian` instance.
+
+### How it works
+
+Every `lifecycle.set_state()` call (triggered by `klc next`, `ack`,
+`jump`, `abort`) attempts to push the new phase to Jira immediately
+with a short timeout (default 2 s).
+
+- **Success** → `meta.json:jira_last_sync` updated; Jira reflects the
+  new status within seconds.
+- **Failure / timeout** → event queued in `.klc/jira-queue.jsonl`;
+  no klc command is blocked.
+
+The queue is drained opportunistically — no background processes:
+- Any `klc` command checks and drains the queue on startup.
+- The `pre-commit` git hook drains on every commit.
+- Explicit flush: `klc jira-sync`.
+
+Deduplication: only the latest phase per ticket is sent on flush.
+
+### Commands
+
+```
+klc jira-sync              flush queue, verbose
+klc jira-sync --dry-run    show what would be sent
+klc jira-sync --quiet      flush silently (used internally)
+klc jira-sync status       queue size and oldest entry age
+```
+
+`klc doctor` reports queue health: warns if >100 entries or oldest
+entry is >7 days old.
+
+---
+
 ## Repository layout
 
 ```
