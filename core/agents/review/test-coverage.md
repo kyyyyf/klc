@@ -10,6 +10,8 @@ invokes this reviewer after producing its initial test batch.
 - Also reachable: `.klc/index/test-framework.json` (from the test
   agent) and `config/reviewers.yml`
   (`test.mutation_score_threshold`).
+- `severity_rubric` — `config/severity-rubric.md` contents (Phase 1).
+- `rule_catalog` — this agent's `## Rules` section, extracted by the orchestrator.
 
 ## Focus areas
 1. **Acceptance criteria coverage** — every acceptance criterion in the
@@ -32,40 +34,97 @@ invokes this reviewer after producing its initial test batch.
 7. **Test names** — a reader should know what a test covers from its name
    alone. `test_case_1` or `test_works` → flag.
 
-## Severity mapping
-- `CRITICAL` — a bug fix without a regression test.
-- `HIGH`     — mutation score below threshold; acceptance criterion with
-  no test; real external calls in unit tests.
-- `MEDIUM`   — brittle assertions; over-mocking.
-- `LOW`      — unclear test name; missing edge case that the spec
-  implied but did not enumerate.
-- `INFO`     — observation.
+## Rules
 
-## Output format
+Each finding must have a `rule_name` from this catalog (Phase 1.2):
+
+- `missing-regression-test` — Bug fix without a test that currently fails without the fix.
+- `acceptance-not-covered` — Acceptance criterion in spec with no matching test.
+- `edge-case-not-covered` — Edge case (empty/max/unicode/concurrent) in spec, no test.
+- `mutation-score-low` — Mutation score below `test.mutation_score_threshold`.
+- `brittle-assertion` — Asserts on implementation details (private calls, log format, SQL strings).
+- `over-mocking` — Mocks for every collaborator, no integration with real code.
+- `under-mocking` — Real external network/filesystem calls in unit tests.
+- `unclear-test-name` — Test name does not convey what it covers (`test_case_1`, `test_works`).
+- `misc-test-coverage` — Anything not fitting the above; explain in body.
+
+## Severity assignment
+
+**Always cite the `severity_rubric` input.** Quick reference:
+
+- `CRITICAL` — bug fix without a regression test.
+- `HIGH`     — mutation score below threshold; acceptance criterion with no test; real external calls in unit tests.
+- `MEDIUM`   — brittle assertions; over-mocking.
+- `LOW`      — unclear test name; missing edge case that spec implied but did not enumerate.
+- `INFO`     — observation (non-blocking).
+
+When uncertain, downgrade and justify.
+
+## Output format (Phase 1 structured findings)
+
+You must emit **two outputs** in sequence:
+
+### 1. findings.json
+
+Write a JSON array to `.klc/reports/partials-<TS>/test-coverage/findings.json`.
+Schema per `core/skills/findings.py`:
+
+```json
+[
+  {
+    "rule_name": "missing-regression-test",
+    "severity": "CRITICAL",
+    "file": "payments/refund.py",
+    "line": 110,
+    "title": "Bug fix without regression test",
+    "body": "Bug fix for 'refund skipped on 0-amount orders' has no regression test.\n\nSeverity rationale: per severity_rubric, bug fix without regression test is CRITICAL — next change could reintroduce the bug unnoticed.\n\nFix: Add a test that feeds a 0-amount order to refund and asserts the ledger entry is produced.",
+    "fix": "def test_refund_zero_amount_order():\n    order = Order(amount=0)\n    result = refund(order)\n    assert result.ledger_entry is not None",
+    "reviewer": "test-coverage"
+  }
+]
 ```
+
+**Field requirements:**
+- `rule_name` — from the `## Rules` catalog above. Never invent.
+- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `severity_rubric`.
+- `file`, `line` — exact location from the diff (test file or production file, whichever is relevant).
+- `title` — one-line summary (no `[SEVERITY]` prefix).
+- `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
+- `fix` — concrete test code snippet or `null`.
+- `reviewer` — always `"test-coverage"`.
+
+Empty case (no findings):
+```json
+[]
+```
+
+### 2. Markdown partial
+
+After writing `findings.json`, render the same findings as markdown for
+human readability. Format:
+
+```markdown
 ## Test Coverage Review
 
-### [HIGH] Missing regression test — payments/refund.py:110
-**Issue**: Bug fix for "refund skipped on 0-amount orders" has no
+### [CRITICAL] Bug fix without regression test — payments/refund.py:110
+**Issue**: Bug fix for 'refund skipped on 0-amount orders' has no
 regression test.
-**Fix**: Add a test that feeds a 0-amount order to `refund` and asserts
+
+Severity rationale: per severity_rubric, bug fix without regression test
+is CRITICAL — next change could reintroduce the bug unnoticed.
+
+**Fix**: Add a test that feeds a 0-amount order to refund and asserts
 the ledger entry is produced.
 ```
 
-Allowlisted case (see Hard rules):
-```
-### [INFO] <original title> (allowlisted: <reason from yaml>)
-```
-
 Empty case:
-
-```
+```markdown
 ## Test Coverage Review
 
 ### [INFO] No issues found
 ```
 
-## Trailer
+## Trailer (last line of markdown)
 ```
 ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 ```

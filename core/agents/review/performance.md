@@ -8,6 +8,8 @@ version.
 
 ## Inputs
 - `diff`, `spec`, `claude_md_context`.
+- `severity_rubric` — `config/severity-rubric.md` contents (Phase 1).
+- `rule_catalog` — this agent's `## Rules` section, extracted by the orchestrator.
 
 ## Focus areas
 
@@ -36,14 +38,31 @@ version.
    migration doesn't add; query on a non-indexed column; `SELECT *` on
    a wide table in a hot path.
 
-## Severity ladder
-- `CRITICAL` — new O(n²) on user-sized input in a hot path; sync I/O
-  inside an async event-loop handler.
-- `HIGH`     — N+1 query in a hot path; unbounded read of user-uploaded
-  content; new query without supporting index.
+## Rules
+
+Each finding must have a `rule_name` from this catalog (Phase 1.2):
+
+- `big-o-jump` — New O(n²) or worse on user-sized collection.
+- `n-plus-one` — Loop calling ORM/HTTP/RPC per element where batch exists.
+- `hot-path-allocation` — Repeated allocation in tight loop (list/dict/string building).
+- `blocking-io-async` — Sync I/O (`time.sleep`, `requests`, file read) in async code.
+- `unbounded-buffer` — Reading whole file/response into memory without streaming.
+- `missing-cache` — Pure function called repeatedly with same args in hot path.
+- `concurrency-hazard` — Shared mutable state without lock, or lock held across I/O.
+- `schema-index-missing` — New query on non-indexed column or missing index.
+- `misc-performance` — Anything not fitting the above; explain in body.
+
+## Severity assignment
+
+**Always cite the `severity_rubric` input.** Quick reference:
+
+- `CRITICAL` — new O(n²) on user-sized input in hot path; sync I/O inside async event-loop handler.
+- `HIGH`     — N+1 query in hot path; unbounded read of user-uploaded content; new query without supporting index.
 - `MEDIUM`   — avoidable allocations; regex re-compile in a function.
 - `LOW`      — minor hotspot (one extra allocation per request).
-- `INFO`     — observation.
+- `INFO`     — observation (non-blocking).
+
+When uncertain, downgrade and justify.
 
 ## Examples from real diffs
 
@@ -86,30 +105,71 @@ Before writing any finding into the partial, **read the actual code at
   enum) is not a Big-O finding.
 - Always quote `file:line` — aggregator's scope-check depends on it.
 
-## Output format
+## Output format (Phase 1 structured findings)
+
+You must emit **two outputs** in sequence:
+
+### 1. findings.json
+
+Write a JSON array to `.klc/reports/partials-<TS>/performance/findings.json`.
+Schema per `core/skills/findings.py`:
+
+```json
+[
+  {
+    "rule_name": "n-plus-one",
+    "severity": "HIGH",
+    "file": "api/orders.py",
+    "line": 88,
+    "title": "N+1 query in paginated list",
+    "body": "for order in orders: order.customer.load() triggers one query per order; the spec calls 500–1000 orders per page.\n\nSeverity rationale: per severity_rubric, N+1 in hot path is HIGH — degrades performance noticeably.\n\nFix: Use orders.prefetch_related('customer') (Django) / selectinload (SQLA) / single IN (...) batch.",
+    "fix": "orders.prefetch_related('customer')  # Django\n# or\nstmt = select(Order).options(selectinload(Order.customer))  # SQLA",
+    "reviewer": "performance"
+  }
+]
 ```
+
+**Field requirements:**
+- `rule_name` — from the `## Rules` catalog above. Never invent.
+- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `severity_rubric`.
+- `file`, `line` — exact location from the diff.
+- `title` — one-line summary (no `[SEVERITY]` prefix).
+- `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
+- `fix` — concrete code suggestion or `null`.
+- `reviewer` — always `"performance"`.
+
+Empty case (no findings):
+```json
+[]
+```
+
+### 2. Markdown partial
+
+After writing `findings.json`, render the same findings as markdown for
+human readability. Format:
+
+```markdown
 ## Performance Review
 
-### [HIGH] N+1 query — api/orders.py:88
-**Issue**: `for order in orders: order.customer.load()` triggers one
-query per order; the spec calls 500–1000 orders per page.
-**Fix**: Use `orders.prefetch_related('customer')` (Django) /
-`selectinload` (SQLA) / single `IN (...)` batch.
-```
+### [HIGH] N+1 query in paginated list — api/orders.py:88
+**Issue**: for order in orders: order.customer.load() triggers one query
+per order; the spec calls 500–1000 orders per page.
 
-Allowlisted case (see Hard rules):
-```
-### [INFO] <original title> (allowlisted: <reason from yaml>)
+Severity rationale: per severity_rubric, N+1 in hot path is HIGH —
+degrades performance noticeably.
+
+**Fix**: Use orders.prefetch_related('customer') (Django) / selectinload
+(SQLA) / single IN (...) batch.
 ```
 
 Empty case:
-```
+```markdown
 ## Performance Review
 
 ### [INFO] No issues found
 ```
 
-## Trailer
+## Trailer (last line of markdown)
 ```
 ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 ```
