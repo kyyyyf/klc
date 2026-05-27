@@ -236,6 +236,28 @@ def _validate_regex(pattern: str) -> bool:
 
 # --- job-card emission -------------------------------------------------------
 
+def _extract_rules_catalog(prompt_path: Path) -> str:
+    """Extract the `## Rules` section from a reviewer prompt (Phase 1.4).
+
+    Returns the section content as a string, or empty string if not found.
+    """
+    if not prompt_path.exists():
+        return ""
+    text = prompt_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    in_rules = False
+    catalog_lines: list[str] = []
+    for line in lines:
+        if line.strip().startswith("## Rules"):
+            in_rules = True
+            continue
+        if in_rules:
+            if line.strip().startswith("## "):  # next section
+                break
+            catalog_lines.append(line)
+    return "\n".join(catalog_lines).strip()
+
+
 def _write_job_card(card: Path, *,
                     reviewer: str,
                     prompt: str,
@@ -243,7 +265,13 @@ def _write_job_card(card: Path, *,
                     spec: Path,
                     context: Path,
                     allowlist: Path,
+                    severity_rubric: Path,
+                    rule_catalog_content: str,
                     partial: Path) -> None:
+    # Phase 1.4: write rule_catalog to a temp file next to the card
+    rule_catalog_path = card.parent / f"rule_catalog-{reviewer}.txt"
+    rule_catalog_path.write_text(rule_catalog_content, encoding="utf-8")
+
     body = (
         f"# Review sub-agent job: {reviewer}\n\n"
         f"Prompt file: {prompt}\n"
@@ -252,15 +280,19 @@ def _write_job_card(card: Path, *,
         f"- spec:              {spec}\n"
         f"- claude_md_context: {context}\n"
         f"- allowlist:         {allowlist}\n"
+        f"- severity_rubric:   {severity_rubric}\n"
+        f"- rule_catalog:      {rule_catalog_path}\n"
         "\n"
         "Before emitting any finding, read the allowlist. If a finding matches\n"
         f"an entry whose `reviewer` is \"{reviewer}\" or \"*\", downgrade to "
         "INFO and append\n"
         "`(allowlisted: <reason>)` to the title, per the prompt's Hard rules.\n"
         "\n"
-        f"Write the sub-agent's output to: {partial}\n"
+        f"Write TWO outputs (Phase 1.2):\n"
+        f"1. findings.json to {partial.parent / reviewer / 'findings.json'}\n"
+        f"2. Markdown partial to {partial}\n"
         "\n"
-        "Required trailer (last line of the partial):\n"
+        "Required trailer (last line of the markdown partial):\n"
         "  ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>\n"
     )
     card.write_text(body, encoding="utf-8")
@@ -720,6 +752,11 @@ def main(argv: list[str]) -> int:
             )
             reviewer_ctx = trimmed_ctx
 
+        # Phase 1.4: load severity rubric + extract rule catalog from prompt
+        severity_rubric_path = FRAMEWORK_ROOT / "config" / "severity-rubric.md"
+        prompt_path = FRAMEWORK_ROOT / r["path"]
+        rule_catalog_text = _extract_rules_catalog(prompt_path)
+
         _write_job_card(
             pending_dir / f"job-{name}.md",
             reviewer=name,
@@ -728,6 +765,8 @@ def main(argv: list[str]) -> int:
             spec=args.spec,
             context=reviewer_ctx,
             allowlist=allowlist,
+            severity_rubric=severity_rubric_path,
+            rule_catalog_content=rule_catalog_text,
             partial=partials_dir / f"{name}.partial.md",
         )
 
