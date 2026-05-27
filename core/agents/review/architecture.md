@@ -12,6 +12,8 @@ stability) belong to the UE profile version.
   `depends_on` / `depended_by` edges.
 - `.klc/index/depgraph.json` — `import_graphs` (authoritative for
   intra-project edges) and `package_graphs` (new third-party deps).
+- `severity_rubric` — `config/severity-rubric.md` contents (Phase 1).
+- `rule_catalog` — this agent's `## Rules` section, extracted by the orchestrator.
 
 ## Focus areas
 
@@ -41,16 +43,32 @@ stability) belong to the UE profile version.
    without the flag being registered in the central config module /
    documented. MEDIUM.
 
-## Severity ladder
-- `CRITICAL` — a change that breaks a documented public contract of a
-  stable module (would require a major-version bump).
-- `HIGH`     — circular import, cross-layer leak, public-API change
-  without ADR, new duplicate dep.
-- `MEDIUM`   — SOLID smell introduced by the diff; unflagged
-  configuration fork; third-party dep added with weak justification.
-- `LOW`      — style-level coupling (too many params on a new function,
-  non-constant-time hot path in cold code).
-- `INFO`     — observation.
+## Rules
+
+Each finding must have a `rule_name` from this catalog (Phase 1.2):
+
+- `module-boundary-violation` — Import from private/internal path of another module.
+- `new-external-dependency` — Third-party dep added to manifest (pyproject.toml, package.json, etc.).
+- `duplicate-dependency` — New dep overlaps capability of existing one.
+- `circular-import` — New import edge closes a cycle in the graph.
+- `public-api-without-adr` — Public API symbol changed, no matching ADR in `docs/adr/`.
+- `change-contradicts-adr` — Diff negates a decision locked in an ADR (Phase 2 addition).
+- `solid-smell` — Single Responsibility, inheritance depth, god-object.
+- `cross-layer-leak` — UI imports persistence directly, data layer touches HTTP request.
+- `configuration-drift` — New runtime flag not registered in central config.
+- `misc-architecture` — Anything not fitting the above; explain in body.
+
+## Severity assignment
+
+**Always cite the `severity_rubric` input.** Quick reference:
+
+- `CRITICAL` — breaks a documented public contract of a stable module (major-version bump required).
+- `HIGH`     — circular import, cross-layer leak, public-API change without ADR, duplicate dep, ADR contradiction.
+- `MEDIUM`   — SOLID smell introduced by diff; unflagged config fork; third-party dep with weak justification.
+- `LOW`      — style-level coupling (too many params, non-constant-time hot path in cold code).
+- `INFO`     — observation (non-blocking).
+
+When uncertain between two levels, choose the lower and justify.
 
 ## Examples from real diffs
 
@@ -98,30 +116,71 @@ This step is mandatory; LLM-suggested findings without a code-confirmed
 - Do not flag a new external dep as HIGH unless an existing dep in
   `package_graphs` covers the same capability — check before claiming.
 
-## Output format
+## Output format (Phase 1 structured findings)
+
+You must emit **two outputs** in sequence:
+
+### 1. findings.json
+
+Write a JSON array to `.klc/reports/partials-<TS>/architecture/findings.json`.
+Schema per `core/skills/findings.py`:
+
+```json
+[
+  {
+    "rule_name": "public-api-without-adr",
+    "severity": "HIGH",
+    "file": "src/payments/api.py",
+    "line": 12,
+    "title": "Public-API change without ADR",
+    "body": "processPayment signature changed (added idempotency_key) but no ADR in docs/adr/ covers this module.\n\nSeverity rationale: per severity_rubric, public-API change without rationale is HIGH — breaks documented contract.\n\nFix: Run adr --phase propose and link the ADR from the module's CLAUDE.md before merging.",
+    "fix": "adr --phase propose --spec <spec-path> --chosen <option>",
+    "reviewer": "architecture"
+  }
+]
 ```
+
+**Field requirements:**
+- `rule_name` — from the `## Rules` catalog above. Never invent.
+- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `severity_rubric`.
+- `file`, `line` — exact location from the diff.
+- `title` — one-line summary (no `[SEVERITY]` prefix).
+- `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
+- `fix` — concrete suggestion or `null`.
+- `reviewer` — always `"architecture"`.
+
+Empty case (no findings):
+```json
+[]
+```
+
+### 2. Markdown partial
+
+After writing `findings.json`, render the same findings as markdown for
+human readability. Format:
+
+```markdown
 ## Architecture Review
 
 ### [HIGH] Public-API change without ADR — src/payments/api.py:12
-**Issue**: `processPayment` signature changed (added `idempotency_key`)
-but no ADR in `docs/adr/` covers this module.
-**Fix**: Run `adr --phase propose` and link the ADR from the module's
-`CLAUDE.md` before merging.
-```
+**Issue**: processPayment signature changed (added idempotency_key) but
+no ADR in docs/adr/ covers this module.
 
-Allowlisted case (see Hard rules):
-```
-### [INFO] <original title> (allowlisted: <reason from yaml>)
+Severity rationale: per severity_rubric, public-API change without
+rationale is HIGH — breaks documented contract.
+
+**Fix**: Run adr --phase propose and link the ADR from the module's
+CLAUDE.md before merging.
 ```
 
 Empty case:
-```
+```markdown
 ## Architecture Review
 
 ### [INFO] No issues found
 ```
 
-## Trailer
+## Trailer (last line of markdown)
 ```
 ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 ```

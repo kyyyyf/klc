@@ -193,6 +193,91 @@ def collect_claude_mds(module_names: list[str], modules: list[dict]) -> list[str
     return paths
 
 
+def collect_adrs_from_claude_mds(claude_md_paths: list[str], budget_bytes: int) -> tuple[list[str], dict[str, str], list[str]]:
+    """Phase 2.1: Extract ADR links from `## ADRs` sections, inline contents.
+
+    Returns (adr_files, adr_inlined, warnings):
+      adr_files:    list of absolute ADR paths
+      adr_inlined:  dict {path: contents}
+      warnings:     list of warning messages (e.g., over budget, unresolvable links)
+
+    Budget: `budget_bytes` is the max total bytes of ADR content to inline.
+    Drop newest-first when over budget.
+    """
+    import re
+
+    adr_candidates: list[Path] = []
+    warnings: list[str] = []
+
+    # Parse each CLAUDE.md for `## ADRs` or `## Architecture Decision Records` section
+    for md_path_str in claude_md_paths:
+        md_path = Path(md_path_str)
+        if not md_path.exists():
+            continue
+        text = md_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        in_adr_section = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped in ("## ADRs", "## Architecture Decision Records"):
+                in_adr_section = True
+                continue
+            if in_adr_section:
+                if stripped.startswith("## "):  # next section
+                    break
+                # Match markdown links: [ADR-NNN](path) or [ADR-NNN: title](path)
+                m = re.match(r"^-?\s*\[ADR-\d+[^\]]*\]\(([^)]+)\)", stripped)
+                if m:
+                    link_target = m.group(1)
+                    # Resolve relative to the CLAUDE.md directory
+                    resolved = (md_path.parent / link_target).resolve()
+                    if resolved.exists():
+                        adr_candidates.append(resolved)
+                    else:
+                        warnings.append(f"ADR link unresolvable: {link_target} (from {md_path})")
+
+    # Deduplicate by absolute path
+    adr_paths = sorted(set(adr_candidates), key=lambda p: p.name)
+
+    # Apply budget: compute cumulative sizes, drop newest-first when over
+    adr_with_size: list[tuple[Path, int]] = []
+    for p in adr_paths:
+        try:
+            size = p.stat().st_size
+            adr_with_size.append((p, size))
+        except OSError:
+            warnings.append(f"ADR file unreadable: {p}")
+
+    # Sort by name descending (newest ADR-NNN first), then take oldest-first up to budget
+    adr_with_size.sort(key=lambda x: x[0].name, reverse=True)
+    cumulative = 0
+    selected: list[Path] = []
+    dropped: list[Path] = []
+    for p, size in adr_with_size:
+        if cumulative + size <= budget_bytes:
+            selected.append(p)
+            cumulative += size
+        else:
+            dropped.append(p)
+
+    if dropped:
+        warnings.append(
+            f"ADR budget exceeded ({cumulative}/{budget_bytes} bytes used); "
+            f"dropped {len(dropped)} ADRs: {', '.join(d.name for d in dropped)}"
+        )
+
+    # Inline contents
+    adr_inlined: dict[str, str] = {}
+    for p in selected:
+        try:
+            adr_inlined[str(p)] = p.read_text(encoding="utf-8")
+        except OSError as e:
+            warnings.append(f"Failed to read ADR {p}: {e}")
+
+    adr_files = [str(p) for p in selected]
+    return adr_files, adr_inlined, warnings
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -207,6 +292,8 @@ def main() -> int:
     ap.add_argument("--budget", type=float, default=0.05,
                     help="max fraction of project symbols to pull in (default 0.05)")
     ap.add_argument("--format", choices=["json", "markdown"], default="json")
+    ap.add_argument("--test-plan", type=Path, default=None,
+                    help="Optional path to test-plan.md; inlined if present (Phase 2.1)")
     args = ap.parse_args()
 
     requested = [s.strip() for s in args.modules.split(",") if s.strip()]
@@ -287,14 +374,35 @@ def main() -> int:
             "narrow --modules"
         )
 
+    claude_mds = collect_claude_mds(included, modules)
+
+    # Phase 2.1: ADR discovery + inline (dedicate 50% of remaining budget to ADRs)
+    adr_budget_bytes = int((budget_abs - selected) * 0.5 * 100) if budget_abs > selected else 0
+    adr_files, adr_inlined, adr_warnings = collect_adrs_from_claude_mds(claude_mds, adr_budget_bytes)
+    warnings.extend(adr_warnings)
+
+    # Phase 2.1: test plan (opportunistic — only if --test-plan provided and file exists)
+    test_plan_file = None
+    test_plan_inlined = None
+    if args.test_plan and args.test_plan.exists():
+        try:
+            test_plan_file = str(args.test_plan.resolve())
+            test_plan_inlined = args.test_plan.read_text(encoding="utf-8")
+        except OSError as e:
+            warnings.append(f"Failed to read test plan {args.test_plan}: {e}")
+
     result = {
         "requested_modules": requested,
         "included_modules":  included,
         "depth":             depth_used,
         "depth_mode":        "fixed" if args.depth is not None else "dynamic",
-        "claude_md":         collect_claude_mds(included, modules),
+        "claude_md":         claude_mds,
         "public_api":        public_api,
         "referenced_symbols": referenced_symbols,
+        "adr_files":         adr_files,
+        "adr_inlined":       adr_inlined,
+        "test_plan_file":    test_plan_file,
+        "test_plan_inlined": test_plan_inlined,
         "stats": {
             "total_symbols_project": total,
             "selected_symbols":      selected,
