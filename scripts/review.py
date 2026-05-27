@@ -37,6 +37,7 @@ sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 from _paths import (  # noqa: E402
     project_root, klc_dir, klc_knowledge_dir, klc_reports_dir,
 )
+from findings import aggregate, dedupe, sort_for_report, Finding  # noqa: E402
 
 
 # --- logging -----------------------------------------------------------------
@@ -235,6 +236,28 @@ def _validate_regex(pattern: str) -> bool:
 
 # --- job-card emission -------------------------------------------------------
 
+def _extract_rules_catalog(prompt_path: Path) -> str:
+    """Extract the `## Rules` section from a reviewer prompt (Phase 1.4).
+
+    Returns the section content as a string, or empty string if not found.
+    """
+    if not prompt_path.exists():
+        return ""
+    text = prompt_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    in_rules = False
+    catalog_lines: list[str] = []
+    for line in lines:
+        if line.strip().startswith("## Rules"):
+            in_rules = True
+            continue
+        if in_rules:
+            if line.strip().startswith("## "):  # next section
+                break
+            catalog_lines.append(line)
+    return "\n".join(catalog_lines).strip()
+
+
 def _write_job_card(card: Path, *,
                     reviewer: str,
                     prompt: str,
@@ -242,7 +265,13 @@ def _write_job_card(card: Path, *,
                     spec: Path,
                     context: Path,
                     allowlist: Path,
+                    severity_rubric: Path,
+                    rule_catalog_content: str,
                     partial: Path) -> None:
+    # Phase 1.4: write rule_catalog to a temp file next to the card
+    rule_catalog_path = card.parent / f"rule_catalog-{reviewer}.txt"
+    rule_catalog_path.write_text(rule_catalog_content, encoding="utf-8")
+
     body = (
         f"# Review sub-agent job: {reviewer}\n\n"
         f"Prompt file: {prompt}\n"
@@ -251,15 +280,19 @@ def _write_job_card(card: Path, *,
         f"- spec:              {spec}\n"
         f"- claude_md_context: {context}\n"
         f"- allowlist:         {allowlist}\n"
+        f"- severity_rubric:   {severity_rubric}\n"
+        f"- rule_catalog:      {rule_catalog_path}\n"
         "\n"
         "Before emitting any finding, read the allowlist. If a finding matches\n"
         f"an entry whose `reviewer` is \"{reviewer}\" or \"*\", downgrade to "
         "INFO and append\n"
         "`(allowlisted: <reason>)` to the title, per the prompt's Hard rules.\n"
         "\n"
-        f"Write the sub-agent's output to: {partial}\n"
+        f"Write TWO outputs (Phase 1.2):\n"
+        f"1. findings.json to {partial.parent / reviewer / 'findings.json'}\n"
+        f"2. Markdown partial to {partial}\n"
         "\n"
-        "Required trailer (last line of the partial):\n"
+        "Required trailer (last line of the markdown partial):\n"
         "  ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>\n"
     )
     card.write_text(body, encoding="utf-8")
@@ -397,42 +430,95 @@ def _classify_scope(diff_scope: dict[str, dict[str, set[int]]],
 
 def _parse_partial(path: Path,
                    diff_scope: dict[str, dict[str, set[int]]]) -> dict:
-    if not path.exists():
+    """Parse a reviewer partial (Phase 1.3: JSON-first, then markdown fallback).
+
+    Expected structure:
+      partials-<TS>/<reviewer>/findings.json  (Phase 1.2 structured output)
+      partials-<TS>/<reviewer>.partial.md      (legacy markdown, read for trailer check)
+
+    Returns dict with keys: total, blocking, issues, raw, trailer_mismatch, out_of_scope.
+    """
+    # Phase 1.3: read findings.json if present
+    findings_json_path = path.parent / path.stem.replace(".partial", "") / "findings.json"
+    if not findings_json_path.exists():
+        # Fallback: legacy markdown-only partial (pre-Phase1)
+        # This block preserved for backwards compat during transition
+        if not path.exists():
+            return {"total": 0, "blocking": 0, "issues": [], "raw": "",
+                    "trailer_mismatch": None, "out_of_scope": 0}
+        text = path.read_text(encoding="utf-8")
+        issues: list[dict] = []
+        for line in text.splitlines():
+            m = _SEVERITY_RE.match(line.strip())
+            if not m:
+                continue
+            title = m.group("rest").strip()
+            scope = _classify_scope(diff_scope, title)
+            issues.append({
+                "severity": m.group("sev"),
+                "title":    title,
+                "line":     line,
+                "suspect_out_of_scope": (scope is False),
+            })
+        total    = sum(1 for i in issues if i["severity"] != "INFO")
+        blocking = sum(1 for i in issues if i["severity"] in ("CRITICAL", "HIGH"))
+        out_of_scope = sum(1 for i in issues if i["suspect_out_of_scope"])
+        return {
+            "total":            total,
+            "blocking":         blocking,
+            "issues":           issues,
+            "raw":              text,
+            "trailer_mismatch": None,
+            "out_of_scope":     out_of_scope,
+        }
+
+    # New path: load findings.json via findings.py
+    try:
+        with findings_json_path.open("r", encoding="utf-8") as f:
+            findings_data = json.load(f)
+        findings_list = [Finding.from_dict(d) for d in findings_data]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as e:
+        sys.stderr.write(f"review: {findings_json_path.name}: malformed JSON: {e}\n")
         return {"total": 0, "blocking": 0, "issues": [], "raw": "",
                 "trailer_mismatch": None, "out_of_scope": 0}
-    text = path.read_text(encoding="utf-8")
+
+    # Convert Finding objects to legacy dict format expected by caller
     issues: list[dict] = []
-    for line in text.splitlines():
-        m = _SEVERITY_RE.match(line.strip())
-        if not m:
-            continue
-        title = m.group("rest").strip()
-        scope = _classify_scope(diff_scope, title)
+    for f in findings_list:
+        scope = _classify_scope(diff_scope, f"{f.file}:{f.line}")
         issues.append({
-            "severity": m.group("sev"),
-            "title":    title,
-            "line":     line,
+            "severity":             f.severity,
+            "title":                f"{f.title} — {f.file}:{f.line}",
+            "line":                 f"### [{f.severity}] {f.title} — {f.file}:{f.line}",  # legacy format for rendering
             "suspect_out_of_scope": (scope is False),
+            "finding":              f,  # preserve full Finding object for future use
         })
+
     total    = sum(1 for i in issues if i["severity"] != "INFO")
     blocking = sum(1 for i in issues if i["severity"] in ("CRITICAL", "HIGH"))
     out_of_scope = sum(1 for i in issues if i["suspect_out_of_scope"])
+
+    # Read markdown partial for trailer check (Phase 1.3 integrity check)
     trailer_mismatch = None
-    m = _TRAILER_RE.search(text)
-    if m:
-        t_total = int(m.group(1))
-        t_blocking = int(m.group(2))
-        if (t_total, t_blocking) != (total, blocking):
-            trailer_mismatch = (
-                f"trailer TOTAL={t_total} BLOCKING={t_blocking}, "
-                f"headers TOTAL={total} BLOCKING={blocking}"
-            )
-            sys.stderr.write(f"review: {path.name}: {trailer_mismatch}\n")
+    raw_text = ""
+    if path.exists():
+        raw_text = path.read_text(encoding="utf-8")
+        m = _TRAILER_RE.search(raw_text)
+        if m:
+            t_total = int(m.group(1))
+            t_blocking = int(m.group(2))
+            if (t_total, t_blocking) != (total, blocking):
+                trailer_mismatch = (
+                    f"trailer TOTAL={t_total} BLOCKING={t_blocking}, "
+                    f"JSON findings TOTAL={total} BLOCKING={blocking}"
+                )
+                sys.stderr.write(f"review: {path.name}: {trailer_mismatch}\n")
+
     return {
         "total":            total,
         "blocking":         blocking,
         "issues":           issues,
-        "raw":              text,
+        "raw":              raw_text,
         "trailer_mismatch": trailer_mismatch,
         "out_of_scope":     out_of_scope,
     }
@@ -478,6 +564,83 @@ def _try_reuse_partials(reports_dir: Path, *,
             continue
         return dir
     return None
+
+
+# --- input snapshot (Phase 1.6) ----------------------------------------------
+
+def _write_inputs_snapshot(partials_dir: Path, *, diff_hash: str, spec_path: Path) -> None:
+    """Write inputs.json to partials_dir for reproducibility tracking.
+
+    Two runs with identical inputs.json should produce identical findings.json
+    (modulo LLM noise — but the *set* of findings should be stable).
+
+    Fields per Phase 1.6:
+    - diff_sha256
+    - spec_sha256
+    - claude_md_sha256 (per loaded CLAUDE.md)
+    - severity_rubric_sha256
+    - manifest_sha256
+    - model (from config/models.yml role=review-internal)
+    - framework_git_sha
+    """
+    inputs = {"diff_sha256": diff_hash}
+
+    if spec_path.exists():
+        inputs["spec_sha256"] = _sha256_of(spec_path)
+    else:
+        inputs["spec_sha256"] = ""
+
+    # CLAUDE.md files: gather all that went into claude-md-context.md
+    ctx_file = partials_dir.parent / "pending-*" / "claude-md-context.md"
+    pending_dirs = sorted(partials_dir.parent.glob("pending-*"))
+    if pending_dirs:
+        ctx_candidate = pending_dirs[-1] / "claude-md-context.md"
+        if ctx_candidate.exists():
+            inputs["context_sha256"] = _sha256_of(ctx_candidate)
+        else:
+            inputs["context_sha256"] = ""
+    else:
+        inputs["context_sha256"] = ""
+
+    # severity rubric
+    rubric = FRAMEWORK_ROOT / "config" / "severity-rubric.md"
+    if rubric.exists():
+        inputs["severity_rubric_sha256"] = _sha256_of(rubric)
+    else:
+        inputs["severity_rubric_sha256"] = ""
+
+    # profile manifest (active profile)
+    manifest_path = None
+    profile_name = _resolve_profile_field("name") or "generic"
+    for candidate in [FRAMEWORK_ROOT / "profiles" / profile_name / "manifest.yml"]:
+        if candidate.exists():
+            manifest_path = candidate
+            break
+    if manifest_path:
+        inputs["manifest_sha256"] = _sha256_of(manifest_path)
+    else:
+        inputs["manifest_sha256"] = ""
+
+    # model (from config/models.yml role=review-internal)
+    # Placeholder: scripts/review-runner.py loads this; for now record "unknown"
+    inputs["model"] = os.environ.get("KLC_REVIEW_MODEL", "unknown")
+
+    # framework git sha
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(FRAMEWORK_ROOT), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            inputs["framework_git_sha"] = r.stdout.strip()
+        else:
+            inputs["framework_git_sha"] = ""
+    except (OSError, subprocess.TimeoutExpired):
+        inputs["framework_git_sha"] = ""
+
+    (partials_dir / "inputs.json").write_text(
+        json.dumps(inputs, indent=2) + "\n", encoding="utf-8",
+    )
 
 
 # --- main --------------------------------------------------------------------
@@ -529,6 +692,9 @@ def main(argv: list[str]) -> int:
 
     current_profile = _resolve_profile_field("name") or "unknown"
     (partials_dir / "profile.txt").write_text(current_profile + "\n", encoding="utf-8")
+
+    # Phase 1.6: snapshot inputs for reproducibility check
+    _write_inputs_snapshot(partials_dir, diff_hash=current_hash, spec_path=args.spec)
 
     # 2. CLAUDE.md context.
     ctx_file = pending_dir / "claude-md-context.md"
@@ -586,6 +752,11 @@ def main(argv: list[str]) -> int:
             )
             reviewer_ctx = trimmed_ctx
 
+        # Phase 1.4: load severity rubric + extract rule catalog from prompt
+        severity_rubric_path = FRAMEWORK_ROOT / "config" / "severity-rubric.md"
+        prompt_path = FRAMEWORK_ROOT / r["path"]
+        rule_catalog_text = _extract_rules_catalog(prompt_path)
+
         _write_job_card(
             pending_dir / f"job-{name}.md",
             reviewer=name,
@@ -594,6 +765,8 @@ def main(argv: list[str]) -> int:
             spec=args.spec,
             context=reviewer_ctx,
             allowlist=allowlist,
+            severity_rubric=severity_rubric_path,
+            rule_catalog_content=rule_catalog_text,
             partial=partials_dir / f"{name}.partial.md",
         )
 

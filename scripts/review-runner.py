@@ -30,19 +30,22 @@ sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 from runner import run_agent  # noqa: E402
 
 
-_FIELD_RE = re.compile(r"^(Prompt file|- diff|- spec|- claude_md_context|- allowlist):\s*(.+)$")
+_FIELD_RE = re.compile(r"^(Prompt file|- diff|- spec|- claude_md_context|- allowlist|- severity_rubric|- rule_catalog):\s*(.+)$")
 
 
 def _parse_job_card(card: Path) -> dict[str, str]:
     """Pull the labelled fields out of the job card. Returns a dict
-    keyed by 'prompt', 'diff', 'spec', 'context', 'allowlist'."""
+    keyed by 'prompt', 'diff', 'spec', 'context', 'allowlist',
+    'severity_rubric', 'rule_catalog' (Phase 1.4)."""
     out: dict[str, str] = {}
     mapping = {
-        "Prompt file":       "prompt",
-        "- diff":            "diff",
-        "- spec":            "spec",
+        "Prompt file":        "prompt",
+        "- diff":             "diff",
+        "- spec":             "spec",
         "- claude_md_context": "context",
-        "- allowlist":       "allowlist",
+        "- allowlist":        "allowlist",
+        "- severity_rubric":  "severity_rubric",
+        "- rule_catalog":     "rule_catalog",
     }
     for line in card.read_text(encoding="utf-8").splitlines():
         m = _FIELD_RE.match(line.rstrip())
@@ -81,7 +84,7 @@ def main(argv: list[str]) -> int:
         prompt_path = FRAMEWORK_ROOT / prompt_path
 
     inputs: dict[str, Path | str] = {}
-    for label in ("diff", "spec", "context", "allowlist"):
+    for label in ("diff", "spec", "context", "allowlist", "severity_rubric", "rule_catalog"):
         val = fields.get(label)
         if not val:
             continue
