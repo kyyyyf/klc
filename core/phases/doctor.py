@@ -186,6 +186,33 @@ def _jira_sync_queue() -> list[str]:
     return errs
 
 
+@check("config-validation")
+def _config_validation() -> list[str]:
+    """Validate config files for unknown keys."""
+    errs: list[str] = []
+    try:
+        # Import validate_config skill
+        validate_config_path = SKILLS / "validate_config.py"
+        if not validate_config_path.exists():
+            errs.append("validate_config.py not found in core/skills/")
+            return errs
+
+        # Import and run validation
+        spec = importlib.util.spec_from_file_location("validate_config", validate_config_path)
+        if spec and spec.loader:
+            validate_config = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(validate_config)
+
+            warnings = validate_config.validate_all()
+            # Convert warnings to errors for doctor output
+            errs.extend(warnings)
+
+    except Exception as exc:
+        errs.append(f"config validation failed: {exc}")
+
+    return errs
+
+
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc doctor")
     ap.add_argument("--json", action="store_true",

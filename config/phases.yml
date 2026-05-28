@@ -1,5 +1,10 @@
 # phases.yml — source of truth for the klc state machine.
 #
+# Consumed by:
+#   - core/skills/phases.py (loads phase definitions)
+#   - core/skills/lifecycle.py (state machine transitions)
+#   - core/skills/artefacts.py (phase prompts and outputs)
+#
 # The klc CLI (next / ack / jump / abort / status) is data-driven:
 # this file describes every phase, every pick, every transition.
 # No phase names are hardcoded in Python — change this file to reshape
