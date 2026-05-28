@@ -2,7 +2,7 @@
   "ticket": "KLC-006",
   "kind": "tech",
   "kind_source": "user",
-  "phase": "acceptance-test-plan:work",
+  "phase": "integrate:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -40,6 +40,69 @@
     {
       "phase": "acceptance-test-plan:work",
       "started_at": "2026-05-28T12:53:25Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T13:07:22Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack-needed",
+      "started_at": "2026-05-28T13:07:22Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T13:07:22Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack",
+      "started_at": "2026-05-28T13:07:22Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T13:07:22Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-05-28T13:07:22Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T13:17:57Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-05-28T13:17:57Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T13:17:57Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-05-28T13:17:57Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T13:17:57Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-05-28T13:17:57Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T13:19:27Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-05-28T13:19:27Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T13:19:27Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-05-28T13:19:27Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T13:19:27Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-05-28T13:19:27Z",
       "event": "advance",
       "note": "ack:approve"
     }
