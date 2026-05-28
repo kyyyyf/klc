@@ -278,11 +278,190 @@ def collect_adrs_from_claude_mds(claude_md_paths: list[str], budget_bytes: int) 
     return adr_files, adr_inlined, warnings
 
 
+def load_call_graph(language: str) -> dict | None:
+    """Load call graph for given language from index/callgraph/<lang>.json.
+
+    Returns None if file doesn't exist (call graph not built for this language).
+    """
+    cg_path = klc_index_dir() / "callgraph" / f"{language}.json"
+    if not cg_path.exists():
+        return None
+    try:
+        with cg_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("symbols", {})
+    except (OSError, json.JSONDecodeError) as e:
+        sys.stderr.write(f"context-loader: error loading {cg_path}: {e}\n")
+        return None
+
+
+def detect_language_from_file(file_path: str) -> str | None:
+    """Detect language from file extension."""
+    ext = Path(file_path).suffix.lower()
+    mapping = {
+        ".py": "python",
+        ".rs": "rust",
+        ".cpp": "cpp",
+        ".cc": "cpp",
+        ".h": "cpp",
+        ".hpp": "cpp",
+        ".ts": "typescript",
+        ".tsx": "typescript",
+        ".js": "typescript",
+        ".jsx": "typescript",
+    }
+    return mapping.get(ext)
+
+
+def bfs_call_graph(
+    start_symbol: str,
+    call_graph: dict,
+    depth: int
+) -> list[dict]:
+    """BFS over call graph from start_symbol to depth.
+
+    Returns list of symbol entries: [{qualified_name, kind, file, line, calls, called_by}]
+    """
+    if start_symbol not in call_graph:
+        return []
+
+    visited = {}
+    queue = deque([(start_symbol, 0)])
+
+    while queue:
+        sym_name, d = queue.popleft()
+        if sym_name in visited:
+            continue
+        visited[sym_name] = d
+
+        sym_data = call_graph.get(sym_name)
+        if not sym_data:
+            continue
+
+        if d >= depth:
+            continue
+
+        # Traverse both calls and called_by
+        for callee in sym_data.get("calls", []):
+            if callee not in visited:
+                queue.append((callee, d + 1))
+
+        for caller in sym_data.get("called_by", []):
+            if caller not in visited:
+                queue.append((caller, d + 1))
+
+    # Collect symbol entries
+    result = []
+    for sym_name in visited:
+        if sym_name in call_graph:
+            entry = call_graph[sym_name].copy()
+            entry["qualified_name"] = sym_name
+            entry["depth"] = visited[sym_name]
+            result.append(entry)
+
+    return result
+
+
+def run_symbol_mode(args) -> int:
+    """Phase 4.5: symbol-level context via call graph BFS."""
+    symbol = args.symbol
+    depth = args.depth or 1
+
+    # Parse symbol (format: file::name or file::Class.method)
+    if "::" not in symbol:
+        sys.stderr.write(f"context-loader: invalid symbol format '{symbol}' (expected file::name)\n")
+        return 1
+
+    file_part, name_part = symbol.split("::", 1)
+
+    # Detect language
+    language = detect_language_from_file(file_part)
+    if not language:
+        sys.stderr.write(f"context-loader: cannot detect language from {file_part}\n")
+        return 1
+
+    # Load call graph
+    call_graph = load_call_graph(language)
+    if call_graph is None:
+        # Fallback: no call graph available
+        sys.stderr.write(
+            f"context-loader: no call graph for {language} (file: index/callgraph/{language}.json missing)\n"
+            f"  falling back to whole-file context\n"
+        )
+        # Return minimal context: just the requested file
+        result = {
+            "mode": "symbol",
+            "requested_symbol": symbol,
+            "depth": depth,
+            "call_graph_available": False,
+            "fallback": "whole-file",
+            "files": [file_part],
+            "symbols": [],
+            "warnings": [f"Call graph for {language} not available — returning whole file"]
+        }
+        json.dump(result, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
+
+    # BFS over call graph
+    symbols = bfs_call_graph(symbol, call_graph, depth)
+
+    if not symbols:
+        sys.stderr.write(f"context-loader: symbol '{symbol}' not found in call graph\n")
+        return 1
+
+    # Collect unique files
+    files = sorted(set(s["file"] for s in symbols))
+
+    # Stats
+    total_symbols_in_graph = len(call_graph)
+    selected_count = len(symbols)
+    pct = selected_count / total_symbols_in_graph if total_symbols_in_graph else 0.0
+
+    result = {
+        "mode": "symbol",
+        "requested_symbol": symbol,
+        "depth": depth,
+        "call_graph_available": True,
+        "language": language,
+        "files": files,
+        "symbols": symbols,
+        "stats": {
+            "total_symbols_in_graph": total_symbols_in_graph,
+            "selected_symbols": selected_count,
+            "percent_of_graph": round(pct, 4),
+            "files_touched": len(files),
+        },
+        "warnings": []
+    }
+
+    if args.format == "json":
+        json.dump(result, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    else:
+        # Markdown output
+        sys.stdout.write(f"# Call graph context for: {symbol}\n\n")
+        sys.stdout.write(f"Depth: {depth}, language: {language}\n")
+        sys.stdout.write(f"Selected {selected_count} symbols across {len(files)} files\n\n")
+        sys.stdout.write("## Files\n")
+        for f in files:
+            sys.stdout.write(f"- {f}\n")
+        sys.stdout.write("\n## Symbols\n")
+        for s in symbols:
+            sys.stdout.write(f"- `{s['qualified_name']}` ({s['kind']}) — {s['file']}:{s['line']} (depth {s['depth']})\n")
+
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--modules", required=True,
-        help="comma-separated module names"
+        "--modules", required=False,
+        help="comma-separated module names (mutually exclusive with --symbol)"
+    )
+    ap.add_argument(
+        "--symbol", type=str, default=None,
+        help="Phase 4.5: symbol-level context via call graph (format: file::name)"
     )
     ap.add_argument("--depth", type=int, default=None,
                     help="fixed BFS depth; if omitted, start at 1 and grow up "
@@ -295,6 +474,18 @@ def main() -> int:
     ap.add_argument("--test-plan", type=Path, default=None,
                     help="Optional path to test-plan.md; inlined if present (Phase 2.1)")
     args = ap.parse_args()
+
+    # Phase 4.5: symbol mode vs module mode
+    if args.symbol and args.modules:
+        sys.stderr.write("context-loader: --symbol and --modules are mutually exclusive\n")
+        return 1
+
+    if args.symbol:
+        return run_symbol_mode(args)
+
+    if not args.modules:
+        sys.stderr.write("context-loader: either --modules or --symbol required\n")
+        return 1
 
     requested = [s.strip() for s in args.modules.split(",") if s.strip()]
     if not requested:

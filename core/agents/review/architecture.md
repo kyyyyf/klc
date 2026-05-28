@@ -17,6 +17,9 @@ stability) belong to the UE profile version.
 - `adr_context` (optional, Phase 2.3) — inlined ADRs from affected modules.
   Use this to detect `change-contradicts-adr` violations.
 - `test_plan` (optional, Phase 2.3) — test-plan.md if available.
+- `callgraph_slice` (optional, Phase 4.6) — call graph for symbols in changed files.
+  Use this for impact analysis: which functions call the modified code, which
+  functions are called by it. Helps detect breaking changes and missing updates.
 
 ## Focus areas
 
@@ -78,6 +81,45 @@ When `adr_context` is provided in the job card:
    - The ADR is tagged "superseded" or "deprecated" in its Status line.
 
 5. **Cite the ADR** in the finding body: quote the relevant Decision line
+
+## How to use callgraph_slice (Phase 4.6)
+
+When `callgraph_slice` is provided in the job card:
+
+1. **Read the slice JSON** — it contains symbols defined in changed files, with
+   their `calls` (callees) and `called_by` (callers).
+
+2. **Impact analysis:** For each modified function:
+   - Check `called_by` to find upstream callers NOT in the diff
+   - Flag `breaking-change-unchecked` (HIGH) if:
+     * Function signature changed (params added/removed/reordered)
+     * Return type changed
+     * Error handling changed (new exceptions, removed error codes)
+     * Callers outside the diff are not tested/documented in spec
+
+3. **Missing updates:** For each modified function:
+   - Check `calls` to find downstream callees
+   - Flag `incomplete-refactor` (MEDIUM) if:
+     * Function renamed but callees still use old name (shouldn't happen, compiler would catch)
+     * Function's contract changed (null-checks removed, validation moved) but callees rely on old contract
+
+4. **Cross-module boundaries:** Use call graph to verify module isolation:
+   - If a function in module A calls a function in module B's internal/
+   - Flag even if the import wasn't new — the call pattern matters
+
+Example:
+```json
+{
+  "symbols": [
+    {
+      "qualified_name": "src/api/users.py::create_user",
+      "calls": ["src/db/users.py::insert", "src/auth/jwt.py::sign"],
+      "called_by": ["src/api/routes.py::register", "src/admin/users.py::bulk_create"]
+    }
+  ]
+}
+```
+If `create_user` signature changed and `src/admin/users.py::bulk_create` is NOT in the diff, flag HIGH: breaking change to caller outside this diff
    and explain how the diff contradicts it.
 
 ## Rules

@@ -35,7 +35,7 @@ from fnmatch import fnmatch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _paths import framework_root, klc_index_dir  # noqa: E402
-from _yaml import load_yaml  # noqa: E402
+from _yaml import parse as load_yaml  # noqa: E402
 
 
 def load_tiers_config() -> dict:
