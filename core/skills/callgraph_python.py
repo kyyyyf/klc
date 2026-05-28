@@ -45,8 +45,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root  # noqa: E402
+# Add project root to sys.path for core.shared imports
+_file_dir = Path(__file__).resolve().parent
+_project_root = _file_dir.parent.parent  # current -> parent -> project root
+sys.path.insert(0, str(_project_root))
+from core.shared.paths import framework_root  # noqa: E402
 
 
 class Symbol:
@@ -137,7 +140,7 @@ class ImportResolver:
             "src/api/users.py" or None if not found.
         """
         # First, check if it's a sibling module (same directory as current file)
-        # This handles cases like `from _paths import framework_root` in core/skills/
+        # This handles cases like `from core.shared.paths import framework_root` in core/skills/
         current_dir = Path(self.file_path).parent
         sibling = root / current_dir / f"{module_path}.py"
         if sibling.exists():

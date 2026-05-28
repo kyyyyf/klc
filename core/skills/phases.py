@@ -26,9 +26,12 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root  # noqa: E402
-from _yaml import parse as _yaml_parse  # noqa: E402
+# Add project root to sys.path for core.shared imports
+_file_dir = Path(__file__).resolve().parent
+_project_root = _file_dir.parent.parent  # current -> parent -> project root
+sys.path.insert(0, str(_project_root))
+from core.shared.paths import framework_root  # noqa: E402
+from core.shared.yaml import parse as _yaml_parse  # noqa: E402
 
 
 STATE_WORK        = "work"
