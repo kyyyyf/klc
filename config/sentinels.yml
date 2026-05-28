@@ -1,0 +1,183 @@
+# sentinels.yml — high-risk patterns that force-escalate findings to CRITICAL
+#
+# Phase 3a: when scan_sentinels.py detects any of these patterns in a diff,
+# the review verdict auto-blocks regardless of tier. Even peripheral-tier
+# files with sentinels become blocking.
+#
+# Sentinel = code smell that is almost always a security defect or introduces
+# unacceptable risk (RCE, SQLi, arbitrary code exec, shell injection).
+#
+# Each sentinel has:
+# - id: stable identifier (used in findings)
+# - pattern: regex (Python re syntax) or literal string
+# - description: why this is high-risk
+# - languages: list of file extensions to scan (empty = all)
+# - severity_override: always CRITICAL (non-negotiable)
+
+sentinels:
+  # --- Code execution ---
+  - id: "eval-exec"
+    pattern: '\beval\s*\('
+    description: "eval() on untrusted input → arbitrary code execution"
+    languages: ["py", "js", "ts"]
+    severity_override: "CRITICAL"
+
+  - id: "exec-builtin"
+    pattern: '\bexec\s*\('
+    description: "exec() on untrusted input → arbitrary code execution"
+    languages: ["py"]
+    severity_override: "CRITICAL"
+
+  - id: "vm-run-in-context"
+    pattern: 'vm\.runInNewContext|vm\.runInThisContext'
+    description: "vm.runInNewContext on untrusted code → sandbox escape"
+    languages: ["js", "ts"]
+    severity_override: "CRITICAL"
+
+  - id: "function-constructor"
+    pattern: 'new\s+Function\s*\('
+    description: "Function() constructor on untrusted string → code injection"
+    languages: ["js", "ts"]
+    severity_override: "CRITICAL"
+
+  # --- Deserialization ---
+  - id: "pickle-loads"
+    pattern: 'pickle\.loads?\('
+    description: "pickle.load on untrusted data → arbitrary code execution"
+    languages: ["py"]
+    severity_override: "CRITICAL"
+
+  - id: "yaml-unsafe-load"
+    pattern: 'yaml\.(load|unsafe_load)\('
+    description: "yaml.load (unsafe) on untrusted input → code execution"
+    languages: ["py"]
+    severity_override: "CRITICAL"
+
+  - id: "marshal-loads"
+    pattern: 'marshal\.loads?\('
+    description: "marshal.load on untrusted data → code execution"
+    languages: ["py"]
+    severity_override: "CRITICAL"
+
+  # --- Shell injection ---
+  - id: "shell-true"
+    pattern: 'shell\s*=\s*True'
+    description: "subprocess with shell=True → command injection risk"
+    languages: ["py"]
+    severity_override: "CRITICAL"
+
+  - id: "os-system"
+    pattern: '\bos\.system\('
+    description: "os.system() → shell command injection"
+    languages: ["py"]
+    severity_override: "CRITICAL"
+
+  - id: "child-process-exec-shell"
+    pattern: 'child_process\.(exec|spawn)\s*\([^,]+,\s*\{[^}]*shell\s*:\s*true'
+    description: "child_process.exec with shell:true → command injection"
+    languages: ["js", "ts"]
+    severity_override: "CRITICAL"
+
+  # --- SQL injection ---
+  - id: "sql-string-concat"
+    pattern: '(execute|executemany|cursor\.execute)\s*\([^)]*\+[^)]*\)'
+    description: "SQL query with string concatenation → SQL injection"
+    languages: ["py", "js", "ts", "rb", "php"]
+    severity_override: "CRITICAL"
+
+  - id: "sql-format-string"
+    pattern: '(execute|executemany|cursor\.execute)\s*\([^)]*%[^)]*\)'
+    description: "SQL query with % formatting → SQL injection"
+    languages: ["py"]
+    severity_override: "CRITICAL"
+
+  # --- Secrets ---
+  - id: "hardcoded-api-key"
+    pattern: '(api_key|API_KEY|apiKey)\s*=\s*["\'][a-zA-Z0-9_-]{20,}["\']'
+    description: "Hard-coded API key in source"
+    languages: []
+    severity_override: "CRITICAL"
+
+  - id: "hardcoded-password"
+    pattern: '(password|PASSWORD|passwd)\s*=\s*["\'][^"\']{8,}["\']'
+    description: "Hard-coded password in source"
+    languages: []
+    severity_override: "CRITICAL"
+
+  - id: "aws-access-key"
+    pattern: 'AKIA[0-9A-Z]{16}'
+    description: "AWS access key ID in source"
+    languages: []
+    severity_override: "CRITICAL"
+
+  - id: "github-token"
+    pattern: 'ghp_[a-zA-Z0-9]{36}'
+    description: "GitHub personal access token in source"
+    languages: []
+    severity_override: "CRITICAL"
+
+  - id: "slack-token"
+    pattern: 'xox[baprs]-[a-zA-Z0-9-]+'
+    description: "Slack API token in source"
+    languages: []
+    severity_override: "CRITICAL"
+
+  - id: "stripe-live-key"
+    pattern: 'sk_live_[a-zA-Z0-9]{24,}'
+    description: "Stripe live secret key in source"
+    languages: []
+    severity_override: "CRITICAL"
+
+  # --- Crypto misuse ---
+  - id: "md5-security"
+    pattern: 'hashlib\.md5\(|Digest::MD5|crypto\.createHash\(["\']md5'
+    description: "MD5 hash used for security (broken)"
+    languages: ["py", "rb", "js", "ts"]
+    severity_override: "HIGH"  # downgrade from CRITICAL if context is non-security
+
+  - id: "ecb-mode"
+    pattern: 'MODE_ECB|/ECB/'
+    description: "ECB cipher mode (insecure)"
+    languages: ["py", "js", "ts", "java"]
+    severity_override: "HIGH"
+
+  # --- SSRF & redirect ---
+  - id: "requests-user-url"
+    pattern: 'requests\.(get|post|put|delete)\s*\(\s*[a-z_]+\s*,'
+    description: "HTTP request to user-controlled URL → SSRF"
+    languages: ["py"]
+    severity_override: "HIGH"
+
+  - id: "redirect-user-input"
+    pattern: 'redirect\s*\(\s*request\.(GET|POST|args|form)'
+    description: "Redirect to user-controlled URL → open redirect"
+    languages: ["py", "rb", "php"]
+    severity_override: "HIGH"
+
+  # --- TLS/cert validation bypass ---
+  - id: "verify-false"
+    pattern: 'verify\s*=\s*False'
+    description: "TLS certificate validation disabled"
+    languages: ["py"]
+    severity_override: "HIGH"
+
+  - id: "insecure-skip-verify"
+    pattern: 'InsecureSkipVerify\s*:\s*true'
+    description: "TLS certificate validation disabled (Go)"
+    languages: ["go"]
+    severity_override: "HIGH"
+
+  - id: "reject-unauthorized-false"
+    pattern: 'rejectUnauthorized\s*:\s*false'
+    description: "TLS certificate validation disabled (Node.js)"
+    languages: ["js", "ts"]
+    severity_override: "HIGH"
+
+# Sentinel scan is run during review.py aggregation phase (after sub-agents).
+# When a sentinel is detected:
+# 1. A synthetic CRITICAL finding is injected into the report.
+# 2. The finding cites this config (sentinel ID + description).
+# 3. Verdict becomes CHANGES REQUESTED regardless of tier thresholds.
+#
+# False positives: use reviewer-allowlist.yml with pattern matching the
+# sentinel ID to downgrade to INFO.

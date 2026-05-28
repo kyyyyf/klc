@@ -189,6 +189,71 @@ def _write_ctx_bundle(ctx_path: Path, *,
     ctx_path.write_text("\n".join(chunks) + "\n", encoding="utf-8")
 
 
+def _collect_adrs(root: Path,
+                  modules_idx: dict[str, dict],
+                  affected: list[str]) -> tuple[list[Path], dict[str, str]]:
+    """Collect ADRs from ## ADRs sections in CLAUDE.md files.
+    Returns (adr_paths, adr_inlined).
+
+    Phase 2.3: Parse ## ADRs or ## Architecture Decision Records sections,
+    resolve markdown links [ADR-NNN](path), inline contents.
+    """
+    import re
+
+    adr_candidates: list[Path] = []
+
+    # Gather CLAUDE.md files to scan
+    claude_mds: list[Path] = []
+    root_claude = root / "CLAUDE.md"
+    if root_claude.exists():
+        claude_mds.append(root_claude)
+    for name in affected:
+        info = modules_idx.get(name)
+        if not info:
+            continue
+        doc = root / info["path"] / info["doc_filename"]
+        if doc.exists():
+            claude_mds.append(doc)
+
+    # Parse each CLAUDE.md for ## ADRs section
+    for md_path in claude_mds:
+        try:
+            text = md_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        lines = text.splitlines()
+        in_adr_section = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped in ("## ADRs", "## Architecture Decision Records"):
+                in_adr_section = True
+                continue
+            if in_adr_section:
+                if stripped.startswith("## "):  # next section
+                    break
+                # Match markdown links: [ADR-NNN](path) or [ADR-NNN: title](path)
+                m = re.match(r"^-?\s*\[ADR-\d+[^\]]*\]\(([^)]+)\)", stripped)
+                if m:
+                    link_target = m.group(1)
+                    # Resolve relative to the CLAUDE.md directory
+                    resolved = (md_path.parent / link_target).resolve()
+                    if resolved.exists():
+                        adr_candidates.append(resolved)
+
+    # Deduplicate by absolute path
+    adr_paths = sorted(set(adr_candidates), key=lambda p: p.name)
+
+    # Inline contents
+    adr_inlined: dict[str, str] = {}
+    for p in adr_paths:
+        try:
+            adr_inlined[str(p)] = p.read_text(encoding="utf-8")
+        except OSError:
+            pass
+
+    return adr_paths, adr_inlined
+
+
 # --- reviewer discovery ------------------------------------------------------
 
 def _load_reviewers() -> tuple[list[dict], list[dict]]:
@@ -258,6 +323,102 @@ def _extract_rules_catalog(prompt_path: Path) -> str:
     return "\n".join(catalog_lines).strip()
 
 
+def _build_callgraph_slice(diff_path: Path, pending_dir: Path) -> Path | None:
+    """Phase 4.6: Build call graph slice for changed files.
+
+    Extracts changed files from diff, checks for available call graphs,
+    returns aggregated slice JSON for reviewers.
+
+    Returns None if no call graphs available or diff empty.
+    """
+    # Parse diff to get changed files
+    changed_files: set[str] = set()
+    if not diff_path.exists():
+        return None
+
+    try:
+        text = diff_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+
+    for line in text.splitlines():
+        if line.startswith("+++ b/"):
+            file_path = line[6:].strip()
+            changed_files.add(file_path)
+
+    if not changed_files:
+        return None
+
+    # Detect languages from changed files
+    lang_to_files: dict[str, list[str]] = {}
+    for fpath in changed_files:
+        ext = Path(fpath).suffix.lower()
+        lang_map = {
+            ".py": "python",
+            ".rs": "rust",
+            ".cpp": "cpp",
+            ".cc": "cpp",
+            ".h": "cpp",
+            ".hpp": "cpp",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".js": "typescript",
+            ".jsx": "typescript",
+        }
+        lang = lang_map.get(ext)
+        if lang:
+            lang_to_files.setdefault(lang, []).append(fpath)
+
+    if not lang_to_files:
+        return None
+
+    # Check which call graphs are available
+    index_dir = klc_dir() / "index" / "callgraph"
+    available_graphs: dict[str, dict] = {}
+
+    for lang in lang_to_files:
+        cg_path = index_dir / f"{lang}.json"
+        if cg_path.exists():
+            try:
+                with cg_path.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+                available_graphs[lang] = data.get("symbols", {})
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    if not available_graphs:
+        return None
+
+    # Aggregate: for each changed file, find symbols defined in that file
+    all_symbols: list[dict] = []
+    for lang, cg in available_graphs.items():
+        for file_path in lang_to_files.get(lang, []):
+            for sym_name, sym_data in cg.items():
+                if sym_data.get("file") == file_path:
+                    entry = sym_data.copy()
+                    entry["qualified_name"] = sym_name
+                    all_symbols.append(entry)
+
+    if not all_symbols:
+        return None
+
+    # Write aggregated slice
+    slice_path = pending_dir / "callgraph_slice.json"
+    output = {
+        "mode": "aggregated",
+        "changed_files": sorted(changed_files),
+        "available_languages": list(available_graphs.keys()),
+        "symbols": all_symbols,
+        "stats": {
+            "changed_files_count": len(changed_files),
+            "symbols_in_changed_files": len(all_symbols),
+        }
+    }
+
+    slice_path.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
+    return slice_path
+
+
 def _write_job_card(card: Path, *,
                     reviewer: str,
                     prompt: str,
@@ -267,10 +428,19 @@ def _write_job_card(card: Path, *,
                     allowlist: Path,
                     severity_rubric: Path,
                     rule_catalog_content: str,
+                    adr_context: Path | None,
+                    test_plan: Path | None,
+                    callgraph_slice: Path | None,
                     partial: Path) -> None:
     # Phase 1.4: write rule_catalog to a temp file next to the card
     rule_catalog_path = card.parent / f"rule_catalog-{reviewer}.txt"
     rule_catalog_path.write_text(rule_catalog_content, encoding="utf-8")
+
+    # Phase 2.3: optional ADR and test-plan context
+    adr_line = f"- adr_context:       {adr_context}\n" if adr_context else ""
+    test_plan_line = f"- test_plan:         {test_plan}\n" if test_plan else ""
+    # Phase 4.6: optional call graph slice
+    callgraph_line = f"- callgraph_slice:   {callgraph_slice}\n" if callgraph_slice else ""
 
     body = (
         f"# Review sub-agent job: {reviewer}\n\n"
@@ -282,6 +452,9 @@ def _write_job_card(card: Path, *,
         f"- allowlist:         {allowlist}\n"
         f"- severity_rubric:   {severity_rubric}\n"
         f"- rule_catalog:      {rule_catalog_path}\n"
+        f"{adr_line}"
+        f"{test_plan_line}"
+        f"{callgraph_line}"
         "\n"
         "Before emitting any finding, read the allowlist. If a finding matches\n"
         f"an entry whose `reviewer` is \"{reviewer}\" or \"*\", downgrade to "
@@ -707,6 +880,26 @@ def main(argv: list[str]) -> int:
     _write_ctx_bundle(ctx_file, root=root, modules_idx=modules_idx, affected=affected)
     log(f"Context bundle: {ctx_file}")
 
+    # Phase 2.3: collect ADRs and test-plan if available
+    adr_paths, adr_inlined = _collect_adrs(root, modules_idx, affected)
+    adr_context_file: Path | None = None
+    if adr_inlined:
+        adr_context_file = pending_dir / "adr-context.md"
+        adr_chunks = []
+        for path, content in adr_inlined.items():
+            adr_chunks.append(f"<!-- BEGIN ADR: {path} -->")
+            adr_chunks.append(content.rstrip("\n"))
+            adr_chunks.append(f"<!-- END ADR: {path} -->")
+        adr_context_file.write_text("\n".join(adr_chunks) + "\n", encoding="utf-8")
+        log(f"ADR context: {adr_context_file} ({len(adr_inlined)} ADRs)")
+
+    test_plan_file: Path | None = None
+    if args.spec.parent.name.startswith("PROJ-") or args.spec.parent.name.startswith("TICK-"):
+        candidate = args.spec.parent / "test-plan.md"
+        if candidate.exists():
+            test_plan_file = candidate
+            log(f"Test plan: {test_plan_file}")
+
     # 3. Reviewer discovery + job cards.
     always, conditional = _load_reviewers()
     diff_text = diff_file.read_text(encoding="utf-8", errors="ignore")
@@ -726,6 +919,11 @@ def main(argv: list[str]) -> int:
     allowlist_live = klc_knowledge_dir() / "reviewer-allowlist.yml"
     allowlist_seed = FRAMEWORK_ROOT / "config" / "reviewer-allowlist.seed.yml"
     allowlist = allowlist_live if allowlist_live.exists() else allowlist_seed
+
+    # Phase 4.6: build call graph slice for changed files
+    callgraph_slice_file = _build_callgraph_slice(diff_file, pending_dir)
+    if callgraph_slice_file:
+        log(f"Call graph slice: {callgraph_slice_file}")
 
     for r in active:
         name = r["name"]
@@ -767,6 +965,9 @@ def main(argv: list[str]) -> int:
             allowlist=allowlist,
             severity_rubric=severity_rubric_path,
             rule_catalog_content=rule_catalog_text,
+            adr_context=adr_context_file,
+            test_plan=test_plan_file,
+            callgraph_slice=callgraph_slice_file,
             partial=partials_dir / f"{name}.partial.md",
         )
 
@@ -861,23 +1062,35 @@ def main(argv: list[str]) -> int:
             encoding="utf-8",
         )
 
-    # 6. Aggregate + render.
+    # 6. Tier classification + sentinel scan (Phase 3a).
+    tier_classification: dict = {}
+    sentinel_matches: dict = {}
+    try:
+        # Classify files by risk tier
+        classify_script = FRAMEWORK_ROOT / "core" / "skills" / "classify_tier.py"
+        r = subprocess.run(
+            [sys.executable, str(classify_script), "--diff", str(diff_file), "--format", "json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            tier_classification = json.loads(r.stdout)
+        # Scan for sentinel patterns
+        sentinel_script = FRAMEWORK_ROOT / "core" / "skills" / "scan_sentinels.py"
+        r = subprocess.run(
+            [sys.executable, str(sentinel_script), "--diff", str(diff_file), "--format", "json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            sentinel_matches = json.loads(r.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        log(f"Tier/sentinel scan failed: {e}")
+
+    # 7. Aggregate + render.
     diff_scope = _parse_diff_scope(diff_file)
     reviewers_data: dict[str, dict] = {}
     for p in sorted(partials_dir.glob("*.partial.md")):
         key = p.name[: -len(".partial.md")]
         reviewers_data[key] = _parse_partial(p, diff_scope)
-
-    reviewer_rows = [
-        {
-            "key":      k,
-            "label":    _reviewer_label(k),
-            "total":    reviewers_data[k]["total"],
-            "blocking": reviewers_data[k]["blocking"],
-            "skipped":  _is_skip_partial(reviewers_data[k]),
-        }
-        for k in reviewers_data
-    ]
 
     external_block = None
     if ext_out and ext_out.exists():
@@ -919,11 +1132,81 @@ def main(argv: list[str]) -> int:
     non_blocking_issues = _bucket(False)
     out_of_scope_issues = _bucket_oos()
 
+    # Phase 3a: tier-aware blocking threshold
+    # Build file → tier map
+    file_tier_map = {f["path"]: f["tier"] for f in tier_classification.get("files", [])}
+
+    # Load tier thresholds from config
+    tier_thresholds = {"critical": "LOW", "core": "HIGH", "peripheral": "CRITICAL"}
+    try:
+        from _yaml import load_yaml
+        tiers_cfg = load_yaml(FRAMEWORK_ROOT / "config" / "tiers.yml")
+        for tier_name in ("critical", "core", "peripheral"):
+            t = tiers_cfg.get("tiers", {}).get(tier_name, {})
+            threshold = t.get("blocking_threshold")
+            if threshold:
+                tier_thresholds[tier_name] = threshold
+    except Exception:
+        pass  # use defaults
+
+    # Severity order for threshold comparison
+    sev_order = {"INFO": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+
+    def _is_blocking(issue: dict) -> bool:
+        """Check if issue blocks based on its file's tier threshold."""
+        # Always block sentinel matches
+        if issue.get("is_sentinel"):
+            return True
+        if issue.get("suspect_out_of_scope"):
+            return False
+        # Determine threshold from file's tier
+        file = issue.get("file", "")
+        tier = file_tier_map.get(file, "peripheral")
+        threshold_sev = tier_thresholds.get(tier, "CRITICAL")
+        issue_sev = issue.get("severity", "INFO")
+        return sev_order.get(issue_sev, 0) >= sev_order.get(threshold_sev, 4)
+
+    # Inject sentinel findings as synthetic CRITICAL issues
+    if sentinel_matches.get("matches"):
+        sentinel_issues = []
+        for m in sentinel_matches["matches"]:
+            sentinel_issues.append({
+                "severity": m.get("severity_override", "CRITICAL"),
+                "file": m["file"],
+                "line": m["line"],
+                "title": f"Sentinel: {m['sentinel_id']} — {m['description']}",
+                "body": f"Matched: `{m['matched_text']}`\n\nThis pattern is a high-risk sentinel (config/sentinels.yml).",
+                "is_sentinel": True,
+                "suspect_out_of_scope": False,
+            })
+        # Add to a synthetic "sentinels" reviewer
+        if "sentinels" not in reviewers_data:
+            reviewers_data["sentinels"] = {
+                "total": 0,
+                "blocking": 0,
+                "issues": [],
+            }
+        reviewers_data["sentinels"]["issues"].extend(sentinel_issues)
+        reviewers_data["sentinels"]["total"] += len(sentinel_issues)
+        reviewers_data["sentinels"]["blocking"] += len(sentinel_issues)
+
+    # Build reviewer_rows after sentinel injection
+    reviewer_rows = [
+        {
+            "key":      k,
+            "label":    _reviewer_label(k),
+            "total":    reviewers_data[k]["total"],
+            "blocking": reviewers_data[k]["blocking"],
+            "skipped":  _is_skip_partial(reviewers_data[k]),
+        }
+        for k in reviewers_data
+    ]
+
     in_scope_blocking = sum(
         1
         for r in reviewers_data.values()
         for i in r["issues"]
-        if i["severity"] in ("CRITICAL", "HIGH") and not i.get("suspect_out_of_scope")
+        if _is_blocking(i)
     )
     total_blocking = in_scope_blocking + (external_block["blocking"] if external_block else 0)
     verdict = "APPROVED" if total_blocking == 0 else "CHANGES REQUESTED"
@@ -951,6 +1234,9 @@ def main(argv: list[str]) -> int:
         non_blocking_issues=non_blocking_issues,
         out_of_scope_issues=out_of_scope_issues,
         verdict=verdict,
+        adrs=[str(p) for p in adr_paths] if adr_paths else [],
+        tier_classification=tier_classification,
+        sentinel_matches=sentinel_matches,
     ), encoding="utf-8")
 
     print(f"REPORT {final_path}")
