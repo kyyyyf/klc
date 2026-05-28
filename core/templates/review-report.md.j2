@@ -12,6 +12,14 @@ Spec: {{ spec_path }}
 | External ({{ external.model }}) | {{ external.total }} | {{ external.blocking }} |
 {% endif %}
 
+{% if adrs %}
+## ADRs in scope
+The following Architecture Decision Records were loaded into review context:
+{% for adr in adrs %}
+- `{{ adr }}`
+{% endfor %}
+{% endif %}
+
 ## Blocking Issues (must fix before merge)
 {{ blocking_issues }}
 
