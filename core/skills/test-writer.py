@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root, klc_index_dir, project_root  # noqa: E402, F401
+from core.shared.paths import framework_root, klc_index_dir, project_root  # noqa: E402, F401
 
 
 def load_json(p: Path) -> Any:

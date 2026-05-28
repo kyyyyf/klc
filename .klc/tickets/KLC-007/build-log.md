@@ -29,3 +29,13 @@
 **Attempt**: Run smoke tests + commit Phase 1
 **Outcome**: green
 **Notes**: tests/smoke.py passes (4 file scanner tests + phase loop OK). Phase 1 complete: core/shared/ module created with yaml, paths, artefacts utilities.
+
+## Steps 7-11 — 2026-05-28T14:50:00Z
+**Attempt**: Migrate imports to core.shared (Phase 2)
+**Outcome**: green
+**Notes**: Updated 24 files in core/skills/:
+- Batch 1 (8 files): artefacts, budget, callgraph_python, callgraph_rust_async, classify_tier, consistency_check, context-loader, diff-modules
+- Batch 2+3 (16 files): filter-build-overrides, import-graph, items, items_verify, jira_sync, lifecycle, metrics, models, per_module_hash, phase_completion, phases, public-api-filter, scan_sentinels, scratch, test-writer, tools
+- Replaced: "from _paths import" → "from core.shared.paths import"
+- Replaced: "from _yaml import" → "from core.shared.yaml import"
+- All core.shared modules load correctly.

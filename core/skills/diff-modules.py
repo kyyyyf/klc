@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root, klc_index_dir  # noqa: E402, F401
+from core.shared.paths import framework_root, klc_index_dir  # noqa: E402, F401
 
 
 def parse_diff_files(diff_path: Path) -> list[str]:

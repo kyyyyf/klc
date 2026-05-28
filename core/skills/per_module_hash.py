@@ -45,7 +45,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import klc_index_dir  # noqa: E402
+from core.shared.paths import klc_index_dir  # noqa: E402
 
 
 def _now_iso() -> str:

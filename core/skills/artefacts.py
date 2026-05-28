@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root, klc_ticket_dir, klc_index_dir  # noqa: E402
+from core.shared.paths import framework_root, klc_ticket_dir, klc_index_dir  # noqa: E402
 import phases as _ph  # noqa: E402
 
 

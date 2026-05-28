@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _paths import klc_ticket_meta_file  # noqa: E402
+from core.shared.paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 
 

@@ -27,8 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root  # noqa: E402
-from _yaml import parse as _yaml_parse  # noqa: E402
+from core.shared.paths import framework_root  # noqa: E402
+from core.shared.yaml import parse as _yaml_parse  # noqa: E402
 
 
 STATE_WORK        = "work"

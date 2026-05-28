@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root, project_root, klc_dir  # noqa: E402
+from core.shared.paths import framework_root, project_root, klc_dir  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@ def push_phase(ticket: str, phase: str, *, source: str = "set_state") -> None:
 # ---------------------------------------------------------------------------
 
 def _meta_path(ticket: str) -> Path:
-    from _paths import klc_ticket_meta_file  # noqa: F401
+    from core.shared.paths import klc_ticket_meta_file  # noqa: F401
     return klc_ticket_meta_file(ticket)
 
 

@@ -62,7 +62,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import (  # noqa: E402
+from core.shared.paths import (  # noqa: E402
     klc_tickets_dir,
     klc_verification_log,
     project_root,

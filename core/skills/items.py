@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import klc_ticket_dir, klc_ticket_index_file  # noqa: E402
+from core.shared.paths import klc_ticket_dir, klc_ticket_index_file  # noqa: E402
 
 
 ITEM_TYPES = (

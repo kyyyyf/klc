@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import (  # noqa: E402
+from core.shared.paths import (  # noqa: E402
     klc_knowledge_dir,
     klc_ticket_meta_file,
     klc_tickets_dir,

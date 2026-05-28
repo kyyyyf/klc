@@ -23,7 +23,7 @@ from collections import deque
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import framework_root  # noqa: E402
+from core.shared.paths import framework_root  # noqa: E402
 
 
 class AsyncLSPClient:

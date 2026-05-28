@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _paths import klc_config_dir  # noqa: E402
+from core.shared.paths import klc_config_dir  # noqa: E402
 
 
 _TOOLS_FILE_CACHE: dict[str, dict] | None = None
