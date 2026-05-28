@@ -2,7 +2,7 @@
   "ticket": "KLC-007",
   "kind": "tech",
   "kind_source": "user",
-  "phase": "acceptance-test-plan:work",
+  "phase": "build:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -41,6 +41,69 @@
       "phase": "acceptance-test-plan:work",
       "started_at": "2026-05-28T12:46:40Z",
       "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T13:30:37Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack-needed",
+      "started_at": "2026-05-28T13:30:37Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T13:30:37Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack",
+      "started_at": "2026-05-28T13:30:37Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T13:30:37Z"
+    },
+    {
+      "phase": "design:work",
+      "started_at": "2026-05-28T13:30:37Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T13:36:22Z"
+    },
+    {
+      "phase": "design:ack-needed",
+      "started_at": "2026-05-28T13:36:22Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T13:36:22Z"
+    },
+    {
+      "phase": "design:ack",
+      "started_at": "2026-05-28T13:36:22Z",
+      "event": "ack",
+      "note": "pick=1:option-A-minimal",
+      "finished_at": "2026-05-28T13:36:22Z"
+    },
+    {
+      "phase": "detailed-test-plan:work",
+      "started_at": "2026-05-28T13:36:22Z",
+      "event": "advance",
+      "note": "ack:option-A-minimal",
+      "finished_at": "2026-05-28T13:39:07Z"
+    },
+    {
+      "phase": "detailed-test-plan:ack-needed",
+      "started_at": "2026-05-28T13:39:07Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T13:39:08Z"
+    },
+    {
+      "phase": "detailed-test-plan:ack",
+      "started_at": "2026-05-28T13:39:08Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T13:39:08Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-05-28T13:39:08Z",
+      "event": "advance",
       "note": "ack:approve"
     }
   ],
@@ -65,5 +128,6 @@
   "rework_count": {},
   "metrics": {
     "intake_ms": 26
-  }
+  },
+  "design_choice": "option-A-minimal"
 }

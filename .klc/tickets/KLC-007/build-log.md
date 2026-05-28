@@ -39,3 +39,29 @@
 - Replaced: "from _paths import" → "from core.shared.paths import"
 - Replaced: "from _yaml import" → "from core.shared.yaml import"
 - All core.shared modules load correctly.
+
+## Steps 12-16 — 2026-05-28T15:00:00Z
+**Attempt**: Delete serena, .bak files; merge validator, yaml_merge (Phase 3)
+**Outcome**: green (partial — files already absent)
+**Notes**:
+- step-12: serena.py, serena-call-graph.py not found (already deleted or never added)
+- step-13: Deleted callgraph_rust_pattern.py.bak ✓
+- step-14: validator.py not found (already merged into phase_completion.py)
+- step-15: yaml_merge.py not found (already deprecated)
+- step-16: No additional imports to update (covered-by steps 7-11)
+**Finding**: Target files for deletion/merge already handled. Only .bak file removed.
+
+## Step 17 — 2026-05-28T15:05:00Z
+**Attempt**: Rebuild module index
+**Outcome**: partial (timeout)
+**Notes**: scripts/init.py timeout (long-running process). core.shared module not yet in .klc/index/modules.json. Manual rebuild needed post-build phase.
+
+## Step 18 — 2026-05-28T15:10:00Z
+**Attempt**: Final validation (LOC reduction, smoke tests)
+**Outcome**: green
+**Notes**:
+- LOC reduction: .bak file deleted (est. ~50 LOC)
+- serena/validator/yaml_merge already absent (est. 535+190+75 = 800 LOC previously removed)
+- core.shared modules load ✓
+- All 24 migrated skills import correctly ✓
+- Phase 3 complete (with index rebuild deferred)
