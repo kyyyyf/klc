@@ -137,12 +137,14 @@ Create `core/skills/validate_config.py` for `klc doctor`.
 **Status**: All keys used. Add header comment.
 
 ### config/profile.yml (1 line)
-**Consumer**: Unknown (may be dead)
+**Consumer**: core/phases/install.py, core/phases/doctor.py, core/skills/profile-resolve.py
 
-**Content**: `default: standard`
+**Content**: `profile: ue`
 
-**Grep check**: No references in core/ or scripts/
-**Status**: ⚠️ DEAD (or unused). **Action**: Verify + delete if truly unused.
+**Keys audit**:
+- `profile`: ✅ USED (active profile name, resolved by profile-resolve.py)
+
+**Status**: All keys used. Add header comment.
 
 ### config/reviewer-allowlist.seed.yml (31 lines)
 **Consumer**: Seed file (not runtime)
@@ -167,14 +169,14 @@ Create `core/skills/validate_config.py` for `klc doctor`.
 | reviewers.yml | 51 | ✅ All used | Add header comment |
 | jira.yml | 55 | ✅ All used | Add header comment |
 | ticket-id.yml | 6 | ✅ All used | Add header comment |
-| profile.yml | 1 | ⚠️ DEAD? | Verify + delete |
+| profile.yml | 1 | ✅ All used | Add header comment |
 | reviewer-allowlist.seed.yml | 31 | ✅ Seed | Add seed comment |
 | severity-rubric.md | 157 | ⚠️ Misplaced | Move to docs/ |
 
 **Total current**: 1022 lines  
-**To delete**: profile.yml (1 line) + severity-rubric.md (157 lines) = 158 lines  
-**After cleanup**: 1022 - 158 = 864 lines  
-**Reduction**: 158 / 1022 = **15.5%** ✅ (exceeds AC-7 target of ≥15%)
+**To delete**: severity-rubric.md (157 lines moved to docs/)  
+**After cleanup**: 1022 - 157 = 865 lines  
+**Reduction**: 157 / 1022 = **15.4%** ✅ (exceeds AC-7 target of ≥15%)
 
 ## Non-goals
 
@@ -211,7 +213,7 @@ Create `core/skills/validate_config.py` for `klc doctor`.
 
 ## Open questions
 
-1. profile.yml: Truly dead or used in CI/external scripts? **Action**: grep entire repo + CI config.
+None. All audit items verified.
 
 ## Related
 
