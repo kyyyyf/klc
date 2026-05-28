@@ -18,6 +18,7 @@ from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
+import phase_completion  # noqa: E402
 
 
 def _friendly_missing_ticket(ticket: str) -> int:
@@ -49,11 +50,32 @@ def run(argv: list[str]) -> int:
 
             pid, state = _ph.parse_state(cur)
             if state == _ph.STATE_WORK:
-                sys.stderr.write(
-                    f"klc ack: ticket is in `{cur}`; finish the work first "
-                    f"(or `klc abort {args.ticket}` to cancel).\n"
-                )
-                return 1
+                # KLC-02: Check for manual completion artifacts
+                can_complete, error = phase_completion.can_complete(args.ticket, pid)
+                if can_complete:
+                    # Artifacts complete — auto-advance to ack-needed
+                    sys.stderr.write(
+                        f"klc ack: detected manual completion for {pid} phase\n"
+                    )
+                    new_state = _ph.STATE_ACK_NEEDED
+                    _lc.set_state(
+                        args.ticket,
+                        pid,
+                        new_state,
+                        event="manual-completion",
+                        note="artifacts detected by phase_completion.py"
+                    )
+                    sys.stderr.write(f"→ {pid}:{new_state} (manual completion)\n")
+                    # Recurse: now in ack-needed, apply normal ack logic
+                    return run(argv)
+                else:
+                    # Artifacts incomplete — show specific error
+                    sys.stderr.write(
+                        f"klc ack: ticket is in `{cur}`; cannot complete:\n"
+                        f"  {error}\n"
+                        f"(or `klc abort {args.ticket}` to cancel).\n"
+                    )
+                    return 1
             if state == _ph.STATE_ACK:
                 sys.stderr.write(
                     f"klc ack: ticket is already in `{cur}`; run "
