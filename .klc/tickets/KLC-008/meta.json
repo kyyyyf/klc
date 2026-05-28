@@ -2,7 +2,7 @@
   "ticket": "KLC-008",
   "kind": "tech",
   "kind_source": "user",
-  "phase": "archived",
+  "phase": "build:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
