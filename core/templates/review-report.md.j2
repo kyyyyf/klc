@@ -20,6 +20,35 @@ The following Architecture Decision Records were loaded into review context:
 {% endfor %}
 {% endif %}
 
+{% if tier_classification and tier_classification.files %}
+## Risk Tier Classification (Phase 3a)
+Files in this diff are classified by risk tier. Each tier has a blocking threshold:
+- **Critical** (auth, crypto, payments): even LOW findings block
+- **Core** (API, business logic): HIGH and CRITICAL block
+- **Peripheral** (tests, docs, tooling): only CRITICAL blocks
+
+| File | Tier | Reason |
+|------|------|--------|
+{% for f in tier_classification.files %}
+| `{{ f.path }}` | {{ f.tier }} | {{ f.reason }} |
+{% endfor %}
+
+**Summary:** {{ tier_classification.summary.critical }} critical, {{ tier_classification.summary.core }} core, {{ tier_classification.summary.peripheral }} peripheral
+{% endif %}
+
+{% if sentinel_matches and sentinel_matches.matches %}
+## Sentinel Patterns Detected (Phase 3a)
+High-risk patterns found in diff — these force-escalate to CRITICAL and always block:
+
+| Sentinel ID | File:Line | Severity | Description |
+|-------------|-----------|----------|-------------|
+{% for m in sentinel_matches.matches %}
+| `{{ m.sentinel_id }}` | `{{ m.file }}:{{ m.line }}` | {{ m.severity_override }} | {{ m.description }} |
+{% endfor %}
+
+**Total sentinel matches:** {{ sentinel_matches.summary.total }}
+{% endif %}
+
 ## Blocking Issues (must fix before merge)
 {{ blocking_issues }}
 
