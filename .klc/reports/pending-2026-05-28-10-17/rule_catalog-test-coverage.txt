@@ -1,0 +1,11 @@
+Each finding must have a `rule_name` from this catalog (Phase 1.2):
+
+- `missing-regression-test` — Bug fix without a test that currently fails without the fix.
+- `acceptance-not-covered` — Acceptance criterion in spec with no matching test.
+- `edge-case-not-covered` — Edge case (empty/max/unicode/concurrent) in spec, no test.
+- `mutation-score-low` — Mutation score below `test.mutation_score_threshold`.
+- `brittle-assertion` — Asserts on implementation details (private calls, log format, SQL strings).
+- `over-mocking` — Mocks for every collaborator, no integration with real code.
+- `under-mocking` — Real external network/filesystem calls in unit tests.
+- `unclear-test-name` — Test name does not convey what it covers (`test_case_1`, `test_works`).
+- `misc-test-coverage` — Anything not fitting the above; explain in body.

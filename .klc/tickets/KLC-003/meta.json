@@ -1,0 +1,24 @@
+{
+  "ticket": "KLC-003",
+  "kind": "feature",
+  "kind_source": "user",
+  "phase": "intake:ack-needed",
+  "phase_history": [
+    {
+      "phase": "intake:ack-needed",
+      "started_at": "2026-05-28T10:48:26Z"
+    }
+  ],
+  "track": null,
+  "estimate": null,
+  "layer": null,
+  "affected_modules": [],
+  "created": "2026-05-28T10:48:26Z",
+  "owner": "e_konchikov@wargaming.net",
+  "jira_url": null,
+  "links": [],
+  "rework_count": {},
+  "metrics": {
+    "intake_ms": 28
+  }
+}
