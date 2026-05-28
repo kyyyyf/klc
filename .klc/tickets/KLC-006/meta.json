@@ -2,17 +2,61 @@
   "ticket": "KLC-006",
   "kind": "tech",
   "kind_source": "user",
-  "phase": "intake:ack-needed",
+  "phase": "acceptance-test-plan:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
-      "started_at": "2026-05-28T11:15:05Z"
+      "started_at": "2026-05-28T11:15:05Z",
+      "finished_at": "2026-05-28T12:52:36Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-05-28T12:52:36Z",
+      "event": "ack",
+      "note": "pick=1:confirm",
+      "finished_at": "2026-05-28T12:52:36Z"
+    },
+    {
+      "phase": "discovery:work",
+      "started_at": "2026-05-28T12:52:36Z",
+      "event": "advance",
+      "note": "ack:confirm",
+      "finished_at": "2026-05-28T12:53:25Z"
+    },
+    {
+      "phase": "discovery:ack-needed",
+      "started_at": "2026-05-28T12:53:25Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T12:53:25Z"
+    },
+    {
+      "phase": "discovery:ack",
+      "started_at": "2026-05-28T12:53:25Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T12:53:25Z"
+    },
+    {
+      "phase": "acceptance-test-plan:work",
+      "started_at": "2026-05-28T12:53:25Z",
+      "event": "advance",
+      "note": "ack:approve"
     }
   ],
-  "track": null,
-  "estimate": null,
-  "layer": null,
-  "affected_modules": [],
+  "track": "S",
+  "estimate": {
+    "complexity": 2,
+    "uncertainty": 1,
+    "risk": 0,
+    "manual": 1,
+    "total": 4
+  },
+  "layer": "content",
+  "affected_modules": [
+    "docs",
+    "core/agents"
+  ],
   "created": "2026-05-28T11:15:05Z",
   "owner": "developer@example.com",
   "jira_url": null,
