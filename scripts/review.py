@@ -323,6 +323,102 @@ def _extract_rules_catalog(prompt_path: Path) -> str:
     return "\n".join(catalog_lines).strip()
 
 
+def _build_callgraph_slice(diff_path: Path, pending_dir: Path) -> Path | None:
+    """Phase 4.6: Build call graph slice for changed files.
+
+    Extracts changed files from diff, checks for available call graphs,
+    returns aggregated slice JSON for reviewers.
+
+    Returns None if no call graphs available or diff empty.
+    """
+    # Parse diff to get changed files
+    changed_files: set[str] = set()
+    if not diff_path.exists():
+        return None
+
+    try:
+        text = diff_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+
+    for line in text.splitlines():
+        if line.startswith("+++ b/"):
+            file_path = line[6:].strip()
+            changed_files.add(file_path)
+
+    if not changed_files:
+        return None
+
+    # Detect languages from changed files
+    lang_to_files: dict[str, list[str]] = {}
+    for fpath in changed_files:
+        ext = Path(fpath).suffix.lower()
+        lang_map = {
+            ".py": "python",
+            ".rs": "rust",
+            ".cpp": "cpp",
+            ".cc": "cpp",
+            ".h": "cpp",
+            ".hpp": "cpp",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".js": "typescript",
+            ".jsx": "typescript",
+        }
+        lang = lang_map.get(ext)
+        if lang:
+            lang_to_files.setdefault(lang, []).append(fpath)
+
+    if not lang_to_files:
+        return None
+
+    # Check which call graphs are available
+    index_dir = klc_dir() / "index" / "callgraph"
+    available_graphs: dict[str, dict] = {}
+
+    for lang in lang_to_files:
+        cg_path = index_dir / f"{lang}.json"
+        if cg_path.exists():
+            try:
+                with cg_path.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+                available_graphs[lang] = data.get("symbols", {})
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    if not available_graphs:
+        return None
+
+    # Aggregate: for each changed file, find symbols defined in that file
+    all_symbols: list[dict] = []
+    for lang, cg in available_graphs.items():
+        for file_path in lang_to_files.get(lang, []):
+            for sym_name, sym_data in cg.items():
+                if sym_data.get("file") == file_path:
+                    entry = sym_data.copy()
+                    entry["qualified_name"] = sym_name
+                    all_symbols.append(entry)
+
+    if not all_symbols:
+        return None
+
+    # Write aggregated slice
+    slice_path = pending_dir / "callgraph_slice.json"
+    output = {
+        "mode": "aggregated",
+        "changed_files": sorted(changed_files),
+        "available_languages": list(available_graphs.keys()),
+        "symbols": all_symbols,
+        "stats": {
+            "changed_files_count": len(changed_files),
+            "symbols_in_changed_files": len(all_symbols),
+        }
+    }
+
+    slice_path.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
+    return slice_path
+
+
 def _write_job_card(card: Path, *,
                     reviewer: str,
                     prompt: str,
@@ -334,6 +430,7 @@ def _write_job_card(card: Path, *,
                     rule_catalog_content: str,
                     adr_context: Path | None,
                     test_plan: Path | None,
+                    callgraph_slice: Path | None,
                     partial: Path) -> None:
     # Phase 1.4: write rule_catalog to a temp file next to the card
     rule_catalog_path = card.parent / f"rule_catalog-{reviewer}.txt"
@@ -342,6 +439,8 @@ def _write_job_card(card: Path, *,
     # Phase 2.3: optional ADR and test-plan context
     adr_line = f"- adr_context:       {adr_context}\n" if adr_context else ""
     test_plan_line = f"- test_plan:         {test_plan}\n" if test_plan else ""
+    # Phase 4.6: optional call graph slice
+    callgraph_line = f"- callgraph_slice:   {callgraph_slice}\n" if callgraph_slice else ""
 
     body = (
         f"# Review sub-agent job: {reviewer}\n\n"
@@ -355,6 +454,7 @@ def _write_job_card(card: Path, *,
         f"- rule_catalog:      {rule_catalog_path}\n"
         f"{adr_line}"
         f"{test_plan_line}"
+        f"{callgraph_line}"
         "\n"
         "Before emitting any finding, read the allowlist. If a finding matches\n"
         f"an entry whose `reviewer` is \"{reviewer}\" or \"*\", downgrade to "
@@ -820,6 +920,11 @@ def main(argv: list[str]) -> int:
     allowlist_seed = FRAMEWORK_ROOT / "config" / "reviewer-allowlist.seed.yml"
     allowlist = allowlist_live if allowlist_live.exists() else allowlist_seed
 
+    # Phase 4.6: build call graph slice for changed files
+    callgraph_slice_file = _build_callgraph_slice(diff_file, pending_dir)
+    if callgraph_slice_file:
+        log(f"Call graph slice: {callgraph_slice_file}")
+
     for r in active:
         name = r["name"]
         filter_pat = r.get("filter") or ""
@@ -862,6 +967,7 @@ def main(argv: list[str]) -> int:
             rule_catalog_content=rule_catalog_text,
             adr_context=adr_context_file,
             test_plan=test_plan_file,
+            callgraph_slice=callgraph_slice_file,
             partial=partials_dir / f"{name}.partial.md",
         )
 
