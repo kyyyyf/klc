@@ -1,5 +1,8 @@
 # models.yml — per-phase LLM model selection.
 #
+# Consumed by:
+#   - core/skills/models.py (loads model definitions and costs)
+#
 # klc's agent prompts at `core/agents/*.md` are model-agnostic. This
 # file tells the host-side runner (`core/skills/runner.py`) which
 # model to dispatch to when a given phase's agent is asked to run.

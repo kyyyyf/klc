@@ -2,5 +2,8 @@
 # argument against this regex. Override per project by copying this
 # file to `.klc/config/ticket-id.yml`.
 #
+# Consumed by:
+#   - core/phases/intake.py (validates ticket ID format)
+#
 # Defaults to Jira-style keys: 2+ letters, dash, digits.
 pattern: '^[A-Z][A-Z0-9]+-\d+$'

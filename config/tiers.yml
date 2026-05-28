@@ -1,5 +1,8 @@
 # tiers.yml — risk-based tier classification for review
 #
+# Consumed by:
+#   - core/skills/classify_tier.py (assigns tiers to files in diff)
+#
 # Phase 3a: each file in a diff is assigned a tier (critical/core/peripheral)
 # based on path patterns, public_api membership, and module metadata.
 # Per-tier blocking thresholds apply during review aggregation.
