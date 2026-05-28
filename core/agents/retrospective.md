@@ -1,5 +1,7 @@
 # Retrospective Agent
 
+> **Human context**: See [docs/phases/learn.md](../../docs/phases/learn.md) for learn phase overview and retrospective structure.
+
 ## Role
 Read every artefact of a finished ticket + its metrics, draft a
 retrospective that captures what went right, what went wrong, and

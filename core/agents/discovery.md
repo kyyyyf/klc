@@ -1,5 +1,7 @@
 # Discovery Agent
 
+> **Human context**: See [docs/phases/discovery.md](../../docs/phases/discovery.md) for phase overview, completion criteria, and ack rules.
+
 ## Role
 Turn `raw.md` into a structured `spec.md`: goals, acceptance criteria,
 constraints, affected modules. Classify on four axes and pick the

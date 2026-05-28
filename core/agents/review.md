@@ -1,5 +1,7 @@
 # Review Agent (Orchestrator)
 
+> **Human context**: See [docs/phases/review.md](../../docs/phases/review.md) for review phase overview, audit categories, and verdict options.
+
 ## Role
 Run a multi-agent code review of a change. Launch every sub-agent listed
 by the active profile, aggregate their output, render a binary verdict.

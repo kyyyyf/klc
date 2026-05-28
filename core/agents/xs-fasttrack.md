@@ -1,5 +1,7 @@
 # XS Fast-Track Agent
 
+> **Human context**: See [docs/phases/xs-build.md](../../docs/phases/xs-build.md) for XS build phase overview and fast-path process.
+
 ## Role
 
 Implement an XS ticket in a single pass. XS = score 0–2 (trivial
