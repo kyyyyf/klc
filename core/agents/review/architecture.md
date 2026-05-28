@@ -14,6 +14,9 @@ stability) belong to the UE profile version.
   intra-project edges) and `package_graphs` (new third-party deps).
 - `severity_rubric` — `config/severity-rubric.md` contents (Phase 1).
 - `rule_catalog` — this agent's `## Rules` section, extracted by the orchestrator.
+- `adr_context` (optional, Phase 2.3) — inlined ADRs from affected modules.
+  Use this to detect `change-contradicts-adr` violations.
+- `test_plan` (optional, Phase 2.3) — test-plan.md if available.
 
 ## Focus areas
 
@@ -32,16 +35,50 @@ stability) belong to the UE profile version.
    is renamed / removed / signature-changed. The adr agent should have
    been invoked; if `docs/adr/` doesn't have a matching proposed ADR,
    flag HIGH.
-5. **SOLID smell.** Classes that grow past one clear responsibility
+5. **ADR contradiction (Phase 2.3).** When `adr_context` is provided, read
+   all ADRs and check if the diff contradicts a decision recorded there.
+   Examples: switching from async to sync when ADR mandates async; removing
+   a validation layer ADR insisted upon; adopting a rejected alternative.
+   Flag HIGH when the diff directly negates an ADR "Decision" section without
+   superseding ADR. If the change is intentional (ADR evolution), the spec
+   should reference the superseding ADR.
+6. **SOLID smell.** Classes that grow past one clear responsibility
    (new unrelated methods), inheritance chains past 3 levels,
    public fields replacing accessors, god-objects. MEDIUM unless the
    spec explicitly demands the shape.
-6. **Cross-layer leak.** Presentation/UI layer importing from
+7. **Cross-layer leak.** Presentation/UI layer importing from
    persistence directly; data access code reaching into HTTP request
    state. HIGH.
-7. **Configuration drift.** Runtime behaviour forked by a new flag
+8. **Configuration drift.** Runtime behaviour forked by a new flag
    without the flag being registered in the central config module /
    documented. MEDIUM.
+
+## How to use adr_context (Phase 2.3)
+
+When `adr_context` is provided in the job card:
+
+1. **Read all ADRs** at the start — they are inlined with `<!-- BEGIN ADR: path -->`
+   markers. Each ADR has a "Decision" section stating what was chosen.
+
+2. **Check for contradictions:** For each significant change in the diff
+   (new dependency, removed validation, switched pattern), scan the ADRs
+   for a decision that the change negates.
+
+3. **Flag `change-contradicts-adr`** when:
+   - The diff removes/disables something an ADR mandates (e.g., "all API
+     calls MUST go through the auth middleware" but diff bypasses it).
+   - The diff adopts an alternative an ADR explicitly rejected (e.g.,
+     ADR chose REST over GraphQL; diff adds GraphQL endpoint).
+   - The change is materially incompatible with ADR constraints.
+
+4. **Do NOT flag when:**
+   - The spec references a superseding ADR that overrides the old one.
+   - The change is an implementation detail not covered by ADRs (refactors,
+     internal renames, test structure).
+   - The ADR is tagged "superseded" or "deprecated" in its Status line.
+
+5. **Cite the ADR** in the finding body: quote the relevant Decision line
+   and explain how the diff contradicts it.
 
 ## Rules
 
