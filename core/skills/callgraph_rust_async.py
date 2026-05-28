@@ -243,6 +243,10 @@ def find_rust_analyzer() -> str:
         path = os.environ["RUST_ANALYZER"]
         if os.path.exists(path) and os.access(path, os.X_OK):
             return path
+        else:
+            sys.stderr.write(f"callgraph_rust: rust-analyzer not found at $RUST_ANALYZER={path}\n")
+            sys.stderr.write("  Set $RUST_ANALYZER to valid path or unset to use $PATH\n")
+            sys.exit(1)
 
     # Check PATH
     import subprocess
@@ -284,11 +288,15 @@ def extract_functions_from_symbols(symbols: list[dict], file_path: str, root: Pa
             kind = sym.get("kind", 0)
             name = sym.get("name", "")
 
-            # Use selectionRange for precise name location
-            selection = sym.get("selectionRange", sym.get("range", {}))
-            start = selection.get("start", {})
+            # DocumentSymbol format: has location.range, no selectionRange
+            # Use range.start, which points to the function definition start
+            location = sym.get("location", {})
+            range_obj = location.get("range", sym.get("range", {}))
+            start = range_obj.get("start", {})
             line = start.get("line", 0)
-            char = start.get("character", 0)
+            # Add offset to character to hit the function name, not keywords before it
+            # For "pub fn name", the name starts around char 7-10, use middle of name
+            char = start.get("character", 0) + len(name) // 2 + 7
 
             # SymbolKind: Function=12, Method=6
             if kind in (12, 6):
@@ -334,70 +342,83 @@ async def build_call_graph_async(root: Path, rust_analyzer: str) -> dict[str, di
 
         symbols_map: dict[str, dict] = {}
 
-        # Phase 1: Extract all function symbols
+        # Phase 1: Open all files first
+        sys.stderr.write("callgraph_rust: opening all files...\n")
+        for file_path in files:
+            rel_path = file_path.relative_to(root)
+            file_uri = f"file://{file_path}"
+            try:
+                text = file_path.read_text(encoding="utf-8")
+                await client.did_open(file_uri, "rust", text)
+            except Exception as e:
+                sys.stderr.write(f"callgraph_rust: error opening {rel_path}: {e}\n")
+
+        # Wait for rust-analyzer to index all files
+        sys.stderr.write("callgraph_rust: waiting for document indexing...\n")
+        await asyncio.sleep(2.0)
+
+        # Phase 2: Extract all function symbols
         for file_path in files:
             rel_path = file_path.relative_to(root)
             file_uri = f"file://{file_path}"
 
-            # Open document
-            try:
-                text = file_path.read_text(encoding="utf-8")
-                await client.did_open(file_uri, "rust", text)
-                # Give rust-analyzer a moment to index the file
-                await asyncio.sleep(0.1)
-            except Exception as e:
-                sys.stderr.write(f"callgraph_rust: error opening {rel_path}: {e}\n")
-                continue
-
             # Get document symbols
             try:
                 doc_symbols = await client.document_symbols(file_uri)
-                sys.stderr.write(f"callgraph_rust: {rel_path} documentSymbol returned {len(doc_symbols)} items\n")
-                if doc_symbols and len(doc_symbols) > 0:
-                    sys.stderr.write(f"  First symbol: {doc_symbols[0].get('name', 'N/A')} kind={doc_symbols[0].get('kind', 'N/A')}\n")
             except Exception as e:
                 sys.stderr.write(f"callgraph_rust: error getting symbols for {rel_path}: {e}\n")
                 continue
 
             # Extract functions
             functions = extract_functions_from_symbols(doc_symbols, str(file_path), root)
-            sys.stderr.write(f"callgraph_rust: {rel_path} found {len(functions)} functions\n")
 
-            # For each function, get call hierarchy
+            # For each function, get call hierarchy (with retry on "content modified")
             for qualified, line, char, kind in functions:
                 qualified_full = f"{rel_path}::{qualified}"
 
-                try:
-                    # Prepare call hierarchy
-                    items = await client.prepare_call_hierarchy(file_uri, line, char)
+                # Retry up to 3 times on "content modified" error
+                for attempt in range(3):
+                    try:
+                        # Prepare call hierarchy
+                        items = await client.prepare_call_hierarchy(file_uri, line, char)
 
-                    if not items:
-                        continue
+                        if not items:
+                            break
 
-                    item = items[0]
+                        item = items[0]
 
-                    # Get outgoing calls (callees)
-                    outgoing = await client.outgoing_calls(item)
-                    calls = [qualified_name_from_uri(call["to"]["uri"], call["to"]["name"], root)
-                             for call in outgoing]
+                        # Get outgoing calls (callees)
+                        outgoing = await client.outgoing_calls(item)
+                        calls = [qualified_name_from_uri(call["to"]["uri"], call["to"]["name"], root)
+                                 for call in outgoing]
 
-                    # Get incoming calls (callers)
-                    incoming = await client.incoming_calls(item)
-                    called_by = [qualified_name_from_uri(call["from"]["uri"], call["from"]["name"], root)
-                                 for call in incoming]
+                        # Get incoming calls (callers)
+                        incoming = await client.incoming_calls(item)
+                        called_by = [qualified_name_from_uri(call["from"]["uri"], call["from"]["name"], root)
+                                     for call in incoming]
 
-                    symbols_map[qualified_full] = {
-                        "kind": kind,
-                        "file": str(rel_path),
-                        "line": line + 1,  # LSP 0-indexed → 1-indexed
-                        "calls": sorted(set(calls)),
-                        "called_by": sorted(set(called_by)),
-                    }
+                        symbols_map[qualified_full] = {
+                            "kind": kind,
+                            "file": str(rel_path),
+                            "line": line + 1,  # LSP 0-indexed → 1-indexed
+                            "calls": sorted(set(calls)),
+                            "called_by": sorted(set(called_by)),
+                        }
+                        break  # Success, exit retry loop
 
-                except Exception as e:
-                    sys.stderr.write(f"callgraph_rust: error building call hierarchy for {qualified_full}: {e}\n")
+                    except RuntimeError as e:
+                        error_str = str(e)
+                        # Retry on "content modified" error
+                        if "content modified" in error_str and attempt < 2:
+                            await asyncio.sleep(0.5)
+                            continue
+                        else:
+                            sys.stderr.write(f"callgraph_rust: error building call hierarchy for {qualified_full}: {e}\n")
+                            break
 
-        sys.stderr.write(f"callgraph_rust: extracted {len(symbols_map)} symbols\n")
+                    except Exception as e:
+                        sys.stderr.write(f"callgraph_rust: error building call hierarchy for {qualified_full}: {e}\n")
+                        break
         return symbols_map
 
     finally:
