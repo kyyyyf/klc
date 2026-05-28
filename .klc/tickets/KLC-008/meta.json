@@ -62,7 +62,112 @@
       "phase": "build:work",
       "started_at": "2026-05-28T11:52:13Z",
       "event": "advance",
-      "note": "ack:approve"
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T12:18:40Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-05-28T12:18:40Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T12:18:40Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-05-28T12:18:40Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T12:18:40Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-05-28T12:18:40Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T12:26:08Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-05-28T12:26:08Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T12:26:08Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-05-28T12:26:08Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T12:26:08Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-05-28T12:26:08Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T12:27:40Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-05-28T12:27:40Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T12:27:40Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-05-28T12:27:40Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-05-28T12:27:40Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-05-28T12:27:40Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-05-28T12:28:09Z"
+    },
+    {
+      "phase": "observe:ack-needed",
+      "started_at": "2026-05-28T12:28:09Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T12:28:09Z"
+    },
+    {
+      "phase": "observe:ack",
+      "started_at": "2026-05-28T12:28:09Z",
+      "event": "ack",
+      "note": "pick=1:clean",
+      "finished_at": "2026-05-28T12:28:09Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-05-28T12:28:09Z",
+      "event": "advance",
+      "note": "ack:clean",
+      "finished_at": "2026-05-28T12:28:49Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-05-28T12:28:49Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T12:28:49Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-05-28T12:28:49Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-05-28T12:28:49Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-05-28T12:28:49Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": "S",
