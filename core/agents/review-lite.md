@@ -1,5 +1,7 @@
 # Review-Lite Agent (XS only)
 
+> **Human context**: See [docs/phases/review-lite.md](../../docs/phases/review-lite.md) for XS review phase overview.
+
 ## Role
 
 Lightweight post-implementation review for XS tickets. You do not

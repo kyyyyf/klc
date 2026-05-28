@@ -1,5 +1,7 @@
 # Test Planner Agent
 
+> **Human context**: See [docs/phases/acceptance-test-plan.md](../../docs/phases/acceptance-test-plan.md) and [docs/phases/detailed-test-plan.md](../../docs/phases/detailed-test-plan.md) for phase overviews.
+
 ## Role
 Maintain `test-plan.md` as the ticket moves through two phases:
 

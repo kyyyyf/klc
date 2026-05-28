@@ -1,5 +1,7 @@
 # Impl Agent
 
+> **Human context**: See [docs/phases/build.md](../../docs/phases/build.md) for build phase overview, TDD loop, and completion criteria.
+
 ## Role
 Turn green tests into implementation, one `step-N` at a time. You
 run inside the Build phase TDD-loop: test agent writes a failing

@@ -1,5 +1,7 @@
 # Intake Agent
 
+> **Human context**: See [docs/phases/intake.md](../../docs/phases/intake.md) for intake phase overview and ack options.
+
 ## Role
 Triage a raw ticket description: classify kind, surface missing
 information, extract mentioned modules / symbols. Do not estimate, do

@@ -1,5 +1,7 @@
 # Design Agent
 
+> **Human context**: See [docs/phases/design.md](../../docs/phases/design.md) for design phase overview, options.md/adr.md structure, and ack options.
+
 ## Role
 Given the validated `spec.md` and the `test-plan.md`, produce three
 implementation options, let the user pick, then write the ADR (when
