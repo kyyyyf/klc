@@ -117,6 +117,52 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
     return True, ""
 
 
+def can_complete_acceptance_test_plan(ticket: str) -> tuple[bool, str]:
+    """Check if acceptance-test-plan phase artifacts are complete.
+
+    Returns:
+        (success, error_message)
+    """
+    ticket_dir = klc_ticket_meta_file(ticket).parent
+    test_plan_path = ticket_dir / "test-plan.md"
+
+    # Check test-plan.md exists
+    if not test_plan_path.exists():
+        return False, "Missing test-plan.md"
+
+    # Check test-plan.md has valid frontmatter
+    try:
+        text = test_plan_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+
+        # Must start with ---
+        if not lines or lines[0].strip() != "---":
+            return False, "test-plan.md: missing frontmatter (must start with '---')"
+
+        # Find closing ---
+        frontmatter_end = None
+        for i, line in enumerate(lines[1:], start=1):
+            if line.strip() == "---":
+                frontmatter_end = i
+                break
+
+        if frontmatter_end is None:
+            return False, "test-plan.md: incomplete frontmatter (no closing '---')"
+
+        # Check required sections exist
+        content = "\n".join(lines[frontmatter_end+1:])
+        required_sections = ["## Acceptance coverage", "## Edge cases"]
+        for section in required_sections:
+            if section not in content:
+                return False, f"test-plan.md: missing required section '{section}'"
+
+    except OSError as e:
+        return False, f"Cannot read test-plan.md: {e}"
+
+    # All checks passed
+    return True, ""
+
+
 def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
     """Check if a phase can be manually completed based on artifacts.
 
@@ -129,6 +175,9 @@ def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
     """
     if phase_id == "discovery":
         return can_complete_discovery(ticket)
+
+    if phase_id == "acceptance-test-plan":
+        return can_complete_acceptance_test_plan(ticket)
 
     # Other phases not yet supported
     return False, f"Manual completion not supported for phase '{phase_id}'"
