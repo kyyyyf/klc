@@ -2,7 +2,7 @@
   "ticket": "KLC-008",
   "kind": "tech",
   "kind_source": "user",
-  "phase": "build:work",
+  "phase": "integrate:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -61,6 +61,48 @@
     {
       "phase": "build:work",
       "started_at": "2026-05-28T11:52:13Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T12:18:40Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-05-28T12:18:40Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T12:18:40Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-05-28T12:18:40Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T12:18:40Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-05-28T12:18:40Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T12:26:08Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-05-28T12:26:08Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T12:26:08Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-05-28T12:26:08Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T12:26:08Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-05-28T12:26:08Z",
       "event": "advance",
       "note": "ack:approve"
     }
