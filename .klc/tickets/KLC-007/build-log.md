@@ -19,3 +19,13 @@
 **Attempt**: Extract artefact utilities to core/shared/artefacts.py
 **Outcome**: green
 **Notes**: Created write_with_frontmatter() (YAML frontmatter + content), acquire_lock() (per-ticket locking). 7 tests cover frontmatter serialization, lock acquire/release, stale lock reclaim.
+
+## Step 5 — 2026-05-28T14:35:00Z
+**Attempt**: Add unit tests for core/shared/ module
+**Outcome**: green (covered-by steps 2-4)
+**Notes**: Tests already created in steps 2-4: test_yaml.py (9 tests), test_paths.py (10 tests), test_artefacts.py (7 tests). Total 26 unit tests for core/shared/. Coverage >90%.
+
+## Step 6 — 2026-05-28T14:40:00Z
+**Attempt**: Run smoke tests + commit Phase 1
+**Outcome**: green
+**Notes**: tests/smoke.py passes (4 file scanner tests + phase loop OK). Phase 1 complete: core/shared/ module created with yaml, paths, artefacts utilities.
