@@ -1,6 +1,10 @@
 # Reviewer allowlist. Each entry suppresses recurring false positives
 # that a reviewer has already flagged and a human has decided are fine.
 #
+# SEED FILE: This is copied to .klc/knowledge/reviewer-allowlist.yml during
+# project installation. Runtime reviews read from .klc/knowledge/, not here.
+# This seed provides a starting allowlist for new projects.
+#
 # Contract: before emitting an issue, each reviewer MUST check this
 # file. If the issue matches an entry, the reviewer downgrades it to
 # INFO and appends "allowlisted: <reason>" to the title. The aggregator

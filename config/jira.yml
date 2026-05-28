@@ -2,6 +2,9 @@
 # instance details. The framework works without any Jira wiring —
 # sync.enabled defaults to false.
 #
+# Consumed by:
+#   - core/skills/jira_sync.py (Jira API integration)
+#
 # Per-project overrides: create .klc/config/jira.yml in the project.
 # Settings there are merged on top of this file (deep merge).
 # Use it to set sync.enabled: true and your base_url / auth config.

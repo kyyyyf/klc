@@ -1,5 +1,8 @@
 # sentinels.yml — high-risk patterns that force-escalate findings to CRITICAL
 #
+# Consumed by:
+#   - core/skills/scan_sentinels.py (pattern matching in diffs)
+#
 # Phase 3a: when scan_sentinels.py detects any of these patterns in a diff,
 # the review verdict auto-blocks regardless of tier. Even peripheral-tier
 # files with sentinels become blocking.
@@ -93,13 +96,13 @@ sentinels:
 
   # --- Secrets ---
   - id: "hardcoded-api-key"
-    pattern: '(api_key|API_KEY|apiKey)\s*=\s*["\'][a-zA-Z0-9_-]{20,}["\']'
+    pattern: '(api_key|API_KEY|apiKey)\s*=\s*["''][a-zA-Z0-9_-]{20,}["'']'
     description: "Hard-coded API key in source"
     languages: []
     severity_override: "CRITICAL"
 
   - id: "hardcoded-password"
-    pattern: '(password|PASSWORD|passwd)\s*=\s*["\'][^"\']{8,}["\']'
+    pattern: '(password|PASSWORD|passwd)\s*=\s*["''][^"'']{8,}["'']'
     description: "Hard-coded password in source"
     languages: []
     severity_override: "CRITICAL"
@@ -130,7 +133,7 @@ sentinels:
 
   # --- Crypto misuse ---
   - id: "md5-security"
-    pattern: 'hashlib\.md5\(|Digest::MD5|crypto\.createHash\(["\']md5'
+    pattern: 'hashlib\.md5\(|Digest::MD5|crypto\.createHash\(["'']md5'
     description: "MD5 hash used for security (broken)"
     languages: ["py", "rb", "js", "ts"]
     severity_override: "HIGH"  # downgrade from CRITICAL if context is non-security
