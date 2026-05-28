@@ -1,0 +1,118 @@
+# tiers.yml — risk-based tier classification for review
+#
+# Phase 3a: each file in a diff is assigned a tier (critical/core/peripheral)
+# based on path patterns, public_api membership, and module metadata.
+# Per-tier blocking thresholds apply during review aggregation.
+#
+# Tier definitions:
+#
+# - critical: auth, crypto, kernel, payment, session management, privilege
+#             escalation paths, core data schemas. Even LOW findings block.
+# - core:     business logic, API endpoints, state machines, orchestrators.
+#             Only HIGH and CRITICAL block.
+# - peripheral: tests, scripts, docs, tooling, UI polish, analytics. Only
+#             CRITICAL blocks (and sentinels force-escalate to CRITICAL).
+#
+# Classification order (first match wins):
+# 1. Explicit path patterns in tier.patterns[]
+# 2. Module metadata: modules.json[].tier override
+# 3. Public API membership: if file exports symbol in public_api → core
+# 4. Fallback: peripheral
+
+tiers:
+  critical:
+    description: >
+      Auth, crypto, payments, session management, privilege escalation,
+      core schemas. Every finding (even LOW) blocks merge.
+    patterns:
+      # Auth & session
+      - "**/*auth*/**"
+      - "**/*session*/**"
+      - "**/*login*/**"
+      - "**/*token*/**"
+      - "**/*jwt*/**"
+      - "**/*oauth*/**"
+      # Crypto
+      - "**/*crypto*/**"
+      - "**/*cipher*/**"
+      - "**/*encrypt*/**"
+      - "**/*hash*/**"
+      # Payments & billing
+      - "**/*payment*/**"
+      - "**/*billing*/**"
+      - "**/*invoice*/**"
+      - "**/*transaction*/**"
+      # Privilege & RBAC
+      - "**/*rbac*/**"
+      - "**/*permission*/**"
+      - "**/*acl*/**"
+      - "**/*privilege*/**"
+      # Core schemas & migrations
+      - "**/migrations/**/*.sql"
+      - "**/schema/**/*.sql"
+      - "**/models/user*.py"
+      - "**/models/account*.py"
+    blocking_threshold: "LOW"  # even LOW findings block
+
+  core:
+    description: >
+      Business logic, API endpoints, state machines, orchestrators,
+      public module APIs. HIGH and CRITICAL block.
+    patterns:
+      # API & controllers
+      - "**/*api*/**"
+      - "**/*controller*/**"
+      - "**/*handler*/**"
+      - "**/*endpoint*/**"
+      - "**/*route*/**"
+      # Business logic
+      - "**/*service*/**"
+      - "**/*manager*/**"
+      - "**/*orchestrat*/**"
+      - "**/*workflow*/**"
+      # State & events
+      - "**/*state*/**"
+      - "**/*event*/**"
+      - "**/*saga*/**"
+    blocking_threshold: "HIGH"  # HIGH and CRITICAL block
+    # Files exporting public_api symbols (from modules.json) are auto-promoted to core
+
+  peripheral:
+    description: >
+      Tests, scripts, docs, tooling, UI polish, analytics. Only CRITICAL blocks.
+      Sentinels (eval, shell injection) force-escalate to CRITICAL.
+    patterns:
+      # Tests
+      - "**/tests/**"
+      - "**/test_*.py"
+      - "**/*_test.ts"
+      - "**/*.test.ts"
+      - "**/*.spec.ts"
+      # Docs & config
+      - "**/*.md"
+      - "**/*.txt"
+      - "**/.github/**"
+      - "**/docs/**"
+      - "**/*.yml"
+      - "**/*.yaml"
+      - "**/*.json"  # unless in critical paths like schema/
+      # Scripts & tooling
+      - "**/scripts/**"
+      - "**/tools/**"
+      - "**/ci/**"
+      - "**/.vscode/**"
+      # UI polish (non-functional styling)
+      - "**/*.css"
+      - "**/*.scss"
+      - "**/assets/**"
+      - "**/static/**"
+    blocking_threshold: "CRITICAL"  # only CRITICAL blocks
+
+# Fallback when no pattern matches and file is not in public_api
+fallback_tier: "peripheral"
+
+# Module-level tier override (optional):
+# If modules.json[].metadata.tier is set, all files in that module inherit it.
+# This takes precedence over path patterns.
+# Example in modules.json:
+#   {"name": "Auth", "path": "src/auth", "metadata": {"tier": "critical"}}
