@@ -14,3 +14,8 @@
 **Attempt**: Extract path utilities to core/shared/paths.py
 **Outcome**: green
 **Notes**: Copied all path resolution functions from core/skills/_paths.py. 10 tests validate framework_root, project_root, klc_dir, ticket paths.
+
+## Step 4 — 2026-05-28T14:30:00Z
+**Attempt**: Extract artefact utilities to core/shared/artefacts.py
+**Outcome**: green
+**Notes**: Created write_with_frontmatter() (YAML frontmatter + content), acquire_lock() (per-ticket locking). 7 tests cover frontmatter serialization, lock acquire/release, stale lock reclaim.
