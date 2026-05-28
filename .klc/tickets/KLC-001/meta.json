@@ -1,0 +1,196 @@
+{
+  "ticket": "KLC-001",
+  "kind": "feature",
+  "kind_source": "user",
+  "phase": "archived",
+  "phase_history": [
+    {
+      "phase": "intake:ack-needed",
+      "started_at": "2026-05-28T08:42:01Z",
+      "finished_at": "2026-05-28T08:43:10Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-05-28T08:43:10Z",
+      "event": "ack",
+      "note": "pick=1:confirm",
+      "finished_at": "2026-05-28T08:43:10Z"
+    },
+    {
+      "phase": "discovery:work",
+      "started_at": "2026-05-28T08:43:10Z",
+      "event": "advance",
+      "note": "ack:confirm",
+      "finished_at": "2026-05-28T09:12:42Z"
+    },
+    {
+      "phase": "discovery:ack-needed",
+      "started_at": "2026-05-28T09:12:42Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T09:12:51Z"
+    },
+    {
+      "phase": "discovery:ack",
+      "started_at": "2026-05-28T09:12:51Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T09:12:51Z"
+    },
+    {
+      "phase": "acceptance-test-plan:work",
+      "started_at": "2026-05-28T09:12:51Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T09:59:44Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack-needed",
+      "started_at": "2026-05-28T09:59:44Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-05-28T09:59:52Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack",
+      "started_at": "2026-05-28T09:59:52Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T09:59:52Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-05-28T09:59:52Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T10:16:49Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-05-28T10:16:49Z",
+      "event": "impl-complete",
+      "note": "all steps green, tests pass",
+      "finished_at": "2026-05-28T10:16:59Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-05-28T10:16:59Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T10:16:59Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-05-28T10:16:59Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T10:18:45Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-05-28T10:18:45Z",
+      "event": "review-complete",
+      "note": "self-review: APPROVED, 0 blocking issues",
+      "finished_at": "2026-05-28T10:18:49Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-05-28T10:18:49Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-05-28T10:18:49Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-05-28T10:18:49Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-05-28T10:39:02Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-05-28T10:39:02Z",
+      "event": "merge-complete",
+      "note": "merged via GitHub PR #8",
+      "finished_at": "2026-05-28T10:39:07Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-05-28T10:39:07Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-05-28T10:39:07Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-05-28T10:39:07Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-05-28T10:39:23Z"
+    },
+    {
+      "phase": "observe:ack-needed",
+      "started_at": "2026-05-28T10:39:23Z",
+      "event": "observation-complete",
+      "note": "internal tool, no production impact, tests pass",
+      "finished_at": "2026-05-28T10:39:27Z"
+    },
+    {
+      "phase": "observe:ack",
+      "started_at": "2026-05-28T10:39:27Z",
+      "event": "ack",
+      "note": "pick=1:clean",
+      "finished_at": "2026-05-28T10:39:27Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-05-28T10:39:27Z",
+      "event": "advance",
+      "note": "ack:clean",
+      "finished_at": "2026-05-28T10:40:18Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-05-28T10:40:18Z",
+      "event": "retrospective-complete",
+      "note": "retrospective.md created",
+      "finished_at": "2026-05-28T10:40:23Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-05-28T10:40:23Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-05-28T10:40:23Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-05-28T10:40:23Z",
+      "event": "ack",
+      "note": "pick=archive"
+    }
+  ],
+  "track": "S",
+  "estimate": {
+    "complexity": 2,
+    "uncertainty": 1,
+    "risk": 0,
+    "manual": 1,
+    "total": 4
+  },
+  "layer": "code",
+  "affected_modules": [
+    "callgraph_rust"
+  ],
+  "created": "2026-05-28T08:42:01Z",
+  "owner": "developer@example.com",
+  "jira_url": null,
+  "links": [],
+  "rework_count": {},
+  "metrics": {
+    "intake_ms": 30
+  },
+  "impl_done": true,
+  "merge_commit": "6692b75",
+  "merged_at": "2026-05-28T13:40:00Z"
+}
