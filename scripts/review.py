@@ -189,6 +189,71 @@ def _write_ctx_bundle(ctx_path: Path, *,
     ctx_path.write_text("\n".join(chunks) + "\n", encoding="utf-8")
 
 
+def _collect_adrs(root: Path,
+                  modules_idx: dict[str, dict],
+                  affected: list[str]) -> tuple[list[Path], dict[str, str]]:
+    """Collect ADRs from ## ADRs sections in CLAUDE.md files.
+    Returns (adr_paths, adr_inlined).
+
+    Phase 2.3: Parse ## ADRs or ## Architecture Decision Records sections,
+    resolve markdown links [ADR-NNN](path), inline contents.
+    """
+    import re
+
+    adr_candidates: list[Path] = []
+
+    # Gather CLAUDE.md files to scan
+    claude_mds: list[Path] = []
+    root_claude = root / "CLAUDE.md"
+    if root_claude.exists():
+        claude_mds.append(root_claude)
+    for name in affected:
+        info = modules_idx.get(name)
+        if not info:
+            continue
+        doc = root / info["path"] / info["doc_filename"]
+        if doc.exists():
+            claude_mds.append(doc)
+
+    # Parse each CLAUDE.md for ## ADRs section
+    for md_path in claude_mds:
+        try:
+            text = md_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        lines = text.splitlines()
+        in_adr_section = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped in ("## ADRs", "## Architecture Decision Records"):
+                in_adr_section = True
+                continue
+            if in_adr_section:
+                if stripped.startswith("## "):  # next section
+                    break
+                # Match markdown links: [ADR-NNN](path) or [ADR-NNN: title](path)
+                m = re.match(r"^-?\s*\[ADR-\d+[^\]]*\]\(([^)]+)\)", stripped)
+                if m:
+                    link_target = m.group(1)
+                    # Resolve relative to the CLAUDE.md directory
+                    resolved = (md_path.parent / link_target).resolve()
+                    if resolved.exists():
+                        adr_candidates.append(resolved)
+
+    # Deduplicate by absolute path
+    adr_paths = sorted(set(adr_candidates), key=lambda p: p.name)
+
+    # Inline contents
+    adr_inlined: dict[str, str] = {}
+    for p in adr_paths:
+        try:
+            adr_inlined[str(p)] = p.read_text(encoding="utf-8")
+        except OSError:
+            pass
+
+    return adr_paths, adr_inlined
+
+
 # --- reviewer discovery ------------------------------------------------------
 
 def _load_reviewers() -> tuple[list[dict], list[dict]]:
@@ -267,10 +332,16 @@ def _write_job_card(card: Path, *,
                     allowlist: Path,
                     severity_rubric: Path,
                     rule_catalog_content: str,
+                    adr_context: Path | None,
+                    test_plan: Path | None,
                     partial: Path) -> None:
     # Phase 1.4: write rule_catalog to a temp file next to the card
     rule_catalog_path = card.parent / f"rule_catalog-{reviewer}.txt"
     rule_catalog_path.write_text(rule_catalog_content, encoding="utf-8")
+
+    # Phase 2.3: optional ADR and test-plan context
+    adr_line = f"- adr_context:       {adr_context}\n" if adr_context else ""
+    test_plan_line = f"- test_plan:         {test_plan}\n" if test_plan else ""
 
     body = (
         f"# Review sub-agent job: {reviewer}\n\n"
@@ -282,6 +353,8 @@ def _write_job_card(card: Path, *,
         f"- allowlist:         {allowlist}\n"
         f"- severity_rubric:   {severity_rubric}\n"
         f"- rule_catalog:      {rule_catalog_path}\n"
+        f"{adr_line}"
+        f"{test_plan_line}"
         "\n"
         "Before emitting any finding, read the allowlist. If a finding matches\n"
         f"an entry whose `reviewer` is \"{reviewer}\" or \"*\", downgrade to "
@@ -707,6 +780,26 @@ def main(argv: list[str]) -> int:
     _write_ctx_bundle(ctx_file, root=root, modules_idx=modules_idx, affected=affected)
     log(f"Context bundle: {ctx_file}")
 
+    # Phase 2.3: collect ADRs and test-plan if available
+    adr_paths, adr_inlined = _collect_adrs(root, modules_idx, affected)
+    adr_context_file: Path | None = None
+    if adr_inlined:
+        adr_context_file = pending_dir / "adr-context.md"
+        adr_chunks = []
+        for path, content in adr_inlined.items():
+            adr_chunks.append(f"<!-- BEGIN ADR: {path} -->")
+            adr_chunks.append(content.rstrip("\n"))
+            adr_chunks.append(f"<!-- END ADR: {path} -->")
+        adr_context_file.write_text("\n".join(adr_chunks) + "\n", encoding="utf-8")
+        log(f"ADR context: {adr_context_file} ({len(adr_inlined)} ADRs)")
+
+    test_plan_file: Path | None = None
+    if args.spec.parent.name.startswith("PROJ-") or args.spec.parent.name.startswith("TICK-"):
+        candidate = args.spec.parent / "test-plan.md"
+        if candidate.exists():
+            test_plan_file = candidate
+            log(f"Test plan: {test_plan_file}")
+
     # 3. Reviewer discovery + job cards.
     always, conditional = _load_reviewers()
     diff_text = diff_file.read_text(encoding="utf-8", errors="ignore")
@@ -767,6 +860,8 @@ def main(argv: list[str]) -> int:
             allowlist=allowlist,
             severity_rubric=severity_rubric_path,
             rule_catalog_content=rule_catalog_text,
+            adr_context=adr_context_file,
+            test_plan=test_plan_file,
             partial=partials_dir / f"{name}.partial.md",
         )
 
