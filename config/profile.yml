@@ -1,1 +1,11 @@
+# profile.yml — active profile selection
+#
+# Consumed by:
+#   - core/phases/install.py (seeds during project init)
+#   - core/phases/doctor.py (validates profile config)
+#   - core/skills/profile-resolve.py (resolves active profile)
+#
+# Per-project override: .klc/config/profile.yml takes precedence over
+# this framework default.
+
 profile: ue

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """tools.py — resolve external tools by PATH, with tools.json fallback.
 
 Some external CLIs (clangd especially) are not installed in PATH on

@@ -1,5 +1,8 @@
 # Reviewer configuration for the Codebase Intelligence Framework.
 #
+# Consumed by:
+#   - core/skills/review.py (orchestrates reviewer agents)
+#
 # Controls the multi-agent code-review pipeline, the mutation-score gate for
 # the test agent, and the optional external reviewer.
 #
