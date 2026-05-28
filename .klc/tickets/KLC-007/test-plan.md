@@ -1,7 +1,7 @@
 ---
 ticket: KLC-007
 authority: hybrid
-last_generated: 2026-05-28T13:45:00Z
+last_generated: 2026-05-28T14:10:00Z
 ---
 
 # Test plan — KLC-007
@@ -42,7 +42,31 @@ last_generated: 2026-05-28T13:45:00Z
 - [ ] Validate LOC reduction estimate methodology (actual counts, not estimates)
 
 ## Detailed coverage
-<!-- TBD — populated in phase 4 after Design -->
+
+| step | Test type | Test name / location | Target symbol(s) | Notes |
+|------|-----------|----------------------|------------------|-------|
+| step-1 | unit | tests/shared/test_module_import.py::test_import_shared | `core.shared` module | Verifies module loads |
+| step-2 | unit | tests/shared/test_yaml.py::test_load_yaml | `core.shared.yaml.load_yaml` | YAML loading |
+| step-2 | unit | tests/shared/test_yaml.py::test_load_with_defaults | `core.shared.yaml.load_with_defaults` | Default merging |
+| step-2 | unit | tests/shared/test_yaml.py::test_validate_schema | `core.shared.yaml.validate_schema` | Schema validation |
+| step-3 | unit | tests/shared/test_paths.py::test_resolve_path | `core.shared.paths.resolve` | Path resolution |
+| step-3 | unit | tests/shared/test_paths.py::test_normalize_path | `core.shared.paths.normalize` | Path normalization |
+| step-4 | unit | tests/shared/test_artefacts.py::test_write_with_frontmatter | `core.shared.artefacts.write_with_frontmatter` | Artefact writing |
+| step-4 | unit | tests/shared/test_artefacts.py::test_lock_artefact | `core.shared.artefacts.lock` | Artefact locking |
+| step-5 | — | — | — | covered-by: step-2,3,4 tests |
+| step-6 | integration | tests/smoke.py | All skills | Regression check |
+| step-7 | — | — | — | Analysis step, no test |
+| step-8 | integration | tests/skills/test_batch1_imports.py | Skills 1-10 | Import validation |
+| step-9 | integration | tests/skills/test_batch2_imports.py | Skills 11-20 | Import validation |
+| step-10 | integration | tests/skills/test_batch3_imports.py | Skills 21+ | Import validation |
+| step-11 | e2e | tests/e2e_pipeline.py | Full lifecycle | 4 tracks (XS/S/M/L) |
+| step-12 | characterisation | tests/skills/test_no_serena_imports.py | grep "serena" | Verify no serena imports remain |
+| step-13 | unit | tests/audit/test_no_bak_files.py | `find . -name "*.bak"` | Verify .bak files gone |
+| step-14 | unit | tests/skills/test_phase_completion.py::test_validator_functions | `phase_completion.validate_spec` | Moved from validator |
+| step-15 | unit | tests/shared/test_yaml.py::test_merge_yaml | `core.shared.yaml.merge` | Merged from yaml_merge |
+| step-16 | integration | tests/skills/test_merged_imports.py | validator, yaml_merge users | Import updates work |
+| step-17 | unit | tests/index/test_modules_json.py::test_core_shared_present | `.klc/index/modules.json` | Index has core.shared |
+| step-18 | acceptance | tests/audit/test_loc_reduction.py::test_loc_reduction_target | wc -l analysis | ≥10% reduction (backs AC-9) |
 
 <!-- BEGIN: manual -->
 <!-- Human additions to the plan -->
