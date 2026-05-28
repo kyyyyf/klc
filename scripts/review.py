@@ -956,23 +956,35 @@ def main(argv: list[str]) -> int:
             encoding="utf-8",
         )
 
-    # 6. Aggregate + render.
+    # 6. Tier classification + sentinel scan (Phase 3a).
+    tier_classification: dict = {}
+    sentinel_matches: dict = {}
+    try:
+        # Classify files by risk tier
+        classify_script = FRAMEWORK_ROOT / "core" / "skills" / "classify_tier.py"
+        r = subprocess.run(
+            [sys.executable, str(classify_script), "--diff", str(diff_file), "--format", "json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            tier_classification = json.loads(r.stdout)
+        # Scan for sentinel patterns
+        sentinel_script = FRAMEWORK_ROOT / "core" / "skills" / "scan_sentinels.py"
+        r = subprocess.run(
+            [sys.executable, str(sentinel_script), "--diff", str(diff_file), "--format", "json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            sentinel_matches = json.loads(r.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        log(f"Tier/sentinel scan failed: {e}")
+
+    # 7. Aggregate + render.
     diff_scope = _parse_diff_scope(diff_file)
     reviewers_data: dict[str, dict] = {}
     for p in sorted(partials_dir.glob("*.partial.md")):
         key = p.name[: -len(".partial.md")]
         reviewers_data[key] = _parse_partial(p, diff_scope)
-
-    reviewer_rows = [
-        {
-            "key":      k,
-            "label":    _reviewer_label(k),
-            "total":    reviewers_data[k]["total"],
-            "blocking": reviewers_data[k]["blocking"],
-            "skipped":  _is_skip_partial(reviewers_data[k]),
-        }
-        for k in reviewers_data
-    ]
 
     external_block = None
     if ext_out and ext_out.exists():
@@ -1014,11 +1026,81 @@ def main(argv: list[str]) -> int:
     non_blocking_issues = _bucket(False)
     out_of_scope_issues = _bucket_oos()
 
+    # Phase 3a: tier-aware blocking threshold
+    # Build file → tier map
+    file_tier_map = {f["path"]: f["tier"] for f in tier_classification.get("files", [])}
+
+    # Load tier thresholds from config
+    tier_thresholds = {"critical": "LOW", "core": "HIGH", "peripheral": "CRITICAL"}
+    try:
+        from _yaml import load_yaml
+        tiers_cfg = load_yaml(FRAMEWORK_ROOT / "config" / "tiers.yml")
+        for tier_name in ("critical", "core", "peripheral"):
+            t = tiers_cfg.get("tiers", {}).get(tier_name, {})
+            threshold = t.get("blocking_threshold")
+            if threshold:
+                tier_thresholds[tier_name] = threshold
+    except Exception:
+        pass  # use defaults
+
+    # Severity order for threshold comparison
+    sev_order = {"INFO": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+
+    def _is_blocking(issue: dict) -> bool:
+        """Check if issue blocks based on its file's tier threshold."""
+        # Always block sentinel matches
+        if issue.get("is_sentinel"):
+            return True
+        if issue.get("suspect_out_of_scope"):
+            return False
+        # Determine threshold from file's tier
+        file = issue.get("file", "")
+        tier = file_tier_map.get(file, "peripheral")
+        threshold_sev = tier_thresholds.get(tier, "CRITICAL")
+        issue_sev = issue.get("severity", "INFO")
+        return sev_order.get(issue_sev, 0) >= sev_order.get(threshold_sev, 4)
+
+    # Inject sentinel findings as synthetic CRITICAL issues
+    if sentinel_matches.get("matches"):
+        sentinel_issues = []
+        for m in sentinel_matches["matches"]:
+            sentinel_issues.append({
+                "severity": m.get("severity_override", "CRITICAL"),
+                "file": m["file"],
+                "line": m["line"],
+                "title": f"Sentinel: {m['sentinel_id']} — {m['description']}",
+                "body": f"Matched: `{m['matched_text']}`\n\nThis pattern is a high-risk sentinel (config/sentinels.yml).",
+                "is_sentinel": True,
+                "suspect_out_of_scope": False,
+            })
+        # Add to a synthetic "sentinels" reviewer
+        if "sentinels" not in reviewers_data:
+            reviewers_data["sentinels"] = {
+                "total": 0,
+                "blocking": 0,
+                "issues": [],
+            }
+        reviewers_data["sentinels"]["issues"].extend(sentinel_issues)
+        reviewers_data["sentinels"]["total"] += len(sentinel_issues)
+        reviewers_data["sentinels"]["blocking"] += len(sentinel_issues)
+
+    # Build reviewer_rows after sentinel injection
+    reviewer_rows = [
+        {
+            "key":      k,
+            "label":    _reviewer_label(k),
+            "total":    reviewers_data[k]["total"],
+            "blocking": reviewers_data[k]["blocking"],
+            "skipped":  _is_skip_partial(reviewers_data[k]),
+        }
+        for k in reviewers_data
+    ]
+
     in_scope_blocking = sum(
         1
         for r in reviewers_data.values()
         for i in r["issues"]
-        if i["severity"] in ("CRITICAL", "HIGH") and not i.get("suspect_out_of_scope")
+        if _is_blocking(i)
     )
     total_blocking = in_scope_blocking + (external_block["blocking"] if external_block else 0)
     verdict = "APPROVED" if total_blocking == 0 else "CHANGES REQUESTED"
@@ -1047,6 +1129,8 @@ def main(argv: list[str]) -> int:
         out_of_scope_issues=out_of_scope_issues,
         verdict=verdict,
         adrs=[str(p) for p in adr_paths] if adr_paths else [],
+        tier_classification=tier_classification,
+        sentinel_matches=sentinel_matches,
     ), encoding="utf-8")
 
     print(f"REPORT {final_path}")
