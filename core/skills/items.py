@@ -37,7 +37,10 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root to sys.path for core.shared imports
+_file_dir = Path(__file__).resolve().parent
+_project_root = _file_dir.parent.parent  # current -> parent -> project root
+sys.path.insert(0, str(_project_root))
 from core.shared.paths import klc_ticket_dir, klc_ticket_index_file  # noqa: E402
 
 
