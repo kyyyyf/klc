@@ -1046,6 +1046,7 @@ def main(argv: list[str]) -> int:
         non_blocking_issues=non_blocking_issues,
         out_of_scope_issues=out_of_scope_issues,
         verdict=verdict,
+        adrs=[str(p) for p in adr_paths] if adr_paths else [],
     ), encoding="utf-8")
 
     print(f"REPORT {final_path}")
