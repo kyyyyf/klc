@@ -43,7 +43,7 @@ PHASE_ARTEFACTS = {
     "intake": ["raw.md", "meta.json"],
     "discovery": ["spec.md"],
     "acceptance-test-plan": ["test-plan.md"],
-    "design": ["design.md"],
+    "design": ["design/options.md", "impl-plan.md"],
     "detailed-test-plan": ["test-plan.md"],  # extends existing
     "build": ["build-log.md", "impl-plan.md"],
     "xs-build": ["build-log.md"],
@@ -189,7 +189,8 @@ class E2EPipeline:
         elif phase_id == "acceptance-test-plan":
             fixtures_to_copy = [("acceptance-test-plan.md", "test-plan.md")]
         elif phase_id == "design":
-            fixtures_to_copy = [("design.md", "design.md")]
+            # Design phase outputs: design/options.md and impl-plan.md
+            fixtures_to_copy = [("design.md", "design/options.md"), ("impl-plan.md", "impl-plan.md")]
         elif phase_id == "detailed-test-plan":
             fixtures_to_copy = [("detailed-test-plan.md", "test-plan.md")]
         elif phase_id in ("build", "xs-build"):
@@ -222,6 +223,9 @@ class E2EPipeline:
                 self.fail(f"copy_fixture: missing fixture {source}")
 
             target = ticket_dir / target_name
+
+            # Ensure parent directory exists (for design/options.md etc.)
+            target.parent.mkdir(parents=True, exist_ok=True)
 
             # Update ticket reference in fixture
             content = source.read_text(encoding="utf-8")
