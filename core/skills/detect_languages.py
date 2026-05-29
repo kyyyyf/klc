@@ -77,7 +77,7 @@ def detect() -> Set[str]:
                 if count >= FILE_COUNT_THRESHOLD:
                     languages.add(lang)
 
-        except (json.JSONDecodeError, KeyError, TypeError):
+        except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
             # If inventory.json is malformed, skip it
             pass
 

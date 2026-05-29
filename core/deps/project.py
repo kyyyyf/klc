@@ -146,23 +146,38 @@ def check_project(strict: bool = False, framework_root: Path | None = None) -> i
                         rule_dirs = r.stdout.strip().split()
                     except (OSError, subprocess.TimeoutExpired):
                         rule_dirs = []
+                    # Collect all rule files first
+                    rule_files = []
                     for rd in rule_dirs:
                         rd_path = framework_root / rd
                         if not rd_path.is_dir():
                             continue
-                        for rf in rd_path.glob("*.yaml"):
-                            try:
-                                check = subprocess.run(
-                                    [str(ag_path), "scan", "--rule", str(rf), str(tmp)],
-                                    capture_output=True, text=True, timeout=10,
-                                )
-                            except (OSError, subprocess.TimeoutExpired):
-                                rule_failures += 1
-                                warn(f"  broken rule: {rf}")
-                                continue
+                        rule_files.extend(rd_path.glob("*.yaml"))
+
+                    # Batch validate: invoke ast-grep once with multiple --rule flags
+                    if rule_files:
+                        cmd = [str(ag_path), "scan"]
+                        for rf in rule_files:
+                            cmd.extend(["--rule", str(rf)])
+                        cmd.append(str(tmp))
+
+                        try:
+                            check = subprocess.run(
+                                cmd,
+                                capture_output=True, text=True, timeout=30,
+                            )
+                            # ast-grep exits non-zero if any rule fails
                             if check.returncode != 0:
+                                # Parse stderr to identify which rules failed
+                                for rf in rule_files:
+                                    if str(rf) in check.stderr:
+                                        rule_failures += 1
+                                        warn(f"  broken rule: {rf}")
+                        except (OSError, subprocess.TimeoutExpired):
+                            # If batch fails, report all as failures
+                            rule_failures = len(rule_files)
+                            for rf in rule_files:
                                 warn(f"  broken rule: {rf}")
-                                rule_failures += 1
             if rule_failures:
                 missing.append("ast-grep-rules")
                 suggestions.append(

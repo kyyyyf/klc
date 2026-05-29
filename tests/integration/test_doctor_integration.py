@@ -192,6 +192,48 @@ class TestDoctorIntegration(unittest.TestCase):
         for check in expected_checks:
             self.assertIn(check, result.stdout, f"Check {check} not found in doctor output")
 
+    def test_doctor_malformed_project_deps_json(self):
+        """Test klc doctor with malformed project-deps.json (TEST-2)."""
+        # Create malformed JSON (missing closing brace)
+        deps_file = self.klc_dir / "index" / "project-deps.json"
+        deps_file.write_text('{"languages": ["python"]', encoding="utf-8")
+
+        # Run klc doctor (default mode)
+        result = subprocess.run(
+            [sys.executable, str(FRAMEWORK_ROOT / "scripts" / "klc"), "doctor"],
+            cwd=str(self.project_root),
+            env=self.env,
+            capture_output=True,
+            text=True
+        )
+
+        # Should exit 0 but report error in project-tools check
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("project-tools", result.stdout)
+        # Error message should contain exception info
+        output = result.stdout + result.stderr
+        self.assertTrue("project-tools check failed" in output or "WARN" in output)
+
+    def test_doctor_malformed_project_deps_json_strict(self):
+        """Test klc doctor --strict with malformed project-deps.json (TEST-2)."""
+        # Create malformed JSON
+        deps_file = self.klc_dir / "index" / "project-deps.json"
+        deps_file.write_text('{"invalid json', encoding="utf-8")
+
+        # Run klc doctor --strict
+        result = subprocess.run(
+            [sys.executable, str(FRAMEWORK_ROOT / "scripts" / "klc"), "doctor", "--strict"],
+            cwd=str(self.project_root),
+            env=self.env,
+            capture_output=True,
+            text=True
+        )
+
+        # Should exit 1 in strict mode
+        self.assertEqual(result.returncode, 1)
+        output = result.stdout + result.stderr
+        self.assertIn("project-tools", output)
+
 
 if __name__ == "__main__":
     unittest.main()
