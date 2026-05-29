@@ -78,6 +78,13 @@ def _finalize(index_dir: Path) -> int:
     if stale.exists():
         stale.unlink()
     log(f"Recorded {head} in .klc/index/.last-run")
+
+    # Print next steps
+    log("")
+    log("Next steps:")
+    log("  1. klc setup    # detect languages, show required tool install commands")
+    log("  2. klc doctor   # verify installation health")
+
     return 0
 
 
