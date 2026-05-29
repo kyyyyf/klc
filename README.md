@@ -21,17 +21,23 @@ PowerShell from a fresh install with just `git`, `python`, and
 klc lives **outside** your project — one checkout drives many
 projects.
 
+### 1. Bootstrap framework (minimal dependencies)
+
+Install only what's needed to run `klc init`:
+
 ```bash
 # Unix / macOS:
 git clone <klc-repo-url> /opt/klc
-python /opt/klc/scripts/install_deps.py
+python /opt/klc/scripts/install_deps.py --bootstrap
 
 # Windows PowerShell:
 git clone <klc-repo-url> C:\klc
-python C:\klc\scripts\install_deps.py
+python C:\klc\scripts\install_deps.py --bootstrap
 ```
 
-### Bootstrap a project
+This installs only: Python 3.11+, git, jinja2.
+
+### 2. Install klc into your project
 
 ```bash
 /opt/klc/scripts/klc install /path/to/my-project
@@ -39,6 +45,44 @@ python C:\klc\scripts\install_deps.py
 
 Creates `.klc/` state directory, config stubs, the `klc` shim, and
 wires the pre-commit hook. Idempotent; `--force` regenerates configs.
+
+### 3. Initialize project and detect languages
+
+```bash
+cd /path/to/my-project
+./.klc/bin/klc init --scan-only      # scan files, build inventory
+./.klc/bin/klc setup                  # detect languages, show required tools
+```
+
+`klc setup` will print install commands for language-specific tools
+(LSP servers, analyzers, etc.). Example output:
+
+```
+[setup] Detected languages: python, cpp
+[setup] Required tools:
+  python:
+    - uv         (missing) — install: curl -LsSf https://astral.sh/uv/install.sh | sh
+    - pylsp      (missing) — install: uv tool install python-lsp-server
+  cpp:
+    - clangd     (found: /usr/bin/clangd)
+```
+
+### 4. Install missing tools
+
+Run the printed install commands manually, then verify:
+
+```bash
+./.klc/bin/klc doctor          # verify installation (warnings only)
+./.klc/bin/klc doctor --strict # verify installation (fails on missing tools)
+```
+
+**Optional**: For klc framework contributors, install dev tools:
+
+```bash
+python /opt/klc/scripts/install_deps.py --dev
+```
+
+This installs mutation testing tools (mutmut, stryker, cargo-mutants, mull-runner).
 
 ## Quick start
 

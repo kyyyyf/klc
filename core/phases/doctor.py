@@ -213,10 +213,45 @@ def _config_validation() -> list[str]:
     return errs
 
 
+@check("project-tools")
+def _project_tools() -> list[str]:
+    """Check project-specific language tools (read from project-deps.json).
+
+    Returns errors (missing required tools). This check's behavior is modified
+    by the --strict flag in run(): by default it returns warnings (doesn't fail),
+    but with --strict it fails doctor.
+    """
+    errs: list[str] = []
+    try:
+        from _paths import klc_index_dir  # noqa: F401
+
+        deps_file = klc_index_dir() / "project-deps.json"
+        if not deps_file.exists():
+            # Not an error — user hasn't run `klc setup` yet
+            return []
+
+        import json
+        deps = json.loads(deps_file.read_text(encoding="utf-8"))
+
+        # Check only required tools (optional tools ignored)
+        for lang, tools in deps.get("required", {}).items():
+            for tool in tools:
+                detected = deps.get("detected", {}).get(tool)
+                if detected is None:
+                    errs.append(f"{tool} (required for {lang}) — not found. Run `klc setup` for install instructions.")
+
+    except Exception as exc:
+        errs.append(f"project-tools check failed: {exc}")
+
+    return errs
+
+
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc doctor")
     ap.add_argument("--json", action="store_true",
                     help="machine-readable JSON output")
+    ap.add_argument("--strict", action="store_true",
+                    help="Fail on missing project-specific tools (default: warn only)")
     args = ap.parse_args(argv)
 
     results = []
@@ -224,14 +259,28 @@ def run(argv: list[str]) -> int:
     for name, fn in CHECKS:
         errs = fn()
         ok = not errs
-        overall_ok = overall_ok and ok
-        results.append({"check": name, "ok": ok, "errors": errs})
+
+        # Special handling for project-tools check with --strict flag
+        if name == "project-tools" and not args.strict:
+            # Without --strict, project-tools errors are warnings (don't fail doctor)
+            if errs:
+                # Print warnings but don't fail overall_ok
+                results.append({"check": name, "ok": True, "errors": errs, "warn": True})
+            else:
+                results.append({"check": name, "ok": True, "errors": []})
+        else:
+            # All other checks (and project-tools with --strict) fail normally
+            overall_ok = overall_ok and ok
+            results.append({"check": name, "ok": ok, "errors": errs})
 
     if args.json:
         print(json.dumps({"ok": overall_ok, "checks": results}, indent=2))
     else:
         for r in results:
-            tag = "PASS" if r["ok"] else "FAIL"
+            if r.get("warn"):
+                tag = "WARN"
+            else:
+                tag = "PASS" if r["ok"] else "FAIL"
             print(f"  {tag} {r['check']}")
             for e in r["errors"]:
                 print(f"       - {e}")
