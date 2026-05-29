@@ -90,7 +90,7 @@ LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
 )
 OPERATIONAL_CMDS = (
-    "board", "doctor", "metrics", "reindex", "install", "jira-sync",
+    "board", "doctor", "metrics", "reindex", "install", "jira-sync", "setup",
 )
 
 
