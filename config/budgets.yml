@@ -1,0 +1,22 @@
+# budgets.yml — per-track prompt input limits and budget counters.
+#
+# Consumed by:
+#   - core/skills/runner.py (prompt size guard before dispatch)
+#   - core/skills/metrics.py (budget counter rollup)
+#
+# prompt_input_limits: maximum estimated input tokens per agent call.
+# Estimation: len(prompt_chars) // 4.  When a composed prompt exceeds
+# the limit for its track, runner.py refuses the dispatch and writes a
+# [!QUESTION] item to out_path instead of calling the model.
+#
+# Phase-level budget counters (rework loops, retries) live in
+# meta.json:budgets and are defined per-ticket; this file only holds
+# the static per-track input-size limits.
+
+version: 1
+
+prompt_input_limits:
+  XS:    8000    # ~32 KB text — one-liner fix; anything larger is S
+  S:    20000    # ~80 KB text
+  M:    60000    # ~240 KB text
+  L:   200000   # ~800 KB text — full cross-module context

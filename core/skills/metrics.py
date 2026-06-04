@@ -129,11 +129,31 @@ def cmd_rollup(args: argparse.Namespace) -> int:
     for track, ms in tracks.items():
         cts = [c for c in (_ct(m) for m in ms) if c is not None]
         rework_totals = [sum((m.get("rework_count") or {}).values()) for m in ms]
+
+        # Token rollup: sum tokens_in/out/cache_hit per phase across tickets
+        token_by_phase: dict[str, dict[str, list[int]]] = {}
+        for m in ms:
+            for phase, tok in (m.get("metrics", {}).get("tokens") or {}).items():
+                bucket = token_by_phase.setdefault(phase, {"in": [], "out": [], "cache_hit": []})
+                bucket["in"].append(tok.get("in", 0))
+                bucket["out"].append(tok.get("out", 0))
+                bucket["cache_hit"].append(tok.get("cache_hit", 0))
+        tokens_summary = {
+            phase: {
+                "avg_in":        round(statistics.mean(v["in"])) if v["in"] else 0,
+                "avg_out":       round(statistics.mean(v["out"])) if v["out"] else 0,
+                "avg_cache_hit": round(statistics.mean(v["cache_hit"])) if v["cache_hit"] else 0,
+                "samples":       len(v["in"]),
+            }
+            for phase, v in token_by_phase.items()
+        }
+
         per_track[track] = {
-            "tickets":         len(ms),
+            "tickets":               len(ms),
             "cycle_time_sec_median": statistics.median(cts) if cts else None,
             "cycle_time_sec_p95":    _p95(cts),
-            "rework_mean":     statistics.mean(rework_totals) if rework_totals else 0,
+            "rework_mean":           statistics.mean(rework_totals) if rework_totals else 0,
+            "tokens_by_phase":       tokens_summary,
         }
 
     payload = {

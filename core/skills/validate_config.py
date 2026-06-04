@@ -29,6 +29,10 @@ KNOWN_SCHEMAS = {
     "phases.yml": {
         "phases",  # array of phase definitions
     },
+    "budgets.yml": {
+        "version",               # schema version
+        "prompt_input_limits",   # per-track token limits
+    },
     "models.yml": {
         "version",      # schema version
         "defaults",     # default model settings

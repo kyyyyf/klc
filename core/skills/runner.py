@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -47,6 +48,80 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from models import load_models, ResolvedModel  # noqa: E402
+
+
+# --- budget loading ----------------------------------------------------------
+
+def _load_budget_limits() -> dict[str, int]:
+    """Return prompt_input_limits from config/budgets.yml, or empty dict."""
+    try:
+        import yaml
+        from _paths import framework_root
+        path = framework_root() / "config" / "budgets.yml"
+        if not path.exists():
+            return {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        raw = data.get("prompt_input_limits") or {}
+        return {k: int(v) for k, v in raw.items()}
+    except Exception:
+        return {}
+
+
+# --- token telemetry helpers -------------------------------------------------
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: 1 token ≈ 4 chars."""
+    return max(1, len(text) // 4)
+
+
+def _parse_usage_from_output(text: str) -> dict[str, int]:
+    """Extract token counts from claude CLI JSON output if present.
+
+    `claude --output-format json` embeds a usage block. Falls back to
+    estimation when not available.
+    """
+    if not text.strip().startswith("{"):
+        return {}
+    try:
+        payload = json.loads(text)
+        usage = payload.get("usage") or {}
+        result = {}
+        if "input_tokens" in usage:
+            result["tokens_in"] = int(usage["input_tokens"])
+        if "output_tokens" in usage:
+            result["tokens_out"] = int(usage["output_tokens"])
+        if "cache_read_input_tokens" in usage:
+            result["cache_hit"] = int(usage["cache_read_input_tokens"])
+        return result
+    except Exception:
+        return {}
+
+
+def _write_token_metrics(ticket: str | None, phase_id: str,
+                         tokens_in: int, tokens_out: int,
+                         cache_hit: int) -> None:
+    """Persist token counts into meta.json:metrics.tokens.<phase_id>."""
+    if not ticket:
+        return
+    try:
+        from _paths import klc_ticket_meta_file
+        meta_path = klc_ticket_meta_file(ticket)
+        if not meta_path.exists():
+            return
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        metrics = meta.setdefault("metrics", {})
+        tokens = metrics.setdefault("tokens", {})
+        tokens[phase_id] = {
+            "in":        tokens_in,
+            "out":       tokens_out,
+            "cache_hit": cache_hit,
+        }
+        meta_path.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except Exception:
+        pass  # telemetry is non-fatal
 
 
 # --- prompt composition ------------------------------------------------------
@@ -184,11 +259,16 @@ def run_agent(phase_id: str,
               *,
               inputs:  dict[str, Path | str] | None = None,
               track:   str | None = None,
+              ticket:  str | None = None,
               timeout: int = 1200,
               ) -> int:
     """Resolve, dispatch, write output. Returns 0 on success, non-zero
     on provider / dispatch failure (a synthetic CRITICAL partial is
-    still written to out_path so pipelines can proceed)."""
+    still written to out_path so pipelines can proceed).
+
+    When `ticket` is provided, token usage is written to
+    meta.json:metrics.tokens.<phase_id> after a successful run.
+    """
     try:
         models = load_models()
         resolved = models.resolve(phase_id, track=track)
@@ -202,6 +282,26 @@ def run_agent(phase_id: str,
         return 2
 
     prompt = _compose_prompt(prompt_path, inputs)
+
+    # --- budget guard --------------------------------------------------------
+    limits = _load_budget_limits()
+    if track and track in limits:
+        estimated = _estimate_tokens(prompt)
+        limit = limits[track]
+        if estimated > limit:
+            msg = (
+                f"[!QUESTION] context too large: estimated ~{estimated} tokens "
+                f"exceeds {track} limit of {limit}. "
+                f"Reduce inputs or upgrade track."
+            )
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(msg + "\n", encoding="utf-8")
+            sys.stderr.write(
+                f"runner: budget guard fired for {phase_id} "
+                f"(~{estimated} > {limit} tokens for {track})\n"
+            )
+            return 2
+
     extra_env = resolved.as_env()
 
     dispatcher = _DISPATCH.get(resolved.provider)
@@ -214,6 +314,12 @@ def run_agent(phase_id: str,
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if rc == 0 and stdout.strip():
         out_path.write_text(stdout, encoding="utf-8")
+        # --- token telemetry -------------------------------------------------
+        usage = _parse_usage_from_output(stdout)
+        tokens_in  = usage.get("tokens_in",  _estimate_tokens(prompt))
+        tokens_out = usage.get("tokens_out", _estimate_tokens(stdout))
+        cache_hit  = usage.get("cache_hit",  0)
+        _write_token_metrics(ticket, phase_id, tokens_in, tokens_out, cache_hit)
         return 0
 
     # Failure — preserve any partial stdout, append synthetic notice.
@@ -261,6 +367,8 @@ def _main(argv: list[str]) -> int:
     ap.add_argument("--input", action="append", default=[],
                     help="label=path (repeatable). Files inlined into prompt.")
     ap.add_argument("--track", default=None, choices=("XS", "S", "M", "L"))
+    ap.add_argument("--ticket", default=None,
+                    help="Ticket key for token telemetry (e.g. KLC-016).")
     ap.add_argument("--timeout", type=int, default=1200)
     args = ap.parse_args(argv)
 
@@ -273,7 +381,8 @@ def _main(argv: list[str]) -> int:
         inputs[label.strip()] = Path(path.strip())
 
     return run_agent(args.phase, args.prompt, args.out,
-                     inputs=inputs, track=args.track, timeout=args.timeout)
+                     inputs=inputs, track=args.track, ticket=args.ticket,
+                     timeout=args.timeout)
 
 
 if __name__ == "__main__":
