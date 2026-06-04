@@ -200,6 +200,8 @@ def _reset_budgets(meta: dict) -> None:
 
 def advance_to_next(ticket: str, *, note: str = "") -> str:
     """Move from `<X>:ack` to the next track-applicable phase's `:work`.
+    Phases whose `condition` evaluates to False are skipped automatically
+    (recorded in phase_history as event=skipped).
     Returns the new state string. Raises if not in an `:ack` state."""
     meta = read_meta(ticket)
     cur = meta.get("phase", "")
@@ -212,14 +214,40 @@ def advance_to_next(ticket: str, *, note: str = "") -> str:
         )
     track = meta.get("track") or "M"
     ph = _ph.load_phases()
-    nxt = ph.next_phase(track, pid)
-    if nxt is None:
-        # Last phase of track → archived.
-        set_state(ticket, _ph.STATE_ARCHIVED, _ph.STATE_ARCHIVED,
-                  event="advance", note=note or "terminal")
-        return _ph.STATE_ARCHIVED
+
+    # Walk forward, skipping phases whose condition is not met.
+    candidate_pid = pid
+    while True:
+        nxt = ph.next_phase(track, candidate_pid)
+        if nxt is None:
+            set_state(ticket, _ph.STATE_ARCHIVED, _ph.STATE_ARCHIVED,
+                      event="advance", note=note or "terminal")
+            return _ph.STATE_ARCHIVED
+        meta = read_meta(ticket)
+        if nxt.should_run(meta):
+            break
+        # Skip this phase — record it.
+        _record_skipped(ticket, nxt.id, nxt.condition or "")
+        candidate_pid = nxt.id
+
     set_state(ticket, nxt.id, _ph.STATE_WORK, event="advance", note=note)
     return _ph.format_state(nxt.id, _ph.STATE_WORK)
+
+
+def _record_skipped(ticket: str, phase_id: str, reason: str) -> None:
+    """Append a skipped event to phase_history without changing phase."""
+    meta = read_meta(ticket)
+    history = meta.setdefault("phase_history", [])
+    if history and "finished_at" not in history[-1]:
+        history[-1]["finished_at"] = _now()
+    history.append({
+        "phase":      _ph.format_state(phase_id, _ph.STATE_WORK),
+        "started_at": _now(),
+        "event":      "skipped",
+        "note":       f"condition not met: {reason}",
+        "finished_at": _now(),
+    })
+    write_meta(ticket, meta)
 
 
 def apply_ack(ticket: str, pick_id: int | None) -> str:

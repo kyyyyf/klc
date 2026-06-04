@@ -65,12 +65,28 @@ class Phase:
     inputs:        list[str]
     outputs:       list[str]
     auto_ack_after: str | None
+    condition:     str | None = None   # e.g. "meta.risk_tags in ['security']"
 
     def pick_by_id(self, pick_id: int) -> Pick | None:
         for p in self.picks:
             if p.id == pick_id:
                 return p
         return None
+
+    def should_run(self, meta: dict) -> bool:
+        """Evaluate condition against meta. Returns True if phase should run.
+
+        Supported expression forms:
+          meta.<dotted.path> in ['v1', 'v2']
+          meta.<dotted.path> not in ['v1', 'v2']
+          meta.<dotted.path> == value
+          meta.<dotted.path> > N
+          meta.<dotted.path> >= N
+          meta.<dotted.path> any_overrun   (true if any value in dict > 0)
+        """
+        if self.condition is None:
+            return True
+        return _eval_condition(self.condition, meta)
 
 
 @dataclass
@@ -106,6 +122,86 @@ class Phases:
             return None
         idx = ids.index(phase_id)
         return seq[idx - 1] if idx > 0 else None
+
+
+# --- condition evaluator ------------------------------------------------------
+
+def _get_nested(meta: dict, path: str):
+    """Traverse dotted path in meta dict. Returns None if not found."""
+    parts = path.split(".")
+    cur = meta
+    for p in parts:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(p)
+    return cur
+
+
+def _eval_condition(expr: str, meta: dict) -> bool:
+    """Evaluate a condition expression against a meta dict.
+
+    Grammar (whitespace-insensitive):
+      meta.<path> in [<quoted-list>]
+      meta.<path> not in [<quoted-list>]
+      meta.<path> == <value>
+      meta.<path> > <number>
+      meta.<path> >= <number>
+      meta.<path> any_overrun
+      <cond> OR <cond>
+    """
+    import re as _re
+
+    expr = expr.strip()
+
+    # OR combinator (short-circuit)
+    if " OR " in expr:
+        parts = expr.split(" OR ")
+        return any(_eval_condition(p.strip(), meta) for p in parts)
+
+    # meta.<path> in ['a', 'b', ...]
+    m = _re.match(
+        r"meta\.([a-z_A-Z0-9.]+)\s+(not\s+in|in)\s+\[([^\]]*)\]", expr
+    )
+    if m:
+        path, op, raw_vals = m.group(1), m.group(2).strip(), m.group(3)
+        vals = {v.strip().strip("'\"") for v in raw_vals.split(",")}
+        value = _get_nested(meta, path)
+        if isinstance(value, list):
+            overlap = set(value) & vals
+        else:
+            overlap = {str(value)} & vals if value is not None else set()
+        if op == "in":
+            return bool(overlap)
+        else:  # not in
+            return not bool(overlap)
+
+    # meta.<path> any_overrun
+    m = _re.match(r"meta\.([a-z_A-Z0-9.]+)\s+any_overrun", expr)
+    if m:
+        value = _get_nested(meta, m.group(1))
+        if isinstance(value, dict):
+            return any(v > 0 for v in value.values() if isinstance(v, (int, float)))
+        return False
+
+    # meta.<path> >= N  or  meta.<path> > N
+    m = _re.match(r"meta\.([a-z_A-Z0-9.]+)\s*(>=|>|==)\s*(\S+)", expr)
+    if m:
+        path, op, raw = m.group(1), m.group(2), m.group(3)
+        value = _get_nested(meta, path)
+        try:
+            threshold = int(raw)
+            lhs = int(value) if value is not None else 0
+        except (ValueError, TypeError):
+            return False
+        if op == ">":
+            return lhs > threshold
+        if op == ">=":
+            return lhs >= threshold
+        if op == "==":
+            return lhs == threshold
+
+    # Fallback: unknown expression → always run (safe default)
+    return True
 
 
 # --- parsing ------------------------------------------------------------------
@@ -175,6 +271,7 @@ def _build_phase(d: dict) -> Phase:
         inputs=list(inputs),
         outputs=list(outputs),
         auto_ack_after=d.get("auto_ack_after") or None,
+        condition=d.get("condition") or None,
     )
 
 
