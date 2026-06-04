@@ -241,6 +241,52 @@ and open questions. Items are indexed by `core/skills/items.py` into
 
 ---
 
+## Token telemetry & budget guard
+
+### Budget guard
+
+Before dispatching any agent call, `runner.py` estimates the prompt size
+(`len(chars) // 4` tokens) and applies two tiers from `config/budgets.yml`:
+
+| Track | Soft (warn) | Hard (block) |
+|-------|-------------|--------------|
+| XS    | 6 000       | 12 000       |
+| S     | 15 000      | 30 000       |
+| M     | 45 000      | 90 000       |
+| L     | 150 000     | 300 000      |
+
+- **Soft limit** — warning on stderr, run proceeds normally.
+- **Hard limit** — dispatch refused; `[!QUESTION] context too large` written
+  to the output file. No model call is made.
+
+### Telemetry
+
+After every successful agent run, token counts are written to
+`meta.json:metrics.tokens.<phase_id>`:
+
+```json
+"metrics": {
+  "tokens": {
+    "discovery-lite": {"in": 1200, "out": 340, "cache_hit": 0},
+    "build":          {"in": 4800, "out": 920, "cache_hit": 1100}
+  }
+}
+```
+
+When `claude --output-format json` is used, actual usage is parsed from the
+response envelope. Otherwise token counts are estimated from character length.
+
+### Rollup
+
+```bash
+klc metrics --rollup   # aggregates tokens_by_phase per track across all tickets
+```
+
+Output includes `avg_in`, `avg_out`, `avg_cache_hit`, `samples` per phase per
+track, written to `.klc/knowledge/process-metrics.json`.
+
+---
+
 ## Review cascade
 
 Before launching the full multi-agent review, `review_cascade.py` runs a

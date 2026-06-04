@@ -1,0 +1,24 @@
+{
+  "ticket": "KLC-016",
+  "kind": "feature",
+  "kind_source": "user",
+  "phase": "intake:ack-needed",
+  "phase_history": [
+    {
+      "phase": "intake:ack-needed",
+      "started_at": "2026-05-29T13:09:15Z"
+    }
+  ],
+  "track": null,
+  "estimate": null,
+  "layer": null,
+  "affected_modules": [],
+  "created": "2026-05-29T13:09:15Z",
+  "owner": "developer@example.com",
+  "jira_url": null,
+  "links": [],
+  "rework_count": {},
+  "metrics": {
+    "intake_ms": 25
+  }
+}

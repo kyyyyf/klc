@@ -1,0 +1,32 @@
+# budgets.yml — per-track prompt input limits and budget counters.
+#
+# Consumed by:
+#   - core/skills/runner.py (prompt size guard before dispatch)
+#   - core/skills/metrics.py (budget counter rollup)
+#
+# Two-tier system:
+#   soft_limits — warning only; run proceeds but stderr shows the overage.
+#                 Helps track context growth before it becomes a problem.
+#   hard_limits — hard block; runner refuses dispatch and writes a
+#                 [!QUESTION] item to out_path instead of calling the model.
+#
+# Estimation: len(prompt_chars) // 4.
+# Phase-level budget counters (rework loops, retries) live in
+# meta.json:budgets and are defined per-ticket; this file only holds
+# the static per-track input-size limits.
+
+version: 1
+
+# Soft limits: warn on stderr, run proceeds.
+soft_limits:
+  XS:    6000    # ~24 KB — heads-up before XS context gets too wide
+  S:    15000    # ~60 KB
+  M:    45000    # ~180 KB
+  L:   150000   # ~600 KB
+
+# Hard limits: refuse dispatch, write [!QUESTION] to output.
+hard_limits:
+  XS:   12000    # ~48 KB — anything bigger almost certainly belongs in S
+  S:    30000    # ~120 KB
+  M:    90000    # ~360 KB
+  L:   300000   # ~1.2 MB
