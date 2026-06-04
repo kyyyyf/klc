@@ -391,84 +391,153 @@ class NegativeTests:
             )
         self.say("PASS: review ack without review-report.md fails with clear error")
 
-    def test_observe_skipped_without_risk_tags(self) -> None:
-        """S-track ticket without risk_tags must skip observe (land on learn:work)."""
-        import shutil as _shutil
-        import tempfile as _tempfile
-        import os as _os
-        scratch = Path(_tempfile.mkdtemp(prefix="klc-e2e-skip-"))
-        env = dict(_os.environ)
-        env["PROJECT_ROOT"] = str(scratch)
-        klc_dir = scratch / ".klc"
-        (klc_dir / "tickets").mkdir(parents=True)
-        (klc_dir / "config").mkdir()
-        (klc_dir / "index").mkdir()
-        (klc_dir / "knowledge").mkdir()
-        (klc_dir / "logs").mkdir()
-        _shutil.copy(FW_ROOT / "config" / "phases.yml", klc_dir / "config" / "phases.yml")
-        _shutil.copy(FW_ROOT / "config" / "models.yml", klc_dir / "config" / "models.yml")
-        (klc_dir / "config" / "profile.yml").write_text("profile: generic\n", encoding="utf-8")
-        try:
-            key = "SKIP-001"
-            ticket_dir = klc_dir / "tickets" / key
-            ticket_dir.mkdir()
-            (ticket_dir / "raw.md").write_text(
-                f"---\nticket: {key}\n---\nFake.\n", encoding="utf-8"
-            )
-            # integrate:ack → next should skip observe (no risk_tags) → land on learn:work
-            meta = {
-                "ticket": key, "kind": "tech", "kind_source": "user",
-                "phase": "integrate:ack",
-                "phase_history": [{"phase": "integrate:ack",
-                                   "started_at": "2026-05-28T12:00:00Z"}],
-                "track": "S",
-                "estimate": {"complexity": 1, "uncertainty": 0, "risk": 0,
-                             "manual": 0, "total": 1},
-                "layer": "code", "affected_modules": [],
-                "risk_tags": [],         # no risk tags → observe should be skipped
-                "rework_count": {"build": 1},  # rework present → learn runs
-                "created": "2026-05-28T12:00:00Z", "owner": "e2e-skip",
-                "jira_url": None, "links": [], "metrics": {}
-            }
-            (ticket_dir / "meta.json").write_text(
-                json.dumps(meta, indent=2) + "\n", encoding="utf-8"
-            )
-            klc_script = FW_ROOT / "scripts" / "klc"
-            result = subprocess.run(
-                [sys.executable, str(klc_script), "next", key],
-                cwd=str(scratch), env=env,
-                capture_output=True, text=True, timeout=30,
-            )
-            if result.returncode != 0:
-                self.fail(f"klc next failed: {result.stderr.strip()[:200]}")
-            import json as _json
-            new_meta = _json.loads((ticket_dir / "meta.json").read_text())
-            phase = new_meta.get("phase", "")
-            if not phase.startswith("learn"):
-                self.fail(
-                    f"expected observe to be skipped → learn:work, got {phase!r}\n"
-                    f"phase_history: {new_meta.get('phase_history', [])[-3:]}"
-                )
-            # Verify skipped event recorded
-            skipped = [e for e in new_meta.get("phase_history", [])
-                       if e.get("event") == "skipped"]
-            if not skipped:
-                self.fail("no 'skipped' event in phase_history for observe")
-        finally:
-            if not self.keep:
-                _shutil.rmtree(scratch)
-        self.say("PASS: observe skipped when risk_tags=[]")
-
     def run(self) -> None:
         try:
             self.setup()
             self.test_discovery_without_spec_fails()
             self.test_build_without_build_log_fails()
             self.test_review_without_report_fails()
-            self.test_observe_skipped_without_risk_tags()
             self.say("ALL NEGATIVE TESTS PASSED")
         finally:
             self.teardown()
+
+
+# ---------------------------------------------------------------------------
+# Conditional-phase tests
+# ---------------------------------------------------------------------------
+
+class ConditionalTests:
+    """Verify that phases with condition: fields are skipped or run correctly."""
+
+    def __init__(self, keep: bool = False):
+        self.keep = keep
+
+    def say(self, msg: str) -> None:
+        print(f"[e2e:conditional] {msg}")
+
+    def fail(self, msg: str) -> None:
+        sys.stderr.write(f"[e2e:conditional] FAIL: {msg}\n")
+        sys.exit(1)
+
+    def _make_env(self, scratch: Path) -> dict:
+        env = dict(os.environ)
+        env["PROJECT_ROOT"] = str(scratch)
+        return env
+
+    def _make_scratch(self) -> Path:
+        scratch = Path(tempfile.mkdtemp(prefix="klc-e2e-cond-"))
+        klc_dir = scratch / ".klc"
+        (klc_dir / "tickets").mkdir(parents=True)
+        (klc_dir / "config").mkdir()
+        (klc_dir / "index").mkdir()
+        (klc_dir / "knowledge").mkdir()
+        (klc_dir / "logs").mkdir()
+        shutil.copy(FW_ROOT / "config" / "phases.yml", klc_dir / "config" / "phases.yml")
+        shutil.copy(FW_ROOT / "config" / "models.yml", klc_dir / "config" / "models.yml")
+        (klc_dir / "config" / "profile.yml").write_text("profile: generic\n", encoding="utf-8")
+        return scratch
+
+    def _make_ticket(self, scratch: Path, key: str, phase: str,
+                     extra: dict | None = None) -> Path:
+        ticket_dir = scratch / ".klc" / "tickets" / key
+        ticket_dir.mkdir(parents=True, exist_ok=True)
+        (ticket_dir / "raw.md").write_text(
+            f"---\nticket: {key}\n---\nFake.\n", encoding="utf-8"
+        )
+        meta: dict = {
+            "ticket": key, "kind": "tech", "kind_source": "user",
+            "phase": phase,
+            "phase_history": [{"phase": phase, "started_at": "2026-05-28T12:00:00Z"}],
+            "track": "S",
+            "estimate": {"complexity": 1, "uncertainty": 0, "risk": 0,
+                         "manual": 0, "total": 1},
+            "layer": "code", "affected_modules": [],
+            "risk_tags": [], "rework_count": {}, "budgets": {},
+            "created": "2026-05-28T12:00:00Z", "owner": "e2e-cond",
+            "jira_url": None, "links": [], "metrics": {}
+        }
+        if extra:
+            meta.update(extra)
+        (ticket_dir / "meta.json").write_text(
+            json.dumps(meta, indent=2) + "\n", encoding="utf-8"
+        )
+        return ticket_dir
+
+    def _klc_next(self, scratch: Path, key: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(FW_ROOT / "scripts" / "klc"), "next", key],
+            cwd=str(scratch), env=self._make_env(scratch),
+            capture_output=True, text=True, timeout=30,
+        )
+
+    def test_observe_skipped_without_risk_tags(self) -> None:
+        """S-track with risk_tags=[] must skip observe → land on learn:work."""
+        scratch = self._make_scratch()
+        try:
+            td = self._make_ticket(
+                scratch, "COND-001", "integrate:ack",
+                {"risk_tags": [], "rework_count": {"build": 1}}
+            )
+            r = self._klc_next(scratch, "COND-001")
+            if r.returncode != 0:
+                self.fail(f"klc next failed: {r.stderr.strip()[:200]}")
+            new_meta = json.loads((td / "meta.json").read_text())
+            if not new_meta.get("phase", "").startswith("learn"):
+                self.fail(f"expected learn:work, got {new_meta['phase']!r}")
+            skipped = [e for e in new_meta.get("phase_history", [])
+                       if e.get("event") == "skipped"]
+            if not skipped:
+                self.fail("no 'skipped' event in phase_history")
+        finally:
+            if not self.keep:
+                shutil.rmtree(scratch)
+        self.say("PASS: observe skipped when risk_tags=[]")
+
+    def test_observe_runs_with_risk_tags(self) -> None:
+        """S-track with risk_tags=['user-facing'] must NOT skip observe."""
+        scratch = self._make_scratch()
+        try:
+            td = self._make_ticket(
+                scratch, "COND-002", "integrate:ack",
+                {"risk_tags": ["user-facing"], "rework_count": {}}
+            )
+            r = self._klc_next(scratch, "COND-002")
+            if r.returncode != 0:
+                self.fail(f"klc next failed: {r.stderr.strip()[:200]}")
+            new_meta = json.loads((td / "meta.json").read_text())
+            if not new_meta.get("phase", "").startswith("observe"):
+                self.fail(f"expected observe:work, got {new_meta['phase']!r}")
+        finally:
+            if not self.keep:
+                shutil.rmtree(scratch)
+        self.say("PASS: observe runs when risk_tags=['user-facing']")
+
+    def test_learn_skipped_without_rework(self) -> None:
+        """Ticket with no rework/regression/overrun must skip learn → archived."""
+        scratch = self._make_scratch()
+        try:
+            td = self._make_ticket(
+                scratch, "COND-003", "observe:ack",
+                {"risk_tags": [], "rework_count": {}, "budgets": {},
+                 "regression_observed": 0}
+            )
+            r = self._klc_next(scratch, "COND-003")
+            if r.returncode != 0:
+                self.fail(f"klc next failed: {r.stderr.strip()[:200]}")
+            new_meta = json.loads((td / "meta.json").read_text())
+            phase = new_meta.get("phase", "")
+            if phase != "archived":
+                self.fail(f"expected archived (learn skipped), got {phase!r}")
+        finally:
+            if not self.keep:
+                shutil.rmtree(scratch)
+        self.say("PASS: learn skipped when no rework signals → archived")
+
+    def run(self) -> None:
+        self.test_observe_skipped_without_risk_tags()
+        self.test_observe_runs_with_risk_tags()
+        self.test_learn_skipped_without_rework()
+        self.say("ALL CONDITIONAL TESTS PASSED")
 
 
 def main() -> int:
@@ -476,10 +545,15 @@ def main() -> int:
     ap.add_argument("--track", choices=["XS", "S", "M", "L"], help="Test single track")
     ap.add_argument("--keep", action="store_true", help="Preserve temp dir")
     ap.add_argument("--negative", action="store_true", help="Run negative tests only")
+    ap.add_argument("--conditional", action="store_true", help="Run conditional-phase tests only")
     args = ap.parse_args()
 
     if args.negative:
         NegativeTests(keep=args.keep).run()
+        return 0
+
+    if args.conditional:
+        ConditionalTests(keep=args.keep).run()
         return 0
 
     tracks = [args.track] if args.track else ["XS", "S", "M", "L"]
@@ -488,9 +562,11 @@ def main() -> int:
 
     print(f"[e2e] ALL TESTS PASSED ({len(tracks)} tracks)")
 
-    # Always run negative tests
     NegativeTests(keep=args.keep).run()
     print("[e2e] NEGATIVE TESTS PASSED")
+
+    ConditionalTests(keep=args.keep).run()
+    print("[e2e] CONDITIONAL TESTS PASSED")
 
     return 0
 
