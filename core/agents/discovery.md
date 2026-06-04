@@ -124,6 +124,10 @@ Set:
 - `affected_modules: [...]` (names from `modules.json`, not paths)
 - `related_tickets: [...]` (keys from 40-related.md you actually
   used)
+- `risk_tags: [...]` — zero or more of: `user-facing`, `data`,
+  `security`, `migration`. Used to decide whether `observe` phase
+  runs. Set empty array `[]` if the change has no user-visible,
+  data-mutation, security, or schema-migration impact.
 - `metrics.discovery_ms`, `metrics.discovery_tokens` (agent-reported)
 
 ### 5. Surface QUESTIONs
