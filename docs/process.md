@@ -17,8 +17,13 @@ is [`config/phases.yml`](../config/phases.yml).
    `[!ASSUMPTION if-false=…]`, `[!DECISION D-NNN]`. Enables
    retrospective verification and cuts hallucination.
 5. **Short XS path.** XS skips acceptance-test-plan, design, and
-   observe. Discovery runs as normal — that's where XS is confirmed.
+   observe. Uses discovery-lite instead of full discovery.
    One build agent call + review-lite.
+6. **Conditional phases.** `observe` runs only when `risk_tags` contains
+   `user-facing`, `data`, `security`, or `migration`. `learn` runs only
+   when rework occurred or budgets were overrun. Discovery agents set
+   `risk_tags` in meta.json; skipped phases are recorded in
+   `phase_history` with `event=skipped`.
 
 ---
 
@@ -233,6 +238,34 @@ and open questions. Items are indexed by `core/skills/items.py` into
 
 `CONFLICT` always halts the agent and requires human resolution.
 `QUESTION` with `blocks=<phase>` prevents phase advance until answered.
+
+---
+
+## Conditional phases
+
+Some phases are skipped automatically based on `meta.json` fields set by
+discovery agents. Skipped phases are recorded in `phase_history` as
+`event: skipped` with the reason.
+
+| Phase     | Runs when                                                              |
+|-----------|------------------------------------------------------------------------|
+| `observe` | `meta.risk_tags` contains any of: `user-facing`, `data`, `security`, `migration` |
+| `learn`   | `meta.rework_count` has any value > 0, OR `meta.regression_observed == 1`, OR `meta.budgets` has any overrun |
+
+Discovery and discovery-lite agents must set `risk_tags: [...]` in
+`meta.json`. Set to `[]` for pure tooling/config changes with no
+user-visible impact.
+
+**Expression language** (used in `phases.yml condition:` field):
+```
+meta.<path> in ['v1', 'v2']      # true if value or any list element matches
+meta.<path> not in ['v1', 'v2']
+meta.<path> > N
+meta.<path> >= N
+meta.<path> == N
+meta.<path> any_overrun           # true if any dict value > 0
+<expr> OR <expr>                  # short-circuit or
+```
 
 ---
 
