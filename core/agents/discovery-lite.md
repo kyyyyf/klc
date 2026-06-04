@@ -41,13 +41,6 @@ manual: 0
 total: <sum, must be ≤2 for XS or ≤5 for S>
 ```
 
-## Update meta.json
-
-After writing spec.md, also set these fields in meta.json:
-- `risk_tags: [...]` — zero or more of: `user-facing`, `data`, `security`,
-  `migration`. Controls whether `observe` phase runs. Set `[]` for pure
-  tooling/config changes with no user-visible or data impact.
-
 ## Rules
 
 1. **One agent call.** Complete spec.md entirely in this response.

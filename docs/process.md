@@ -47,8 +47,9 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 
 | Phase id               | Tracks      | Agent prompt                      | Picks at `:ack-needed`                                    |
 |------------------------|-------------|-----------------------------------|------------------------------------------------------------|
-| `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm                                                |
-| `discovery`            | XS S M L    | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
+| `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm-route · 2 = force-full-discovery · 3 = force-xs-skip |
+| `discovery-lite`       | XS S        | `core/agents/discovery-lite.md`   | 1 = approve · 2 = needs-rework · 3 = upgrade-to-full      |
+| `discovery`            | M L         | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
 | `acceptance-test-plan` | S M L       | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
 | `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
 | `detailed-test-plan`   | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
@@ -61,9 +62,9 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 | `observe`              | S M L       | _(monitoring checklist)_          | 1 = clean · 2 = regression · 3 = rollback                 |
 | `learn`                | XS S M L    | `core/agents/retrospective.md`    | 1 = archive · 2 = extract-to-CLAUDE.md                    |
 
-**XS path**: intake → discovery → xs-build → review-lite → integrate → learn
+**XS path**: intake → discovery-lite → xs-build → review-lite → integrate → learn
 
-**S path**: intake → discovery → acceptance-test-plan → build → review → integrate → observe → learn
+**S path**: intake → discovery-lite → acceptance-test-plan → build → review → integrate → observe → learn
 
 **M path**: intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn
 
@@ -162,9 +163,11 @@ emits `[!QUESTION]` or `[!CONFLICT]`; human decides next action.
 Single-agent path for trivial changes (score 0–2).
 
 1. `klc intake <key> --kind bug "<desc>"` → `intake:ack-needed`
-2. `klc ack <key> --pick 1` → `discovery:work`
-3. Run `discovery` agent. Produces `spec.md` with ACs and
-   `affected_modules`. This is where the XS score is confirmed.
+   intake prints `route=XS` (deterministic heuristic).
+2. `klc ack <key> --pick 1` (confirm-route) → `discovery-lite:work`
+3. Run `discovery-lite` agent. Produces compact `spec.md` with Goals,
+   ACs, Affected, and Estimate. Uses `[!ASSUMPTION]` instead of blocking
+   `[!QUESTION]`. This is where the XS score is confirmed.
 4. `klc ack <key> --pick 1` → `xs-build:work`
 5. Run `xs-fasttrack` agent with prompt card at
    `.klc/tickets/<key>/xs-build/_prompt.md`.
