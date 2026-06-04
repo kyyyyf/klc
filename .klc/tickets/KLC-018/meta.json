@@ -1,0 +1,261 @@
+{
+  "ticket": "KLC-018",
+  "kind": "bug",
+  "kind_source": "user",
+  "phase": "archived",
+  "phase_history": [
+    {
+      "phase": "intake:ack-needed",
+      "started_at": "2026-06-04T13:55:03Z",
+      "finished_at": "2026-06-04T13:55:10Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-06-04T13:55:10Z",
+      "event": "ack",
+      "note": "pick=1:confirm",
+      "finished_at": "2026-06-04T13:55:10Z"
+    },
+    {
+      "phase": "discovery:work",
+      "started_at": "2026-06-04T13:55:10Z",
+      "event": "advance",
+      "note": "ack:confirm",
+      "finished_at": "2026-06-04T13:57:32Z"
+    },
+    {
+      "phase": "discovery:ack-needed",
+      "started_at": "2026-06-04T13:57:32Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T13:59:21Z"
+    },
+    {
+      "phase": "discovery:ack",
+      "started_at": "2026-06-04T13:59:21Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-04T13:59:21Z"
+    },
+    {
+      "phase": "acceptance-test-plan:work",
+      "started_at": "2026-06-04T13:59:21Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-04T14:01:12Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack-needed",
+      "started_at": "2026-06-04T14:01:12Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T14:01:12Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack",
+      "started_at": "2026-06-04T14:01:12Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-04T14:01:12Z"
+    },
+    {
+      "phase": "design:work",
+      "started_at": "2026-06-04T14:01:12Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-04T14:10:03Z"
+    },
+    {
+      "phase": "design:ack-needed",
+      "started_at": "2026-06-04T14:10:03Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T14:10:11Z"
+    },
+    {
+      "phase": "design:ack",
+      "started_at": "2026-06-04T14:10:11Z",
+      "event": "ack",
+      "note": "pick=1:option-A-minimal",
+      "finished_at": "2026-06-04T14:10:11Z"
+    },
+    {
+      "phase": "detailed-test-plan:work",
+      "started_at": "2026-06-04T14:10:11Z",
+      "event": "advance",
+      "note": "ack:option-A-minimal",
+      "finished_at": "2026-06-04T14:11:10Z"
+    },
+    {
+      "phase": "detailed-test-plan:ack-needed",
+      "started_at": "2026-06-04T14:11:10Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T14:11:10Z"
+    },
+    {
+      "phase": "detailed-test-plan:ack",
+      "started_at": "2026-06-04T14:11:10Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-04T14:11:10Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-06-04T14:11:10Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-04T14:59:47Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-06-04T14:59:47Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T14:59:47Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-06-04T14:59:47Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-04T14:59:47Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-06-04T14:59:47Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-04T15:01:21Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-06-04T15:01:21Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T15:05:03Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-06-04T15:05:03Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-04T15:05:03Z"
+    },
+    {
+      "phase": "manual:work",
+      "started_at": "2026-06-04T15:05:03Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-04T15:06:45Z"
+    },
+    {
+      "phase": "manual:ack-needed",
+      "started_at": "2026-06-04T15:06:45Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T15:06:45Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-06-04T15:06:45Z",
+      "event": "ack",
+      "note": "pick=1:passed",
+      "finished_at": "2026-06-04T15:06:45Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-06-04T15:06:45Z",
+      "event": "advance",
+      "note": "ack:passed",
+      "finished_at": "2026-06-04T15:06:52Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-06-04T15:06:52Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T15:06:53Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-06-04T15:06:53Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-06-04T15:06:53Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-06-04T15:06:53Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-06-04T15:07:02Z"
+    },
+    {
+      "phase": "observe:ack-needed",
+      "started_at": "2026-06-04T15:07:02Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-04T15:07:02Z"
+    },
+    {
+      "phase": "observe:ack",
+      "started_at": "2026-06-04T15:07:02Z",
+      "event": "ack",
+      "note": "pick=1:clean",
+      "finished_at": "2026-06-04T15:07:02Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-06-04T15:07:02Z",
+      "event": "skipped",
+      "note": "condition not met: meta.rework_count any_overrun OR meta.regression_observed == 1 OR meta.budgets any_overrun",
+      "finished_at": "2026-06-04T15:07:02Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-06-04T15:07:02Z",
+      "event": "advance",
+      "note": "ack:clean"
+    }
+  ],
+  "track": "M",
+  "estimate": {
+    "complexity": 3,
+    "uncertainty": 2,
+    "risk": 2,
+    "manual": 1,
+    "total": 8
+  },
+  "layer": "code",
+  "affected_modules": [
+    "phases",
+    "route_heuristic",
+    "intake",
+    "phase_completion",
+    "runner",
+    "review_cascade",
+    "scope_delta",
+    "ack",
+    "validate_config",
+    "models",
+    "config",
+    "docs",
+    "scripts",
+    "tests",
+    "tickets",
+    "knowledge"
+  ],
+  "risk_tags": [
+    "data"
+  ],
+  "created": "2026-06-04T13:55:03Z",
+  "owner": "e_konchikov@wargaming.net",
+  "jira_url": null,
+  "links": [],
+  "rework_count": {},
+  "metrics": {
+    "intake_ms": 21
+  },
+  "design_choice": "option-A-minimal"
+}

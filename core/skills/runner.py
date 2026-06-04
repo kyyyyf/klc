@@ -185,7 +185,7 @@ def _dispatch_anthropic(resolved: ResolvedModel, prompt: str,
     # intentionally don't pass --no-conversation (not a flag on all
     # versions of the CLI); override via CLAUDE_ARGS if your install
     # requires something different.
-    args_raw = os.environ.get("CLAUDE_ARGS", "--print")
+    args_raw = os.environ.get("CLAUDE_ARGS", "--print --output-format json")
     argv = [bin_name, *args_raw.split(), "--model", resolved.model,
             *resolved.extra_args]
     env = {**os.environ, **extra_env}
@@ -232,6 +232,17 @@ def _dispatch_openai(resolved: ResolvedModel, prompt: str,
     except (KeyError, IndexError, TypeError):
         return (2, "", f"runner: openai reply missing choices[0].message.content: "
                        f"{payload!r}")
+    # Wrap in envelope so run_agent() can extract both result text and usage.
+    usage = payload.get("usage") or {}
+    if usage:
+        envelope = json.dumps({
+            "result": text,
+            "usage": {
+                "input_tokens":  usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
+            },
+        })
+        return (0, envelope, "")
     return (0, text, "")
 
 
@@ -239,7 +250,18 @@ def _dispatch_ollama(resolved: ResolvedModel, prompt: str,
                      timeout: int, extra_env: dict[str, str]) -> tuple[int, str, str]:
     bin_name = os.environ.get("KLC_OLLAMA_CLI", "ollama")
     if not shutil.which(bin_name):
-        return (2, "", f"runner: '{bin_name}' not on PATH (install ollama)")
+        # Graceful fallback to local-coding role (Anthropic Haiku) so XS
+        # tickets don't break on machines without a local model.
+        # Uses resolve_role() directly — not coupled to the 'indexing' pseudo-phase.
+        sys.stderr.write(
+            f"runner: '{bin_name}' not on PATH — falling back to local-coding "
+            f"(set KLC_OLLAMA_CLI or install ollama to use local model)\n"
+        )
+        try:
+            fallback = load_models().resolve_role("local-coding")
+            return _dispatch_anthropic(fallback, prompt, timeout, extra_env)
+        except Exception as exc:
+            return (2, "", f"runner: ollama absent and fallback failed: {exc}")
     argv = [bin_name, "run", resolved.model, *resolved.extra_args]
     env = {**os.environ, **extra_env}
     try:
@@ -335,7 +357,18 @@ def run_agent(phase_id: str,
     rc, stdout, stderr = dispatcher(resolved, prompt, timeout, extra_env)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if rc == 0 and stdout.strip():
-        out_path.write_text(stdout, encoding="utf-8")
+        # --- envelope split (AC-C1) ------------------------------------------
+        # If the provider returns a JSON envelope (e.g. --output-format json),
+        # write only the result text to the artifact. Fall back to raw stdout
+        # if parsing fails or the envelope has no 'result' key.
+        artifact_text = stdout
+        try:
+            envelope = json.loads(stdout)
+            if isinstance(envelope, dict) and "result" in envelope:
+                artifact_text = envelope["result"]
+        except (json.JSONDecodeError, ValueError):
+            pass
+        out_path.write_text(artifact_text, encoding="utf-8")
         # --- token telemetry -------------------------------------------------
         usage = _parse_usage_from_output(stdout)
         if usage:

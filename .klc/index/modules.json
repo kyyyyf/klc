@@ -1,0 +1,72 @@
+{
+  "modules": [
+    {
+      "name": "phases",
+      "path": "core/skills/phases"
+    },
+    {
+      "name": "route_heuristic",
+      "path": "core/skills/route_heuristic"
+    },
+    {
+      "name": "intake",
+      "path": "core/phases/intake"
+    },
+    {
+      "name": "phase_completion",
+      "path": "core/skills/phase_completion"
+    },
+    {
+      "name": "runner",
+      "path": "core/skills/runner"
+    },
+    {
+      "name": "review",
+      "path": "core/agents/review"
+    },
+    {
+      "name": "review_cascade",
+      "path": "core/skills/review_cascade"
+    },
+    {
+      "name": "scope_delta",
+      "path": "core/skills/scope_delta"
+    },
+    {
+      "name": "ack",
+      "path": "core/phases/ack"
+    },
+    {
+      "name": "validate_config",
+      "path": "core/skills/validate_config"
+    },
+    {
+      "name": "models",
+      "path": "core/skills/models"
+    },
+    {
+      "name": "config",
+      "path": "config/"
+    },
+    {
+      "name": "docs",
+      "path": "docs/"
+    },
+    {
+      "name": "scripts",
+      "path": "scripts/"
+    },
+    {
+      "name": "tests",
+      "path": "tests/"
+    },
+    {
+      "name": "tickets",
+      "path": ".klc/tickets/"
+    },
+    {
+      "name": "knowledge",
+      "path": ".klc/knowledge/"
+    }
+  ]
+}
