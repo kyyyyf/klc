@@ -52,7 +52,7 @@ def test_budget_guard_blocks_oversized_prompt() -> None:
         out_file = scratch / "out.md"
 
         with patch.object(runner, "_load_budget_limits",
-                          return_value={"XS": 8000}), \
+                          return_value=({}, {"XS": 8000})), \
              patch("models.load_models") as mock_models:
             from unittest.mock import MagicMock
             mock_models.return_value.resolve.return_value = MagicMock(
@@ -95,7 +95,7 @@ def test_token_metrics_written_to_meta() -> None:
             extra_args=[], api_key_env="ANTHROPIC_API_KEY",
             as_env=lambda: {},
         )
-        with patch.object(runner, "_load_budget_limits", return_value={}), \
+        with patch.object(runner, "_load_budget_limits", return_value=({}, {})), \
              patch.dict(runner._DISPATCH,
                         {"anthropic": lambda *a, **k: (0, fake_output, "")}), \
              patch("models.load_models") as mock_models:
@@ -112,6 +112,44 @@ def test_token_metrics_written_to_meta() -> None:
         assert tokens["build"]["in"] > 0
         assert tokens["build"]["out"] > 0
         print("PASS: token metrics written to meta.json after successful run")
+
+    os.environ.pop("PROJECT_ROOT", None)
+
+
+def test_soft_limit_warns_but_proceeds() -> None:
+    """Soft limit: run proceeds, warning on stderr."""
+    import runner
+
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp)
+        _make_ticket_dir(scratch, "T-SOFT-001")
+        os.environ["PROJECT_ROOT"] = tmp
+
+        prompt_file = scratch / "prompt.md"
+        prompt_file.write_text("x" * 28_000, encoding="utf-8")  # ~7000 tokens > soft=6000
+        out_file = scratch / "out.md"
+        fake_output = "agent response"
+
+        from unittest.mock import MagicMock
+        resolved = MagicMock(
+            provider="anthropic", model="claude-haiku-4-5-20251001",
+            extra_args=[], api_key_env="ANTHROPIC_API_KEY",
+            as_env=lambda: {},
+        )
+        with patch.object(runner, "_load_budget_limits",
+                          return_value=({"XS": 6000}, {"XS": 12000})), \
+             patch.dict(runner._DISPATCH,
+                        {"anthropic": lambda *a, **k: (0, fake_output, "")}), \
+             patch("models.load_models") as mock_models:
+            mock_models.return_value.resolve.return_value = resolved
+            rc = runner.run_agent(
+                "build", prompt_file, out_file,
+                track="XS", ticket="T-SOFT-001"
+            )
+
+        assert rc == 0, f"expected rc=0 for soft limit, got {rc}"
+        assert out_file.read_text() == fake_output
+        print("PASS: soft limit warns but run proceeds")
 
     os.environ.pop("PROJECT_ROOT", None)
 
@@ -153,6 +191,7 @@ def test_estimate_tokens() -> None:
 
 if __name__ == "__main__":
     test_budget_guard_blocks_oversized_prompt()
+    test_soft_limit_warns_but_proceeds()
     test_token_metrics_written_to_meta()
     test_parse_usage_from_json_output()
     test_parse_usage_plain_text_returns_empty()

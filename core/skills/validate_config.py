@@ -31,7 +31,9 @@ KNOWN_SCHEMAS = {
     },
     "budgets.yml": {
         "version",               # schema version
-        "prompt_input_limits",   # per-track token limits
+        "prompt_input_limits",   # legacy: per-track token limits
+        "soft_limits",           # warn only — run proceeds
+        "hard_limits",           # block — dispatch refused
     },
     "models.yml": {
         "version",      # schema version

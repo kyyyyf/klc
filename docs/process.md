@@ -246,18 +246,18 @@ and open questions. Items are indexed by `core/skills/items.py` into
 ### Budget guard
 
 Before dispatching any agent call, `runner.py` estimates the prompt size
-(`len(chars) // 4` tokens) and compares it to the per-track limit in
-`config/budgets.yml`:
+(`len(chars) // 4` tokens) and applies two tiers from `config/budgets.yml`:
 
-| Track | Limit (tokens) |
-|-------|---------------|
-| XS    | 8 000         |
-| S     | 20 000        |
-| M     | 60 000        |
-| L     | 200 000       |
+| Track | Soft (warn) | Hard (block) |
+|-------|-------------|--------------|
+| XS    | 6 000       | 12 000       |
+| S     | 15 000      | 30 000       |
+| M     | 45 000      | 90 000       |
+| L     | 150 000     | 300 000      |
 
-If the limit is exceeded, the run is aborted and a `[!QUESTION] context too large`
-item is written to the output file. No model call is made.
+- **Soft limit** — warning on stderr, run proceeds normally.
+- **Hard limit** — dispatch refused; `[!QUESTION] context too large` written
+  to the output file. No model call is made.
 
 ### Telemetry
 

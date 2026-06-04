@@ -52,19 +52,29 @@ from models import load_models, ResolvedModel  # noqa: E402
 
 # --- budget loading ----------------------------------------------------------
 
-def _load_budget_limits() -> dict[str, int]:
-    """Return prompt_input_limits from config/budgets.yml, or empty dict."""
+def _load_budget_limits() -> tuple[dict[str, int], dict[str, int]]:
+    """Return (soft_limits, hard_limits) from config/budgets.yml.
+
+    Supports both the new soft_limits/hard_limits keys and the legacy
+    prompt_input_limits key (treated as hard limit only).
+    """
     try:
         import yaml
         from _paths import framework_root
         path = framework_root() / "config" / "budgets.yml"
         if not path.exists():
-            return {}
+            return {}, {}
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        raw = data.get("prompt_input_limits") or {}
-        return {k: int(v) for k, v in raw.items()}
+        soft = {k: int(v) for k, v in (data.get("soft_limits") or {}).items()}
+        hard = {k: int(v) for k, v in (data.get("hard_limits") or {}).items()}
+        # legacy fallback
+        if not hard and not soft:
+            legacy = {k: int(v) for k, v in
+                      (data.get("prompt_input_limits") or {}).items()}
+            return {}, legacy
+        return soft, hard
     except Exception:
-        return {}
+        return {}, {}
 
 
 # --- token telemetry helpers -------------------------------------------------
@@ -284,23 +294,29 @@ def run_agent(phase_id: str,
     prompt = _compose_prompt(prompt_path, inputs)
 
     # --- budget guard --------------------------------------------------------
-    limits = _load_budget_limits()
-    if track and track in limits:
+    soft_limits, hard_limits = _load_budget_limits()
+    if track:
         estimated = _estimate_tokens(prompt)
-        limit = limits[track]
-        if estimated > limit:
+        hard = hard_limits.get(track)
+        soft = soft_limits.get(track)
+        if hard and estimated > hard:
             msg = (
                 f"[!QUESTION] context too large: estimated ~{estimated} tokens "
-                f"exceeds {track} limit of {limit}. "
+                f"exceeds {track} hard limit of {hard}. "
                 f"Reduce inputs or upgrade track."
             )
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(msg + "\n", encoding="utf-8")
             sys.stderr.write(
-                f"runner: budget guard fired for {phase_id} "
-                f"(~{estimated} > {limit} tokens for {track})\n"
+                f"runner: hard limit exceeded for {phase_id} "
+                f"(~{estimated} > {hard} tokens for {track}) — aborted\n"
             )
             return 2
+        elif soft and estimated > soft:
+            sys.stderr.write(
+                f"runner: soft limit warning for {phase_id} "
+                f"(~{estimated} > {soft} soft tokens for {track}) — proceeding\n"
+            )
 
     extra_env = resolved.as_env()
 
