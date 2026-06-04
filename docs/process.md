@@ -124,8 +124,7 @@ choose a pick before `next` proceeds.
    all symbol navigation — no speculative file reads.
    Each step gets a minimal card via `klc step <key> N` (Goals + ACs
    + current step only — no full spec/plan context).
-3. **Verifier** (`core/agents/validator.md`) runs the suite.
-4. Repeat until all steps are green, then `klc ack <key> --pick 1`.
+3. Repeat until all steps are green, then `klc ack <key> --pick 1`.
 
 **`build-log.md`** is an append-only journal maintained by the impl
 agent: one entry per iteration with outcome (`green | red | blocked`)
