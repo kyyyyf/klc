@@ -9,6 +9,7 @@ Usage:
     python tests/e2e_pipeline.py              # all tracks
     python tests/e2e_pipeline.py --track S    # single track
     python tests/e2e_pipeline.py --keep       # preserve temp dir
+    python tests/e2e_pipeline.py --negative   # run negative tests only
 """
 from __future__ import annotations
 
@@ -26,46 +27,42 @@ from typing import Any
 FW_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = FW_ROOT / "tests" / "fixtures" / "fake-agent-outputs"
 
-# Track-to-phases mapping per config/phases.yml
-# XS: intake → discovery → xs-build → review-lite → integrate → learn
-# S:  intake → discovery → acceptance-test-plan → build → review → integrate → observe → learn
-# M:  S + design + detailed-test-plan
-# L:  M + manual
-TRACK_PHASES = {
-    "XS": ["intake", "discovery", "xs-build", "review-lite", "integrate", "learn"],
-    "S": ["intake", "discovery", "acceptance-test-plan", "build", "review", "integrate", "observe", "learn"],
-    "M": ["intake", "discovery", "acceptance-test-plan", "design", "detailed-test-plan", "build", "review", "manual", "integrate", "observe", "learn"],
-    "L": ["intake", "discovery", "acceptance-test-plan", "design", "detailed-test-plan", "build", "review", "manual", "integrate", "observe", "learn"],
-}
+# Add skills to path so we can load phases.yml
+sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 
-# Phase to artefact mapping per config/phases.yml outputs
-PHASE_ARTEFACTS = {
-    "intake": ["raw.md", "meta.json"],
-    "discovery": ["spec.md"],
-    "acceptance-test-plan": ["test-plan.md"],
-    "design": ["design/options.md", "impl-plan.md"],
-    "detailed-test-plan": ["test-plan.md"],  # extends existing
-    "build": ["build-log.md", "impl-plan.md"],
-    "xs-build": ["build-log.md"],
-    "review": ["review-report.md"],
-    "review-lite": ["review-report.md"],
-    "integrate": ["integrate.md"],
-    "manual": ["manual-checklist.md"],
-    "observe": ["observe.md"],
-    "learn": ["retrospective.md"],
-}
 
-# Fixture file mapping (fixture name → artefact name)
-FIXTURE_MAP = {
-    "discovery.md": "spec.md",
-    "acceptance-test-plan.md": "test-plan.md",
-    "design.md": "design.md",
-    "detailed-test-plan.md": "test-plan.md",
-    "build.md": "build-log.md",
-    "review.md": "review-report.md",
-    "integrate.md": "integrate.md",
-    "observe.md": "observe.md",
-    "retrospective.md": "retrospective.md",
+def _load_track_phases(track: str) -> list[str]:
+    """Return ordered phase ids for track, as declared in phases.yml."""
+    import phases as _ph
+    ph = _ph.load_phases()
+    return [p.id for p in ph.track_phases(track)]
+
+
+def _load_phase_outputs() -> dict[str, list[str]]:
+    """Return {phase_id: [output_paths]} from phases.yml."""
+    import phases as _ph
+    ph = _ph.load_phases()
+    return {p.id: list(p.outputs) for p in ph.ordered}
+
+
+# Fixture file → target artefact name mapping.
+# Keys are names under tests/fixtures/fake-agent-outputs/
+_FIXTURE_MAP: dict[str, list[tuple[str, str]]] = {
+    "discovery":           [("discovery.md", "spec.md")],
+    "acceptance-test-plan": [("acceptance-test-plan.md", "test-plan.md")],
+    "design":              [("design.md", "design/options.md"),
+                            ("impl-plan.md", "impl-plan.md")],
+    "detailed-test-plan":  [("detailed-test-plan.md", "test-plan.md")],
+    "build":               [("build.md", "build-log.md"),
+                            ("impl-plan.md", "impl-plan.md")],
+    "xs-build":            [("build.md", "build-log.md"),
+                            ("impl-plan.md", "impl-plan.md")],
+    "review":              [("review.md", "review-report.md")],
+    "review-lite":         [("review.md", "review-lite-report.md")],
+    "integrate":           [("integrate.md", "integrate.md")],
+    "observe":             [("observe.md", "observe.md")],
+    "learn":               [("retrospective.md", "retrospective.md")],
+    "manual":              [],  # created inline (checklist)
 }
 
 
@@ -78,20 +75,20 @@ class E2EPipeline:
         self.scratch: Path | None = None
         self.ticket_key = "E2E-TEST-001"
         self.env: dict[str, str] = {}
+        # Loaded lazily once scratch env is set up
+        self._track_phases: list[str] | None = None
+        self._phase_outputs: dict[str, list[str]] | None = None
 
     def say(self, msg: str) -> None:
-        """Log message."""
         print(f"[e2e:{self.track}] {msg}")
 
     def fail(self, msg: str) -> None:
-        """Fail test with message."""
         sys.stderr.write(f"[e2e:{self.track}] FAIL: {msg}\n")
         if self.keep and self.scratch:
             sys.stderr.write(f"[e2e:{self.track}] scratch preserved at {self.scratch}\n")
         sys.exit(1)
 
     def run_py(self, script: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-        """Run Python script with PROJECT_ROOT set."""
         return subprocess.run(
             [sys.executable, str(script), *args],
             cwd=str(self.scratch),
@@ -103,15 +100,12 @@ class E2EPipeline:
         )
 
     def setup(self) -> None:
-        """Create temp .klc/ root with minimal config."""
         self.say("setup: creating temp project")
         self.scratch = Path(tempfile.mkdtemp(prefix=f"klc-e2e-{self.track.lower()}-"))
 
-        # Set PROJECT_ROOT to scratch dir
         self.env = dict(os.environ)
         self.env["PROJECT_ROOT"] = str(self.scratch)
 
-        # Create minimal directory structure
         klc_dir = self.scratch / ".klc"
         (klc_dir / "tickets").mkdir(parents=True)
         (klc_dir / "config").mkdir()
@@ -119,34 +113,31 @@ class E2EPipeline:
         (klc_dir / "knowledge").mkdir()
         (klc_dir / "logs").mkdir()
 
-        # Copy essential config files
         shutil.copy(FW_ROOT / "config" / "phases.yml", klc_dir / "config" / "phases.yml")
         shutil.copy(FW_ROOT / "config" / "models.yml", klc_dir / "config" / "models.yml")
 
-        # Create minimal profile
-        profile_yml = klc_dir / "config" / "profile.yml"
-        profile_yml.write_text("profile: generic\n", encoding="utf-8")
+        (klc_dir / "config" / "profile.yml").write_text("profile: generic\n", encoding="utf-8")
+
+        # Load phases once the env is ready
+        self._track_phases = _load_track_phases(self.track)
+        self._phase_outputs = _load_phase_outputs()
 
         self.say(f"setup: scratch at {self.scratch}")
+        self.say(f"setup: phases = {self._track_phases}")
 
     def seed_ticket(self) -> None:
-        """Create fake ticket with intake artefacts."""
         self.say(f"seed: creating ticket {self.ticket_key}")
 
         ticket_dir = self.scratch / ".klc" / "tickets" / self.ticket_key
         ticket_dir.mkdir()
 
-        # Create raw.md
-        raw_md = ticket_dir / "raw.md"
-        raw_md.write_text(
+        (ticket_dir / "raw.md").write_text(
             f"---\nticket: {self.ticket_key}\nkind_hint: feature\n---\n"
             f"# {self.ticket_key} — Fake E2E test ticket\n\n"
             f"Minimal fake ticket for validating {self.track}-track lifecycle.\n",
             encoding="utf-8"
         )
 
-        # Create meta.json
-        meta_json = ticket_dir / "meta.json"
         meta = {
             "ticket": self.ticket_key,
             "kind": "feature",
@@ -173,83 +164,55 @@ class E2EPipeline:
             "rework_count": {},
             "metrics": {}
         }
-        meta_json.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        (ticket_dir / "meta.json").write_text(
+            json.dumps(meta, indent=2) + "\n", encoding="utf-8"
+        )
 
         self.say(f"seed: ticket created at {ticket_dir}")
 
     def copy_fixture(self, phase_id: str) -> None:
-        """Copy fixture artefact for phase."""
+        """Copy fixture artefacts for phase (config-driven via _FIXTURE_MAP)."""
         ticket_dir = self.scratch / ".klc" / "tickets" / self.ticket_key
 
-        # Determine fixture files for phase
-        fixtures_to_copy = []
-
-        if phase_id == "discovery":
-            fixtures_to_copy = [("discovery.md", "spec.md")]
-        elif phase_id == "acceptance-test-plan":
-            fixtures_to_copy = [("acceptance-test-plan.md", "test-plan.md")]
-        elif phase_id == "design":
-            # Design phase outputs: design/options.md and impl-plan.md
-            fixtures_to_copy = [("design.md", "design/options.md"), ("impl-plan.md", "impl-plan.md")]
-        elif phase_id == "detailed-test-plan":
-            fixtures_to_copy = [("detailed-test-plan.md", "test-plan.md")]
-        elif phase_id in ("build", "xs-build"):
-            fixtures_to_copy = [("build.md", "build-log.md"), ("impl-plan.md", "impl-plan.md")]
-        elif phase_id in ("review", "review-lite"):
-            fixtures_to_copy = [("review.md", "review-report.md")]
-        elif phase_id == "integrate":
-            fixtures_to_copy = [("integrate.md", "integrate.md")]
-        elif phase_id == "observe":
-            fixtures_to_copy = [("observe.md", "observe.md")]
-        elif phase_id == "learn":
-            fixtures_to_copy = [("retrospective.md", "retrospective.md")]
-        elif phase_id == "manual":
-            # Manual phase: create minimal checklist
-            manual_md = ticket_dir / "manual-checklist.md"
-            manual_md.write_text(
+        if phase_id == "manual":
+            (ticket_dir / "manual-checklist.md").write_text(
                 f"---\nticket: {self.ticket_key}\n---\n"
                 "# Manual Checklist\n\n- [x] Manual step 1\n- [x] Manual step 2\n",
                 encoding="utf-8"
             )
             return
 
-        if not fixtures_to_copy:
-            return  # No fixture for this phase (e.g., intake)
-
-        # Copy each fixture
-        for fixture_file, target_name in fixtures_to_copy:
+        for fixture_file, target_name in _FIXTURE_MAP.get(phase_id, []):
             source = FIXTURES / fixture_file
             if not source.exists():
                 self.fail(f"copy_fixture: missing fixture {source}")
-
             target = ticket_dir / target_name
-
-            # Ensure parent directory exists (for design/options.md etc.)
             target.parent.mkdir(parents=True, exist_ok=True)
-
-            # Update ticket reference in fixture
             content = source.read_text(encoding="utf-8")
             content = content.replace("TEST-001", self.ticket_key)
             target.write_text(content, encoding="utf-8")
-
             self.say(f"copy_fixture: {fixture_file} → {target_name}")
 
-    def run_ack(self, phase_id: str, pick: int | None = None) -> None:
-        """Run klc ack for phase."""
+    def run_ack(self, phase_id: str, pick: int | None = None,
+                expect_fail: bool = False) -> subprocess.CompletedProcess:
         klc_script = FW_ROOT / "scripts" / "klc"
         args = ["ack", self.ticket_key]
         if pick is not None:
             args.extend(["--pick", str(pick)])
 
         self.say(f"ack: running klc ack {self.ticket_key} (pick={pick})")
-        result = self.run_py(klc_script, *args, check=False)
+        result = self.run_py(klc_script, *args)
 
-        if result.returncode != 0:
+        if not expect_fail and result.returncode != 0:
             self.fail(f"ack failed for {phase_id}: {result.stderr.strip()[:300]}")
+        if expect_fail and result.returncode == 0:
+            self.fail(f"ack should have failed for {phase_id} but succeeded")
+        return result
 
     def verify_artefacts(self, phase_id: str) -> None:
-        """Verify expected artefacts exist."""
-        expected = PHASE_ARTEFACTS.get(phase_id, [])
+        """Verify expected artefacts exist (driven by phases.yml outputs)."""
+        assert self._phase_outputs is not None
+        expected = self._phase_outputs.get(phase_id, [])
         ticket_dir = self.scratch / ".klc" / "tickets" / self.ticket_key
 
         for artefact in expected:
@@ -259,62 +222,36 @@ class E2EPipeline:
 
         self.say(f"verify: all artefacts present for {phase_id}")
 
-    def verify_phase_transition(self, expected_phase: str) -> None:
-        """Verify ticket transitioned to expected phase."""
-        meta_path = self.scratch / ".klc" / "tickets" / self.ticket_key / "meta.json"
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        current = meta.get("phase", "")
-
-        if not current.startswith(expected_phase):
-            self.fail(f"verify: expected phase {expected_phase}:*, got {current}")
-
-        self.say(f"verify: phase = {current}")
-
     def run_phase(self, phase_id: str) -> None:
-        """Execute one phase: copy fixture, ack, verify."""
         self.say(f"phase: {phase_id}")
-
-        # Copy fixture (simulates agent work)
         self.copy_fixture(phase_id)
-
-        # Run ack (default pick=1 for phases that need it)
         pick = 1 if phase_id not in ("intake",) else None
         self.run_ack(phase_id, pick=pick)
-
-        # Verify artefacts
         self.verify_artefacts(phase_id)
 
     def teardown(self) -> None:
-        """Cleanup temp directory."""
         if self.keep:
             self.say(f"teardown: preserving {self.scratch}")
             return
-
         if self.scratch and self.scratch.exists():
             shutil.rmtree(self.scratch)
             self.say("teardown: temp dir removed")
 
     def run(self) -> None:
-        """Run full E2E test for track."""
         try:
             self.setup()
             self.seed_ticket()
 
-            # Ack intake first
             self.run_ack("intake", pick=None)
 
-            # Run remaining phases
-            phases = TRACK_PHASES[self.track]
-            for phase_id in phases[1:]:  # Skip intake
+            assert self._track_phases is not None
+            for phase_id in self._track_phases[1:]:  # skip intake
                 self.run_phase(phase_id)
 
-            # Verify final state
             meta_path = self.scratch / ".klc" / "tickets" / self.ticket_key / "meta.json"
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             final_phase = meta.get("phase", "")
 
-            # After learn phase, ticket should be archived or in learn:ack
-            # learn:work means ack didn't complete properly
             if final_phase.startswith("learn:work"):
                 self.fail(f"final phase is {final_phase}, ack may have failed")
 
@@ -324,20 +261,164 @@ class E2EPipeline:
             self.teardown()
 
 
+# ---------------------------------------------------------------------------
+# Negative tests
+# ---------------------------------------------------------------------------
+
+class NegativeTests:
+    """Verify that ack fails with a clear error when required outputs are missing."""
+
+    def __init__(self, keep: bool = False):
+        self.keep = keep
+        self.scratch: Path | None = None
+        self.env: dict[str, str] = {}
+
+    def say(self, msg: str) -> None:
+        print(f"[e2e:negative] {msg}")
+
+    def fail(self, msg: str) -> None:
+        sys.stderr.write(f"[e2e:negative] FAIL: {msg}\n")
+        if self.keep and self.scratch:
+            sys.stderr.write(f"[e2e:negative] scratch preserved at {self.scratch}\n")
+        sys.exit(1)
+
+    def setup(self) -> None:
+        self.scratch = Path(tempfile.mkdtemp(prefix="klc-e2e-neg-"))
+        self.env = dict(os.environ)
+        self.env["PROJECT_ROOT"] = str(self.scratch)
+
+        klc_dir = self.scratch / ".klc"
+        (klc_dir / "tickets").mkdir(parents=True)
+        (klc_dir / "config").mkdir()
+        (klc_dir / "index").mkdir()
+        (klc_dir / "knowledge").mkdir()
+        (klc_dir / "logs").mkdir()
+
+        shutil.copy(FW_ROOT / "config" / "phases.yml", klc_dir / "config" / "phases.yml")
+        shutil.copy(FW_ROOT / "config" / "models.yml", klc_dir / "config" / "models.yml")
+        (klc_dir / "config" / "profile.yml").write_text("profile: generic\n", encoding="utf-8")
+
+    def teardown(self) -> None:
+        if self.keep:
+            self.say(f"preserving {self.scratch}")
+            return
+        if self.scratch and self.scratch.exists():
+            shutil.rmtree(self.scratch)
+
+    def _make_ticket(self, key: str, track: str, phase: str) -> Path:
+        ticket_dir = self.scratch / ".klc" / "tickets" / key
+        ticket_dir.mkdir(parents=True, exist_ok=True)
+        (ticket_dir / "raw.md").write_text(
+            f"---\nticket: {key}\nkind_hint: feature\n---\nFake ticket.\n",
+            encoding="utf-8"
+        )
+        meta = {
+            "ticket": key, "kind": "feature", "kind_source": "user",
+            "phase": phase,
+            "phase_history": [{"phase": phase, "started_at": "2026-05-28T12:00:00Z"}],
+            "track": track,
+            "estimate": {"complexity": 1, "uncertainty": 0, "risk": 0,
+                         "manual": 0, "total": 1},
+            "layer": "code", "affected_modules": ["test-module"],
+            "created": "2026-05-28T12:00:00Z", "owner": "e2e-negative",
+            "jira_url": None, "links": [], "rework_count": {}, "metrics": {}
+        }
+        (ticket_dir / "meta.json").write_text(
+            json.dumps(meta, indent=2) + "\n", encoding="utf-8"
+        )
+        return ticket_dir
+
+    def run_ack(self, ticket: str, pick: int | None = None) -> subprocess.CompletedProcess:
+        klc_script = FW_ROOT / "scripts" / "klc"
+        args = ["ack", ticket]
+        if pick is not None:
+            args.extend(["--pick", str(pick)])
+        return subprocess.run(
+            [sys.executable, str(klc_script), *args],
+            cwd=str(self.scratch),
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_discovery_without_spec_fails(self) -> None:
+        """ack on discovery:work without spec.md must fail."""
+        key = "NEG-001"
+        self._make_ticket(key, "S", "discovery:work")
+        result = self.run_ack(key)
+        if result.returncode == 0:
+            self.fail("discovery ack without spec.md succeeded — expected failure")
+        if "Missing spec.md" not in result.stderr and "spec.md" not in result.stderr:
+            self.fail(
+                f"discovery ack failed but error doesn't mention spec.md:\n"
+                f"{result.stderr.strip()}"
+            )
+        self.say("PASS: discovery ack without spec.md fails with clear error")
+
+    def test_build_without_build_log_fails(self) -> None:
+        """ack on build:work without build-log.md must fail."""
+        key = "NEG-002"
+        ticket_dir = self._make_ticket(key, "S", "build:work")
+        # Provide impl-plan.md (an input), but NOT build-log.md (the output)
+        (ticket_dir / "impl-plan.md").write_text("# stub\n", encoding="utf-8")
+        result = self.run_ack(key)
+        if result.returncode == 0:
+            self.fail("build ack without build-log.md succeeded — expected failure")
+        if "build-log.md" not in result.stderr:
+            self.fail(
+                f"build ack failed but error doesn't mention build-log.md:\n"
+                f"{result.stderr.strip()}"
+            )
+        self.say("PASS: build ack without build-log.md fails with clear error")
+
+    def test_review_without_report_fails(self) -> None:
+        """ack on review:work without review-report.md must fail."""
+        key = "NEG-003"
+        ticket_dir = self._make_ticket(key, "S", "review:work")
+        (ticket_dir / "spec.md").write_text("# stub\n", encoding="utf-8")
+        result = self.run_ack(key)
+        if result.returncode == 0:
+            self.fail("review ack without review-report.md succeeded — expected failure")
+        if "review-report.md" not in result.stderr:
+            self.fail(
+                f"review ack failed but error doesn't mention review-report.md:\n"
+                f"{result.stderr.strip()}"
+            )
+        self.say("PASS: review ack without review-report.md fails with clear error")
+
+    def run(self) -> None:
+        try:
+            self.setup()
+            self.test_discovery_without_spec_fails()
+            self.test_build_without_build_log_fails()
+            self.test_review_without_report_fails()
+            self.say("ALL NEGATIVE TESTS PASSED")
+        finally:
+            self.teardown()
+
+
 def main() -> int:
-    """Main entry point."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--track", choices=["XS", "S", "M", "L"], help="Test single track")
     ap.add_argument("--keep", action="store_true", help="Preserve temp dir")
+    ap.add_argument("--negative", action="store_true", help="Run negative tests only")
     args = ap.parse_args()
 
-    tracks = [args.track] if args.track else ["XS", "S", "M", "L"]
+    if args.negative:
+        NegativeTests(keep=args.keep).run()
+        return 0
 
+    tracks = [args.track] if args.track else ["XS", "S", "M", "L"]
     for track in tracks:
-        pipeline = E2EPipeline(track, keep=args.keep)
-        pipeline.run()
+        E2EPipeline(track, keep=args.keep).run()
 
     print(f"[e2e] ALL TESTS PASSED ({len(tracks)} tracks)")
+
+    # Always run negative tests
+    NegativeTests(keep=args.keep).run()
+    print("[e2e] NEGATIVE TESTS PASSED")
+
     return 0
 
 

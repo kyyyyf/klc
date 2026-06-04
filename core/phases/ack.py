@@ -19,6 +19,10 @@ import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
 import phase_completion  # noqa: E402
+import scope_delta as _sd  # noqa: E402
+
+# Phases where expansion (scope creep) blocks ack toward next.
+_SCOPE_GUARD_PHASES = {"review", "integrate"}
 
 
 def _friendly_missing_ticket(ticket: str) -> int:
@@ -83,6 +87,27 @@ def run(argv: list[str]) -> int:
                 )
                 return 1
 
+            # Scope-expansion guard before approving review / integrate.
+            if pid in _SCOPE_GUARD_PHASES:
+                delta = _sd.compare(args.ticket)
+                if delta.get("expansion") and not delta.get("skipped"):
+                    # Write a conflict note into review-report.md if it exists.
+                    _write_scope_conflict(args.ticket, pid, delta)
+                    sys.stderr.write(
+                        f"klc ack: scope expansion detected — unplanned modules "
+                        f"touched: {delta['expansion']}\n"
+                        f"  planned={delta['planned']}\n"
+                        f"  actual={delta['actual']}\n"
+                        f"Update meta.json:affected_modules or use `klc jump` "
+                        f"to restart review with the correct scope.\n"
+                    )
+                    return 1
+                if delta.get("drift") and not delta.get("skipped"):
+                    sys.stderr.write(
+                        f"klc ack: scope drift warning — modules not in plan: "
+                        f"{delta['drift']}\n"
+                    )
+
             new_state = _lc.apply_ack(args.ticket, args.pick)
 
             if new_state == _ph.STATE_ARCHIVED:
@@ -111,6 +136,27 @@ def run(argv: list[str]) -> int:
     except ValueError as e:
         sys.stderr.write(f"klc ack: {e}\n")
         return 1
+
+
+def _write_scope_conflict(ticket: str, phase_id: str, delta: dict) -> None:
+    """Append a [!CONFLICT] entry to the review report when scope expands."""
+    from _paths import klc_ticket_dir
+    report_name = "review-report.md" if phase_id == "review" else f"{phase_id}.md"
+    report = klc_ticket_dir(ticket) / report_name
+    conflict = (
+        f"\n\n---\n"
+        f"[!CONFLICT] scope-expansion detected at {phase_id}:ack-needed\n"
+        f"  planned modules: {delta['planned']}\n"
+        f"  actual modules:  {delta['actual']}\n"
+        f"  unplanned:       {delta['expansion']}\n"
+        f"Resolve: update meta.json:affected_modules to include all touched "
+        f"modules, then re-run `klc ack {ticket}`.\n"
+    )
+    try:
+        with open(report, "a", encoding="utf-8") as fh:
+            fh.write(conflict)
+    except OSError:
+        pass
 
 
 if __name__ == "__main__":
