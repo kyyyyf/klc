@@ -44,7 +44,22 @@ Run with: `{{ run_command }}`
 
 ## Role prompt
 
+{% if impl_prompt is not none %}
 {{ impl_prompt }}
+{% elif impl_prompt_ref is not none %}
+**Before acting, read the role prompt at:**
+
+```
+{{ impl_prompt_ref }}
+```
+
+The role prompt contains LSP usage rules, output format, and signal
+conventions required for this phase. If you cannot access the file,
+re-run `klc step {{ ticket }} {{ step }}` with `KLC_CARD_INLINE=1` to
+embed it directly in the card.
+{% else %}
+_(impl.md not found — check that `core/agents/impl.md` exists)_
+{% endif %}
 
 ---
 

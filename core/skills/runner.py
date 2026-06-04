@@ -109,8 +109,13 @@ def _parse_usage_from_output(text: str) -> dict[str, int]:
 
 def _write_token_metrics(ticket: str | None, phase_id: str,
                          tokens_in: int, tokens_out: int,
-                         cache_hit: int) -> None:
-    """Persist token counts into meta.json:metrics.tokens.<phase_id>."""
+                         cache_hit: int, source: str = "estimated") -> None:
+    """Persist token counts into meta.json:metrics.tokens.<phase_id>.
+
+    source: "provider" when parsed from real API usage block,
+            "estimated" when derived from len(text)//4.
+    cache_hit is always 0 for estimated source.
+    """
     if not ticket:
         return
     try:
@@ -124,7 +129,8 @@ def _write_token_metrics(ticket: str | None, phase_id: str,
         tokens[phase_id] = {
             "in":        tokens_in,
             "out":       tokens_out,
-            "cache_hit": cache_hit,
+            "cache_hit": cache_hit if source == "provider" else 0,
+            "source":    source,
         }
         meta_path.write_text(
             json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
@@ -332,10 +338,18 @@ def run_agent(phase_id: str,
         out_path.write_text(stdout, encoding="utf-8")
         # --- token telemetry -------------------------------------------------
         usage = _parse_usage_from_output(stdout)
-        tokens_in  = usage.get("tokens_in",  _estimate_tokens(prompt))
-        tokens_out = usage.get("tokens_out", _estimate_tokens(stdout))
-        cache_hit  = usage.get("cache_hit",  0)
-        _write_token_metrics(ticket, phase_id, tokens_in, tokens_out, cache_hit)
+        if usage:
+            tokens_in  = usage.get("tokens_in",  _estimate_tokens(prompt))
+            tokens_out = usage.get("tokens_out", _estimate_tokens(stdout))
+            cache_hit  = usage.get("cache_hit",  0)
+            source     = "provider"
+        else:
+            tokens_in  = _estimate_tokens(prompt)
+            tokens_out = _estimate_tokens(stdout)
+            cache_hit  = 0
+            source     = "estimated"
+        _write_token_metrics(ticket, phase_id, tokens_in, tokens_out,
+                             cache_hit, source=source)
         return 0
 
     # Failure — preserve any partial stdout, append synthetic notice.

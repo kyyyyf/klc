@@ -131,19 +131,26 @@ def cmd_rollup(args: argparse.Namespace) -> int:
         rework_totals = [sum((m.get("rework_count") or {}).values()) for m in ms]
 
         # Token rollup: sum tokens_in/out/cache_hit per phase across tickets
-        token_by_phase: dict[str, dict[str, list[int]]] = {}
+        token_by_phase: dict[str, dict[str, list]] = {}
         for m in ms:
             for phase, tok in (m.get("metrics", {}).get("tokens") or {}).items():
-                bucket = token_by_phase.setdefault(phase, {"in": [], "out": [], "cache_hit": []})
+                bucket = token_by_phase.setdefault(
+                    phase, {"in": [], "out": [], "cache_hit": [], "source": []}
+                )
                 bucket["in"].append(tok.get("in", 0))
                 bucket["out"].append(tok.get("out", 0))
                 bucket["cache_hit"].append(tok.get("cache_hit", 0))
+                bucket["source"].append(tok.get("source", "estimated"))
         tokens_summary = {
             phase: {
                 "avg_in":        round(statistics.mean(v["in"])) if v["in"] else 0,
                 "avg_out":       round(statistics.mean(v["out"])) if v["out"] else 0,
                 "avg_cache_hit": round(statistics.mean(v["cache_hit"])) if v["cache_hit"] else 0,
                 "samples":       len(v["in"]),
+                "source_counts": {
+                    "provider":  v["source"].count("provider"),
+                    "estimated": v["source"].count("estimated"),
+                },
             }
             for phase, v in token_by_phase.items()
         }
