@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """phase_completion.py — artifact-based phase completion detection.
 
-KLC-02: Enables manual phase completion by detecting when required artifacts
-are present, allowing `klc ack` to advance from `:work` to `:ack-needed`
-without requiring agent runner invocation.
+Default behaviour: for any phase that declares `outputs` in phases.yml,
+check that every listed output file exists and is non-empty.
 
-Currently supports:
-- discovery phase: checks for spec.md + meta.json fields
+Discovery and acceptance-test-plan additionally validate frontmatter and
+section structure to catch truncated or stub artefacts.
 """
 from __future__ import annotations
 
@@ -19,6 +18,7 @@ _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
 from core.shared.paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
+import phases as _ph  # noqa: E402
 
 
 def can_complete_discovery(ticket: str) -> tuple[bool, str]:
@@ -182,9 +182,31 @@ def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
     if phase_id == "acceptance-test-plan":
         return can_complete_acceptance_test_plan(ticket)
 
-    # For phases without explicit checkers, assume completion if in work state
-    # (E2E tests and manual workflows may pre-create artifacts)
-    # TODO: Add explicit checkers for build, review, integrate, etc.
+    # Generic check: every output declared in phases.yml must exist and
+    # be non-empty.  Phases with no declared outputs pass immediately
+    # (e.g. integrate, observe).
+    return _can_complete_generic(ticket, phase_id)
+
+
+def _can_complete_generic(ticket: str, phase_id: str) -> tuple[bool, str]:
+    """Check that all phases.yml outputs exist and are non-empty."""
+    try:
+        ph = _ph.load_phases()
+        phase = ph.by_id(phase_id)
+    except (KeyError, Exception) as exc:
+        return False, f"cannot load phase definition for {phase_id!r}: {exc}"
+
+    if not phase.outputs:
+        return True, ""
+
+    ticket_dir = klc_ticket_meta_file(ticket).parent
+    for rel in phase.outputs:
+        path = ticket_dir / rel
+        if not path.exists():
+            return False, f"Missing {rel}"
+        if path.stat().st_size == 0:
+            return False, f"{rel} is empty"
+
     return True, ""
 
 

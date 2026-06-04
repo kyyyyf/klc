@@ -111,6 +111,83 @@ def validate_file(config_path: Path) -> list[str]:
     return warnings
 
 
+def validate_phase_roles(config_dir: Path) -> list[str]:
+    """Check models.yml against phases.yml.
+
+    Rules:
+    - Every phase with a non-empty work.prompt must have an entry in
+      phase_roles (or a per_track override for every track it appears in).
+    - Every per_track.<track>.<phase> must reference a phase that exists in
+      phases.yml.
+    - Every work.prompt file must exist on disk.
+    """
+    warnings: list[str] = []
+    try:
+        import yaml
+        models_path = config_dir / "models.yml"
+        phases_path = config_dir / "phases.yml"
+        if not models_path.exists() or not phases_path.exists():
+            return warnings
+
+        models = yaml.safe_load(models_path.read_text()) or {}
+        phase_roles: dict = models.get("phase_roles") or {}
+        per_track: dict = models.get("per_track") or {}
+
+        fw = _p.framework_root()
+
+        # Load phases via our own parser to stay consistent
+        sys.path.insert(0, str(fw / "core" / "skills"))
+        import phases as _ph
+        ph = _ph.load_phases()
+    except Exception as exc:
+        warnings.append(f"phase-roles validation failed: {exc}")
+        return warnings
+
+    # 1. Every phase with work.prompt must have a role entry
+    for phase in ph.ordered:
+        if not phase.prompt:
+            continue
+        # Check prompt file exists
+        prompt_path = fw / phase.prompt
+        if not prompt_path.exists():
+            warnings.append(
+                f"models.yml: work.prompt file missing: {phase.prompt} "
+                f"(phase {phase.id!r})"
+            )
+        # Check phase_roles coverage (or per_track coverage for all tracks)
+        if phase.id in phase_roles:
+            continue
+        # Check if every track for this phase has a per_track override
+        covered_tracks = set(per_track.get(t, {}).keys() for t in phase.tracks
+                              if phase.id in per_track.get(t, {}))
+        uncovered = [t for t in phase.tracks
+                     if phase.id not in per_track.get(t, {})]
+        if uncovered:
+            warnings.append(
+                f"models.yml: phase {phase.id!r} has work.prompt but no "
+                f"phase_roles entry (uncovered tracks: {uncovered})"
+            )
+
+    # 2. Every per_track phase reference must exist in phases.yml.
+    # Pseudo-phases (indexing, review-external) are intentional and not in
+    # phases.yml — skip them.
+    _PSEUDO_PHASES = {"indexing", "review-external", "review-internal"}
+    phase_ids = {p.id for p in ph.ordered}
+    for track, overrides in per_track.items():
+        if not isinstance(overrides, dict):
+            continue
+        for phase_id in overrides:
+            if phase_id in _PSEUDO_PHASES:
+                continue
+            if phase_id not in phase_ids:
+                warnings.append(
+                    f"models.yml: per_track.{track}.{phase_id!r} references "
+                    f"unknown phase"
+                )
+
+    return warnings
+
+
 def validate_all(config_dir: Path | None = None) -> list[str]:
     """Validate all config files in the config directory.
 
@@ -133,6 +210,8 @@ def validate_all(config_dir: Path | None = None) -> list[str]:
     for config_file in sorted(config_dir.glob("*.yaml")):
         file_warnings = validate_file(config_file)
         warnings.extend(file_warnings)
+
+    warnings.extend(validate_phase_roles(config_dir))
 
     return warnings
 
