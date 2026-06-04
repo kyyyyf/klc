@@ -58,8 +58,14 @@ def run(argv: list[str]) -> int:
     track = meta.get("track") or "M"
     kind = meta.get("kind") or "?"
     phase_value = meta.get("phase") or ""
+    route_hint = meta.get("route_hint")
+    route_signals = meta.get("route_signals")
 
-    print(f"{args.ticket}  track={track}  kind={kind}")
+    header = f"{args.ticket}  track={track}  kind={kind}"
+    if route_hint:
+        sigs = "  ".join(f"{k}={v}" for k, v in (route_signals or {}).items())
+        header += f"  route={route_hint}  [{sigs}]"
+    print(header)
     print()
 
     if phase_value == _ph.STATE_ARCHIVED:

@@ -48,6 +48,7 @@ def _load_phase_outputs() -> dict[str, list[str]]:
 # Fixture file → target artefact name mapping.
 # Keys are names under tests/fixtures/fake-agent-outputs/
 _FIXTURE_MAP: dict[str, list[tuple[str, str]]] = {
+    "discovery-lite":      [("discovery.md", "spec.md")],
     "discovery":           [("discovery.md", "spec.md")],
     "acceptance-test-plan": [("acceptance-test-plan.md", "test-plan.md")],
     "design":              [("design.md", "design/options.md"),
@@ -242,7 +243,7 @@ class E2EPipeline:
             self.setup()
             self.seed_ticket()
 
-            self.run_ack("intake", pick=None)
+            self.run_ack("intake", pick=1)
 
             assert self._track_phases is not None
             for phase_id in self._track_phases[1:]:  # skip intake

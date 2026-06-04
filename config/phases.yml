@@ -60,17 +60,44 @@ phases:
       # intake:ack-needed directly.
       prompt: ""
     ack:
-      pick_required: false
+      pick_required: true
       picks:
         - id: 1
-          label: "confirm"
+          label: "confirm-route"
           goto: "next"
+        - id: 2
+          label: "force-full-discovery"
+          goto: "discovery:work"
+        - id: 3
+          label: "force-xs-skip"
+          goto: "xs-build:work"
     inputs: []
     outputs: ["raw.md", "meta.json"]
 
   # -------------------------------------------------------------------
+  - id: discovery-lite
+    tracks: [XS, S]
+    work:
+      prompt: "core/agents/discovery-lite.md"
+    ack:
+      pick_required: true
+      picks:
+        - id: 1
+          label: "approve"
+          goto: "next"
+        - id: 2
+          label: "needs-rework"
+          goto: "discovery-lite:work"
+        - id: 3
+          label: "upgrade-to-full"
+          goto: "discovery:work"
+          supersede: ["discovery-lite"]
+    inputs: ["raw.md"]
+    outputs: ["spec.md"]
+
+  # -------------------------------------------------------------------
   - id: discovery
-    tracks: [XS, S, M, L]
+    tracks: [M, L]
     work:
       prompt: "core/agents/discovery.md"
     ack:

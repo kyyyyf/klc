@@ -27,8 +27,8 @@ E2E tests need a deterministic fake ticket that exercises the lifecycle state ma
 
 ## Acceptance Criteria
 
-- **AC-1**: Ticket transitions through all phases for its track
-- **AC-2**: All artefacts generated per phases.yml outputs
+- [ ] AC-1: Ticket transitions through all phases for its track
+- [ ] AC-2: All artefacts generated per phases.yml outputs
 
 ## Non-goals
 
