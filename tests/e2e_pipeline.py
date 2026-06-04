@@ -158,11 +158,15 @@ class E2EPipeline:
             },
             "layer": "code",
             "affected_modules": ["test-module"],
+            # Provide risk_tags so observe phase condition is met for S/M/L;
+            # XS doesn't have observe in its track so this has no effect.
+            "risk_tags": ["user-facing"],
+            # Provide rework_count so learn condition is met.
+            "rework_count": {"build": 1},
             "created": "2026-05-28T12:00:00Z",
             "owner": "e2e-harness",
             "jira_url": None,
             "links": [],
-            "rework_count": {},
             "metrics": {}
         }
         (ticket_dir / "meta.json").write_text(
@@ -388,12 +392,81 @@ class NegativeTests:
             )
         self.say("PASS: review ack without review-report.md fails with clear error")
 
+    def test_observe_skipped_without_risk_tags(self) -> None:
+        """S-track ticket without risk_tags must skip observe (land on learn:work)."""
+        import shutil as _shutil
+        import tempfile as _tempfile
+        import os as _os
+        scratch = Path(_tempfile.mkdtemp(prefix="klc-e2e-skip-"))
+        env = dict(_os.environ)
+        env["PROJECT_ROOT"] = str(scratch)
+        klc_dir = scratch / ".klc"
+        (klc_dir / "tickets").mkdir(parents=True)
+        (klc_dir / "config").mkdir()
+        (klc_dir / "index").mkdir()
+        (klc_dir / "knowledge").mkdir()
+        (klc_dir / "logs").mkdir()
+        _shutil.copy(FW_ROOT / "config" / "phases.yml", klc_dir / "config" / "phases.yml")
+        _shutil.copy(FW_ROOT / "config" / "models.yml", klc_dir / "config" / "models.yml")
+        (klc_dir / "config" / "profile.yml").write_text("profile: generic\n", encoding="utf-8")
+        try:
+            key = "SKIP-001"
+            ticket_dir = klc_dir / "tickets" / key
+            ticket_dir.mkdir()
+            (ticket_dir / "raw.md").write_text(
+                f"---\nticket: {key}\n---\nFake.\n", encoding="utf-8"
+            )
+            # integrate:ack → next should skip observe (no risk_tags) → land on learn:work
+            meta = {
+                "ticket": key, "kind": "tech", "kind_source": "user",
+                "phase": "integrate:ack",
+                "phase_history": [{"phase": "integrate:ack",
+                                   "started_at": "2026-05-28T12:00:00Z"}],
+                "track": "S",
+                "estimate": {"complexity": 1, "uncertainty": 0, "risk": 0,
+                             "manual": 0, "total": 1},
+                "layer": "code", "affected_modules": [],
+                "risk_tags": [],         # no risk tags → observe should be skipped
+                "rework_count": {"build": 1},  # rework present → learn runs
+                "created": "2026-05-28T12:00:00Z", "owner": "e2e-skip",
+                "jira_url": None, "links": [], "metrics": {}
+            }
+            (ticket_dir / "meta.json").write_text(
+                json.dumps(meta, indent=2) + "\n", encoding="utf-8"
+            )
+            klc_script = FW_ROOT / "scripts" / "klc"
+            result = subprocess.run(
+                [sys.executable, str(klc_script), "next", key],
+                cwd=str(scratch), env=env,
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                self.fail(f"klc next failed: {result.stderr.strip()[:200]}")
+            import json as _json
+            new_meta = _json.loads((ticket_dir / "meta.json").read_text())
+            phase = new_meta.get("phase", "")
+            if not phase.startswith("learn"):
+                self.fail(
+                    f"expected observe to be skipped → learn:work, got {phase!r}\n"
+                    f"phase_history: {new_meta.get('phase_history', [])[-3:]}"
+                )
+            # Verify skipped event recorded
+            skipped = [e for e in new_meta.get("phase_history", [])
+                       if e.get("event") == "skipped"]
+            if not skipped:
+                self.fail("no 'skipped' event in phase_history for observe")
+        finally:
+            if not self.keep:
+                _shutil.rmtree(scratch)
+        self.say("PASS: observe skipped when risk_tags=[]")
+
     def run(self) -> None:
         try:
             self.setup()
             self.test_discovery_without_spec_fails()
             self.test_build_without_build_log_fails()
             self.test_review_without_report_fails()
+            self.test_observe_skipped_without_risk_tags()
             self.say("ALL NEGATIVE TESTS PASSED")
         finally:
             self.teardown()

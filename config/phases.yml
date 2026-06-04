@@ -313,6 +313,8 @@ phases:
     inputs: []
     outputs: []
     auto_ack_after: null   # null = manual; overridable per track in the future
+    # Skip observe for low-risk changes with no user-facing / data / security impact.
+    condition: "meta.risk_tags in ['user-facing', 'data', 'security', 'migration']"
 
   # -------------------------------------------------------------------
   - id: learn
@@ -330,3 +332,6 @@ phases:
           goto: "learn:work"
     inputs: []
     outputs: ["retrospective.md"]
+    # Skip LLM retrospective when there are no rework signals or budget overruns.
+    # Metrics are still recorded automatically by lifecycle.
+    condition: "meta.rework_count any_overrun OR meta.regression_observed == 1 OR meta.budgets any_overrun"
