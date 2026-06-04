@@ -47,6 +47,7 @@ KNOWN_SCHEMAS = {
         "external_reviewer",  # external reviewer config
         "test",              # test reviewer config
         "review",            # review orchestration config
+        "cascade",           # cascade routing config
         "reports",           # report generation config
     },
     "jira.yml": {
@@ -171,7 +172,7 @@ def validate_phase_roles(config_dir: Path) -> list[str]:
     # 2. Every per_track phase reference must exist in phases.yml.
     # Pseudo-phases (indexing, review-external) are intentional and not in
     # phases.yml — skip them.
-    _PSEUDO_PHASES = {"indexing", "review-external", "review-internal"}
+    _PSEUDO_PHASES = {"indexing", "review-external", "review-internal", "review-cheap"}
     phase_ids = {p.id for p in ph.ordered}
     for track, overrides in per_track.items():
         if not isinstance(overrides, dict):

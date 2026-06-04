@@ -241,6 +241,36 @@ and open questions. Items are indexed by `core/skills/items.py` into
 
 ---
 
+## Review cascade
+
+Before launching the full multi-agent review, `review_cascade.py` runs a
+three-step pipeline to decide the review depth:
+
+```
+scope_delta → scan_sentinels → classify_tier → CascadeDecision
+```
+
+| Signal | Result |
+|--------|--------|
+| Scope expansion (unplanned modules) | Full review |
+| Any sentinel hit | Full review |
+| Any `critical` or `core` tier file | Full review |
+| All `peripheral` + no drift + no sentinels | **Cheap review** (single Sonnet agent) |
+
+**Cheap review** dispatches one focused reviewer instead of the full
+sub-agent pipeline. Controlled by `config/reviewers.yml`:
+
+```yaml
+cascade:
+  enabled: true
+  peripheral_max_files: 20   # fallback to full if diff is very large
+```
+
+`review-cheap` role in `models.yml` controls the model used for cheap
+review. `per_track.S.review-cheap: local-simple` uses Haiku for S-track.
+
+---
+
 ## Conditional phases
 
 Some phases are skipped automatically based on `meta.json` fields set by
