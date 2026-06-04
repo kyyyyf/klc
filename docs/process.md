@@ -129,6 +129,10 @@ choose a pick before `next` proceeds.
    all symbol navigation — no speculative file reads.
    Each step gets a minimal card via `klc step <key> N` (Goals + ACs
    + current step only — no full spec/plan context).
+   By default the step card **references** `core/agents/impl.md` by
+   path instead of embedding it (~7.5 KB saved per step). For paste-only
+   workflows without filesystem access, set `KLC_CARD_INLINE=1` to
+   embed the full role prompt.
 3. Repeat until all steps are green, then `klc ack <key> --pick 1`.
 
 **`build-log.md`** is an append-only journal maintained by the impl
@@ -267,14 +271,17 @@ After every successful agent run, token counts are written to
 ```json
 "metrics": {
   "tokens": {
-    "discovery-lite": {"in": 1200, "out": 340, "cache_hit": 0},
-    "build":          {"in": 4800, "out": 920, "cache_hit": 1100}
+    "discovery-lite": {"in": 1200, "out": 340, "cache_hit": 0,    "source": "provider"},
+    "build":          {"in": 4800, "out": 920, "cache_hit": 0,    "source": "estimated"}
   }
 }
 ```
 
-When `claude --output-format json` is used, actual usage is parsed from the
-response envelope. Otherwise token counts are estimated from character length.
+`source` is `"provider"` when parsed from a real `usage` block in the
+claude CLI JSON envelope, `"estimated"` when derived from `len(text)//4`.
+`cache_hit` is always `0` for `estimated` source. The rollup reports
+`source_counts: {provider: N, estimated: M}` per phase so you can see
+how many measurements are exact vs approximate.
 
 ### Rollup
 
