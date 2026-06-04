@@ -914,6 +914,28 @@ def main(argv: list[str]) -> int:
             _write_skip_partial(partials_dir / f"{r['name']}.partial.md",
                                 r["name"])
 
+    # 3a. Cascade routing: check if peripheral diff qualifies for cheap review.
+    ticket_key = args.spec.parent.name if args.spec.parent.name.startswith("KLC-") else None
+    cascade_decision = None
+    try:
+        sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
+        import review_cascade as _rc
+        from _yaml import parse as _yml_parse
+        reviewers_cfg_path = FRAMEWORK_ROOT / "config" / "reviewers.yml"
+        reviewers_cfg = _yml_parse(reviewers_cfg_path.read_text()) if reviewers_cfg_path.exists() else {}
+        cascade_cfg = reviewers_cfg.get("cascade") or {}
+        if cascade_cfg.get("enabled", False) and ticket_key:
+            cascade_decision = _rc.decide(ticket_key, diff_file)
+            if not cascade_decision.use_full_review:
+                log(f"Cascade: cheap review ({cascade_decision.reason})")
+                cheap_path = FRAMEWORK_ROOT / "core" / "agents" / "review" / "cheap.md"
+                active = [{"name": "cheap", "path": str(cheap_path.relative_to(FRAMEWORK_ROOT)),
+                           "filter": ""}]
+            else:
+                log(f"Cascade: full review ({cascade_decision.reason})")
+    except Exception as _cascade_err:
+        log(f"Cascade check failed ({_cascade_err}); proceeding with full review")
+
     reviewers_names = [r["name"] for r in active]
 
     allowlist_live = klc_knowledge_dir() / "reviewer-allowlist.yml"

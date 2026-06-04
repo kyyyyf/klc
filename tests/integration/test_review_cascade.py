@@ -74,8 +74,7 @@ def test_peripheral_diff_gets_cheap_review() -> None:
                  patch.object(rc, "_get_sentinel_hits", return_value=0), \
                  patch("scope_delta.compare",
                        return_value={"planned": [], "actual": [],
-                                     "drift": [], "expansion": [],
-                                     "skipped": "no modules.json"}):
+                                     "drift": [], "expansion": []}):
 
                 os.environ["PROJECT_ROOT"] = scratch_str
                 decision = rc.decide("T-001", diff)
@@ -106,8 +105,7 @@ def test_sentinel_hit_forces_full_review() -> None:
                  patch.object(rc, "_get_sentinel_hits", return_value=1), \
                  patch("scope_delta.compare",
                        return_value={"planned": [], "actual": [],
-                                     "drift": [], "expansion": [],
-                                     "skipped": "no modules.json"}):
+                                     "drift": [], "expansion": []}):
 
                 os.environ["PROJECT_ROOT"] = scratch_str
                 decision = rc.decide("T-002", diff)
@@ -137,8 +135,7 @@ def test_critical_tier_forces_full_review() -> None:
                  patch.object(rc, "_get_sentinel_hits", return_value=0), \
                  patch("scope_delta.compare",
                        return_value={"planned": [], "actual": [],
-                                     "drift": [], "expansion": [],
-                                     "skipped": "no modules.json"}):
+                                     "drift": [], "expansion": []}):
 
                 os.environ["PROJECT_ROOT"] = scratch_str
                 decision = rc.decide("T-003", diff)
@@ -174,9 +171,64 @@ def test_cascade_disabled_forces_full_review() -> None:
         os.environ.pop("PROJECT_ROOT", None)
 
 
+def test_empty_file_tiers_forces_full_review() -> None:
+    """Empty file_tiers (classifier failed) → fail-closed = full review."""
+    import review_cascade as rc
+
+    diff = _make_diff(["docs/readme.md"])
+    try:
+        with tempfile.TemporaryDirectory() as scratch_str:
+            _make_meta("T-005", Path(scratch_str))
+            with patch.object(rc, "_get_file_tiers", return_value={}), \
+                 patch.object(rc, "_get_sentinel_hits", return_value=0), \
+                 patch("scope_delta.compare",
+                       return_value={"planned": [], "actual": [],
+                                     "drift": [], "expansion": []}):
+                os.environ["PROJECT_ROOT"] = scratch_str
+                decision = rc.decide("T-005", diff)
+
+        assert decision.use_full_review, (
+            f"expected full review for empty tiers, got: {decision.reason}"
+        )
+        assert "classifier" in decision.reason.lower() or "no file" in decision.reason.lower()
+        print("PASS: empty file_tiers → full review (fail-closed)")
+    finally:
+        diff.unlink(missing_ok=True)
+        os.environ.pop("PROJECT_ROOT", None)
+
+
+def test_skipped_scope_forces_full_review() -> None:
+    """Skipped scope comparison → fail-closed = full review."""
+    import review_cascade as rc
+
+    diff = _make_diff(["docs/readme.md"])
+    try:
+        with tempfile.TemporaryDirectory() as scratch_str:
+            _make_meta("T-006", Path(scratch_str))
+            with patch.object(rc, "_get_file_tiers",
+                              return_value={"docs/readme.md": "peripheral"}), \
+                 patch.object(rc, "_get_sentinel_hits", return_value=0), \
+                 patch("scope_delta.compare",
+                       return_value={"planned": [], "actual": [],
+                                     "drift": [], "expansion": [],
+                                     "skipped": "modules.json not found"}):
+                os.environ["PROJECT_ROOT"] = scratch_str
+                decision = rc.decide("T-006", diff)
+
+        assert decision.use_full_review, (
+            f"expected full review for skipped scope, got: {decision.reason}"
+        )
+        print("PASS: skipped scope → full review (fail-closed)")
+    finally:
+        diff.unlink(missing_ok=True)
+        os.environ.pop("PROJECT_ROOT", None)
+
+
 if __name__ == "__main__":
     test_peripheral_diff_gets_cheap_review()
     test_sentinel_hit_forces_full_review()
     test_critical_tier_forces_full_review()
     test_cascade_disabled_forces_full_review()
+    test_empty_file_tiers_forces_full_review()
+    test_skipped_scope_forces_full_review()
     print("ALL CASCADE TESTS PASSED")

@@ -197,6 +197,83 @@ def _sync_risk_tags(ticket: str) -> None:
         pass  # non-fatal: risk_tags will just be absent
 
 
+def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
+    """Check if discovery-lite artifacts are complete (XS/S spec).
+
+    Stricter than generic: verifies spec sections, estimate.total vs track,
+    affected_modules >= 1, and risk_tags present in frontmatter.
+    """
+    ticket_dir = klc_ticket_meta_file(ticket).parent
+    spec_path = ticket_dir / "spec.md"
+
+    if not spec_path.exists():
+        return False, "Missing spec.md"
+
+    try:
+        text = spec_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+
+        # Check required sections
+        required_sections = ["## Goals", "## Acceptance Criteria", "## Estimate"]
+        for section in required_sections:
+            if section not in text:
+                return False, f"spec.md: missing required section '{section}'"
+        if "## Affected" not in text:
+            return False, "spec.md: missing required section '## Affected' or '## Affected modules'"
+        if "- [ ]" not in text and "- [x]" not in text.lower():
+            return False, "spec.md: Acceptance Criteria has no checklist items"
+
+        # Check risk_tags in frontmatter (AC-E2: must be present, not just valid)
+        import re as _re
+        fm_end = None
+        if lines and lines[0].strip() == "---":
+            for i, line in enumerate(lines[1:], 1):
+                if line.strip() == "---":
+                    fm_end = i
+                    break
+        if fm_end is not None:
+            fm_text = "\n".join(lines[1:fm_end])
+            if "risk_tags" not in fm_text:
+                return False, "spec.md: missing risk_tags frontmatter field (set to [] for low-risk changes)"
+
+    except OSError as e:
+        return False, f"Cannot read spec.md: {e}"
+
+    try:
+        meta = _lc.read_meta(ticket)
+        track = meta.get("track")
+        if not track:
+            return False, "meta.json: missing 'track' field"
+        if track not in ("XS", "S"):
+            return False, f"meta.json: discovery-lite expects XS or S track, got {track!r}"
+
+        estimate = meta.get("estimate")
+        if not estimate:
+            return False, "meta.json: missing 'estimate' field"
+
+        total = estimate.get("total")
+        if total is None:
+            return False, "meta.json: estimate missing 'total' field"
+
+        # AC-A4: total must agree with track
+        if track == "XS" and total > 2:
+            return False, f"meta.json: XS track requires estimate.total <= 2, got {total}"
+        if track == "S" and total > 5:
+            return False, f"meta.json: S track requires estimate.total <= 5, got {total}"
+
+        # AC-A4: affected_modules must be non-empty
+        affected = meta.get("affected_modules") or []
+        if len(affected) < 1:
+            return False, "meta.json: affected_modules must have at least 1 entry for discovery-lite"
+
+    except Exception as e:
+        return False, f"Cannot read meta.json: {e}"
+
+    # All checks passed — sync risk_tags from spec.md into meta.json
+    _sync_risk_tags(ticket)
+    return True, ""
+
+
 def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
     """Check if a phase can be manually completed based on artifacts.
 
@@ -211,10 +288,7 @@ def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
         return can_complete_discovery(ticket)
 
     if phase_id == "discovery-lite":
-        ok, err = _can_complete_generic(ticket, phase_id)
-        if ok:
-            _sync_risk_tags(ticket)
-        return ok, err
+        return can_complete_discovery_lite(ticket)
 
     if phase_id == "acceptance-test-plan":
         return can_complete_acceptance_test_plan(ticket)

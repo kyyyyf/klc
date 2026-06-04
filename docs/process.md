@@ -47,8 +47,9 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 
 | Phase id               | Tracks      | Agent prompt                      | Picks at `:ack-needed`                                    |
 |------------------------|-------------|-----------------------------------|------------------------------------------------------------|
-| `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm                                                |
-| `discovery`            | XS S M L    | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
+| `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm-route · 2 = force-full-discovery · 3 = force-xs-skip (XS only) |
+| `discovery-lite`       | XS S        | `core/agents/discovery-lite.md`   | 1 = approve · 2 = needs-rework · 3 = upgrade-to-full      |
+| `discovery`            | M L         | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
 | `acceptance-test-plan` | S M L       | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
 | `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
 | `detailed-test-plan`   | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
@@ -61,9 +62,9 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 | `observe`              | S M L       | _(monitoring checklist)_          | 1 = clean · 2 = regression · 3 = rollback                 |
 | `learn`                | XS S M L    | `core/agents/retrospective.md`    | 1 = archive · 2 = extract-to-CLAUDE.md                    |
 
-**XS path**: intake → discovery → xs-build → review-lite → integrate → learn
+**XS path**: intake → discovery-lite → xs-build → review-lite → integrate → learn
 
-**S path**: intake → discovery → acceptance-test-plan → build → review → integrate → observe → learn
+**S path**: intake → discovery-lite → acceptance-test-plan → build → review → integrate → observe → learn
 
 **M path**: intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn
 
@@ -166,9 +167,11 @@ emits `[!QUESTION]` or `[!CONFLICT]`; human decides next action.
 Single-agent path for trivial changes (score 0–2).
 
 1. `klc intake <key> --kind bug "<desc>"` → `intake:ack-needed`
-2. `klc ack <key> --pick 1` → `discovery:work`
-3. Run `discovery` agent. Produces `spec.md` with ACs and
-   `affected_modules`. This is where the XS score is confirmed.
+   Intake prints `route=XS` (deterministic heuristic from `route_heuristic.py`).
+2. `klc ack <key> --pick 1` (confirm-route) → `discovery-lite:work`
+3. Run `discovery-lite` agent. Produces compact `spec.md` (Goals, AC,
+   Affected, Estimate). Uses `[!ASSUMPTION]` not blocking `[!QUESTION]`.
+   This is where the XS score is confirmed (`estimate.total ≤ 2`).
 4. `klc ack <key> --pick 1` → `xs-build:work`
 5. Run `xs-fasttrack` agent with prompt card at
    `.klc/tickets/<key>/xs-build/_prompt.md`.
@@ -305,13 +308,20 @@ scope_delta → scan_sentinels → classify_tier → CascadeDecision
 
 | Signal | Result |
 |--------|--------|
-| Scope expansion (unplanned modules) | Full review |
+| Scope expansion (unplanned modules) or unknown files | Full review |
+| Scope comparison unavailable (`skipped`) | Full review (fail-closed) |
+| Classifier returns no file tiers | Full review (fail-closed) |
 | Any sentinel hit | Full review |
 | Any `critical` or `core` tier file | Full review |
-| All `peripheral` + no drift + no sentinels | **Cheap review** (single Sonnet agent) |
+| All `peripheral` + no drift + no sentinels | **Cheap review** (single focused agent) |
 
-**Cheap review** dispatches one focused reviewer instead of the full
-sub-agent pipeline. Controlled by `config/reviewers.yml`:
+**Fail-closed:** the cascade defaults to full review when it cannot prove
+peripheral. "Unavailable" ≠ "no risk". Only proven peripheral + no
+signals → cheap review.
+
+**Cheap review** dispatches `core/agents/review/cheap.md` — correctness,
+test coverage, spec alignment only (no security/architecture depth).
+Controlled by `config/reviewers.yml`:
 
 ```yaml
 cascade:
@@ -357,7 +367,10 @@ meta.<path> any_overrun           # true if any dict value > 0
 - `CONFLICT` item in any artefact.
 - Budget counter at limit (`blocked_reason` in `meta.json`).
 - `rework_count[phase] ≥ 3` — recommend escalation to lead.
-- Scope creep: diff touches modules outside `affected_modules`.
+- Scope creep: diff touches modules outside `affected_modules`, or touches
+  files outside all known module prefixes (`unknown_files` in scope_delta).
+  At `review:ack`, missing `modules.json` is a hard failure — run
+  `klc init --scan-only` to build it.
 - XS: `XS_BLOCKED` signal from xs-fasttrack or review-lite.
 
 ---

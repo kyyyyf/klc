@@ -66,17 +66,28 @@ def _git_changed_files(root: Path) -> list[str]:
     return sorted(files)
 
 
-def _files_to_modules(files: list[str], modules: list[dict]) -> list[str]:
-    """Map file paths to module names via longest-prefix matching."""
+def _files_to_modules(
+    files: list[str], modules: list[dict]
+) -> tuple[list[str], list[str]]:
+    """Map file paths to module names via longest-prefix matching.
+
+    Returns (matched_modules, unknown_files) where unknown_files are
+    paths that matched no module prefix.
+    """
     sorted_mods = sorted(modules, key=lambda m: -len(m.get("path", "")))
     names: set[str] = set()
+    unknown: list[str] = []
     for f in files:
+        matched = False
         for m in sorted_mods:
             p = m.get("path", "")
             if p and f.startswith(p):
                 names.add(m["name"])
+                matched = True
                 break
-    return sorted(names)
+        if not matched:
+            unknown.append(f)
+    return sorted(names), sorted(unknown)
 
 
 def compare(ticket: str) -> dict:
@@ -112,14 +123,17 @@ def compare(ticket: str) -> dict:
             "skipped": "no changed files detected",
         }
 
-    actual = _files_to_modules(changed_files, modules)
+    actual, unknown_files = _files_to_modules(changed_files, modules)
     planned_set = set(planned)
     drift = sorted(set(actual) - planned_set)
+    # Files outside all known module prefixes are treated as expansion.
+    expansion = sorted(set(drift) | set(unknown_files))
     return {
         "planned": planned,
         "actual": actual,
         "drift": drift,
-        "expansion": drift,
+        "expansion": expansion,
+        "unknown_files": unknown_files,
     }
 
 
