@@ -116,7 +116,8 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Cannot read/parse meta.json: {e}"
 
-    # All checks passed
+    # All checks passed — extract risk_tags from spec.md frontmatter into meta
+    _sync_risk_tags(ticket)
     return True, ""
 
 
@@ -166,6 +167,36 @@ def can_complete_acceptance_test_plan(ticket: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _sync_risk_tags(ticket: str) -> None:
+    """Read risk_tags from spec.md frontmatter and write into meta.json."""
+    ticket_dir = klc_ticket_meta_file(ticket).parent
+    spec_path = ticket_dir / "spec.md"
+    try:
+        lines = spec_path.read_text(encoding="utf-8").splitlines()
+        if not lines or lines[0].strip() != "---":
+            return
+        fm_end = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "---"), None)
+        if fm_end is None:
+            return
+        import re
+        risk_tags: list[str] = []
+        for line in lines[1:fm_end]:
+            m = re.match(r"risk_tags\s*:\s*\[([^\]]*)\]", line.strip())
+            if m:
+                raw = m.group(1)
+                risk_tags = [v.strip().strip("'\"") for v in raw.split(",") if v.strip()]
+                break
+        meta = _lc.read_meta(ticket)
+        meta["risk_tags"] = risk_tags
+        from core.shared.paths import klc_ticket_meta_file as _meta_file
+        import json as _json
+        _meta_file(ticket).write_text(
+            _json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+    except Exception:
+        pass  # non-fatal: risk_tags will just be absent
+
+
 def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
     """Check if a phase can be manually completed based on artifacts.
 
@@ -178,6 +209,12 @@ def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
     """
     if phase_id == "discovery":
         return can_complete_discovery(ticket)
+
+    if phase_id == "discovery-lite":
+        ok, err = _can_complete_generic(ticket, phase_id)
+        if ok:
+            _sync_risk_tags(ticket)
+        return ok, err
 
     if phase_id == "acceptance-test-plan":
         return can_complete_acceptance_test_plan(ticket)
