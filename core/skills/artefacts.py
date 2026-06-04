@@ -103,8 +103,6 @@ def acquire_lock(ticket: str):
 _PREAMBLE_TMPL = """\
 # Agent prompt — {ticket} · {phase_id}:work
 
-Ticket: **{ticket}** · track: **{track}** · kind: **{kind}**
-
 You are working in phase **{phase_id}**. Read the role prompt below,
 then produce the outputs listed at the bottom. When you claim the
 work is done, the human runs `klc ack {ticket}` (with `--pick N` if
@@ -223,14 +221,23 @@ def write_prompt_card(ticket: str, phase_id: str, meta: dict,
     return card
 
 
-def write_step_card(ticket: str, step: int, meta: dict) -> Path:
-    """Render `.klc/tickets/<ticket>/build/_prompt_step_N.md` using the
-    minimal impl-step.md.j2 template. Returns the path."""
+def write_step_card(ticket: str, step: int, meta: dict,
+                    inline: bool | None = None) -> Path:
+    """Render `.klc/tickets/<ticket>/build/_prompt_step_N.md`.
+
+    By default (compressed mode) the impl.md role prompt is referenced
+    by path rather than embedded. Set inline=True (or env
+    KLC_CARD_INLINE=1) to embed the full prompt for paste-only workflows.
+    """
     try:
         from jinja2 import Environment, FileSystemLoader
     except ImportError:
         sys.stderr.write("artefacts: jinja2 not installed (pip install jinja2)\n")
         sys.exit(1)
+
+    # Resolve inline mode: explicit arg wins over env var.
+    if inline is None:
+        inline = os.environ.get("KLC_CARD_INLINE", "").strip() == "1"
 
     tdir = klc_ticket_dir(ticket)
     build_dir = tdir / "build"
@@ -259,9 +266,17 @@ def write_step_card(ticket: str, step: int, meta: dict) -> Path:
         except (json.JSONDecodeError, OSError):
             pass
 
-    # --- read impl role prompt ---
+    # --- impl role prompt: reference (compressed) or embed (inline) ---
     impl_prompt_path = fw / "core" / "agents" / "impl.md"
-    impl_prompt = impl_prompt_path.read_text(encoding="utf-8") if impl_prompt_path.exists() else ""
+    if inline:
+        impl_prompt = (impl_prompt_path.read_text(encoding="utf-8")
+                       if impl_prompt_path.exists() else
+                       "_(impl.md not found)_")
+        impl_prompt_ref = None
+    else:
+        impl_prompt = None
+        impl_prompt_ref = (str(impl_prompt_path)
+                           if impl_prompt_path.exists() else None)
 
     rendered = tmpl.render(
         ticket=ticket,
@@ -277,6 +292,7 @@ def write_step_card(ticket: str, step: int, meta: dict) -> Path:
         test_file=test_file,
         run_command=run_command,
         impl_prompt=impl_prompt,
+        impl_prompt_ref=impl_prompt_ref,
     )
     card.write_text(rendered, encoding="utf-8")
     return card
