@@ -67,6 +67,14 @@
     {
       "name": "knowledge",
       "path": ".klc/knowledge/"
+    },
+    {
+      "name": "detect_languages",
+      "path": "core/skills/detect_languages"
+    },
+    {
+      "name": "index",
+      "path": ".klc/index/"
     }
   ]
 }

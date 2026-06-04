@@ -7,5 +7,9 @@
 #
 # Per-project override: .klc/config/profile.yml takes precedence over
 # this framework default.
+#
+# Contract: the only valid key is `profile`. Language detection is
+# inventory-based (detect_languages.py reads .klc/index/inventory.json).
+# Do NOT add a `languages` key here — it will be flagged by klc doctor.
 
 profile: ue
