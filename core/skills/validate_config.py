@@ -70,7 +70,9 @@ KNOWN_SCHEMAS = {
         "pattern",  # ticket ID regex pattern
     },
     "profile.yml": {
-        "profile",  # active profile name
+        "profile",  # active profile name — the ONLY valid key.
+        # `languages` is intentionally excluded: language detection uses
+        # inventory.json thresholds only (see detect_languages.py).
     },
 }
 
