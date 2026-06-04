@@ -47,6 +47,18 @@ review:
   # Whether to launch the five internal sub-agents concurrently.
   parallel_subagents: true
 
+cascade:
+  # When enabled, review_cascade.py runs scope_delta + scan_sentinels +
+  # classify_tier before launching sub-agents. Peripheral diffs with no
+  # sentinel hits and no scope drift get a single cheap reviewer (Sonnet)
+  # instead of the full multi-agent pipeline.
+  enabled: true
+
+  # Maximum number of peripheral files before falling back to full review.
+  # Keeps cheap-review fast; very large peripheral diffs are unusual enough
+  # to warrant a second look.
+  peripheral_max_files: 20
+
 reports:
   # Retention policy for .klc/reports/. Older runs are pruned at the
   # start of each review.sh invocation.

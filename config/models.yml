@@ -106,6 +106,7 @@ phase_roles:
   review:               coding
   review-internal:      coding         # alias of `review` for sub-agents
   review-external:      external
+  review-cheap:         coding         # single-agent cheap reviewer (cascade peripheral path)
   manual:               coding
   integrate:            local-simple
   observe:              local-simple
@@ -121,5 +122,7 @@ per_track:
   XS:
     xs-build:    local-simple
     review-lite: local-simple
+  S:
+    review-cheap: local-simple   # peripheral S diff → Haiku cheap reviewer
   L:
     review-external: heavy-reasoning
