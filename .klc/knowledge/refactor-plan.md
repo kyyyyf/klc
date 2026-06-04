@@ -1,11 +1,17 @@
 ---
 title: Framework refactor plan (KLC-006..009 + 003..005)
 authority: human
-last_updated: 2026-05-28
-status: active
+last_updated: 2026-06-04
+status: superseded-by-plan.md
 ---
 
 # Framework refactor & optimization plan
+
+> **Note (2026-06-04):** This document covers the original
+> KLC-006..009 scope. The active improvement plan is now tracked in
+> `plan.md` (KLC-011..017). See plan.md for the current phase map,
+> discovery-lite routing, conditional phases, review cascade, and
+> token telemetry work.
 
 Cross-ticket coordination doc. Single source of truth for the order,
 dependencies, and acceptance signals across KLC-003..009.
@@ -59,22 +65,16 @@ docs settle.
 
 ## Lifecycle policy per ticket
 
-Per user decision 2026-05-28: **XS-fasttrack for S-track tickets**.
+Current policy (2026-06-04): **S-track uses discovery-lite** (see plan.md
+Phase 2, KLC-013). XS-fasttrack for S-track is no longer the policy.
 
 - M-track (KLC-007): **full lifecycle** — intake → discovery →
   acceptance-test-plan → build → review → integrate → observe →
   learn → archived.
-- S-track (KLC-003, 004, 005, 006, 008, 009): **shortened path** —
-  intake → build → review → integrate. Discovery and
-  acceptance-test-plan only if the ticket needs them
-  (KLC-007 explicitly does, KLC-008 does — fixture design upfront,
-  KLC-009 does — audit table).
-- Exception: KLC-008 and KLC-009 carry an audit step regardless of
-  track because they depend on enumerating existing state.
-
-Concretely, S-track tickets that NEED discovery (audit-style work):
-KLC-007 audit (split-out), KLC-008, KLC-009. All others can use
-xs-fasttrack-style abbreviated path.
+- S-track (KLC-003, 004, 005, 006, 008, 009): intake → discovery →
+  acceptance-test-plan → build → review → integrate → observe → learn.
+  Once KLC-013 lands, S-track will use discovery-lite instead of
+  full discovery.
 
 ## Dependencies
 

@@ -100,7 +100,9 @@ phase_roles:
   acceptance-test-plan: coding
   design:               heavy-reasoning
   detailed-test-plan:   coding
+  xs-build:             coding
   build:                coding
+  review-lite:          coding
   review:               coding
   review-internal:      coding         # alias of `review` for sub-agents
   review-external:      external
@@ -117,7 +119,7 @@ phase_roles:
 
 per_track:
   XS:
-    design: local-simple
-    build:  local-coding
+    xs-build:    local-simple
+    review-lite: local-simple
   L:
     review-external: heavy-reasoning
