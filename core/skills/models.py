@@ -76,6 +76,36 @@ class Models:
     phase_roles: dict[str, str]
     per_track:   dict[str, dict[str, str]]
 
+    def resolve_role(self, role_name: str) -> ResolvedModel:
+        """Return a ResolvedModel for a named role directly (not via phase lookup).
+
+        Use this for fallback scenarios where the role name is known explicitly,
+        avoiding coupling to pseudo-phase names like 'indexing'.
+        """
+        role = self.roles.get(role_name)
+        if role is None:
+            raise KeyError(
+                f"models.yml: role {role_name!r} not defined under roles"
+            )
+        provider    = role.provider    or self.defaults.provider
+        model       = role.model       or self.defaults.model
+        if role.api_key_env is _SENTINEL_UNSET:
+            api_key_env = self.defaults.api_key_env
+        else:
+            api_key_env = role.api_key_env
+        if api_key_env is _SENTINEL_UNSET:
+            api_key_env = None
+        extra_args  = list(role.extra_args or self.defaults.extra_args)
+        return ResolvedModel(
+            role=role.name,
+            phase=role_name,
+            track=None,
+            provider=provider,
+            model=model,
+            api_key_env=api_key_env,
+            extra_args=extra_args,
+        )
+
     def resolve(self, phase_id: str, *, track: str | None = None) -> ResolvedModel:
         """Return the ResolvedModel for `phase_id` on the given track."""
         role_name: str | None = None

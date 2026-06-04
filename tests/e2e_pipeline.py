@@ -48,6 +48,7 @@ def _load_phase_outputs() -> dict[str, list[str]]:
 # Fixture file → target artefact name mapping.
 # Keys are names under tests/fixtures/fake-agent-outputs/
 _FIXTURE_MAP: dict[str, list[tuple[str, str]]] = {
+    "discovery-lite":      [("discovery.md", "spec.md")],
     "discovery":           [("discovery.md", "spec.md")],
     "acceptance-test-plan": [("acceptance-test-plan.md", "test-plan.md")],
     "design":              [("design.md", "design/options.md"),
@@ -118,6 +119,13 @@ class E2EPipeline:
 
         (klc_dir / "config" / "profile.yml").write_text("profile: generic\n", encoding="utf-8")
 
+        # Provide a minimal modules.json so scope_delta guard doesn't hard-fail
+        # on review:ack (guard requires modules.json to exist for review phase).
+        (klc_dir / "index" / "modules.json").write_text(
+            '{"modules": [{"name": "test-module", "path": "src/test-module/"}]}\n',
+            encoding="utf-8"
+        )
+
         # Load phases once the env is ready
         self._track_phases = _load_track_phases(self.track)
         self._phase_outputs = _load_phase_outputs()
@@ -148,6 +156,9 @@ class E2EPipeline:
                 "started_at": "2026-05-28T12:00:00Z"
             }],
             "track": self.track,
+            "route_hint": self.track,
+            "route_signals": {"kind": self.track, "length": self.track,
+                              "keywords": self.track, "modules": "XS"},
             "estimate": {
                 "complexity": 1 if self.track == "XS" else 2,
                 "uncertainty": 0,
@@ -246,7 +257,7 @@ class E2EPipeline:
             self.setup()
             self.seed_ticket()
 
-            self.run_ack("intake", pick=None)
+            self.run_ack("intake", pick=1)
 
             assert self._track_phases is not None
             for phase_id in self._track_phases[1:]:  # skip intake

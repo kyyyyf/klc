@@ -22,7 +22,10 @@ import phase_completion  # noqa: E402
 import scope_delta as _sd  # noqa: E402
 
 # Phases where expansion (scope creep) blocks ack toward next.
+# integrate is a checklist with no irreversible agent work (merge is manual),
+# so skipped scope hard-fail applies to review only.
 _SCOPE_GUARD_PHASES = {"review", "integrate"}
+_SCOPE_HARD_FAIL_PHASES = {"review"}  # skipped scope = hard fail only here
 
 
 def _friendly_missing_ticket(ticket: str) -> int:
@@ -87,22 +90,59 @@ def run(argv: list[str]) -> int:
                 )
                 return 1
 
+            # force-xs-skip guard: pick 3 on intake only allowed when route_hint=="XS".
+            if pid == "intake" and args.pick == 3:
+                meta = _lc.read_meta(args.ticket)
+                route_hint = meta.get("route_hint")
+                if route_hint != "XS":
+                    sys.stderr.write(
+                        f"klc ack: force-xs-skip (pick 3) is only allowed when "
+                        f"route_hint==\"XS\"; current route_hint={route_hint!r}.\n"
+                        f"Use pick 1 (confirm-route) or pick 2 (force-full-discovery).\n"
+                    )
+                    return 1
+
             # Scope-expansion guard before approving review / integrate.
             if pid in _SCOPE_GUARD_PHASES:
                 delta = _sd.compare(args.ticket)
-                if delta.get("expansion") and not delta.get("skipped"):
+                skipped_reason = delta.get("skipped", "")
+                if skipped_reason and pid in _SCOPE_HARD_FAIL_PHASES:
+                    # AC-D2: missing modules.json = hard failure for review.
+                    # "no changed files" = warn only (git might not be set up
+                    # or ticket was managed outside normal branch flow).
+                    if "modules.json" in skipped_reason:
+                        _write_scope_conflict(args.ticket, pid, {
+                            **delta,
+                            "expansion": ["<scope-check-unavailable>"],
+                        })
+                        sys.stderr.write(
+                            f"klc ack: scope comparison unavailable "
+                            f"({skipped_reason}) — cannot verify scope for "
+                            f"{pid}. Run `klc init --scan-only` to build "
+                            f"modules.json first.\n"
+                        )
+                        return 1
+                    else:
+                        sys.stderr.write(
+                            f"klc ack: scope check skipped ({skipped_reason}) "
+                            f"— proceeding with warning\n"
+                        )
+                if delta.get("expansion"):
                     # Write a conflict note into review-report.md if it exists.
                     _write_scope_conflict(args.ticket, pid, delta)
+                    unknown = delta.get("unknown_files", [])
+                    extra = f"\n  unknown_files={unknown}" if unknown else ""
                     sys.stderr.write(
                         f"klc ack: scope expansion detected — unplanned modules "
                         f"touched: {delta['expansion']}\n"
                         f"  planned={delta['planned']}\n"
-                        f"  actual={delta['actual']}\n"
+                        f"  actual={delta['actual']}"
+                        f"{extra}\n"
                         f"Update meta.json:affected_modules or use `klc jump` "
                         f"to restart review with the correct scope.\n"
                     )
                     return 1
-                if delta.get("drift") and not delta.get("skipped"):
+                if delta.get("drift"):
                     sys.stderr.write(
                         f"klc ack: scope drift warning — modules not in plan: "
                         f"{delta['drift']}\n"

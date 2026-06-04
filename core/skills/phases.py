@@ -204,6 +204,31 @@ def _eval_condition(expr: str, meta: dict) -> bool:
     return True
 
 
+def _is_known_condition(expr: str) -> bool:
+    """Return True if the expression matches at least one known grammar pattern.
+
+    Used by validate_config to detect typos in condition: fields.
+    Runtime stays fail-open (_eval_condition returns True); this is static
+    validation only.
+    """
+    import re as _re
+
+    expr = expr.strip()
+    if not expr:
+        return False
+
+    # OR combinator — check each part
+    if " OR " in expr:
+        return all(_is_known_condition(p.strip()) for p in expr.split(" OR "))
+
+    patterns = [
+        r"meta\.[a-z_A-Z0-9.]+\s+(not\s+in|in)\s+\[[^\]]*\]",
+        r"meta\.[a-z_A-Z0-9.]+\s+any_overrun",
+        r"meta\.[a-z_A-Z0-9.]+\s*(>=|>|==)\s*\S+",
+    ]
+    return any(_re.fullmatch(pat, expr) for pat in patterns)
+
+
 # --- parsing ------------------------------------------------------------------
 
 def _load_raw(path: Path) -> dict:

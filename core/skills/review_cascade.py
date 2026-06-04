@@ -121,7 +121,17 @@ def decide(ticket: str, diff_path: Path) -> CascadeDecision:
     drift = delta.get("drift") or []
     skipped_scope = bool(delta.get("skipped"))
 
-    if expansion and not skipped_scope:
+    # Fail-closed: unavailable scope check is not the same as "no drift"
+    if skipped_scope:
+        return CascadeDecision(
+            use_full_review=True,
+            reason=f"scope comparison unavailable ({delta.get('skipped')}) — defaulting to full review",
+            tier="unknown",
+            scope_drift=[],
+            scope_expansion=[],
+        )
+
+    if expansion:
         return CascadeDecision(
             use_full_review=True,
             reason=f"scope expansion: unplanned modules {expansion}",
@@ -150,6 +160,17 @@ def decide(ticket: str, diff_path: Path) -> CascadeDecision:
 
     # --- classify_tier --------------------------------------------------------
     file_tiers = _get_file_tiers(diff_path)
+
+    # Fail-closed: if classifier returned nothing, we cannot prove peripheral
+    if not file_tiers:
+        return CascadeDecision(
+            use_full_review=True,
+            reason="classifier returned no file tiers — cannot prove peripheral; defaulting to full review",
+            tier="unknown",
+            sentinel_hits=0,
+            scope_drift=drift,
+        )
+
     top_tier = _highest_tier(file_tiers)
 
     if top_tier in ("critical", "core"):

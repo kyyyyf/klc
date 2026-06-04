@@ -195,6 +195,35 @@ def validate_phase_roles(config_dir: Path) -> list[str]:
     return warnings
 
 
+def validate_condition_syntax(config_dir: Path) -> list[str]:
+    """Check that all condition: expressions in phases.yml are recognised syntax."""
+    warnings: list[str] = []
+    try:
+        fw = _p.framework_root()
+        sys.path.insert(0, str(fw / "core" / "skills"))
+        import phases as _ph
+        ph = _ph.load_phases()
+    except Exception as exc:
+        warnings.append(f"condition syntax validation failed: {exc}")
+        return warnings
+
+    for phase in ph.ordered:
+        if phase.condition is None:
+            continue
+        try:
+            import phases as _ph2
+            if not _ph2._is_known_condition(phase.condition):
+                warnings.append(
+                    f"phases.yml: phase {phase.id!r} has unrecognised "
+                    f"condition syntax: {phase.condition!r}"
+                )
+        except Exception as exc:
+            warnings.append(
+                f"phases.yml: phase {phase.id!r} condition check failed: {exc}"
+            )
+    return warnings
+
+
 def validate_all(config_dir: Path | None = None) -> list[str]:
     """Validate all config files in the config directory.
 
@@ -219,6 +248,7 @@ def validate_all(config_dir: Path | None = None) -> list[str]:
         warnings.extend(file_warnings)
 
     warnings.extend(validate_phase_roles(config_dir))
+    warnings.extend(validate_condition_syntax(config_dir))
 
     return warnings
 
