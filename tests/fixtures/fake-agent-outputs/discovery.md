@@ -2,6 +2,7 @@
 ticket: TEST-001
 kind: feature
 authority: agent
+risk_tags: [user-facing]
 classification:
   complexity: 1
   uncertainty: 0

@@ -20,6 +20,7 @@ ticket: <KEY>
 kind: <feature|bug|tech>
 authority: agent
 track: <XS|S>
+risk_tags: [<user-facing|data|security|migration>, ...]
 ---
 
 ## Goals
@@ -41,13 +42,6 @@ manual: 0
 total: <sum, must be ≤2 for XS or ≤5 for S>
 ```
 
-## Update meta.json
-
-After writing spec.md, also set these fields in meta.json:
-- `risk_tags: [...]` — zero or more of: `user-facing`, `data`, `security`,
-  `migration`. Controls whether `observe` phase runs. Set `[]` for pure
-  tooling/config changes with no user-visible or data impact.
-
 ## Rules
 
 1. **One agent call.** Complete spec.md entirely in this response.
@@ -60,6 +54,10 @@ After writing spec.md, also set these fields in meta.json:
    If you calculate a higher total, set track to M and note it in Goals.
 5. **No sections beyond the template.** Do not add ADR, design options,
    test plan, or any section not listed above.
+6. **`risk_tags` in frontmatter.** List zero or more of: `user-facing`,
+   `data`, `security`, `migration`. Use `[]` for pure tooling/config
+   changes. The framework reads this field to decide whether `observe`
+   runs — do not omit it.
 
 ## Signals to emit
 
