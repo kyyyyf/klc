@@ -48,9 +48,9 @@
   "estimate": {
     "complexity": 1,
     "uncertainty": 1,
-    "risk": 1,
+    "risk": 0,
     "manual": 0,
-    "total": 3
+    "total": 2
   },
   "layer": "code",
   "affected_modules": [
