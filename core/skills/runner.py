@@ -148,7 +148,18 @@ def _dispatch_ollama(resolved: ResolvedModel, prompt: str,
                      timeout: int, extra_env: dict[str, str]) -> tuple[int, str, str]:
     bin_name = os.environ.get("KLC_OLLAMA_CLI", "ollama")
     if not shutil.which(bin_name):
-        return (2, "", f"runner: '{bin_name}' not on PATH (install ollama)")
+        # Graceful fallback: re-resolve to local-coding (Anthropic Haiku)
+        # so XS tickets don't break on machines without a local model.
+        sys.stderr.write(
+            f"runner: '{bin_name}' not on PATH — falling back to local-coding "
+            f"(set KLC_OLLAMA_CLI or install ollama to use local model)\n"
+        )
+        try:
+            models = load_models()
+            fallback = models.resolve("indexing")  # indexing = local-coding role
+            return _dispatch_anthropic(fallback, prompt, timeout, extra_env)
+        except Exception as exc:
+            return (2, "", f"runner: ollama absent and fallback failed: {exc}")
     argv = [bin_name, "run", resolved.model, *resolved.extra_args]
     env = {**os.environ, **extra_env}
     try:

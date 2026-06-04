@@ -195,6 +195,45 @@ def _sync_risk_tags(ticket: str) -> None:
         )
     except Exception:
         pass  # non-fatal: risk_tags will just be absent
+def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
+    """Check if discovery-lite artifacts are complete (XS/S spec).
+
+    Lighter than can_complete_discovery: requires spec.md with Goals,
+    Acceptance Criteria (≥1), Affected, and Estimate sections, plus
+    track and estimate in meta.json.
+    """
+    ticket_dir = klc_ticket_meta_file(ticket).parent
+    spec_path = ticket_dir / "spec.md"
+
+    if not spec_path.exists():
+        return False, "Missing spec.md"
+
+    try:
+        text = spec_path.read_text(encoding="utf-8")
+        required_sections = ["## Goals", "## Acceptance Criteria", "## Estimate"]
+        for section in required_sections:
+            if section not in text:
+                return False, f"spec.md: missing required section '{section}'"
+        # Accept both "## Affected" and "## Affected modules"
+        if "## Affected" not in text:
+            return False, "spec.md: missing required section '## Affected' or '## Affected modules'"
+        if "- [ ]" not in text and "- [x]" not in text.lower():
+            return False, "spec.md: Acceptance Criteria has no checklist items"
+    except OSError as e:
+        return False, f"Cannot read spec.md: {e}"
+
+    try:
+        meta = _lc.read_meta(ticket)
+        if not meta.get("track"):
+            return False, "meta.json: missing 'track' field"
+        if meta.get("track") not in ("XS", "S"):
+            return False, f"meta.json: discovery-lite expects XS or S, got {meta['track']!r}"
+        if not meta.get("estimate"):
+            return False, "meta.json: missing 'estimate' field"
+    except Exception as e:
+        return False, f"Cannot read meta.json: {e}"
+
+    return True, ""
 
 
 def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:

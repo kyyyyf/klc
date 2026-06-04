@@ -96,6 +96,7 @@ roles:
 phase_roles:
   indexing:             local-coding
   intake:               heavy-reasoning
+  discovery-lite:       coding
   discovery:            heavy-reasoning
   acceptance-test-plan: coding
   design:               heavy-reasoning
@@ -119,7 +120,8 @@ phase_roles:
 
 per_track:
   XS:
-    xs-build:    local-simple
-    review-lite: local-simple
+    discovery-lite: local-simple
+    xs-build:       local-simple
+    review-lite:    local-simple
   L:
     review-external: heavy-reasoning

@@ -91,6 +91,18 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _classify_route(desc: str, kind: str) -> tuple[str, dict]:
+    """Run route_heuristic and return (hint, signals). Never raises."""
+    try:
+        skills = Path(__file__).resolve().parent.parent / "skills"
+        sys.path.insert(0, str(skills))
+        import route_heuristic as _rh
+        result = _rh.classify(desc, kind=kind)
+        return result.hint, result.signals
+    except Exception:
+        return "S", {}
+
+
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc intake", description=__doc__)
     ap.add_argument("--kind", choices=["feature", "bug", "tech", "unknown"],
@@ -159,13 +171,16 @@ def run(argv: list[str]) -> int:
         "\n".join(raw_header) + desc + "\n", encoding="utf-8"
     )
 
+    # Deterministic route classification (no LLM)
+    route_hint, route_signals = _classify_route(desc, args.kind or "unknown")
+
     meta = {
         "ticket":        args.ticket,
         "kind":          args.kind or "unknown",
         "kind_source":   "user" if args.kind else "intake-agent-pending",
         "phase":         "intake:ack-needed",
         "phase_history": [{"phase": "intake:ack-needed", "started_at": _now()}],
-        "track":         None,
+        "track":         route_hint,
         "estimate":      None,
         "layer":         None,
         "affected_modules": [],
@@ -174,6 +189,8 @@ def run(argv: list[str]) -> int:
         "jira_url":      jira_url,
         "links":         [],
         "rework_count":  {},
+        "route_hint":    route_hint,
+        "route_signals": route_signals,
         "metrics":       {"intake_ms": int((_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds() * 1000)},
     }
     klc_ticket_meta_file(args.ticket).write_text(
@@ -192,10 +209,11 @@ def run(argv: list[str]) -> int:
         }, ensure_ascii=False) + "\n")
 
     print(f"INTAKE_OK {args.ticket}")
-    print(f"  dir:   {tdir}")
-    print(f"  kind:  {meta['kind']}")
+    print(f"  dir:    {tdir}")
+    print(f"  kind:   {meta['kind']}")
+    print(f"  route:  {route_hint}  (signals: {route_signals})")
     print(f"  → intake:ack-needed")
-    print(f"  next:  klc ack {args.ticket}")
+    print(f"  next:   klc ack {args.ticket}  [pick 1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
 
     _warn_stale_modules()
     return 0
