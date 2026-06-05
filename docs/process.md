@@ -375,7 +375,89 @@ meta.<path> any_overrun           # true if any dict value > 0
 
 ---
 
-## Jira sync
+## Jira integration
+
+Two layers of Jira integration are available:
+
+- **Legacy push** (`jira-sync` command, `mode: mirror`): auto-pushes phase→status
+  on every `ack`. Suitable when klc is the only driver and Jira is a pure mirror.
+- **`klc jira` commands** (KLC-020+): read-only status, GitLab artefact links,
+  intake dup-check. Explicit sync and reconcile in KLC-021/022.
+
+### `klc jira` — integration commands (KLC-020+)
+
+```bash
+klc jira status <KEY>               # read-only: klc phase vs Jira status
+klc jira sync <KEY> --dry-run       # show what links would be added/updated
+klc jira sync <KEY> --apply         # upsert GitLab artefact links in Jira
+klc jira reconcile <KEY> push       # push klc phase to Jira explicitly
+```
+
+`klc jira status` is **read-only** — no prompts, no state changes. Exits 1
+on mismatch.
+
+`klc jira sync` only reports + links + updates `meta.json:jira_sync`. It does
+**not** change phase state; use `reconcile` for that.
+
+#### Setup for `klc jira`
+
+```yaml
+# .klc/config/jira.yml
+enabled: true
+mode: mirror         # mirror | managed (KLC-021)
+site:
+  base_url: "https://jira.example.com"
+  project_key: "KLC"
+  auth_env: "JIRA_API_TOKEN"
+gitlab:
+  base_url: "https://gitlab.example.com/group/repo"
+  blob_url: "{base_url}/-/blob/{branch}/{path}"
+status_mapping:
+  klc_to_jira:
+    build: "In Progress"
+    review: "In Review"
+    archived: "Done"
+  jira_to_klc:
+    "In Progress": [xs-build, build]
+    "In Review":   [review-lite, review]
+    "Done":        [learn, archived]
+artifacts:
+  comment_links: true
+```
+
+#### Intake behaviour when integration is enabled
+
+When `klc intake <KEY>` runs with integration enabled:
+
+1. Checks whether Jira issue `<KEY>` already exists.
+2. If it exists, prompts for description source:
+   - **1 = klc** (default): keep local description.
+   - **2 = jira**: use Jira description (stored in raw.md with markers).
+   - **3 = both**: local + Jira section appended.
+   - Non-interactive: `klc intake <KEY> --jira-description klc|jira|both`.
+3. Adds a Jira comment with a GitLab link to `raw.md` (always, if issue exists).
+
+#### `meta.json:jira_sync` block
+
+Written by `klc jira sync --apply` and `klc jira reconcile push`:
+
+```json
+"jira_sync": {
+  "enabled": true,
+  "issue_key": "KLC-019",
+  "last_synced_at": "2026-06-05T10:00:00Z",
+  "last_jira_status": "In Review",
+  "last_klc_phase": "review:work",
+  "last_action": "push",
+  "conflicts": []
+}
+```
+
+`klc doctor` surfaces unresolved conflicts from this block.
+
+---
+
+### Legacy auto-push (`mode: mirror`, `jira-sync` command)
 
 One-way push: klc → Jira. The filesystem and git remain the source of
 truth for ticket content. Jira is a mirror of the current phase.
