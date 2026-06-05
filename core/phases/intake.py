@@ -111,6 +111,11 @@ def run(argv: list[str]) -> int:
                     help="read description from stdin")
     ap.add_argument("--force", action="store_true",
                     help="overwrite existing intake data")
+    ap.add_argument("--jira-description",
+                    choices=["klc", "jira", "both"], default=None,
+                    dest="jira_description",
+                    help="description source when Jira issue exists: "
+                         "klc (default), jira, or both")
     ap.add_argument("ticket", help="Jira-style ticket key, e.g. PROJ-4502")
     ap.add_argument("description", nargs="*",
                     help="description words (any position; quote if it contains options)")
@@ -215,8 +220,134 @@ def run(argv: list[str]) -> int:
     print(f"  → intake:ack-needed")
     print(f"  next:   klc ack {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
 
+    _jira_intake_enrich(args.ticket, args.jira_description)
     _warn_stale_modules()
     return 0
+
+
+def _jira_intake_enrich(ticket: str, jira_desc_mode: str | None) -> None:
+    """Optionally enrich intake from Jira: dup-check, description merge, raw.md link.
+
+    Never raises — Jira errors are warnings, never block intake.
+    """
+    try:
+        skills = Path(__file__).resolve().parent.parent / "skills"
+        sys.path.insert(0, str(skills))
+        from jira_config import load as _load_cfg, JiraConfigError
+        cfg = _load_cfg()
+        if not cfg.enabled:
+            return
+    except Exception:
+        return
+
+    try:
+        from jira_client import make_client
+        from jira_artifacts import upsert_artifact_links
+        client = make_client(cfg)
+    except Exception as exc:
+        sys.stderr.write(f"[jira] client init failed: {exc}\n")
+        return
+
+    # Dup-check: does Jira issue exist?
+    try:
+        issue = client.get_issue(ticket)
+        jira_exists = True
+    except RuntimeError:
+        jira_exists = False
+
+    if jira_exists:
+        jira_body = _extract_jira_description(issue)
+        mode = jira_desc_mode  # may be None
+
+        if mode is None:
+            # Determine interactivity
+            if sys.stdin.isatty():
+                sys.stderr.write(
+                    f"\n[jira] Issue {ticket} already exists in Jira.\n"
+                    f"  Choose description source:\n"
+                    f"  1) klc (keep local description)\n"
+                    f"  2) jira (use Jira description)\n"
+                    f"  3) both (keep local + append Jira section)\n"
+                    f"  [1/2/3, default=1]: "
+                )
+                choice = input().strip()
+                mode = {"1": "klc", "2": "jira", "3": "both"}.get(choice, "klc")
+            else:
+                sys.stderr.write(
+                    f"[jira] Issue {ticket} exists in Jira. "
+                    f"Using local description (--jira-description to change).\n"
+                )
+                mode = "klc"
+
+        if mode in ("jira", "both") and jira_body:
+            _merge_jira_description(ticket, jira_body, mode)
+
+    # Always add raw.md link comment to Jira (whether issue existed or not,
+    # if it exists now after the check above)
+    if jira_exists:
+        try:
+            upsert_artifact_links(client, ticket, ticket, cfg)
+        except RuntimeError as exc:
+            sys.stderr.write(f"[jira] artefact link failed (non-fatal): {exc}\n")
+
+
+def _extract_jira_description(issue: dict) -> str:
+    """Extract plain-text description from Jira issue dict."""
+    fields = issue.get("fields") or {}
+    body = fields.get("description") or ""
+    if isinstance(body, str):
+        return body
+    if isinstance(body, dict):
+        # ADF format — flatten to text
+        return _flatten_adf(body)
+    return ""
+
+
+def _flatten_adf(adf: dict) -> str:
+    """Flatten ADF to plain text — delegates to jira_artifacts.flatten_adf."""
+    try:
+        skills = Path(__file__).resolve().parent.parent / "skills"
+        sys.path.insert(0, str(skills))
+        from jira_artifacts import flatten_adf
+        return flatten_adf(adf)
+    except Exception:
+        # Fallback if import fails
+        parts = []
+        if adf.get("type") == "text":
+            parts.append(adf.get("text", ""))
+        for child in adf.get("content") or []:
+            if isinstance(child, dict):
+                parts.append(_flatten_adf(child))
+        return "".join(parts)
+
+
+def _merge_jira_description(ticket: str, jira_body: str, mode: str) -> None:
+    """Merge Jira description into raw.md using markers."""
+    raw_path = klc_ticket_raw_file(ticket)
+    marker_start = f"<!-- klc:jira-description {ticket} -->"
+    marker_end = "<!-- /klc:jira-description -->"
+    jira_section = f"\n{marker_start}\n{jira_body.strip()}\n{marker_end}\n"
+
+    existing = raw_path.read_text(encoding="utf-8")
+    if marker_start in existing:
+        return  # already merged
+
+    if mode == "jira":
+        # Replace content after front-matter with Jira body
+        lines = existing.splitlines(keepends=True)
+        fm_end = None
+        if lines and lines[0].strip() == "---":
+            for i, line in enumerate(lines[1:], 1):
+                if line.strip() == "---":
+                    fm_end = i
+                    break
+        if fm_end is not None:
+            frontmatter = "".join(lines[:fm_end + 1])
+            raw_path.write_text(frontmatter + jira_section, encoding="utf-8")
+        else:
+            raw_path.write_text(existing + jira_section, encoding="utf-8")
+    else:  # both
+        raw_path.write_text(existing.rstrip() + jira_section, encoding="utf-8")
 
 
 def _warn_stale_modules() -> None:

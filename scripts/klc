@@ -90,7 +90,7 @@ LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
 )
 OPERATIONAL_CMDS = (
-    "board", "doctor", "metrics", "reindex", "install", "jira-sync", "setup",
+    "board", "doctor", "metrics", "reindex", "install", "jira-sync", "jira", "setup",
 )
 
 
@@ -143,6 +143,13 @@ def _dispatch(argv: list[str]) -> int:
             [sys.executable, str(script), *rest],
             env={**os.environ, "PROJECT_ROOT": _project_root()},
         )
+
+    if cmd == "jira":
+        phases_dir = FRAMEWORK_ROOT / "core" / "phases"
+        sys.path.insert(0, str(SKILLS_DIR))
+        sys.path.insert(0, str(phases_dir))
+        from jira import run as _jira_run
+        return _jira_run(rest)
 
     sys.stderr.write(f"klc: unknown subcommand: {cmd}\n")
     _print_help()

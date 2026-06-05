@@ -1,58 +1,134 @@
-# Jira integration. Copy to `.klc/config/jira.yml` and fill in your
-# instance details. The framework works without any Jira wiring —
-# sync.enabled defaults to false.
+# jira.yml — Jira integration configuration.
 #
 # Consumed by:
-#   - core/skills/jira_sync.py (Jira API integration)
+#   - core/skills/jira_config.py  (load + validate)
+#   - core/skills/jira_sync.py    (legacy push path; uses sync.* keys)
+#   - core/phases/jira.py         (klc jira status/sync commands)
+#   - core/phases/intake.py       (dup-check + artefact link on intake)
 #
-# Per-project overrides: create .klc/config/jira.yml in the project.
-# Settings there are merged on top of this file (deep merge).
-# Use it to set sync.enabled: true and your base_url / auth config.
+# Copy to .klc/config/jira.yml in your project and fill in details.
+# The framework works without any Jira wiring — enabled defaults to false.
+# Per-project .klc/config/jira.yml deep-merges on top of this file.
+#
+# mode:
+#   mirror  — klc auto-pushes phase→status on every ack (default; KLC-020+)
+#   managed — push is manual via `klc jira sync`; interactive divergence
+#             prompt at ack/next (KLC-021+)
 
-url_template: "https://jira.example.com/browse/{key}"
+enabled: false
+mode: mirror
 
-sync:
-  # Set to true in your per-project .klc/config/jira.yml to activate.
-  enabled: false
+# ---------------------------------------------------------------------------
+# Jira site connection
+# ---------------------------------------------------------------------------
+site:
+  base_url: "https://jira.example.com"
+  project_key: "KLC"
+  # Name of env var holding the Jira Personal Access Token (Bearer auth).
+  auth_env: "JIRA_API_TOKEN"
+  # Optional: if set, Basic auth instead of Bearer.
+  auth_user_env: ""
 
-  # Transport: rest (direct Jira REST API) or mcp (mcp-atlassian HTTP mode).
-  transport: rest
+# ---------------------------------------------------------------------------
+# GitLab source links (used to build blob URLs in Jira comments)
+# ---------------------------------------------------------------------------
+gitlab:
+  base_url: "https://gitlab.example.com/group/repo"
+  # Branch for blob links. Leave empty to auto-detect from `git rev-parse`.
+  branch: ""
+  # Template for blob URLs. Variables: {base_url}, {branch}, {path}
+  blob_url: "{base_url}/-/blob/{branch}/{path}"
 
-  # Seconds before a push attempt times out and falls back to the queue.
-  timeout_seconds: 2
-
-  # REST transport — direct Jira API calls via stdlib urllib.
-  rest:
-    base_url: "https://jira.example.com"
-    # Name of the env variable holding the Jira Personal Access Token.
-    auth_env: JIRA_TOKEN
-    # Optional: if set, Basic auth is used instead of Bearer.
-    # Set this to the env variable holding the Jira username/email.
-    auth_user_env: ""
-
-  # MCP transport — calls mcp-atlassian running in HTTP mode.
-  mcp:
-    url: "http://localhost:9000"
-    auth_env: JIRA_TOKEN
-
-  # phase → Jira status mapping.
-  # Keys can be a phase id (e.g. "build") or a full phase:state string
-  # (e.g. "build:work"). Full strings take precedence over phase ids.
-  # Only the phases listed here trigger a push — all other transitions
-  # are silently skipped.
-  # Adjust to match your Jira workflow's status names exactly.
-  phase_to_status:
-    intake:               "To Do"
+# ---------------------------------------------------------------------------
+# Status mapping (both directions)
+# ---------------------------------------------------------------------------
+status_mapping:
+  # klc phase → Jira status. Used by push path.
+  klc_to_jira:
+    intake:               "Backlog"
+    discovery-lite:       "Discovery"
     discovery:            "Discovery"
-    acceptance-test-plan: "Planning"
-    design:               "Planning"
-    detailed-test-plan:   "Planning"
+    acceptance-test-plan: "Analysis"
+    design:               "Design"
+    detailed-test-plan:   "Analysis"
     xs-build:             "In Progress"
     build:                "In Progress"
     review-lite:          "In Review"
     review:               "In Review"
-    manual:               "Manual QA"
-    integrate:            "Merging"
-    observe:              "Observing"
+    manual:               "Testing"
+    integrate:            "Ready to Merge"
+    observe:              "Monitoring"
+    learn:                "Done"
+    archived:             "Done"
+
+  # Jira status → candidate klc phases. Used by pull path (KLC-022).
+  # A list because one Jira status can map to multiple klc phases.
+  jira_to_klc:
+    "Backlog":        [intake]
+    "Discovery":      [discovery-lite, discovery]
+    "Analysis":       [acceptance-test-plan, detailed-test-plan]
+    "Design":         [design]
+    "In Progress":    [xs-build, build]
+    "In Review":      [review-lite, review]
+    "Testing":        [manual]
+    "Ready to Merge": [integrate]
+    "Monitoring":     [observe]
+    "Done":           [learn, archived]
+
+# ---------------------------------------------------------------------------
+# Artefact link comments in Jira
+# ---------------------------------------------------------------------------
+artifacts:
+  # When true, `klc jira sync --apply` adds/updates a comment with links.
+  comment_links: true
+  # Relative paths of artefacts within the ticket directory.
+  paths:
+    raw:          "raw.md"
+    spec:         "spec.md"
+    test_plan:    "test-plan.md"
+    design:       "design/options.md"
+    impl_plan:    "impl-plan.md"
+    build_log:    "build-log.md"
+    review:       "review-report.md"
+    review_lite:  "review-lite-report.md"
+    manual:       "manual-checklist.md"
+    integrate:    "integrate.md"
+    observe:      "observe.md"
+    retrospective: "retrospective.md"
+
+# ---------------------------------------------------------------------------
+# Legacy push path (used by core/skills/jira_sync.py)
+# Kept for backward compatibility; new code uses status_mapping above.
+# ---------------------------------------------------------------------------
+url_template: "https://jira.example.com/browse/{key}"
+
+sync:
+  enabled: false
+  transport: rest
+  timeout_seconds: 2
+
+  rest:
+    base_url: "https://jira.example.com"
+    auth_env: JIRA_TOKEN
+    auth_user_env: ""
+
+  mcp:
+    url: "http://localhost:9000"
+    auth_env: JIRA_TOKEN
+
+  phase_to_status:
+    intake:               "Backlog"
+    discovery-lite:       "Discovery"
+    discovery:            "Discovery"
+    acceptance-test-plan: "Analysis"
+    design:               "Design"
+    detailed-test-plan:   "Analysis"
+    xs-build:             "In Progress"
+    build:                "In Progress"
+    review-lite:          "In Review"
+    review:               "In Review"
+    manual:               "Testing"
+    integrate:            "Ready to Merge"
+    observe:              "Monitoring"
     learn:                "Done"
     archived:             "Done"
