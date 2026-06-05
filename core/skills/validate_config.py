@@ -57,8 +57,14 @@ KNOWN_SCHEMAS = {
         "reports",           # report generation config
     },
     "jira.yml": {
-        "url_template",  # Jira URL template
-        "sync",          # sync configuration
+        "enabled",          # integration on/off
+        "mode",             # mirror | managed
+        "site",             # Jira site connection
+        "gitlab",           # GitLab source link config
+        "status_mapping",   # klc_to_jira + jira_to_klc
+        "artifacts",        # artefact link paths
+        "url_template",     # legacy: Jira URL template
+        "sync",             # legacy: push path config
     },
     "ticket-id.yml": {
         "pattern",  # ticket ID regex pattern
