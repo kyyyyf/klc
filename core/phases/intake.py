@@ -249,11 +249,23 @@ def _jira_intake_enrich(ticket: str, jira_desc_mode: str | None) -> None:
         return
 
     # Dup-check: does Jira issue exist?
+    # Only 404 means "missing" — 403/timeout/other errors are warnings
+    # and we stop to avoid silent data-loss (skipping link upsert).
+    issue = None
+    jira_exists = False
     try:
         issue = client.get_issue(ticket)
         jira_exists = True
-    except RuntimeError:
-        jira_exists = False
+    except RuntimeError as exc:
+        err_str = str(exc)
+        if "404" in err_str:
+            jira_exists = False  # legitimately missing — proceed silently
+        else:
+            sys.stderr.write(
+                f"[jira] could not check issue {ticket}: {exc}\n"
+                f"       Skipping Jira enrichment (re-run after fixing connectivity).\n"
+            )
+            return  # don't attempt description merge or link upsert
 
     if jira_exists:
         jira_body = _extract_jira_description(issue)
