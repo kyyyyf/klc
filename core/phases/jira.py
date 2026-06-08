@@ -144,8 +144,10 @@ def cmd_sync(argv: list[str]) -> int:
         sys.stderr.write(f"klc jira: artefact link upsert failed — {exc}\n")
         return 1
 
-    # Update meta.jira_sync
-    _update_meta_jira_sync(args.key, meta, jira_status, phase_full, "sync")
+    # Update meta.jira_sync; clear stale conflicts when Jira is now in sync.
+    import jira_sync as _js
+    _js._update_jira_sync_meta(args.key, jira_status, phase_full, "sync",
+                               clear_conflicts=not mismatch)
     print("meta.json:jira_sync updated.")
     return 1 if mismatch else 0
 
@@ -172,96 +174,27 @@ def cmd_reconcile(argv: list[str]) -> int:
 
 
 def _reconcile_push(key: str, cfg) -> int:
-    """Push klc phase → Jira status. Single-hop; conflict on no direct transition."""
+    """Push klc phase → Jira status. Delegates to jira_sync.push(key)."""
     if not klc_ticket_meta_file(key).exists():
         sys.stderr.write(f"klc jira: unknown ticket {key!r}\n")
         return 1
 
-    meta = _lc.read_meta(key)
-    phase_full = meta.get("phase", "")
-    phase_id = phase_full.split(":")[0] if ":" in phase_full else phase_full
-
-    target_status = cfg.klc_to_jira.get(phase_id)
-    if not target_status:
-        sys.stderr.write(
-            f"klc jira reconcile push: no Jira status mapped for phase {phase_id!r}\n"
-        )
-        return 1
-
     try:
-        from jira_client import make_client
-        client = make_client(cfg)
-
-        # Idempotency: check current status
-        issue = client.get_issue(key)
-        current = ((issue.get("fields") or {}).get("status") or {}).get("name")
-        if current == target_status:
-            print(f"Already at {target_status!r}. Nothing to do.")
-            return 0
-
-        # Find transition
-        transitions = client.get_transitions(key)
-        tid = None
-        for t in transitions:
-            name = (t.get("to") or {}).get("name") or t.get("name") or ""
-            if name == target_status:
-                tid = t["id"]
-                break
-
-        if tid is None:
-            sys.stderr.write(
-                f"klc jira: no direct transition to {target_status!r} from {current!r}.\n"
-                f"  Available: {[((t.get('to') or {}).get('name') or t.get('name')) for t in transitions]}\n"
-                f"  Move Jira to {target_status!r} manually, then run `klc jira sync {key} --apply`\n"
-            )
-            _write_conflict(key, meta, "transition-blocked",
-                            f"No direct transition to {target_status!r} from {current!r}")
-            return 1
-
-        client.transition_issue(key, tid)
-        # Add provenance comment
-        client.add_comment(key, f"moved by klc — phase {phase_full}")
-        print(f"Jira {key} → {target_status!r} ✓")
-
-        _update_meta_jira_sync(key, meta, target_status, phase_full, "push")
-        return 0
-
-    except RuntimeError as exc:
-        sys.stderr.write(f"klc jira: {exc}\n")
+        import jira_sync as _js
+        result = _js.push(key)
+    except Exception as exc:
+        sys.stderr.write(f"klc jira: push failed — {exc}\n")
         return 1
 
-
-def _update_meta_jira_sync(key: str, meta: dict, jira_status: str,
-                             klc_phase: str, action: str) -> None:
-    """Write meta.json:jira_sync block."""
-    import datetime as _dt
-    now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sync = meta.setdefault("jira_sync", {})
-    sync.update({
-        "enabled": True,
-        "issue_key": key,
-        "last_synced_at": now,
-        "last_jira_status": jira_status,
-        "last_klc_phase": klc_phase,
-        "last_action": action,
-    })
-    sync.setdefault("conflicts", [])
-    _lc.write_meta(key, meta)
-
-
-def _write_conflict(key: str, meta: dict, conflict_type: str, detail: str) -> None:
-    """Append a conflict entry to meta.json:jira_sync.conflicts."""
-    import datetime as _dt
-    now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sync = meta.setdefault("jira_sync", {})
-    conflicts = sync.setdefault("conflicts", [])
-    conflicts.append({
-        "type": conflict_type,
-        "detail": detail,
-        "detected_at": now,
-        "suggested": f"klc jira reconcile {key} push",
-    })
-    _lc.write_meta(key, meta)
+    if result["ok"]:
+        print(f"Jira {key}: {result['detail']}")
+        return 0
+    elif result["action"] == "noop":
+        print(f"Already in sync. {result['detail']}")
+        return 0
+    else:
+        sys.stderr.write(f"klc jira: {result['detail']}\n")
+        return 1
 
 
 def run(argv: list[str]) -> int:
