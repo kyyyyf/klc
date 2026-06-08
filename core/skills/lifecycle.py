@@ -117,6 +117,167 @@ def current_state(ticket: str) -> str:
 
 # --- low-level state write ----------------------------------------------------
 
+def _jira_push_after_state(ticket: str, phase: str, *, source: str) -> None:
+    """Dispatch Jira sync after a state write.
+
+    mirror mode → legacy auto-push (unchanged behaviour).
+    managed mode → interactive prompt (TTY) or record-divergence (non-TTY),
+                   but ONLY for ack/next decision points (source in
+                   {"ack", "advance", "set_state"}).
+                   abort/jump bypass the interactive path — they are
+                   internal lifecycle operations, not human decision points.
+    Never raises — all errors are warnings.
+    """
+    # D-001: managed prompts only at ack/next decision points.
+    # abort and jump are internal operations — mirror-push only.
+    _MANAGED_SOURCES = {"ack", "advance", "set_state"}
+
+    try:
+        from jira_config import load as _load_cfg
+        cfg = _load_cfg()
+        if not cfg.enabled:
+            return
+    except Exception:
+        # Config unavailable or disabled — fall through to legacy path
+        try:
+            import jira_sync as _js
+            _js.push_phase(ticket, phase, source=source)
+        except Exception as _e2:
+            sys.stderr.write(f"[jira-sync] non-fatal: {_e2}\n")
+        return
+
+    if (cfg.mode == "mirror"
+            or not cfg.is_managed_ticket(ticket)
+            or source not in _MANAGED_SOURCES):
+        # Mirror mode, non-managed ticket, or non-decision-point event:
+        # auto-push (legacy behaviour).
+        try:
+            import jira_sync as _js
+            _js.push_phase(ticket, phase, source=source)
+        except Exception as _e:
+            sys.stderr.write(f"[jira-sync] non-fatal: {_e}\n")
+        return
+
+    # Managed mode: interactive or record-divergence
+    _managed_jira_push(ticket, phase, cfg)
+
+
+def _managed_jira_push(ticket: str, phase: str, cfg: Any) -> None:
+    """Handle Jira sync in managed mode: prompt if TTY, record if not."""
+    try:
+        from jira_client import make_client
+        from jira_sync import build_plan, push_to_jira, _record_conflict_in_meta, _now
+        client = make_client(cfg)
+        plan = build_plan(ticket, client, cfg)
+    except Exception as exc:
+        sys.stderr.write(f"[jira] managed sync unavailable: {exc}\n")
+        return
+
+    if plan.in_sync:
+        return  # Nothing to do, no prompt needed
+
+    is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+
+    if plan.has_conflict("jira-moved-externally"):
+        # PM moved Jira — three-option conflict prompt
+        if is_tty:
+            _prompt_conflict(ticket, plan, client, cfg)
+        else:
+            _record_divergence_non_tty(ticket, plan)
+    else:
+        # klc moved, Jira is behind
+        if is_tty:
+            _prompt_klc_moved(ticket, plan, client, cfg)
+        else:
+            _record_divergence_non_tty(ticket, plan)
+
+
+def _prompt_klc_moved(ticket: str, plan: "SyncPlan",  # type: ignore[name-defined]
+                       client: Any, cfg: Any) -> None:
+    """Prompt: push Jira to match klc, or leave as-is."""
+    from jira_sync import push_to_jira
+    sys.stderr.write(
+        f"\n[jira] {ticket}: klc moved to {plan.klc_phase!r}, "
+        f"Jira is {plan.jira_status!r}.\n"
+        f"  1) Push Jira → {plan.target_status!r}  (recommended)\n"
+        f"  2) Leave Jira as-is\n"
+        f"  [1/2, default=1]: "
+    )
+    try:
+        choice = input().strip() or "1"
+    except EOFError:
+        choice = "2"
+
+    if choice == "1":
+        result = push_to_jira(ticket, client, cfg)
+        if result["ok"]:
+            sys.stderr.write(f"[jira] {result['detail']}\n")
+        else:
+            sys.stderr.write(f"[jira] push failed: {result['detail']}\n")
+
+
+def _prompt_conflict(ticket: str, plan: "SyncPlan",  # type: ignore[name-defined]
+                      client: Any, cfg: Any) -> None:
+    """Prompt: Jira changed externally — three options."""
+    from jira_sync import push_to_jira, _record_conflict_in_meta, _now
+    sys.stderr.write(
+        f"\n[jira] CONFLICT: {ticket} Jira changed from "
+        f"{plan.last_jira_status!r} → {plan.jira_status!r} outside klc.\n"
+        f"  klc is at {plan.klc_phase!r}, wants Jira at {plan.target_status!r}.\n"
+        f"  1) Push Jira back → {plan.target_status!r}  (klc wins)\n"
+        f"  2) Keep Jira at {plan.jira_status!r}, record divergence\n"
+        f"  3) Skip — write [!CONFLICT] to meta, show in doctor\n"
+        f"  [1/2/3, default=3]: "
+    )
+    try:
+        choice = input().strip() or "3"
+    except EOFError:
+        choice = "3"
+
+    if choice == "1":
+        result = push_to_jira(ticket, client, cfg)
+        if result["ok"]:
+            sys.stderr.write(f"[jira] {result['detail']}\n")
+        else:
+            sys.stderr.write(f"[jira] push failed: {result['detail']}\n")
+    elif choice == "2":
+        _record_conflict_in_meta(ticket, {
+            "type": "jira-moved-externally",
+            "detail": plan.conflicts[0]["detail"] if plan.conflicts else "divergence",
+            "detected_at": _now(),
+            "suggested": f"klc jira reconcile {ticket} push",
+        })
+        sys.stderr.write(f"[jira] Divergence recorded in meta.jira_sync.conflicts\n")
+    else:
+        _record_conflict_in_meta(ticket, {
+            "type": "jira-moved-externally",
+            "detail": plan.conflicts[0]["detail"] if plan.conflicts else "divergence",
+            "detected_at": _now(),
+            "suggested": f"klc jira reconcile {ticket} push",
+        })
+        sys.stderr.write(
+            f"[jira] [!CONFLICT] recorded. Run `klc doctor` to see conflicts.\n"
+        )
+
+
+def _record_divergence_non_tty(ticket: str, plan: "SyncPlan") -> None:  # type: ignore[name-defined]
+    """Non-TTY: record divergence in meta, warn to stderr. Never push."""
+    from jira_sync import _record_conflict_in_meta, _now
+    sys.stderr.write(
+        f"[jira] managed non-TTY: {ticket} divergence detected "
+        f"(klc={plan.klc_phase!r}, Jira={plan.jira_status!r}). "
+        f"Run `klc jira sync {ticket}` to review.\n"
+    )
+    _record_conflict_in_meta(ticket, {
+        "type": "jira-moved-externally" if plan.has_conflict("jira-moved-externally")
+                 else "klc-ahead",
+        "detail": (f"klc at {plan.klc_phase!r}, Jira at {plan.jira_status!r}, "
+                   f"target {plan.target_status!r}"),
+        "detected_at": _now(),
+        "suggested": f"klc jira reconcile {ticket} push",
+    })
+
+
 def set_state(ticket: str, phase_id: str, state: str, *,
               event: str = "set_state", note: str = "",
               extra: dict | None = None) -> None:
@@ -134,8 +295,7 @@ def set_state(ticket: str, phase_id: str, state: str, *,
     meta["phase"] = new
     write_meta(ticket, meta)
     try:
-        import jira_sync as _js
-        _js.push_phase(ticket, new, source=event)
+        _jira_push_after_state(ticket, new, source=event)
     except Exception as _e:
         sys.stderr.write(f"[jira-sync] non-fatal: {_e}\n")
 

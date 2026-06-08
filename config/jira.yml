@@ -18,6 +18,10 @@
 enabled: false
 mode: mirror
 
+# Optional: limit managed mode to specific tickets. Empty list = all tickets.
+# managed_tickets: [KLC-021, KLC-022]
+managed_tickets: []
+
 # ---------------------------------------------------------------------------
 # Jira site connection
 # ---------------------------------------------------------------------------
@@ -116,19 +120,21 @@ sync:
     url: "http://localhost:9000"
     auth_env: JIRA_TOKEN
 
+  # Legacy mapping consumed by jira_sync.py push_phase() — kept as original.
+  # Adjust status names to match your Jira workflow.
   phase_to_status:
-    intake:               "Backlog"
+    intake:               "To Do"
     discovery-lite:       "Discovery"
     discovery:            "Discovery"
-    acceptance-test-plan: "Analysis"
-    design:               "Design"
-    detailed-test-plan:   "Analysis"
+    acceptance-test-plan: "Planning"
+    design:               "Planning"
+    detailed-test-plan:   "Planning"
     xs-build:             "In Progress"
     build:                "In Progress"
     review-lite:          "In Review"
     review:               "In Review"
-    manual:               "Testing"
-    integrate:            "Ready to Merge"
-    observe:              "Monitoring"
+    manual:               "Manual QA"
+    integrate:            "Merging"
+    observe:              "Observing"
     learn:                "Done"
     archived:             "Done"
