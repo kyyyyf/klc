@@ -24,6 +24,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, field as _field
 from pathlib import Path
 from typing import Any
 
@@ -525,3 +526,245 @@ def _cli(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     sys.exit(_cli(sys.argv[1:]))
+
+
+# ---------------------------------------------------------------------------
+# KLC-021: SyncPlan, build_plan(), push()
+# These are the new explicit-sync API used by jira.py and lifecycle.py.
+# The legacy push_phase() above remains for mirror-mode auto-push.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SyncPlan:
+    """Side-effect-free snapshot of klc/Jira divergence for one ticket."""
+    ticket: str
+    klc_phase: str               # full phase:state
+    jira_status: str | None      # current Jira status (None = unreachable)
+    last_jira_status: str | None # last known from meta.jira_sync
+    target_status: str | None    # what klc wants Jira to be
+    in_sync: bool
+    transition_id: str | None    # available direct transition, if any
+    conflicts: list[dict] = _field(default_factory=list)
+
+    def has_conflict(self, conflict_type: str) -> bool:
+        return any(c.get("type") == conflict_type for c in self.conflicts)
+
+
+def build_plan(ticket: str, client: Any, cfg: Any) -> SyncPlan:
+    """Build a SyncPlan by comparing klc phase vs Jira status.
+
+    Pure read — no transitions, no comments, no meta writes.
+
+    Args:
+        ticket: ticket key
+        client: JiraClient instance (real or fake)
+        cfg:    JiraConfig instance
+    """
+    from core.shared.paths import klc_ticket_meta_file
+    meta_path = klc_ticket_meta_file(ticket)
+    if not meta_path.exists():
+        return SyncPlan(
+            ticket=ticket, klc_phase="", jira_status=None,
+            last_jira_status=None, target_status=None,
+            in_sync=False, transition_id=None,
+            conflicts=[{"type": "issue-missing", "detail": f"meta.json not found for {ticket}"}],
+        )
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    klc_phase = meta.get("phase", "")
+    phase_id = klc_phase.split(":")[0] if ":" in klc_phase else klc_phase
+    target_status = (cfg.klc_to_jira or {}).get(phase_id)
+    last_jira = (meta.get("jira_sync") or {}).get("last_jira_status")
+
+    # Fetch current Jira status
+    try:
+        issue = client.get_issue(ticket)
+        jira_status = ((issue.get("fields") or {}).get("status") or {}).get("name")
+    except RuntimeError as exc:
+        if "404" in str(exc):
+            return SyncPlan(
+                ticket=ticket, klc_phase=klc_phase, jira_status=None,
+                last_jira_status=last_jira, target_status=target_status,
+                in_sync=False, transition_id=None,
+                conflicts=[{"type": "issue-missing",
+                            "detail": f"Jira issue {ticket} not found"}],
+            )
+        return SyncPlan(
+            ticket=ticket, klc_phase=klc_phase, jira_status=None,
+            last_jira_status=last_jira, target_status=target_status,
+            in_sync=False, transition_id=None,
+            conflicts=[{"type": "jira-unreachable", "detail": str(exc)}],
+        )
+
+    conflicts: list[dict] = []
+
+    # Detect PM moved Jira externally: current differs from last AND from target
+    if (last_jira is not None and jira_status != last_jira
+            and jira_status != target_status):
+        conflicts.append({
+            "type": "jira-moved-externally",
+            "detail": (f"Jira changed from {last_jira!r} to {jira_status!r} "
+                       f"outside klc (expected {target_status!r})"),
+        })
+
+    in_sync = (jira_status == target_status)
+
+    # Find available direct transition
+    transition_id = None
+    if not in_sync and target_status:
+        try:
+            transitions = client.get_transitions(ticket)
+            for t in transitions:
+                name = (t.get("to") or {}).get("name") or t.get("name") or ""
+                if name == target_status:
+                    transition_id = t["id"]
+                    break
+        except RuntimeError:
+            pass
+
+    return SyncPlan(
+        ticket=ticket,
+        klc_phase=klc_phase,
+        jira_status=jira_status,
+        last_jira_status=last_jira,
+        target_status=target_status,
+        in_sync=in_sync,
+        transition_id=transition_id,
+        conflicts=conflicts,
+    )
+
+
+def push(ticket: str) -> dict:
+    """Public entry point: push klc phase → Jira status for a ticket.
+
+    Loads JiraConfig and creates the client internally.
+    Returns {ok, action, detail}. Never raises.
+    """
+    try:
+        from jira_config import load as _load_cfg
+        from jira_client import make_client
+        cfg = _load_cfg()
+        if not cfg.enabled:
+            return {"ok": False, "action": "disabled",
+                    "detail": "Jira integration not enabled"}
+        client = make_client(cfg)
+        return push_to_jira(ticket, client, cfg)
+    except Exception as exc:
+        return {"ok": False, "action": "error", "detail": str(exc)}
+
+
+def push_to_jira(ticket: str, client: Any, cfg: Any) -> dict:
+    """Push klc phase → Jira status (single-hop), injectable client.
+
+    Returns {ok, action, detail}.
+    Adds "moved by klc" comment on success.
+    Records transition-blocked conflict if no direct transition exists.
+    Never raises.
+    """
+    plan = build_plan(ticket, client, cfg)
+
+    if plan.in_sync:
+        return {"ok": True, "action": "noop", "detail": "already in sync"}
+
+    # Record issue-missing / unreachable in meta so klc doctor surfaces them.
+    if plan.has_conflict("issue-missing"):
+        _record_conflict_in_meta(ticket, {
+            "type": "issue-missing",
+            "detail": plan.conflicts[0]["detail"],
+            "detected_at": _now(),
+            "suggested": f"check Jira issue {ticket} exists",
+        })
+        return {"ok": False, "action": "error",
+                "detail": plan.conflicts[0]["detail"]}
+
+    if plan.has_conflict("jira-unreachable"):
+        _record_conflict_in_meta(ticket, {
+            "type": "jira-unreachable",
+            "detail": plan.conflicts[0]["detail"],
+            "detected_at": _now(),
+            "suggested": "check Jira connectivity and JIRA_API_TOKEN",
+        })
+        return {"ok": False, "action": "error",
+                "detail": plan.conflicts[0]["detail"]}
+
+    if plan.target_status is None:
+        return {"ok": False, "action": "no-mapping",
+                "detail": f"no klc_to_jira mapping for phase {plan.klc_phase}"}
+
+    if plan.transition_id is None:
+        _record_conflict_in_meta(ticket, {
+            "type": "transition-blocked",
+            "detail": (f"No direct transition to {plan.target_status!r} "
+                       f"from {plan.jira_status!r}"),
+            "detected_at": _now(),
+            "suggested": f"klc jira reconcile {ticket} push",
+        })
+        return {
+            "ok": False, "action": "transition-blocked",
+            "detail": (f"No direct transition to {plan.target_status!r} "
+                       f"from {plan.jira_status!r}. "
+                       f"Move Jira manually then run `klc jira sync {ticket} --apply`"),
+        }
+
+    try:
+        client.transition_issue(ticket, plan.transition_id)
+        client.add_comment(ticket, f"moved by klc — phase {plan.klc_phase}")
+        # SUCCESS: update meta and clear resolved conflicts (HIGH-5 fix).
+        _update_jira_sync_meta(ticket, plan.target_status, plan.klc_phase, "push",
+                               clear_conflicts=True)
+        return {"ok": True, "action": "pushed",
+                "detail": f"Jira {ticket} → {plan.target_status!r}"}
+    except RuntimeError as exc:
+        return {"ok": False, "action": "error", "detail": str(exc)}
+
+
+def _now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _record_conflict_in_meta(ticket: str, conflict: dict) -> None:
+    """Append a conflict to meta.json:jira_sync.conflicts (non-fatal)."""
+    try:
+        from core.shared.paths import klc_ticket_meta_file
+        meta_path = klc_ticket_meta_file(ticket)
+        if not meta_path.exists():
+            return
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        sync = meta.setdefault("jira_sync", {})
+        sync.setdefault("conflicts", []).append(conflict)
+        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
+                              encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _update_jira_sync_meta(ticket: str, jira_status: str,
+                            klc_phase: str, action: str,
+                            clear_conflicts: bool = False) -> None:
+    """Write meta.json:jira_sync block after a sync operation.
+
+    clear_conflicts=True: remove resolved conflicts on successful push/sync.
+    """
+    try:
+        from core.shared.paths import klc_ticket_meta_file
+        meta_path = klc_ticket_meta_file(ticket)
+        if not meta_path.exists():
+            return
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        sync = meta.setdefault("jira_sync", {})
+        sync.update({
+            "enabled": True,
+            "issue_key": ticket,
+            "last_synced_at": _now(),
+            "last_jira_status": jira_status,
+            "last_klc_phase": klc_phase,
+            "last_action": action,
+        })
+        if clear_conflicts:
+            sync["conflicts"] = []
+        else:
+            sync.setdefault("conflicts", [])
+        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
+                              encoding="utf-8")
+    except Exception:
+        pass

@@ -43,6 +43,13 @@ class JiraConfig:
     jira_to_klc: dict[str, list[str]]
     artifact_paths: dict[str, str]
     comment_links: bool
+    managed_tickets: list[str]   # empty = all tickets in managed mode
+
+    def is_managed_ticket(self, ticket: str) -> bool:
+        """True if this ticket should use managed (interactive) mode."""
+        if self.mode != "managed":
+            return False
+        return not self.managed_tickets or ticket in self.managed_tickets
 
     def artifact_link_url(self, relative_path: str) -> str:
         """Build a GitLab blob URL for an artefact relative path."""
@@ -124,6 +131,13 @@ def load(config_dir: Path | None = None) -> JiraConfig:
     base_url = site.get("base_url", "").strip()
     if not base_url:
         raise JiraConfigError("jira.yml: site.base_url is required")
+    import urllib.parse as _up
+    _parsed = _up.urlparse(base_url)
+    if _parsed.scheme != "https" or not _parsed.hostname:
+        raise JiraConfigError(
+            f"jira.yml: site.base_url must use https and include a hostname "
+            f"(got {base_url!r}). Sending auth tokens over HTTP is unsafe."
+        )
     project_key = site.get("project_key", "").strip()
     auth_env = site.get("auth_env", "").strip()
     if not auth_env:
@@ -163,6 +177,18 @@ def load(config_dir: Path | None = None) -> JiraConfig:
     comment_links = bool(artifacts_cfg.get("comment_links", True))
     artifact_paths: dict[str, str] = artifacts_cfg.get("paths") or {}
 
+    managed_raw = cfg.get("managed_tickets")
+    if managed_raw is None:
+        managed_tickets: list[str] = []
+    elif isinstance(managed_raw, list):
+        managed_tickets = [str(t) for t in managed_raw]
+    else:
+        raise JiraConfigError(
+            f"jira.yml: managed_tickets must be a list of ticket keys, "
+            f"got {type(managed_raw).__name__!r}. "
+            f"Use [] for all tickets or [KEY-1, KEY-2] to restrict."
+        )
+
     return JiraConfig(
         enabled=enabled,
         mode=mode,
@@ -177,4 +203,5 @@ def load(config_dir: Path | None = None) -> JiraConfig:
         jira_to_klc=jira_to_klc,
         artifact_paths=artifact_paths,
         comment_links=comment_links,
+        managed_tickets=managed_tickets,
     )
