@@ -393,6 +393,47 @@ klc jira sync <KEY> --apply         # upsert GitLab artefact links in Jira
 klc jira reconcile <KEY> push       # push klc phase to Jira explicitly
 ```
 
+#### Managed mode (KLC-021+)
+
+Set `mode: managed` in `.klc/config/jira.yml` to enable interactive divergence
+detection. In managed mode:
+
+- klc does **not** auto-push on every `ack`. Push is manual via
+  `klc jira sync --apply` or `klc jira reconcile push`.
+- At `ack`/`next`, if Jira diverged from the last known state, klc prompts
+  **inline**:
+
+```
+[jira] KLC-021: klc moved to review:work, Jira is "In Progress".
+  1) Push Jira → "In Review"  (recommended)
+  2) Leave Jira as-is
+  [1/2, default=1]:
+```
+
+  If PM moved Jira externally (3-option conflict):
+
+```
+[jira] CONFLICT: KLC-021 Jira changed "In Review" → "Done" outside klc.
+  1) Push Jira back → "In Review"  (klc wins)
+  2) Keep Jira at "Done", record divergence
+  3) Skip — write [!CONFLICT] to meta, show in doctor
+  [1/2/3, default=3]:
+```
+
+- **Non-TTY** (CI): divergence recorded in `meta.json:jira_sync.conflicts`,
+  warning on stderr. NEVER push silently.
+- Limit managed mode to specific tickets: `managed_tickets: [KLC-021]`.
+  Empty list (default) = all tickets.
+
+Unresolved conflicts appear in `klc doctor` as `WARN jira-sync-conflicts`
+(non-blocking by default; `--strict` to fail).
+
+#### push() single-hop rule
+
+`klc jira reconcile push` finds a direct Jira transition to the target status.
+If no direct transition exists, it records a `transition-blocked` conflict and
+shows the manual action required — it never moves klc backward.
+
 `klc jira status` is **read-only** — no prompts, no state changes. Exits 1
 on mismatch.
 

@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 FW_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
@@ -273,17 +274,233 @@ def test_jira_status_disabled() -> None:
     print("PASS: klc jira status exits non-zero when integration disabled")
 
 
+# ---------------------------------------------------------------------------
+# Additional tests for review-report findings
+# ---------------------------------------------------------------------------
+
+def test_jira_config_https_required() -> None:
+    """site.base_url with http:// must be rejected (security)."""
+    import jira_config as jc
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_dir = Path(tmp) / "config"
+        cfg_dir.mkdir()
+        (cfg_dir / "jira.yml").write_text(
+            "enabled: true\n"
+            "site:\n  base_url: 'http://jira.example.com'\n  project_key: K\n  auth_env: T\n"
+            "gitlab:\n  base_url: x\n  blob_url: '{base_url}/-/blob/{branch}/{path}'\n"
+            "status_mapping:\n  klc_to_jira:\n    x: y\n  jira_to_klc:\n    y: [x]\n"
+        )
+        try:
+            jc.load(cfg_dir)
+            assert False, "should have raised"
+        except jc.JiraConfigError as exc:
+            assert "https" in str(exc).lower()
+    print("PASS: jira_config rejects http:// base_url (requires https)")
+
+
+def test_jira_config_missing_klc_to_jira() -> None:
+    """Missing klc_to_jira mapping raises JiraConfigError."""
+    import jira_config as jc
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_dir = Path(tmp) / "config"
+        cfg_dir.mkdir()
+        (cfg_dir / "jira.yml").write_text(
+            "enabled: true\n"
+            "site:\n  base_url: 'https://jira.example.com'\n  project_key: K\n  auth_env: T\n"
+            "gitlab:\n  base_url: x\n  blob_url: '{base_url}/-/blob/{branch}/{path}'\n"
+            "status_mapping:\n  jira_to_klc:\n    y: [x]\n"  # missing klc_to_jira
+        )
+        try:
+            jc.load(cfg_dir)
+            assert False, "should have raised"
+        except jc.JiraConfigError as exc:
+            assert "klc_to_jira" in str(exc)
+    print("PASS: jira_config rejects missing klc_to_jira mapping")
+
+
+def test_jira_config_managed_tickets_non_list() -> None:
+    """managed_tickets as non-list raises JiraConfigError."""
+    import jira_config as jc
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_dir = _make_jira_config_dir(Path(tmp))
+        # Overwrite with invalid managed_tickets type
+        content = (cfg_dir / "jira.yml").read_text()
+        (cfg_dir / "jira.yml").write_text(content + "managed_tickets: KLC-001\n")
+        try:
+            jc.load(cfg_dir)
+            assert False, "should have raised"
+        except jc.JiraConfigError as exc:
+            assert "list" in str(exc).lower()
+    print("PASS: jira_config rejects non-list managed_tickets")
+
+
+def test_fake_client_get_transitions() -> None:
+    """FakeJiraClient.get_transitions returns canned transitions."""
+    from jira_client import FakeJiraClient
+    c = FakeJiraClient(
+        issues={"KLC-1": {}},
+        transitions_map={"KLC-1": [{"id": "10", "to": {"name": "In Review"}}]},
+    )
+    transitions = c.get_transitions("KLC-1")
+    assert len(transitions) == 1
+    assert transitions[0]["id"] == "10"
+    assert c.recorded_calls("get_transitions")
+    print("PASS: FakeJiraClient.get_transitions returns canned list")
+
+
+def test_fake_client_transition_issue() -> None:
+    """FakeJiraClient.transition_issue records the call."""
+    from jira_client import FakeJiraClient
+    c = FakeJiraClient(issues={"KLC-1": {}})
+    c.transition_issue("KLC-1", "10")
+    calls = c.recorded_calls("transition_issue")
+    assert calls
+    assert calls[0][0][0] == "KLC-1"
+    assert calls[0][0][1] == "10"
+    print("PASS: FakeJiraClient.transition_issue records call")
+
+
+def test_fake_client_get_current_user() -> None:
+    """FakeJiraClient.get_current_user returns canned user dict."""
+    from jira_client import FakeJiraClient
+    c = FakeJiraClient()
+    user = c.get_current_user()
+    assert "name" in user or "emailAddress" in user
+    assert c.recorded_calls("get_current_user")
+    print("PASS: FakeJiraClient.get_current_user returns canned user")
+
+
+def test_make_client_returns_rest_client() -> None:
+    """make_client() with a JiraConfig returns a RestJiraClient instance."""
+    from jira_client import make_client, RestJiraClient
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_dir = _make_jira_config_dir(Path(tmp))
+        import jira_config as jc
+        cfg = jc.load(cfg_dir)
+        client = make_client(cfg)
+        assert isinstance(client, RestJiraClient)
+    print("PASS: make_client() returns RestJiraClient")
+
+
+def test_artifact_link_url_format() -> None:
+    """Artefact link URLs match blob_url template exactly."""
+    from jira_artifacts import build_artifact_links, ARTIFACT_LINK_MARKER
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["PROJECT_ROOT"] = tmp
+        cfg_dir = _make_jira_config_dir(Path(tmp))
+        import jira_config as jc
+        cfg = jc.load(cfg_dir)
+
+        td = _make_ticket(Path(tmp), "T-URL-001")
+        (td / "spec.md").write_text("# spec\n")
+
+        body = build_artifact_links("T-URL-001", cfg)
+        assert "https://gitlab.example.com/group/repo" in body
+        assert "main" in body
+        assert "spec.md" in body
+    print("PASS: artefact links contain correct gitlab base_url, branch, and path")
+
+
+def test_upsert_skips_write_on_comment_read_failure() -> None:
+    """upsert_artifact_links skips write when get_issue_comments fails (no duplicate)."""
+    from jira_artifacts import upsert_artifact_links
+    from jira_client import FakeJiraClient
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["PROJECT_ROOT"] = tmp
+        cfg_dir = _make_jira_config_dir(Path(tmp))
+        import jira_config as jc
+        cfg = jc.load(cfg_dir)
+        _make_ticket(Path(tmp), "T-ERR-001")
+
+        class FailingCommentsClient(FakeJiraClient):
+            def get_issue_comments(self, key):
+                raise RuntimeError("HTTP 503: Service Unavailable")
+
+        client = FailingCommentsClient(issues={"T-ERR-001": {}})
+        import io, sys as _sys
+        stderr_capture = io.StringIO()
+        _orig = _sys.stderr
+        _sys.stderr = stderr_capture
+        try:
+            upsert_artifact_links(client, "T-ERR-001", "T-ERR-001", cfg)
+        finally:
+            _sys.stderr = _orig
+
+        assert not client.recorded_calls("add_comment"), "must not add comment on read failure"
+        assert "skipped" in stderr_capture.getvalue()
+    print("PASS: upsert_artifact_links skips write on comment read failure (AC-8 safety)")
+
+
+def test_jira_status_match_and_mismatch() -> None:
+    """klc jira status: exit 0 on match, exit 1 on mismatch; always read-only."""
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp)
+        cfg_dir = _make_jira_config_dir(scratch)
+        _make_ticket(scratch, "T-ST-001", "review:work")
+        os.environ["PROJECT_ROOT"] = tmp
+
+        import jira_config as jc
+        cfg = jc.load(cfg_dir)
+
+        from jira_client import FakeJiraClient
+        # Import cmd_status — patch jira._load_config (the module-level helper)
+        sys.path.insert(0, str(FW_ROOT / "core" / "phases"))
+        import jira as _jira_mod
+
+        def _cfg_match(*a, **kw):
+            return cfg
+
+        # Match case: Jira == "In Review", klc_to_jira[review] == "In Review"
+        fake_match = FakeJiraClient(
+            issues={"T-ST-001": {"fields": {"status": {"name": "In Review"}}}}
+        )
+        with patch.object(_jira_mod, "_load_config", return_value=cfg), \
+             patch("jira_client.make_client", return_value=fake_match):
+            rc = _jira_mod.cmd_status(["T-ST-001"])
+        assert rc == 0, f"expected 0 for in-sync, got {rc}"
+
+        # Mismatch case: Jira == "In Progress"
+        fake_mismatch = FakeJiraClient(
+            issues={"T-ST-001": {"fields": {"status": {"name": "In Progress"}}}}
+        )
+        import io
+        buf = io.StringIO()
+        with patch.object(_jira_mod, "_load_config", return_value=cfg), \
+             patch("jira_client.make_client", return_value=fake_mismatch), \
+             patch("builtins.print", side_effect=lambda *a: buf.write(" ".join(str(x) for x in a) + "\n")):
+            rc = _jira_mod.cmd_status(["T-ST-001"])
+        assert rc == 1, f"expected 1 for mismatch, got {rc}"
+        assert "MISMATCH" in buf.getvalue()
+
+        # Read-only: no writes in either case
+        assert not fake_match.recorded_calls("transition_issue")
+        assert not fake_match.recorded_calls("add_comment")
+        assert not fake_mismatch.recorded_calls("transition_issue")
+        assert not fake_mismatch.recorded_calls("add_comment")
+    print("PASS: klc jira status exits 0 on match, 1 on mismatch; read-only verified")
+
+
 if __name__ == "__main__":
     test_jira_config_loads_valid()
     test_jira_config_missing_base_url()
     test_jira_config_missing_auth_env()
     test_jira_config_malformed_blob_url()
+    test_jira_config_https_required()
+    test_jira_config_missing_klc_to_jira()
+    test_jira_config_managed_tickets_non_list()
     test_fake_client_get_issue()
     test_fake_client_get_issue_not_found()
     test_fake_client_add_and_update_comment()
+    test_fake_client_get_transitions()
+    test_fake_client_transition_issue()
+    test_fake_client_get_current_user()
+    test_make_client_returns_rest_client()
     test_rest_client_missing_auth_env()
     test_artifact_links_existing_files()
     test_artifact_links_no_files()
     test_artifact_links_idempotent()
+    test_artifact_link_url_format()
+    test_upsert_skips_write_on_comment_read_failure()
     test_jira_status_disabled()
+    test_jira_status_match_and_mismatch()
     print("ALL JIRA CORE TESTS PASSED")

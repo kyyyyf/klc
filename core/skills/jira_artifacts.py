@@ -33,8 +33,16 @@ def build_artifact_links(ticket: str, cfg: "JiraConfig") -> str:  # type: ignore
 
     ticket_dir = klc_ticket_dir(ticket)
     lines = []
+    ticket_dir_resolved = ticket_dir.resolve()
     for name, rel_path in (cfg.artifact_paths or {}).items():
         full_path = ticket_dir / rel_path
+        # Reject absolute paths and traversals outside ticket directory.
+        try:
+            resolved = full_path.resolve()
+            if not str(resolved).startswith(str(ticket_dir_resolved)):
+                continue
+        except Exception:
+            continue
         if full_path.exists():
             # ticket_dir relative to project root for the URL
             try:
@@ -61,14 +69,22 @@ def build_artifact_links(ticket: str, cfg: "JiraConfig") -> str:  # type: ignore
     return "\n".join(body_lines)
 
 
+class _CommentReadError(Exception):
+    """Raised when comment list retrieval fails; prevents spurious add_comment."""
+
+
 def _find_link_comment(client: "JiraClient",  # type: ignore[name-defined]
                         key: str) -> tuple[str | None, str | None]:
-    """Return (comment_id, body) for the existing artefact-link comment, or (None, None)."""
+    """Return (comment_id, body) for the existing artefact-link comment, or (None, None).
+
+    Raises _CommentReadError on retrieval failure so callers skip the write
+    and avoid duplicating marker comments after transient errors.
+    """
     marker = ARTIFACT_LINK_MARKER.format(key=key)
     try:
         comments = client.get_issue_comments(key)
-    except RuntimeError:
-        return None, None
+    except RuntimeError as exc:
+        raise _CommentReadError(str(exc)) from exc
     for comment in comments:
         body = comment.get("body", "")
         # REST API v3 returns ADF body; plain-text body in v2 and FakeClient
@@ -113,7 +129,17 @@ def upsert_artifact_links(client: "JiraClient",  # type: ignore[name-defined]
         return
 
     body = build_artifact_links(ticket, cfg)
-    comment_id, _ = _find_link_comment(client, key)
+    try:
+        comment_id, _ = _find_link_comment(client, key)
+    except _CommentReadError as exc:
+        # Cannot determine if marker comment already exists — skip write to
+        # prevent duplicate comments. Caller receives a non-fatal warning.
+        import sys as _sys
+        _sys.stderr.write(
+            f"[jira] artefact link upsert skipped for {key}: "
+            f"could not list comments ({exc})\n"
+        )
+        return
 
     if comment_id is not None:
         client.update_comment(key, comment_id, body)
