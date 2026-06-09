@@ -69,32 +69,8 @@
       "path": ".klc/knowledge/"
     },
     {
-      "name": "jira_sync",
-      "path": "core/skills/jira_sync"
-    },
-    {
-      "name": "lifecycle",
-      "path": "core/skills/lifecycle"
-    },
-    {
-      "name": "jira_config",
-      "path": "core/skills/jira_config"
-    },
-    {
-      "name": "jira_client",
-      "path": "core/skills/jira_client"
-    },
-    {
-      "name": "jira_artifacts",
-      "path": "core/skills/jira_artifacts"
-    },
-    {
-      "name": "jira",
-      "path": "core/phases/jira"
-    },
-    {
-      "name": "doctor",
-      "path": "core/phases/doctor"
+      "name": "detect_languages",
+      "path": "core/skills/detect_languages"
     },
     {
       "name": "index",
