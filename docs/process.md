@@ -387,10 +387,12 @@ Two layers of Jira integration are available:
 ### `klc jira` — integration commands (KLC-020+)
 
 ```bash
-klc jira status <KEY>               # read-only: klc phase vs Jira status
-klc jira sync <KEY> --dry-run       # show what links would be added/updated
-klc jira sync <KEY> --apply         # upsert GitLab artefact links in Jira
-klc jira reconcile <KEY> push       # push klc phase to Jira explicitly
+klc jira status <KEY>                           # read-only: klc phase vs Jira status
+klc jira sync <KEY> --dry-run                   # show what links would be added/updated
+klc jira sync <KEY> --apply                     # upsert GitLab artefact links in Jira
+klc jira reconcile <KEY> push                   # push klc phase to Jira explicitly
+klc jira reconcile <KEY> pull --to <phase>      # move klc to match Jira (KLC-022)
+klc jira reconcile <KEY> force-pull --to <phase> --reason "..." # skip missing inputs
 ```
 
 #### Managed mode (KLC-021+)
@@ -433,6 +435,35 @@ Unresolved conflicts appear in `klc doctor` as `WARN jira-sync-conflicts`
 `klc jira reconcile push` finds a direct Jira transition to the target status.
 If no direct transition exists, it records a `transition-blocked` conflict and
 shows the manual action required — it never moves klc backward.
+
+#### pull / force-pull — Jira→klc (KLC-022)
+
+`klc jira reconcile <KEY> pull --to <phase>` moves klc to match the current
+Jira status. `--to` must be in `jira_to_klc[current_jira_status]`; direction
+is auto-detected by phase index in track.
+
+**Forward pull** (`--to` later in track): walks phase-by-phase.
+- Phases with `condition=False` are auto-skipped (recorded as `event=skipped`).
+- Phases with required inputs missing: **STOP** — output shows `SKIPPED
+  (condition)` vs `MISSING <file>` clearly. Use `force-pull` to proceed.
+
+**Backward pull** (`--to` earlier = rework): supersedes downstream artefacts.
+Requires TTY confirmation; aborts in non-TTY (use `force-pull` + `--reason`).
+
+**force-pull**: `klc jira reconcile <KEY> force-pull --to <phase> --reason "..."`.
+`--reason` is required. Writes a `jira-force-pull` phase_history event:
+```json
+{"event": "jira-force-pull", "note": "<reason>", "jira_status": "...",
+ "target_phase": "...", "missing_artifacts": [...], "skipped_phases": [...]}
+```
+These events accumulate as a retro-audit trail.
+
+**Inline rework fork** (managed mode): when `ack/next` detects PM moved Jira
+backward, the conflict prompt auto-offers pull candidates from `jira_to_klc` as
+option 1, with TTY confirmation before superseding.
+
+**Safety rule**: `jira-pull` events suppress the klc→Jira push hook — a
+pull never triggers a circular push back to Jira.
 
 `klc jira status` is **read-only** — no prompts, no state changes. Exits 1
 on mismatch.

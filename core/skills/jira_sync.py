@@ -768,3 +768,186 @@ def _update_jira_sync_meta(ticket: str, jira_status: str,
                               encoding="utf-8")
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# KLC-022: pull() — jira→klc state movement
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass as _dc, field as _field  # noqa: E402
+
+
+@_dc
+class PullResult:
+    ok: bool
+    action: str
+    detail: str
+    skipped_phases: list[str] = _field(default_factory=list)
+    missing_artifacts: list[str] = _field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "ok": self.ok,
+            "action": self.action,
+            "detail": self.detail,
+            "skipped_phases": self.skipped_phases,
+            "missing_artifacts": self.missing_artifacts,
+        }
+
+
+def pull(ticket: str, target_phase: str,
+         force: bool = False, reason: str | None = None) -> dict:
+    """Public entry point: jira→klc state movement. Never raises."""
+    try:
+        from jira_config import load as _load_cfg
+        from jira_client import make_client
+        cfg = _load_cfg()
+        if not cfg.enabled:
+            return PullResult(False, "disabled",
+                              "Jira integration not enabled").as_dict()
+        client = make_client(cfg)
+        return _pull_impl(ticket, target_phase, force, reason, client, cfg)
+    except Exception as exc:
+        return PullResult(False, "error", str(exc)).as_dict()
+
+
+def _pull_impl(ticket: str, target_phase: str,
+               force: bool, reason: str | None,
+               client: Any, cfg: Any) -> dict:
+    """Internal pull implementation with injectable client."""
+    from core.shared.paths import klc_ticket_meta_file, klc_ticket_dir
+    import phases as _ph
+    import lifecycle as _lc
+
+    meta_path = klc_ticket_meta_file(ticket)
+    if not meta_path.exists():
+        return PullResult(False, "error",
+                          f"ticket {ticket!r} not found").as_dict()
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    track = meta.get("track") or "M"
+
+    # Read current Jira status
+    try:
+        issue = client.get_issue(ticket)
+        jira_status = ((issue.get("fields") or {}).get("status") or {}).get("name")
+    except RuntimeError as exc:
+        return PullResult(False, "error",
+                          f"Jira unreachable: {exc}").as_dict()
+
+    # Validate target ∈ jira_to_klc[jira_status]
+    candidates: list[str] = (cfg.jira_to_klc or {}).get(jira_status) or []
+    if target_phase not in candidates:
+        return PullResult(
+            False, "invalid-target",
+            f"{target_phase!r} is not a valid target for Jira status "
+            f"{jira_status!r}. Valid candidates: {candidates}"
+        ).as_dict()
+
+    # Validate target applies to track
+    ph = _ph.load_phases()
+    track_ids = [p.id for p in ph.track_phases(track)]
+    if target_phase not in track_ids:
+        return PullResult(
+            False, "invalid-target",
+            f"{target_phase!r} does not apply to track {track!r}"
+        ).as_dict()
+
+    # Detect direction by phase index
+    current_full = meta.get("phase", "")
+    current_id = current_full.split(":")[0] if ":" in current_full else current_full
+    try:
+        cur_idx = track_ids.index(current_id)
+        tgt_idx = track_ids.index(target_phase)
+    except ValueError:
+        return PullResult(False, "error",
+                          "Could not determine phase index").as_dict()
+
+    if cur_idx == tgt_idx:
+        return PullResult(True, "noop", "Already at target phase").as_dict()
+
+    if tgt_idx > cur_idx:
+        return _forward_pull(ticket, target_phase, tgt_idx, cur_idx,
+                             track_ids, jira_status, force, reason, meta, ph, cfg)
+    else:
+        return _backward_pull(ticket, target_phase, cur_idx, tgt_idx,
+                              track_ids, jira_status, reason, meta)
+
+
+def _forward_pull(ticket: str, target_phase: str,
+                  tgt_idx: int, cur_idx: int,
+                  track_ids: list[str], jira_status: str,
+                  force: bool, reason: str | None,
+                  meta: dict, ph: Any, cfg: Any) -> dict:
+    """Walk forward from current toward target, respecting conditional skips."""
+    from core.shared.paths import klc_ticket_dir
+    import lifecycle as _lc
+
+    ticket_dir = klc_ticket_dir(ticket)
+    skipped: list[str] = []
+    missing: list[str] = []
+
+    # Walk phases between current (exclusive) and target (inclusive)
+    for phase_id in track_ids[cur_idx + 1: tgt_idx + 1]:
+        try:
+            phase = ph.by_id(phase_id)
+        except KeyError:
+            continue
+
+        # Conditional skip — record structured event in phase_history (AC-3)
+        if not phase.should_run(meta):
+            skipped.append(phase_id)
+            _lc._record_skipped(ticket, phase_id,
+                                phase.condition or "condition not met")
+            continue
+
+        # Check required inputs
+        absent = [inp for inp in (phase.inputs or [])
+                  if not (ticket_dir / inp).exists()]
+        if absent:
+            missing.extend(absent)
+
+    if missing and not force:
+        return PullResult(
+            False, "stopped",
+            f"Cannot pull to {target_phase!r}: missing artefacts block the path. "
+            f"Use force-pull to skip.",
+            skipped_phases=skipped,
+            missing_artifacts=missing,
+        ).as_dict()
+
+    _lc.jira_pull(ticket, target_phase,
+                  jira_status=jira_status,
+                  force=force,
+                  reason=reason,
+                  missing_artifacts=missing,
+                  skipped_phases=skipped)
+    return PullResult(
+        True, "pulled",
+        f"klc moved to {target_phase}:work",
+        skipped_phases=skipped,
+        missing_artifacts=missing,
+    ).as_dict()
+
+
+def _backward_pull(ticket: str, target_phase: str,
+                   cur_idx: int, tgt_idx: int,
+                   track_ids: list[str], jira_status: str,
+                   reason: str | None, meta: dict) -> dict:
+    """Supersede downstream artefacts and move klc backward."""
+    import lifecycle as _lc
+
+    # Phases AFTER target through current are superseded.
+    # The target phase itself is not superseded — it's where klc lands.
+    phases_to_supersede = track_ids[tgt_idx + 1: cur_idx + 1]
+    _lc.supersede_phases(ticket, phases_to_supersede)
+    _lc.jira_pull(ticket, target_phase,
+                  jira_status=jira_status,
+                  force=False,
+                  reason=reason,
+                  skipped_phases=[])
+    return PullResult(
+        True, "pulled",
+        f"klc moved back to {target_phase}:work "
+        f"(superseded: {phases_to_supersede})",
+        skipped_phases=[],
+    ).as_dict()

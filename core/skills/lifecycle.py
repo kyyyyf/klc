@@ -130,6 +130,12 @@ def _jira_push_after_state(ticket: str, phase: str, *, source: str) -> None:
     """
     # D-001: managed prompts only at ack/next decision points.
     # abort and jump are internal operations — mirror-push only.
+    # jira-pull / jira-force-pull are Jira→klc moves: suppress ALL Jira push
+    # to avoid circular klc→Jira push triggered by an incoming pull.
+    _NO_PUSH_SOURCES = {"jira-pull", "jira-force-pull"}
+    if source in _NO_PUSH_SOURCES:
+        return
+
     _MANAGED_SOURCES = {"ack", "advance", "set_state"}
 
     try:
@@ -218,36 +224,113 @@ def _prompt_klc_moved(ticket: str, plan: "SyncPlan",  # type: ignore[name-define
 
 def _prompt_conflict(ticket: str, plan: "SyncPlan",  # type: ignore[name-defined]
                       client: Any, cfg: Any) -> None:
-    """Prompt: Jira changed externally — three options."""
+    """Prompt: Jira changed externally — three options.
+
+    AC-7 (KLC-022): when Jira moved BACKWARD (rework signal), option 1 becomes
+    pull klc→target from jira_to_klc candidates instead of push Jira back.
+    """
     from jira_sync import push_to_jira, _record_conflict_in_meta, _now
-    sys.stderr.write(
-        f"\n[jira] CONFLICT: {ticket} Jira changed from "
-        f"{plan.last_jira_status!r} → {plan.jira_status!r} outside klc.\n"
-        f"  klc is at {plan.klc_phase!r}, wants Jira at {plan.target_status!r}.\n"
-        f"  1) Push Jira back → {plan.target_status!r}  (klc wins)\n"
-        f"  2) Keep Jira at {plan.jira_status!r}, record divergence\n"
-        f"  3) Skip — write [!CONFLICT] to meta, show in doctor\n"
-        f"  [1/2/3, default=3]: "
-    )
+    import phases as _ph
+
+    # Detect backward direction: Jira status maps to phases earlier than current
+    is_backward = False
+    pull_candidates: list[str] = []
+    if plan.jira_status:
+        candidates = (cfg.jira_to_klc or {}).get(plan.jira_status, [])
+        if candidates:
+            try:
+                meta = read_meta(ticket)
+                track = meta.get("track") or "M"
+                track_ids = [p.id for p in _ph.load_phases().track_phases(track)]
+                cur_id = (plan.klc_phase.split(":")[0]
+                          if ":" in plan.klc_phase else plan.klc_phase)
+                cur_idx = track_ids.index(cur_id) if cur_id in track_ids else -1
+                pull_candidates = [c for c in candidates
+                                   if c in track_ids
+                                   and track_ids.index(c) < cur_idx]
+                is_backward = bool(pull_candidates)
+            except Exception:
+                pass
+
+    if is_backward:
+        candidates_str = ", ".join(pull_candidates)
+        sys.stderr.write(
+            f"\n[jira] CONFLICT: {ticket} Jira moved to {plan.jira_status!r} "
+            f"(possible rework signal).\n"
+            f"  klc is at {plan.klc_phase!r}.\n"
+            f"  1) Accept rework: pull klc → one of [{candidates_str}]\n"
+            f"  2) Reject: push Jira back → {plan.target_status!r}  (klc wins)\n"
+            f"  3) Skip — write [!CONFLICT] to meta, show in doctor\n"
+            f"  [1/2/3, default=3]: "
+        )
+    else:
+        sys.stderr.write(
+            f"\n[jira] CONFLICT: {ticket} Jira changed from "
+            f"{plan.last_jira_status!r} → {plan.jira_status!r} outside klc.\n"
+            f"  klc is at {plan.klc_phase!r}, wants Jira at {plan.target_status!r}.\n"
+            f"  1) Push Jira back → {plan.target_status!r}  (klc wins)\n"
+            f"  2) Keep Jira at {plan.jira_status!r}, record divergence\n"
+            f"  3) Skip — write [!CONFLICT] to meta, show in doctor\n"
+            f"  [1/2/3, default=3]: "
+        )
+
     try:
         choice = input().strip() or "3"
     except EOFError:
         choice = "3"
 
     if choice == "1":
-        result = push_to_jira(ticket, client, cfg)
-        if result["ok"]:
-            sys.stderr.write(f"[jira] {result['detail']}\n")
+        if is_backward and pull_candidates:
+            # Ask which candidate to pull to
+            if len(pull_candidates) == 1:
+                target = pull_candidates[0]
+            else:
+                sys.stderr.write(
+                    f"  Choose target phase: {pull_candidates}\n  Phase name: "
+                )
+                try:
+                    target = input().strip()
+                except EOFError:
+                    target = pull_candidates[0]
+            sys.stderr.write(
+                f"  This will supersede artefacts from {target!r} onward. Confirm? [y/N]: "
+            )
+            try:
+                confirm = input().strip().lower()
+            except EOFError:
+                confirm = "n"
+            if confirm == "y":
+                from jira_sync import pull as _jira_pull
+                result = _jira_pull(ticket, target,
+                                    reason=f"rework: Jira moved to {plan.jira_status!r}")
+                if result["ok"]:
+                    sys.stderr.write(f"[jira] {result['detail']}\n")
+                else:
+                    sys.stderr.write(f"[jira] pull failed: {result['detail']}\n")
+            else:
+                sys.stderr.write("[jira] Pull cancelled.\n")
         else:
-            sys.stderr.write(f"[jira] push failed: {result['detail']}\n")
+            result = push_to_jira(ticket, client, cfg)
+            if result["ok"]:
+                sys.stderr.write(f"[jira] {result['detail']}\n")
+            else:
+                sys.stderr.write(f"[jira] push failed: {result['detail']}\n")
     elif choice == "2":
-        _record_conflict_in_meta(ticket, {
-            "type": "jira-moved-externally",
-            "detail": plan.conflicts[0]["detail"] if plan.conflicts else "divergence",
-            "detected_at": _now(),
-            "suggested": f"klc jira reconcile {ticket} push",
-        })
-        sys.stderr.write(f"[jira] Divergence recorded in meta.jira_sync.conflicts\n")
+        if is_backward:
+            # "2" = reject, push Jira back
+            result = push_to_jira(ticket, client, cfg)
+            if result["ok"]:
+                sys.stderr.write(f"[jira] {result['detail']}\n")
+            else:
+                sys.stderr.write(f"[jira] push failed: {result['detail']}\n")
+        else:
+            _record_conflict_in_meta(ticket, {
+                "type": "jira-moved-externally",
+                "detail": plan.conflicts[0]["detail"] if plan.conflicts else "divergence",
+                "detected_at": _now(),
+                "suggested": f"klc jira reconcile {ticket} push",
+            })
+            sys.stderr.write("[jira] Divergence recorded in meta.jira_sync.conflicts\n")
     else:
         _record_conflict_in_meta(ticket, {
             "type": "jira-moved-externally",
@@ -256,7 +339,7 @@ def _prompt_conflict(ticket: str, plan: "SyncPlan",  # type: ignore[name-defined
             "suggested": f"klc jira reconcile {ticket} push",
         })
         sys.stderr.write(
-            f"[jira] [!CONFLICT] recorded. Run `klc doctor` to see conflicts.\n"
+            "[jira] [!CONFLICT] recorded. Run `klc doctor` to see conflicts.\n"
         )
 
 
@@ -298,6 +381,32 @@ def set_state(ticket: str, phase_id: str, state: str, *,
         _jira_push_after_state(ticket, new, source=event)
     except Exception as _e:
         sys.stderr.write(f"[jira-sync] non-fatal: {_e}\n")
+
+
+def jira_pull(ticket: str, target_phase: str, *,
+              jira_status: str,
+              force: bool = False,
+              reason: str | None = None,
+              missing_artifacts: list[str] | None = None,
+              skipped_phases: list[str] | None = None) -> str:
+    """Move klc to target_phase with Jira provenance.
+
+    Uses a dedicated event type (jira-pull / jira-force-pull) so the move
+    is auditable and distinguishable from normal ack/jump operations.
+    Does NOT route through the normal ack/picks path.
+    Returns the new full phase:state string.
+    """
+    event = "jira-force-pull" if force else "jira-pull"
+    extra: dict = {
+        "jira_status": jira_status,
+        "target_phase": target_phase,
+        "missing_artifacts": missing_artifacts or [],
+        "skipped_phases": skipped_phases or [],
+    }
+    if reason:
+        extra["note"] = reason
+    set_state(ticket, target_phase, _ph.STATE_WORK, event=event, extra=extra)
+    return _ph.format_state(target_phase, _ph.STATE_WORK)
 
 
 # --- superseding downstream artefacts ----------------------------------------

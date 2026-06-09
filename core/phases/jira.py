@@ -158,7 +158,15 @@ def cmd_reconcile(argv: list[str]) -> int:
     ap.add_argument("key", help="Ticket key")
     sub = ap.add_subparsers(dest="action", required=True)
     sub.add_parser("push", help="Push klc phase to Jira")
-    # pull and force-pull are KLC-022
+    p_pull = sub.add_parser("pull", help="Move klc to match Jira status")
+    p_pull.add_argument("--to", required=True, dest="to_phase",
+                        help="Target klc phase")
+    p_fp = sub.add_parser("force-pull",
+                           help="Move klc ignoring missing artefacts")
+    p_fp.add_argument("--to", required=True, dest="to_phase",
+                      help="Target klc phase")
+    p_fp.add_argument("--reason", required=True,
+                      help="Required: reason for skipping artefact checks (written to audit log)")
     args = ap.parse_args(argv)
 
     cfg = _load_config()
@@ -169,8 +177,92 @@ def cmd_reconcile(argv: list[str]) -> int:
     if args.action == "push":
         return _reconcile_push(args.key, cfg)
 
+    if args.action == "pull":
+        return _reconcile_pull(args.key, args.to_phase, force=False)
+
+    if args.action == "force-pull":
+        return _reconcile_pull(args.key, args.to_phase,
+                               force=True, reason=args.reason)
+
     sys.stderr.write(f"klc jira reconcile: unknown action {args.action!r}\n")
     return 2
+
+
+def _reconcile_pull(key: str, to_phase: str,
+                    force: bool = False, reason: str = "") -> int:
+    """Pull klc state to match Jira status."""
+    if not klc_ticket_meta_file(key).exists():
+        sys.stderr.write(f"klc jira: unknown ticket {key!r}\n")
+        return 1
+
+    # Determine direction BEFORE calling pull, so we can gate on TTY.
+    import phases as _ph_mod
+    import lifecycle as _lc_mod
+    _is_backward = False
+    try:
+        meta_check = _lc_mod.read_meta(key)
+        track_check = meta_check.get("track") or "M"
+        ph_check = _ph_mod.load_phases()
+        track_ids_check = [p.id for p in ph_check.track_phases(track_check)]
+        cur_id = (meta_check.get("phase", "").split(":")[0]
+                  if ":" in meta_check.get("phase", "") else meta_check.get("phase", ""))
+        if cur_id in track_ids_check and to_phase in track_ids_check:
+            _is_backward = track_ids_check.index(to_phase) < track_ids_check.index(cur_id)
+    except Exception:
+        pass
+
+    # Backward (non-force) pull requires TTY confirmation — it supersedes artefacts.
+    if _is_backward and not force:
+        if not sys.stdin.isatty():
+            sys.stderr.write(
+                f"klc jira: backward pull (to {to_phase!r}) supersedes downstream "
+                f"artefacts and requires interactive confirmation. "
+                f"Run this command in a TTY, or use force-pull with --reason.\n"
+            )
+            return 1
+        sys.stderr.write(
+            f"[jira] Backward pull to {to_phase!r} will supersede downstream "
+            f"artefacts. Continue? [y/N]: "
+        )
+        try:
+            confirm = input().strip().lower()
+        except EOFError:
+            confirm = "n"
+        if confirm != "y":
+            sys.stderr.write("[jira] Pull cancelled.\n")
+            return 1
+
+    try:
+        import jira_sync as _js
+        result = _js.pull(key, to_phase,
+                          force=force,
+                          reason=reason or None)
+    except Exception as exc:
+        sys.stderr.write(f"klc jira: pull failed — {exc}\n")
+        return 1
+
+    if result["ok"]:
+        print(f"klc {key}: {result['detail']}")
+        if result.get("skipped_phases"):
+            print(f"  Skipped (condition): {result['skipped_phases']}")
+        if result.get("missing_artifacts") and force:
+            print(f"  Missing (force-skipped): {result['missing_artifacts']}")
+        return 0
+    elif result["action"] == "noop":
+        print(f"Already at target. {result['detail']}")
+        return 0
+    elif result["action"] == "stopped":
+        sys.stderr.write(f"klc jira: {result['detail']}\n")
+        if result.get("skipped_phases"):
+            print(f"  Skipped (condition, fine): {result['skipped_phases']}")
+        if result.get("missing_artifacts"):
+            print(f"  MISSING artefacts (blocking): {result['missing_artifacts']}")
+            print(f"  Use `klc jira reconcile {key} force-pull --to {to_phase}"
+                  f" --reason \"...\"` to proceed anyway.")
+        return 1
+    else:
+        sys.stderr.write(f"klc jira: {result['detail']}\n")
+        return 1
 
 
 def _reconcile_push(key: str, cfg) -> int:

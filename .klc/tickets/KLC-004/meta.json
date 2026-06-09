@@ -2,17 +2,47 @@
   "ticket": "KLC-004",
   "kind": "feature",
   "kind_source": "user",
-  "phase": "intake:ack-needed",
+  "phase": "discovery:ack-needed",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
-      "started_at": "2026-05-28T10:48:56Z"
+      "started_at": "2026-05-28T10:48:56Z",
+      "finished_at": "2026-06-04T12:50:57Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-06-04T12:50:57Z",
+      "event": "ack",
+      "note": "pick=1:confirm",
+      "finished_at": "2026-06-04T12:50:57Z"
+    },
+    {
+      "phase": "discovery:work",
+      "started_at": "2026-06-04T12:50:57Z",
+      "event": "advance",
+      "note": "ack:confirm",
+      "finished_at": "2026-06-04T12:53:50Z"
+    },
+    {
+      "phase": "discovery:ack-needed",
+      "started_at": "2026-06-04T12:53:50Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py"
     }
   ],
-  "track": null,
-  "estimate": null,
-  "layer": null,
-  "affected_modules": [],
+  "track": "S",
+  "estimate": {
+    "complexity": 2,
+    "uncertainty": 1,
+    "risk": 0,
+    "manual": 1,
+    "total": 4
+  },
+  "layer": "code",
+  "affected_modules": [
+    "callgraph_cpp"
+  ],
+  "risk_tags": [],
   "created": "2026-05-28T10:48:56Z",
   "owner": "developer@example.com",
   "jira_url": null,

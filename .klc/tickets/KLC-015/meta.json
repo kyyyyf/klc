@@ -2,11 +2,60 @@
   "ticket": "KLC-015",
   "kind": "feature",
   "kind_source": "user",
-  "phase": "intake:ack-needed",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
-      "started_at": "2026-05-29T13:08:18Z"
+      "started_at": "2026-05-29T13:08:18Z",
+      "finished_at": "2026-06-05T07:54:17Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-06-05T07:54:17Z",
+      "event": "ack",
+      "note": "pick=1:confirm-route",
+      "finished_at": "2026-06-05T07:54:17Z"
+    },
+    {
+      "phase": "discovery:work",
+      "started_at": "2026-06-05T07:54:17Z",
+      "event": "advance",
+      "note": "ack:confirm-route",
+      "finished_at": "2026-06-05T08:00:29Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-06-05T08:00:29Z",
+      "event": "abort",
+      "note": "from=discovery:work",
+      "finished_at": "2026-06-05T08:00:29Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-06-05T08:00:29Z",
+      "event": "jump",
+      "note": "from=intake:ack",
+      "finished_at": "2026-06-05T08:00:29Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-06-05T08:00:29Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-05T08:00:30Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-06-05T08:00:30Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-06-05T08:00:30Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-06-05T08:00:30Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": null,
@@ -20,5 +69,14 @@
   "rework_count": {},
   "metrics": {
     "intake_ms": 22
-  }
+  },
+  "superseded": [
+    {
+      "at": "2026-06-05T08:00:29Z",
+      "phases": [
+        "discovery"
+      ],
+      "dir": "_superseded/20260605T080029Z"
+    }
+  ]
 }

@@ -59,6 +59,7 @@ KNOWN_SCHEMAS = {
     "jira.yml": {
         "enabled",          # integration on/off
         "mode",             # mirror | managed
+        "managed_tickets",  # optional list of ticket keys for managed mode
         "site",             # Jira site connection
         "gitlab",           # GitLab source link config
         "status_mapping",   # klc_to_jira + jira_to_klc

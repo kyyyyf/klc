@@ -2,7 +2,7 @@
   "ticket": "KLC-02",
   "kind": "bug",
   "kind_source": "user",
-  "phase": "xs-build:work",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -41,7 +41,42 @@
       "phase": "xs-build:work",
       "started_at": "2026-05-28T09:13:37Z",
       "event": "advance",
-      "note": "ack:approve"
+      "note": "ack:approve",
+      "finished_at": "2026-06-05T07:52:32Z"
+    },
+    {
+      "phase": "discovery-lite:ack",
+      "started_at": "2026-06-05T07:52:32Z",
+      "event": "abort",
+      "note": "from=xs-build:work",
+      "finished_at": "2026-06-05T07:53:02Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-06-05T07:53:02Z",
+      "event": "jump",
+      "note": "from=discovery-lite:ack",
+      "finished_at": "2026-06-05T07:53:13Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-06-05T07:53:13Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-05T07:53:13Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-06-05T07:53:13Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-06-05T07:53:13Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-06-05T07:53:13Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": "XS",
@@ -63,5 +98,14 @@
   "rework_count": {},
   "metrics": {
     "intake_ms": 28
-  }
+  },
+  "superseded": [
+    {
+      "at": "2026-06-05T07:52:32Z",
+      "phases": [
+        "xs-build"
+      ],
+      "dir": "_superseded/20260605T075232Z"
+    }
+  ]
 }
