@@ -246,6 +246,39 @@ def _project_tools() -> list[str]:
     return errs
 
 
+@check("jira-sync-conflicts")
+def _jira_sync_conflicts() -> list[str]:
+    """Scan live tickets for unresolved meta.jira_sync.conflicts.
+
+    Warn-only by default (same as project-tools) — won't fail doctor
+    unless --strict is passed. Managed-mode conflicts accumulate here.
+    """
+    errs: list[str] = []
+    try:
+        from _paths import klc_tickets_dir
+        import json as _json
+        tickets_dir = klc_tickets_dir()
+        if not tickets_dir.exists():
+            return []
+        for meta_file in sorted(tickets_dir.glob("*/meta.json")):
+            try:
+                meta = _json.loads(meta_file.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            jira_sync = meta.get("jira_sync") or {}
+            conflicts = jira_sync.get("conflicts") or []
+            if conflicts:
+                ticket = meta.get("ticket", meta_file.parent.name)
+                for c in conflicts:
+                    errs.append(
+                        f"{ticket}: {c.get('type','unknown')} — {c.get('detail','')}"
+                        + (f" [{c.get('suggested','')}]" if c.get("suggested") else "")
+                    )
+    except Exception as exc:
+        errs.append(f"jira-sync-conflicts check failed: {exc}")
+    return errs
+
+
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc doctor")
     ap.add_argument("--json", action="store_true",
@@ -260,11 +293,10 @@ def run(argv: list[str]) -> int:
         errs = fn()
         ok = not errs
 
-        # Special handling for project-tools check with --strict flag
-        if name == "project-tools" and not args.strict:
-            # Without --strict, project-tools errors are warnings (don't fail doctor)
+        # Warn-only checks: don't fail doctor without --strict
+        _WARN_ONLY = {"project-tools", "jira-sync-conflicts"}
+        if name in _WARN_ONLY and not args.strict:
             if errs:
-                # Print warnings but don't fail overall_ok
                 results.append({"check": name, "ok": True, "errors": errs, "warn": True})
             else:
                 results.append({"check": name, "ok": True, "errors": []})
