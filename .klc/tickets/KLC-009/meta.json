@@ -2,7 +2,7 @@
   "ticket": "KLC-009",
   "kind": "tech",
   "kind_source": "user",
-  "phase": "integrate:work",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -167,7 +167,42 @@
       "phase": "integrate:work",
       "started_at": "2026-05-28T14:43:24Z",
       "event": "advance",
-      "note": "ack:passed"
+      "note": "ack:passed",
+      "finished_at": "2026-06-05T07:52:33Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-06-05T07:52:33Z",
+      "event": "abort",
+      "note": "from=integrate:work",
+      "finished_at": "2026-06-05T07:53:03Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-06-05T07:53:03Z",
+      "event": "jump",
+      "note": "from=manual:ack",
+      "finished_at": "2026-06-05T07:53:13Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-06-05T07:53:13Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-05T07:53:14Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-06-05T07:53:14Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-06-05T07:53:14Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-06-05T07:53:14Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": "M",
@@ -188,5 +223,14 @@
   "metrics": {
     "intake_ms": 31
   },
-  "design_choice": "option-A-minimal"
+  "design_choice": "option-A-minimal",
+  "superseded": [
+    {
+      "at": "2026-06-05T07:52:33Z",
+      "phases": [
+        "integrate"
+      ],
+      "dir": "_superseded/20260605T075233Z"
+    }
+  ]
 }

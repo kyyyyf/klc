@@ -1,7 +1,5 @@
 # Agent prompt — KLC-008 · learn:work
 
-Ticket: **KLC-008** · track: **S** · kind: **tech**
-
 You are working in phase **learn**. Read the role prompt below,
 then produce the outputs listed at the bottom. When you claim the
 work is done, the human runs `klc ack KLC-008` (with `--pick N` if
@@ -10,6 +8,8 @@ required) to confirm.
 ## Role prompt
 
 # Retrospective Agent
+
+> **Human context**: See [docs/phases/learn.md](../../docs/phases/learn.md) for learn phase overview and retrospective structure.
 
 ## Role
 Read every artefact of a finished ticket + its metrics, draft a
