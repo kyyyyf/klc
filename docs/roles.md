@@ -29,6 +29,7 @@ This document describes the roles involved in the klc ticket lifecycle and what 
 - Emit completion signals when phase work is done
 
 **Key activities**:
+- Intake (optional): cheap triage of short, low-confidence tickets — provisional track + enrichment hints (no spec.md). Intake routing itself is deterministic (no LLM).
 - Discovery: Write spec.md from raw.md
 - Acceptance-test-plan: Write test-plan.md covering all ACs
 - Design (M/L): Generate design options, write ADR

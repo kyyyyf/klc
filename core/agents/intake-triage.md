@@ -37,10 +37,10 @@ confirm a mentioned symbol/module exists if it changes your call.
    concrete missing facts. Append them (do not invent answers) to `raw.md`:
 
    ```
-   <!-- BEGIN: intake-triage-notes -->
+   <!-- BEGIN: intake-notes -->
    - provisional_track: M (was S) — reason: cross-cutting UI change
    - missing: which components? dark theme too? where are tokens validated?
-   <!-- END: intake-triage-notes -->
+   <!-- END: intake-notes -->
    ```
 
 5. **Update meta.json**: set `triage.provisional_track`, `triage.hidden_scope_risk`
