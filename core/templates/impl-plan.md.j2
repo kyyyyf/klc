@@ -11,7 +11,15 @@ Chosen option: **{{ chosen_option }}**
 {% for step in steps %}
 ## step-{{ loop.index }} — {{ step.title }}
 
-{{ step.description }}
+**Goal**: {{ step.goal or step.description }}
+
+**RED**: {{ step.red or "behaviour-changing steps require a failing test before code" }}
+
+**GREEN**: {{ step.green or "smallest code change to pass RED" }}
+
+**VERIFY**: `{{ step.verify or "see test-plan.md" }}`
+
+**COMMIT**: `{{ ticket }} step-{{ loop.index }}: {{ step.commit_subject or step.title }}`
 
 **Affected files**:
 {% for f in step.files %}
@@ -23,7 +31,9 @@ Chosen option: **{{ chosen_option }}**
 - `{{ t }}`
 {% endfor %}
 
+**Depends on**: {{ step.depends_on or "none" }}
 {% if step.rollback %}
+
 **Rollback**: {{ step.rollback }}
 {% endif %}
 

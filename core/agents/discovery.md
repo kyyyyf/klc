@@ -36,6 +36,31 @@ Reachable on demand but expensive:
 - `.klc/tickets/archive/<KEY>/retrospective.md` — lessons from past
   tickets you deem relevant. Read only those 40-related.md flagged.
 
+## Model handoff guard
+
+This is a heavy-reasoning phase — it must run on the Opus-tier model.
+
+1. Read `.klc/tickets/<KEY>/meta.json` → `track`.
+2. Read `.klc/config/models.yml` if present, else `config/models.yml`.
+3. Resolve role in order: `per_track.<track>.<phase>` → `phase_roles.<phase>`
+   → `defaults`. Map role → `provider:model` via `roles`.
+4. Detect the host model when possible (`KLC_MODEL_*` env, the Claude Code
+   model indicator, this card's metadata).
+
+- Model **detectable & mismatched** → **stop before modifying files**:
+  ```text
+  MODEL_SWITCH_REQUIRED <KEY> phase=<phase-id> track=<track> required_role=<role> required_model=<provider:model> current_model=<provider:model>
+  ```
+  Wait for the operator to switch and re-run this prompt.
+- Model **not detectable** (e.g. Codex CLI) → print the required model
+  once and ask the operator to confirm this session already uses it
+  before continuing:
+  ```text
+  This phase expects <provider:model> (Opus-tier). Confirm this session is on it? [y/N]
+  ```
+- Unattended runner (`RUN_LOCAL_SUBAGENTS=1`) → do **not** ask; trust
+  `KLC_MODEL_*` (the runner already picked the model from `models.yml`).
+
 ## Steps
 
 ### 1. Read inputs & compose context
