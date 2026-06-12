@@ -25,7 +25,7 @@ phase reads them all and computes derived values.
 | Phase | Metric | Type | Source / writer |
 |-------|--------|------|-----------------|
 | 0 | `intake_ms` | int | `intake.py` timer |
-| 0 | `intake_agent_ms` | int | intake-agent |
+| 0 | `intake_agent_ms` | int | intake-triage agent (only when triage runs) |
 | 1 | `discovery_prep_ms` | int | `discover.py` pre-agent bundle |
 | 1 | `discovery_ms` | int | discovery-agent total |
 | 1 | `discovery_tokens` | int | discovery-agent self-report |
@@ -45,6 +45,9 @@ phase reads them all and computes derived values.
 | 5 | `blocking` | int | review report aggregator |
 | 5 | `non_blocking` | int | review report |
 | 5 | `sub_agents_ran` | int | review report |
+| 5 | `review_depth` | `cheap|lite|full` | review report frontmatter |
+| 5 | `full_review_offered` | bool | review report frontmatter |
+| 5 | `full_review_declined` | bool | review report frontmatter |
 | 6 | `manual_minutes` | int | human input to `klc manual` |
 | 6 | `manual_outcome` | `pass|fail` | `klc manual --outcome` |
 | 7 | `integrate_pre_ms` | int | `integrate.py pre` |
@@ -98,11 +101,18 @@ Shape:
       "tickets": 12,
       "cycle_time_sec_median": 240000,
       "cycle_time_sec_p95":    720000,
-      "rework_mean":           0.25
+      "rework_mean":           0.25,
+      "cheap_escape_rate":     0.12
     }
   }
 }
 ```
+
+`cheap_escape_rate` — fraction of cheap/lite-reviewed tickets that later
+had rework or regression. `null` when the track has no cheap/lite reviews.
+A rising rate signals that the cascade is routing too aggressively to cheap
+review for that module set; consider tightening tier classification or
+adding sentinel patterns.
 
 Retrospective agent (phase 9) reads the rollup to flag outliers
 ("this ticket's cycle time is 3× the track median"). If a single

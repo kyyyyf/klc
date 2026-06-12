@@ -47,6 +47,8 @@ class CascadeDecision:
     scope_drift: list[str] = field(default_factory=list)
     scope_expansion: list[str] = field(default_factory=list)
     file_tiers: dict[str, str] = field(default_factory=dict)  # path → tier
+    diff_files: int = 0            # total changed files
+    diff_lines: int = 0            # total added + removed lines
 
     def as_dict(self) -> dict:
         return {
@@ -56,6 +58,8 @@ class CascadeDecision:
             "sentinel_hits":    self.sentinel_hits,
             "scope_drift":      self.scope_drift,
             "scope_expansion":  self.scope_expansion,
+            "diff_files":       self.diff_files,
+            "diff_lines":       self.diff_lines,
         }
 
 
@@ -82,6 +86,20 @@ def _get_sentinel_hits(diff_path: Path) -> int:
 def _get_file_tiers(diff_path: Path) -> dict[str, str]:
     result = _run_skill("classify_tier.py", "--diff", str(diff_path), "--format", "json")
     return {f["path"]: f["tier"] for f in result.get("files", [])}
+
+
+def _count_diff_lines(diff_path: Path) -> int:
+    """Count total added + removed lines in a unified diff."""
+    total = 0
+    try:
+        for line in diff_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("+") and not line.startswith("+++"):
+                total += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                total += 1
+    except Exception:
+        pass
+    return total
 
 
 def _highest_tier(tiers: dict[str, str]) -> str:
@@ -184,9 +202,12 @@ def decide(ticket: str, diff_path: Path) -> CascadeDecision:
         )
 
     # --- peripheral + no drift → cheap review --------------------------------
-    threshold = cascade_cfg.get("peripheral_max_files",
-                                _DEFAULT_PERIPHERAL_MAX_FILES)
+    file_threshold = cascade_cfg.get("peripheral_max_files",
+                                     _DEFAULT_PERIPHERAL_MAX_FILES)
+    line_threshold = cascade_cfg.get("peripheral_max_lines",
+                                     _DEFAULT_PERIPHERAL_MAX_LINES)
     peripheral_count = sum(1 for t in file_tiers.values() if t == "peripheral")
+    total_lines = _count_diff_lines(diff_path)
 
     if drift and not skipped_scope:
         return CascadeDecision(
@@ -195,26 +216,45 @@ def decide(ticket: str, diff_path: Path) -> CascadeDecision:
             tier=top_tier or "peripheral",
             scope_drift=drift,
             file_tiers=file_tiers,
+            diff_files=len(file_tiers),
+            diff_lines=total_lines,
         )
 
-    if file_tiers and peripheral_count > threshold:
+    if file_tiers and peripheral_count > file_threshold:
         return CascadeDecision(
             use_full_review=True,
-            reason=f"too many peripheral files ({peripheral_count} > {threshold})",
+            reason=f"too many peripheral files ({peripheral_count} > {file_threshold})",
             tier="peripheral",
             file_tiers=file_tiers,
+            diff_files=len(file_tiers),
+            diff_lines=total_lines,
+        )
+
+    if total_lines > line_threshold:
+        return CascadeDecision(
+            use_full_review=True,
+            reason=(f"peripheral diff too large ({total_lines} lines > {line_threshold}) "
+                    f"— full review required ({peripheral_count} files, {total_lines} lines)"),
+            tier="peripheral",
+            file_tiers=file_tiers,
+            diff_files=len(file_tiers),
+            diff_lines=total_lines,
         )
 
     return CascadeDecision(
         use_full_review=False,
-        reason="peripheral diff, no sentinels, no scope drift → cheap review",
+        reason=(f"peripheral diff, no sentinels, no scope drift → cheap review "
+                f"({peripheral_count} files, {total_lines} lines)"),
         tier=top_tier or "peripheral",
         scope_drift=drift,
         file_tiers=file_tiers,
+        diff_files=len(file_tiers),
+        diff_lines=total_lines,
     )
 
 
 _DEFAULT_PERIPHERAL_MAX_FILES = 20
+_DEFAULT_PERIPHERAL_MAX_LINES = 500
 
 
 def _load_cascade_config() -> dict:

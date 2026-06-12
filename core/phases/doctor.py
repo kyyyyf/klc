@@ -213,6 +213,29 @@ def _config_validation() -> list[str]:
     return errs
 
 
+@check("external-reviewer-key")
+def _external_reviewer_key() -> list[str]:
+    """Warn when external reviewer is enabled but api_key_env is not set."""
+    errs: list[str] = []
+    try:
+        from _yaml import parse as _yml_parse
+        rv_cfg_path = CONFIG / "reviewers.yml"
+        if not rv_cfg_path.exists():
+            return errs
+        cfg = _yml_parse(rv_cfg_path.read_text(encoding="utf-8")) or {}
+        ext = cfg.get("external_reviewer") or {}
+        if ext.get("enabled"):
+            key_env = ext.get("api_key_env", "")
+            if key_env and not os.environ.get(key_env):
+                errs.append(
+                    f"external_reviewer enabled but ${key_env} is not set — "
+                    "external review will be skipped at runtime"
+                )
+    except Exception as exc:
+        errs.append(f"external-reviewer-key check failed: {exc}")
+    return errs
+
+
 @check("project-tools")
 def _project_tools() -> list[str]:
     """Check project-specific language tools (read from project-deps.json).

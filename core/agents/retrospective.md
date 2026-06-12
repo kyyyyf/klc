@@ -14,6 +14,8 @@ reviewer prompts.
   `test-plan.md`, review reports, manual checklist, scratch archive.
 - `.klc/tickets/<KEY>/meta.json`: track, estimate, phase_history,
   metrics, rework_count.
+- Review report frontmatter: `review_depth` (`cheap` | `lite` | `full`),
+  `full_review_offered`, `full_review_declined`.
 - Output of `metrics.py rollup` — lets you compare this ticket to
   the 30-day median for its track.
 ## Output
@@ -64,6 +66,66 @@ last_generated: <ISO>
 - estimate.total = 6, actual = 8 → drifted by +2.
   reason: <short>.
 ```
+
+## ADR-accept (when applicable)
+
+If the ticket has a `design/adr.md` whose `status: Proposed`, flip it to
+`Accepted` as part of the learn phase:
+
+1. Read `design/adr.md`.
+2. Change `status: Proposed` → `status: Accepted` and append to the status
+   history block: `| Accepted | <ISO> | post-implementation review |`.
+3. Read `review-report.md` and compare ADR consequences vs. actual findings.
+   For any consequence that played out differently, append `[revised]` inline.
+4. Append `## Lessons learned` to `adr.md` with ≤3 bullets from the retro
+   that update the ADR's understanding.
+5. If the project `CLAUDE.md` carries an ADR marker comment
+   (`<!-- ADR-NNN Proposed -->`), update it to `Accepted`.
+
+Do this only when `design/adr.md` exists and is in `Proposed` status.
+Write the updated `adr.md` back to disk (authority: agent).
+
+## Terse retro when clean
+
+If **none** of the failure signals fired (no rework, no regression, no budget
+overrun), write a **short retro** instead of the full template:
+
+```markdown
+---
+ticket: <KEY>
+authority: human
+last_generated: <ISO>
+---
+
+# Retrospective — <KEY>
+
+## Summary
+<2–3 sentences: what the ticket delivered, how the process went>
+
+## Lesson
+- <1 concrete, reusable rule>
+
+## Estimate accuracy
+- estimate.total = N, actual = M → <accuracy%>.
+```
+
+Use the full template only when at least one failure signal is present
+(rework, regression, or budget overrun).
+
+## Cheap-path miss detection
+
+Read the review report's `review_depth` field. If `review_depth` is
+`cheap` or `lite` AND any of the failure signals fired (rework, regression,
+budget overrun), emit a **`cheap-path miss`** finding in the Lessons section:
+
+```
+[!CHEAP_PATH_MISS] review_depth=cheap, rework_count={build:1}
+  — the cheap cascade path may have missed issues that triggered rework.
+  Consider: run full review by default for this ticket's module set, or
+  add sentinel patterns that force full review for similar diffs.
+```
+
+This finding feeds the `cheap_escape_rate` rollup (see `docs/process-metrics.md`).
 
 ## Rules
 
