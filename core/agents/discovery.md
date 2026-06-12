@@ -35,6 +35,11 @@ real, current signature.
 Reachable on demand but expensive:
 - `.klc/tickets/archive/<KEY>/retrospective.md` — lessons from past
   tickets you deem relevant. Read only those 40-related.md flagged.
+- `.klc/index/modules.json` — for each affected module, its
+  `depended_by` (reverse edges) and `depends_on`. Used for the
+  blast-radius input to the estimate (see step 3).
+- `.klc/index/depgraph.json` — `import_graphs.<lang>` when you need
+  file-level edges beyond module granularity.
 
 ## Model handoff guard
 
@@ -131,6 +136,19 @@ See `docs/process.md` §Tracks for the rubric. Scoring 0–3 on four axes:
 - **Uncertainty** — 0=fully specified / 3=needs a spike.
 - **Risk** — 0=no user impact / 3=data or security implications.
 - **Manual** — 0=autotests cover it / 3=full-module regression.
+
+**Blast-radius input (mandatory).** Before scoring, read
+`modules.json` for each affected module and look at its **reverse edges**
+(`depended_by`), not just what it touches. Blast-radius is what *breaks*
+if you change it, and it lives in `depended_by`:
+- a change to a foundational module (large fan-in / many dependents)
+  raises **complexity** and **risk** even if the description sounds small
+  (e.g. "support light theme" touching a `ui-core` that 40 widgets import);
+- if a dependent sits outside the affected set, do not silently absorb it —
+  raise a `[!QUESTION]`.
+If `modules.json` is missing or has no graph for the language, note
+`blast-radius: unavailable (<reason>)` and score conservatively (do not
+assume zero impact).
 
 Mapping:
 - 0–2 → XS
