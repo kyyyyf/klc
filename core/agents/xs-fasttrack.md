@@ -24,6 +24,18 @@ right place in the code, write the fix plus at least one test, commit.
 These are loaded for you in `_prompt.md`. Everything else you read
 on demand.
 
+## Model note
+
+This phase expects the coding-tier model, not Opus. Resolve it from
+`models.yml` (`per_track.<track>.<phase>` → `phase_roles.<phase>` →
+`defaults`) and, if you just came from a heavy-reasoning phase, switch
+**down** before working. This is a cost note, not a gate — do not stop or
+ask; just print one line if a downgrade is warranted:
+
+```text
+MODEL_NOTE <KEY> phase=<phase-id> expects=<provider:model> (downgrade from design/discovery Opus)
+```
+
 ## Steps
 
 ### 1. Understand the request
@@ -58,6 +70,8 @@ single line of code.
 
 ### 3. Write the fix
 
+Do this only after the RED test from step 4 exists and fails.
+
 Edit only the files that must change. Follow the conventions in root
 CLAUDE.md (naming, style, no new abstractions for a one-liner change).
 
@@ -70,15 +84,19 @@ Rules:
 - No new files unless the change genuinely requires a new file (e.g.
   a new helper module). One new file max.
 
-### 4. Write the test
+### 4. Write the RED test first
 
-Write at least one test that would have failed before your change and
-passes after. Place it in the project's existing test directory
-following the conventions in CLAUDE.md.
+Write at least one test **before** the fix. For bug tickets it must be a
+regression test reproducing the bug; for feature/content/config tickets
+it must cover the acceptance criterion the XS change claims to satisfy.
 
-The test must be runnable with the command in CLAUDE.md's "Test run"
-section. If that section is absent, use the command in `meta.json`
-(field `test_cmd`).
+Run the targeted test before implementation and confirm it is RED. If it
+passes before the fix, stop and emit `[!QUESTION]` — the test does not
+prove the change, so reorder: test → confirm red → fix → green.
+
+Place it in the project's existing test directory per CLAUDE.md
+conventions. It must be runnable with the command in CLAUDE.md's
+"Test run" section, or `meta.json` (`test_cmd`) if that section is absent.
 
 ### 5. Verify
 

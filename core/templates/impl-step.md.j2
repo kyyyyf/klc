@@ -34,6 +34,16 @@ produce the outputs listed at the bottom.
 **Rollback**: {{ step_rollback }}
 {% endif %}
 
+### Roadmap contract (from impl-plan.md)
+
+- **RED**: write/confirm the failing test before code.
+- **GREEN**: smallest change to pass RED.
+- **VERIFY**: run the step's targeted command before signalling success.
+- **COMMIT**: one logical commit after green, using the step's subject.
+
+If any of these are missing for a behaviour-changing step, stop and add
+`[!QUESTION blocks=build]` to `impl-plan.md`; do not infer a new plan.
+
 ### Failing test(s) to make green
 
 `{{ test_file }}`

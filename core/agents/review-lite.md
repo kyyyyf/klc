@@ -44,6 +44,26 @@ Go through the diff hunk by hunk. For each changed file note:
 - Whether it is consistent with `raw.md`.
 - Any CRITICAL risk (see definition above).
 
+### 1a. Full-review upgrade offer (manual app workflows)
+
+If running manually in Claude Code / Codex CLI, inspect the diff shape
+before writing the report. Stop and ask whether to run full review when
+any of these hold:
+
+- public API, auth, security, data persistence, migration, dependency
+  manifest, or build-system file changed;
+- more than 3 files changed;
+- the change is not obviously covered by one targeted test;
+- you cannot confidently classify the risk as XS after reading the diff.
+
+If the operator declines → continue review-lite, set
+`full_review_declined: true` in the report frontmatter.
+If the operator accepts → emit and stop:
+
+```text
+FULL_REVIEW_REQUESTED <KEY>
+```
+
 ### 2. Run the tests (advisory)
 
 The framework already ran tests during build. You only need to check

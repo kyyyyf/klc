@@ -13,8 +13,37 @@ orchestrating prompt for phase 3.
 - `00-spec.md`
 - `10-test-plan.md`
 - `20-related-adrs.md` (optional)
+- `.klc/index/depgraph.json` — `import_graphs.<lang>` (authoritative
+  module/file dependency edges). Read on demand.
+- `.klc/index/modules.json` — module → path map for resolving
+  `affected_modules`.
 - On demand: `core/skills/context-loader.py` for module CLAUDE.md
   bundles.
+
+## Model handoff guard
+
+This is a heavy-reasoning phase — it must run on the Opus-tier model.
+
+1. Read `.klc/tickets/<KEY>/meta.json` → `track`.
+2. Read `.klc/config/models.yml` if present, else `config/models.yml`.
+3. Resolve role in order: `per_track.<track>.<phase>` → `phase_roles.<phase>`
+   → `defaults`. Map role → `provider:model` via `roles`.
+4. Detect the host model when possible (`KLC_MODEL_*` env, the Claude Code
+   model indicator, this card's metadata).
+
+- Model **detectable & mismatched** → **stop before modifying files**:
+  ```text
+  MODEL_SWITCH_REQUIRED <KEY> phase=<phase-id> track=<track> required_role=<role> required_model=<provider:model> current_model=<provider:model>
+  ```
+  Wait for the operator to switch and re-run this prompt.
+- Model **not detectable** (e.g. Codex CLI) → print the required model
+  once and ask the operator to confirm this session already uses it
+  before continuing:
+  ```text
+  This phase expects <provider:model> (Opus-tier). Confirm this session is on it? [y/N]
+  ```
+- Unattended runner (`RUN_LOCAL_SUBAGENTS=1`) → do **not** ask; trust
+  `KLC_MODEL_*` (the runner already picked the model from `models.yml`).
 
 ## Symbol verification
 
@@ -23,6 +52,36 @@ verify any symbol signatures mentioned in options. Any symbol referenced
 in `options.md` / `adr.md` must be verified via LSP before citing it.
 
 ## Steps
+
+### 1a. Dependency impact analysis
+
+Before generating options, compute the blast radius of the change so it
+can be reflected in every option's `Affected files` / `Risks` instead of
+being discovered at review.
+
+1. For each module in `meta.json.affected_modules`, read
+   `depgraph.import_graphs.<lang>.edges` and list:
+   - **downstream** — modules/files this one imports (what the change
+     may break that it relies on);
+   - **upstream (dependents)** — modules/files that import this one
+     (who breaks if its public API changes).
+2. Verify the touched public symbols with LSP `findReferences` to
+   confirm the real call sites, not just module-level edges.
+3. Record findings in `design/options.md` under a short
+   `## Dependency impact` section:
+   - dependents that must keep compiling / passing tests,
+   - any edge a candidate option would **add or invert** (new coupling),
+   - cycles the change would create.
+
+Rules:
+- An option that adds a cross-module edge not present in `depgraph` or
+  inverts an existing one MUST flag it in its `Risks` and trigger the
+  ADR check (cross-module boundary crossed).
+- If a dependent is outside `affected_modules`, do not silently expand
+  scope — raise `[!QUESTION]` (extend ticket?) or `[!CONFLICT]`.
+- If `depgraph.json` is missing or has no graph for the language, write
+  `dependency-impact: unavailable (<reason>)` and fall back to LSP
+  `findReferences` on the touched symbols; do not skip silently.
 
 ### 1. Generate options
 
@@ -52,6 +111,8 @@ Emit `ADR_NEEDED=yes|no` at the end of options.md. Trigger on any of:
 - new external dep
 - data schema / persistence change
 - cross-module boundary crossed
+- a new dependency edge added or an existing edge inverted (per the
+  dependency-impact analysis)
 - cleaner option rejected for pragmatic reasons
 - crosses layer boundary (code↔content)
 
@@ -60,16 +121,37 @@ using `core/agents/adr.md` (invoke as a subroutine).
 
 ### 3. `impl-plan.md`
 
-Step list with IDs `[step-1]`, `[step-2]`, ... — each step is one
-logical commit. Per step:
+Write an executable roadmap for the Build phase. Audience: the test
+agent, impl agent, verifier, and human operator. It must be short and
+runnable **without re-designing the ticket**.
 
-- Description
-- Affected files
-- Expected tests (from test-plan.md)
-- Rollback note (only if the step is risky)
+Step list with IDs `step-1`, `step-2`, ... — each step is exactly one
+logical commit. Each step MUST contain, in this order:
 
-Short form for S track (≤ 10 lines, single step). Full form
-otherwise.
+- **Goal**: one sentence — the behaviour or structural change.
+- **RED**: the failing test to write first. If the step adds or changes
+  behaviour this is mandatory and must cite a test row from
+  `test-plan.md`. If the step is wiring/docs/config only, write
+  `RED: not applicable` + a one-sentence reason.
+- **GREEN**: the smallest code change expected to pass RED.
+- **VERIFY**: the exact targeted test command or suite/case name.
+- **COMMIT**: proposed commit subject, prefixed `<ticket-key> step-N:`.
+- **Affected files**: concrete paths. Unknown paths require an
+  `[!ASSUMPTION]` or `[!QUESTION]`, never a guess.
+- **Depends on**: earlier `step-K` ids this step needs, or `none`.
+- **Rollback note**: only if the step is risky.
+
+Track-specific shape (do not drop steps to hit a number — split or merge
+honestly):
+
+- **S**: Design normally does not run. If invoked manually for S, 1–3
+  steps, prefer the short form.
+- **M**: aim for 3–5 steps. Risky API/schema/boundary work goes **first**.
+- **L**: 5–9 steps grouped by milestone; each milestone still decomposes
+  into one-commit steps. No vague "big refactor" step.
+
+**TDD rule:** for any behaviour-changing step, the RED test is written
+and confirmed failing **before** its implementation code.
 
 **YAGNI validation before writing.** Before producing the final
 `impl-plan.md`, verify:
@@ -77,6 +159,12 @@ otherwise.
 - Tasks are reasonably sized (aim for 3–7 steps total; adjust if the
   feature genuinely requires more).
 - Dependencies are linear — no step requires output from a later step.
+- Every behaviour-changing step has an explicit RED test and a VERIFY
+  command; wiring-only steps say `RED: not applicable` with a reason.
+- Every step has a proposed COMMIT subject and maps to exactly one
+  logical commit unless the step explicitly states why not.
+- Every step's `Depends on` lists only earlier step ids (no forward
+  references).
 - No unnecessary abstractions or future-proofing not asked for in
   `spec.md`.
 - No new external dependency unless spec or ADR calls for it.
