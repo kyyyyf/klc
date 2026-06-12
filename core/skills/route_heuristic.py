@@ -47,19 +47,44 @@ def _track_max(a: str, b: str) -> str:
     return a if _TRACK_ORDER[a] >= _TRACK_ORDER[b] else b
 
 
-# Keywords that push toward XS (trivial changes)
+# Keyword stems are matched at a word boundary (`\b` + stem, Unicode-aware),
+# NOT as raw substrings — otherwise "author" would hit "auth" and the Russian
+# "система" would hit "тема". Stems still match inflections (prefix), e.g.
+# "рефактор" → "рефакторинг", "refactor" → "refactoring".
+
+# Stems that push toward XS (trivial changes). EN + RU.
 _XS_KEYWORDS = {
     "typo", "rename", "oneline", "one-line", "one_line",
-    "fix typo", "fix-typo", "comment", "whitespace",
+    "comment", "whitespace",
+    "опечат", "переименов", "коммент", "пробел",
 }
 
-# Keywords that push toward M or L (complex changes)
+# Stems that push toward M or L (complex / cross-cutting changes). EN + RU.
 _ML_KEYWORDS = {
-    "migration", "schema", "auth", "authentication", "authorization",
-    "breaking", "breaking-change", "security", "cve", "vulnerability",
-    "database", "refactor", "architecture", "cross-module",
-    "api-change", "api change", "new-feature", "new feature",
+    # English
+    "migration", "schema", "authoriz", "authentic", "rbac", "acl",
+    "breaking", "security", "cve", "vulnerab", "database", "refactor",
+    "architectur", "cross-module", "api change", "api-change",
+    "new feature", "new-feature", "permission", "read-only", "readonly",
+    "access token", "theme", "theming", "i18n", "l10n", "localiz",
+    "internationaliz",
+    # Russian (stems)
+    "миграц", "схем", "авториз", "аутентифик", "безопасн", "уязвим",
+    "рефактор", "архитектур", "ломающ", "разрешени", "доступ", "токен",
+    "тема", "тему", "темы", "темат", "темиз", "оформлени", "локализ",
+    "интернационализ", "роль", "роли", "права доступа", "только на чтение",
 }
+
+
+def _compile_kw(keywords: set[str]) -> re.Pattern:
+    # \b before each stem → match at word start (allows inflectional suffix),
+    # never mid-word. IGNORECASE + Unicode for Cyrillic.
+    alt = "|".join(re.escape(k) for k in sorted(keywords, key=len, reverse=True))
+    return re.compile(r"\b(?:" + alt + r")", re.IGNORECASE | re.UNICODE)
+
+
+_ML_RE = _compile_kw(_ML_KEYWORDS)
+_XS_RE = _compile_kw(_XS_KEYWORDS)
 
 
 @dataclass
@@ -96,12 +121,9 @@ def _signal_from_length(word_count: int) -> str:
 
 
 def _signal_from_keywords(text: str) -> str:
-    lower = text.lower()
-    has_ml = any(kw in lower for kw in _ML_KEYWORDS)
-    has_xs = any(kw in lower for kw in _XS_KEYWORDS)
-    if has_ml:
+    if _ML_RE.search(text):
         return "M"
-    if has_xs:
+    if _XS_RE.search(text):
         return "XS"
     return "XS"  # no strong signal — neutral (won't raise)
 
@@ -193,9 +215,8 @@ def classify(raw_text: str, kind: str = "unknown",
     for sig in signals.values():
         hint = _track_max(hint, sig)
 
-    lower = raw_text.lower()
-    has_ml = any(kw in lower for kw in _ML_KEYWORDS)
-    has_xs = any(kw in lower for kw in _XS_KEYWORDS)
+    has_ml = bool(_ML_RE.search(raw_text))
+    has_xs = bool(_XS_RE.search(raw_text))
     matched = _matched_modules(raw_text, modules)
 
     return RouteResult(
