@@ -14,7 +14,8 @@ available.
   `HEAD~1`, `main...feature/x`). Resolved to a patch string.
 - `--spec <path>` — the validated feature/bug spec.
 - `--ticket <TICK-NNN>` — used to address the scratchpad.
-- `--external` (optional) — force-run the external reviewer.
+- `--external` (optional) — force-run the external reviewer (legacy; default-on for S+).
+- `--no-external` (optional) — skip the external reviewer even when default-on.
 
 ## Model note
 
@@ -85,7 +86,7 @@ ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 - Load `config/reviewers.yml`:
   - `review.blocking_severity` (default `["CRITICAL", "HIGH"]`).
   - `review.parallel_subagents` (default `true`).
-  - `external_reviewer.enabled` (default `false`).
+  - `external_reviewer.enabled` (default `true` for S/M/L), `min_track`, `api_key_env`.
 - Load the active profile's manifest. It lists:
   - `reviewers.always` — run unconditionally.
   - `reviewers.conditional` — run only when the diff matches the
@@ -126,10 +127,18 @@ Extract every issue tagged `[SEVERITY]`. An issue is **blocking** iff
 its severity is in `blocking_severity`. The aggregator counts from the
 headers and ignores the manual trailer; mismatches warn to stderr.
 
-### 4. Optional external reviewer
-If `--external` was passed or `external_reviewer.enabled: true`, invoke
-`core/agents/external-review.md` with the same context.
-Missing API key → log, skip, continue with internal-only verdict.
+### 4. External reviewer (default-on for S/M/L)
+The external reviewer runs for S/M/L tickets unless one of these three
+conditions applies:
+1. `--no-external` flag was passed.
+2. `meta.review.skip_external: true` in the ticket meta.
+3. The environment variable named in `external_reviewer.api_key_env`
+   is not set (graceful degradation — log and continue without it).
+
+It runs on **both** the cheap and full cascade paths for S/M/L.
+To force-run on XS, pass `--external`.
+
+Invoke `core/agents/external-review.md` with the same context.
 
 ### 5. Aggregate
 Render `core/templates/review-report.md.j2` with:

@@ -21,19 +21,22 @@ FW_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 
 
-def _make_diff(files: list[str]) -> Path:
+def _make_diff(files: list[str], added_lines_per_file: int = 1) -> Path:
     """Write a minimal unified diff touching the given file paths."""
     tmp = Path(tempfile.mktemp(suffix=".patch"))
     lines = []
     for f in files:
+        count = added_lines_per_file
         lines += [
             f"diff --git a/{f} b/{f}",
             f"--- a/{f}",
             f"+++ b/{f}",
-            "@@ -1,1 +1,1 @@",
-            "-old line",
-            "+new line",
+            f"@@ -1,{count} +1,{count} @@",
         ]
+        for i in range(count):
+            lines.append(f"-old line {i}")
+        for i in range(count):
+            lines.append(f"+new line {i}")
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return tmp
 
@@ -224,6 +227,82 @@ def test_skipped_scope_forces_full_review() -> None:
         os.environ.pop("PROJECT_ROOT", None)
 
 
+def test_large_line_count_forces_full_review() -> None:
+    """Peripheral diff, few files but > peripheral_max_lines → full review."""
+    import review_cascade as rc
+
+    # 2 peripheral files, 300 added + 300 removed lines each = 1200 total changed lines
+    diff = _make_diff(["docs/guide.md", "docs/api.md"], added_lines_per_file=300)
+    try:
+        with tempfile.TemporaryDirectory() as scratch_str:
+            scratch = Path(scratch_str)
+            _make_meta("T-007", scratch)
+
+            with patch.object(rc, "_get_file_tiers",
+                              return_value={"docs/guide.md": "peripheral",
+                                            "docs/api.md": "peripheral"}), \
+                 patch.object(rc, "_get_sentinel_hits", return_value=0), \
+                 patch("scope_delta.compare",
+                       return_value={"planned": [], "actual": [],
+                                     "drift": [], "expansion": []}), \
+                 patch.object(rc, "_load_cascade_config",
+                              return_value={"enabled": True,
+                                            "peripheral_max_files": 20,
+                                            "peripheral_max_lines": 500}):
+
+                os.environ["PROJECT_ROOT"] = scratch_str
+                decision = rc.decide("T-007", diff)
+
+        assert decision.use_full_review, (
+            f"expected full review for large line count, got: {decision.reason}"
+        )
+        assert "line" in decision.reason.lower(), (
+            f"expected 'line' in reason, got: {decision.reason}"
+        )
+        print("PASS: large line count → full review")
+    finally:
+        diff.unlink(missing_ok=True)
+        os.environ.pop("PROJECT_ROOT", None)
+
+
+def test_cheap_reason_contains_file_and_line_counts() -> None:
+    """Cheap path reason must contain file count and line count."""
+    import review_cascade as rc
+
+    diff = _make_diff(["docs/readme.md", "docs/changelog.md"], added_lines_per_file=5)
+    try:
+        with tempfile.TemporaryDirectory() as scratch_str:
+            scratch = Path(scratch_str)
+            _make_meta("T-008", scratch)
+
+            with patch.object(rc, "_get_file_tiers",
+                              return_value={"docs/readme.md": "peripheral",
+                                            "docs/changelog.md": "peripheral"}), \
+                 patch.object(rc, "_get_sentinel_hits", return_value=0), \
+                 patch("scope_delta.compare",
+                       return_value={"planned": [], "actual": [],
+                                     "drift": [], "expansion": []}), \
+                 patch.object(rc, "_load_cascade_config",
+                              return_value={"enabled": True,
+                                            "peripheral_max_files": 20,
+                                            "peripheral_max_lines": 500}):
+
+                os.environ["PROJECT_ROOT"] = scratch_str
+                decision = rc.decide("T-008", diff)
+
+        assert not decision.use_full_review, (
+            f"expected cheap review, got: {decision.reason}"
+        )
+        # Reason must include "N files" and "M lines"
+        assert "files" in decision.reason and "lines" in decision.reason, (
+            f"expected file+line counts in cheap reason, got: {decision.reason}"
+        )
+        print(f"PASS: cheap reason = {decision.reason!r}")
+    finally:
+        diff.unlink(missing_ok=True)
+        os.environ.pop("PROJECT_ROOT", None)
+
+
 if __name__ == "__main__":
     test_peripheral_diff_gets_cheap_review()
     test_sentinel_hit_forces_full_review()
@@ -231,4 +310,6 @@ if __name__ == "__main__":
     test_cascade_disabled_forces_full_review()
     test_empty_file_tiers_forces_full_review()
     test_skipped_scope_forces_full_review()
+    test_large_line_count_forces_full_review()
+    test_cheap_reason_contains_file_and_line_counts()
     print("ALL CASCADE TESTS PASSED")

@@ -41,7 +41,7 @@ MODEL_NOTE <KEY> phase=<phase-id> expects=<provider:model> (downgrade from desig
 ### 1. Understand the request
 
 Read `spec.md` for the acceptance criteria and scope. Read `raw.md`
-for the original description and any intake-agent notes. From these
+for the original description and any intake notes. From these
 extract:
 - What must change (behaviour or content).
 - What "done" looks like (the ACs in `spec.md`).

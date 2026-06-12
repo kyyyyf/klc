@@ -20,10 +20,11 @@ is [`config/phases.yml`](../config/phases.yml).
    observe. Uses discovery-lite instead of full discovery.
    One build agent call + review-lite.
 6. **Conditional phases.** `observe` runs only when `risk_tags` contains
-   `user-facing`, `data`, `security`, or `migration`. `learn` runs only
-   when rework occurred or budgets were overrun. Discovery agents set
-   `risk_tags` in meta.json; skipped phases are recorded in
-   `phase_history` with `event=skipped`.
+   `user-facing`, `data`, `security`, or `migration`. `learn` always runs
+   for M/L (ADR-accept + terse or full retro); for XS/S it runs only when
+   rework occurred or budgets were overrun. Discovery agents set `risk_tags`
+   in meta.json; skipped phases are recorded in `phase_history` with
+   `event=skipped`.
 
 ---
 
@@ -50,9 +51,9 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 | `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm-route · 2 = force-full-discovery · 3 = force-xs-skip (XS only) |
 | `discovery-lite`       | XS S        | `core/agents/discovery-lite.md`   | 1 = approve · 2 = needs-rework · 3 = upgrade-to-full      |
 | `discovery`            | M L         | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
-| `acceptance-test-plan` | S M L       | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
+| `acceptance-test-plan` | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
 | `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
-| `detailed-test-plan`   | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
+| `detailed-test-plan`   | L           | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework (M: tests folded into impl-plan steps) |
 | `xs-build`             | XS          | `core/agents/xs-fasttrack.md`     | 1 = approve · 2 = upgrade-to-S                            |
 | `build`                | S M L       | `core/agents/impl.md`             | 1 = approve                                                |
 | `review-lite`          | XS          | `core/agents/review-lite.md`      | 1 = approve · 2 = request-changes · 3 = override          |
@@ -64,9 +65,9 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 
 **XS path**: intake → discovery-lite → xs-build → review-lite → integrate → learn
 
-**S path**: intake → discovery-lite → acceptance-test-plan → build → review → integrate → observe → learn
+**S path**: intake → discovery-lite (spec+test-plan+impl-plan) → build → review → integrate → observe → learn
 
-**M path**: intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn
+**M path**: intake → discovery → acceptance-test-plan → design (impl-plan w/ tests) → build → review → manual → integrate → observe → learn
 
 ---
 
@@ -167,7 +168,11 @@ emits `[!QUESTION]` or `[!CONFLICT]`; human decides next action.
 Single-agent path for trivial changes (score 0–2).
 
 1. `klc intake <key> --kind bug "<desc>"` → `intake:ack-needed`
-   Intake prints `route=XS` (deterministic heuristic from `route_heuristic.py`).
+   Intake prints `route=XS confidence=<low|medium|high>` (deterministic
+   heuristic from `route_heuristic.py`). The track is a **provisional floor**.
+   On a short, low/medium-confidence ticket intake recommends the cheap
+   `intake-triage` agent (or `--pick 2` to force full discovery) — a short
+   description means under-specified, not necessarily simple.
 2. `klc ack <key> --pick 1` (confirm-route) → `discovery-lite:work`
 3. Run `discovery-lite` agent. Produces compact `spec.md` (Goals, AC,
    Affected, Estimate). Uses `[!ASSUMPTION]` not blocking `[!QUESTION]`.
@@ -217,7 +222,7 @@ Context bundle loaded by `write_prompt_card` when entering
 
 | File | Content |
 |------|---------|
-| `00-raw.md` | raw description + intake-agent notes |
+| `00-raw.md` | raw description + intake notes |
 | `10-root-CLAUDE.md` | project invariants |
 | `20-module-docs.md` | CLAUDE.md of up to 3 modules with highest keyword overlap with `raw.md` |
 | `40-related.md` | recent tickets with matching kind / modules |
@@ -313,11 +318,16 @@ scope_delta → scan_sentinels → classify_tier → CascadeDecision
 | Classifier returns no file tiers | Full review (fail-closed) |
 | Any sentinel hit | Full review |
 | Any `critical` or `core` tier file | Full review |
-| All `peripheral` + no drift + no sentinels | **Cheap review** (single focused agent) |
+| Peripheral files count > `peripheral_max_files` | Full review |
+| Total changed lines > `peripheral_max_lines` | Full review |
+| All `peripheral` + no drift + no sentinels + within size limits | **Cheap review** (single focused agent) |
 
 **Fail-closed:** the cascade defaults to full review when it cannot prove
 peripheral. "Unavailable" ≠ "no risk". Only proven peripheral + no
 signals → cheap review.
+
+The **cheap reason string** always includes the diff size:
+`peripheral diff, no sentinels, no scope drift → cheap review (N files, M lines)`.
 
 **Cheap review** dispatches `core/agents/review/cheap.md` — correctness,
 test coverage, spec alignment only (no security/architecture depth).
@@ -326,11 +336,34 @@ Controlled by `config/reviewers.yml`:
 ```yaml
 cascade:
   enabled: true
-  peripheral_max_files: 20   # fallback to full if diff is very large
+  peripheral_max_files: 20   # fallback to full when too many peripheral files
+  peripheral_max_lines: 500  # fallback to full when diff volume is too large
 ```
 
 `review-cheap` role in `models.yml` controls the model used for cheap
 review. `per_track.S.review-cheap: local-simple` uses Haiku for S-track.
+
+The review report frontmatter carries `review_depth` (`cheap` | `lite` | `full`),
+`full_review_offered`, and `full_review_declined` to feed the retro and
+`cheap_escape_rate` rollup in `process-metrics.json`.
+
+### External reviewer (default-on for S/M/L)
+
+`external_reviewer.enabled: true` in `config/reviewers.yml` means the external
+reviewer runs for all S/M/L tickets. It runs on both cheap and full cascade
+paths. Skip conditions (first match wins):
+1. `--no-external` flag
+2. `meta.review.skip_external: true`
+3. `external_reviewer.api_key_env` not set in the environment (graceful; `klc doctor` warns)
+
+Controlled by `config/reviewers.yml`:
+
+```yaml
+external_reviewer:
+  enabled:      true
+  min_track:    S       # XS never hits the external reviewer
+  api_key_env:  OPENAI_API_KEY
+```
 
 ---
 
@@ -343,7 +376,7 @@ discovery agents. Skipped phases are recorded in `phase_history` as
 | Phase     | Runs when                                                              |
 |-----------|------------------------------------------------------------------------|
 | `observe` | `meta.risk_tags` contains any of: `user-facing`, `data`, `security`, `migration` |
-| `learn`   | `meta.rework_count` has any value > 0, OR `meta.regression_observed == 1`, OR `meta.budgets` has any overrun |
+| `learn`   | Always for M/L. For XS/S: when `meta.rework_count` > 0, OR `meta.regression_observed == 1`, OR `meta.budgets` any overrun |
 
 Discovery and discovery-lite agents must set `risk_tags: [...]` in
 `meta.json`. Set to `[]` for pure tooling/config changes with no

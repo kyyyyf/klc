@@ -29,6 +29,7 @@ This document describes the roles involved in the klc ticket lifecycle and what 
 - Emit completion signals when phase work is done
 
 **Key activities**:
+- Intake (optional): cheap triage of short, low-confidence tickets — provisional track + enrichment hints (no spec.md). Intake routing itself is deterministic (no LLM).
 - Discovery: Write spec.md from raw.md
 - Acceptance-test-plan: Write test-plan.md covering all ACs
 - Design (M/L): Generate design options, write ADR
@@ -56,6 +57,9 @@ This document describes the roles involved in the klc ticket lifecycle and what 
 - Review phase: Read build artifacts, run static analysis, check test coverage
 - Produce review-report.md with findings
 - Human reviewer makes final ack decision (approve/needs-rework)
+- External reviewer (default-on for S/M/L via `config/reviewers.yml`): runs on both
+  cheap and full cascade paths; skipped when `--no-external`, `meta.review.skip_external`,
+  or the configured api key env var is unset
 
 **Focus areas**:
 - **Correctness**: Does implementation match spec?

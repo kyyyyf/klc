@@ -14,6 +14,12 @@ Signals used (highest-priority wins; downgrades forbidden):
 Aggregation: take the maximum track from all signals (downgrade
 forbidden). Result written to meta.json:route_hint and :route_signals.
 
+Also returns a `confidence` ("low"|"medium"|"high"): how much to trust
+the hint. Short + no keyword/module signal = "low" (under-specified, not
+necessarily simple) — the caller should run a cheap triage or route to
+full discovery instead of trusting a small track. Length raises
+confidence when long; it never lowers the track.
+
 CLI:
     python core/skills/route_heuristic.py <raw.md>
 """
@@ -41,19 +47,44 @@ def _track_max(a: str, b: str) -> str:
     return a if _TRACK_ORDER[a] >= _TRACK_ORDER[b] else b
 
 
-# Keywords that push toward XS (trivial changes)
+# Keyword stems are matched at a word boundary (`\b` + stem, Unicode-aware),
+# NOT as raw substrings — otherwise "author" would hit "auth" and the Russian
+# "система" would hit "тема". Stems still match inflections (prefix), e.g.
+# "рефактор" → "рефакторинг", "refactor" → "refactoring".
+
+# Stems that push toward XS (trivial changes). EN + RU.
 _XS_KEYWORDS = {
     "typo", "rename", "oneline", "one-line", "one_line",
-    "fix typo", "fix-typo", "comment", "whitespace",
+    "comment", "whitespace",
+    "опечат", "переименов", "коммент", "пробел",
 }
 
-# Keywords that push toward M or L (complex changes)
+# Stems that push toward M or L (complex / cross-cutting changes). EN + RU.
 _ML_KEYWORDS = {
-    "migration", "schema", "auth", "authentication", "authorization",
-    "breaking", "breaking-change", "security", "cve", "vulnerability",
-    "database", "refactor", "architecture", "cross-module",
-    "api-change", "api change", "new-feature", "new feature",
+    # English
+    "migration", "schema", "authoriz", "authentic", "rbac", "acl",
+    "breaking", "security", "cve", "vulnerab", "database", "refactor",
+    "architectur", "cross-module", "api change", "api-change",
+    "new feature", "new-feature", "permission", "read-only", "readonly",
+    "access token", "theme", "theming", "i18n", "l10n", "localiz",
+    "internationaliz",
+    # Russian (stems)
+    "миграц", "схем", "авториз", "аутентифик", "безопасн", "уязвим",
+    "рефактор", "архитектур", "ломающ", "разрешени", "доступ", "токен",
+    "тема", "тему", "темы", "темат", "темиз", "оформлени", "локализ",
+    "интернационализ", "роль", "роли", "права доступа", "только на чтение",
 }
+
+
+def _compile_kw(keywords: set[str]) -> re.Pattern:
+    # \b before each stem → match at word start (allows inflectional suffix),
+    # never mid-word. IGNORECASE + Unicode for Cyrillic.
+    alt = "|".join(re.escape(k) for k in sorted(keywords, key=len, reverse=True))
+    return re.compile(r"\b(?:" + alt + r")", re.IGNORECASE | re.UNICODE)
+
+
+_ML_RE = _compile_kw(_ML_KEYWORDS)
+_XS_RE = _compile_kw(_XS_KEYWORDS)
 
 
 @dataclass
@@ -61,6 +92,13 @@ class RouteResult:
     hint: str                      # "XS" | "S" | "M" | "L"
     signals: dict[str, str] = field(default_factory=dict)
     # signals: {"kind": "XS", "length": "S", "keywords": "M", "modules": "S"}
+    confidence: str = "medium"     # "low" | "medium" | "high"
+    # confidence answers "how much do we trust this hint?" — it is NOT a
+    # track. A short, under-specified ticket with no keyword/module signal is
+    # "low": the hint may be a floor, not the truth. Length raises confidence
+    # when long; it never lowers the track (aggregation is max-wins).
+    modules_matched: list[str] = field(default_factory=list)
+    # module names found verbatim in the raw text (also reusable as mentions).
 
 
 def _signal_from_kind(kind: str) -> str:
@@ -83,12 +121,9 @@ def _signal_from_length(word_count: int) -> str:
 
 
 def _signal_from_keywords(text: str) -> str:
-    lower = text.lower()
-    has_ml = any(kw in lower for kw in _ML_KEYWORDS)
-    has_xs = any(kw in lower for kw in _XS_KEYWORDS)
-    if has_ml:
+    if _ML_RE.search(text):
         return "M"
-    if has_xs:
+    if _XS_RE.search(text):
         return "XS"
     return "XS"  # no strong signal — neutral (won't raise)
 
@@ -107,6 +142,39 @@ def _signal_from_modules(text: str, modules: list[dict]) -> str:
     if matched >= 1:
         return "S"
     return "XS"
+
+
+def _matched_modules(text: str, modules: list[dict]) -> list[str]:
+    """Module names that appear verbatim in the raw text."""
+    if not modules:
+        return []
+    lower = text.lower()
+    return [
+        m.get("name", "") for m in modules
+        if m.get("name", "") and m.get("name", "").lower() in lower
+    ]
+
+
+def _confidence(word_count: int, has_ml: bool, has_xs: bool,
+                modules_matched: int) -> str:
+    """How much to trust the hint. Low = under-specified, escalate.
+
+    A short ticket = the human hasn't specified it, NOT that it is simple
+    (e.g. "support light theme" is short but cross-cutting). So short + no
+    signal at all = low confidence → caller should triage or route to full
+    discovery rather than trust a small track.
+    """
+    # Decisive signals → trust the hint.
+    if word_count >= 100:
+        return "high"           # human specified it in detail
+    if has_ml or modules_matched >= 3:
+        return "high"           # explicit complexity / cross-module
+    if has_xs and word_count < 30:
+        return "high"           # explicit triviality ("fix typo")
+    # Short and nothing to latch onto → the dangerous under-specified case.
+    if word_count < 30 and not has_ml and not has_xs and modules_matched == 0:
+        return "low"
+    return "medium"
 
 
 def _load_modules() -> list[dict]:
@@ -147,7 +215,44 @@ def classify(raw_text: str, kind: str = "unknown",
     for sig in signals.values():
         hint = _track_max(hint, sig)
 
-    return RouteResult(hint=hint, signals=signals)
+    has_ml = bool(_ML_RE.search(raw_text))
+    has_xs = bool(_XS_RE.search(raw_text))
+    matched = _matched_modules(raw_text, modules)
+
+    return RouteResult(
+        hint=hint,
+        signals=signals,
+        confidence=_confidence(word_count, has_ml, has_xs, len(matched)),
+        modules_matched=matched,
+    )
+
+
+def decide_route(hint: str, confidence: str,
+                 triage_available: bool = True) -> str:
+    """Routing action implied by the heuristic result (B+A policy).
+
+    Returns:
+      "trust"          — use the hint as-is (operator confirms route, pick 1).
+      "triage"         — run the cheap intake triage to disambiguate first
+                         (short, low/medium-confidence ticket that the
+                         heuristic may be under-sizing).
+      "full-discovery" — skip the cheap lite path, go straight to full
+                         discovery (the A fallback when triage is off and we
+                         are not confident).
+
+    The hint is a provisional floor, never the final track — full discovery
+    is the authoritative classifier.
+    """
+    if _TRACK_ORDER[hint] >= _TRACK_ORDER["M"]:
+        return "trust"             # already escalated to M/L
+    if confidence == "high":
+        return "trust"
+    # hint <= S and confidence is medium/low → do not blindly trust a small track
+    if triage_available:
+        return "triage"
+    if confidence == "low":
+        return "full-discovery"    # A fallback: no triage + not confident
+    return "trust"                 # medium with some signal, triage off
 
 
 def main() -> int:
@@ -162,7 +267,12 @@ def main() -> int:
 
     text = args.raw_md.read_text(encoding="utf-8")
     result = classify(text, kind=args.kind)
-    print(json.dumps({"hint": result.hint, "signals": result.signals}, indent=2))
+    print(json.dumps({
+        "hint":            result.hint,
+        "confidence":      result.confidence,
+        "signals":         result.signals,
+        "modules_matched": result.modules_matched,
+    }, indent=2))
     return 0
 
 

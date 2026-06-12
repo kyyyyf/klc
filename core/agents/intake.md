@@ -1,62 +1,62 @@
-# Intake Agent
+# Intake (phase reference)
 
 > **Human context**: See [docs/phases/intake.md](../../docs/phases/intake.md) for intake phase overview and ack options.
 
-## Role
-Triage a raw ticket description: classify kind, surface missing
-information, extract mentioned modules / symbols. Do not estimate, do
-not pick a track — that is Discovery's job.
+## How intake works (no LLM by default)
 
-## Inputs
-- `.klc/tickets/<KEY>/raw.md` — what the user typed.
-- `.klc/tickets/<KEY>/meta.json` — current metadata (kind may be
-  pre-set by `--kind`).
+`klc intake` is **deterministic** — it runs no LLM in the hot path. It:
 
-## Steps
+1. Writes `raw.md` + `meta.json`, appends to the global ticket index.
+2. Classifies a **provisional** track via `core/skills/route_heuristic.py`
+   (signals: kind, length, EN/RU keywords, module mentions; max-wins,
+   downgrades forbidden) and records `route_hint`, `route_confidence`,
+   `route_signals`, `route_decision`, and `mentions` in `meta.json`.
+3. Lands on `intake:ack-needed` and prints a confidence-aware recommendation.
 
-1. **Kind.** If `meta.json:kind == "unknown"`, classify as
-   `feature` / `bug` / `tech`. Decide by content:
-   - "add / support / introduce" → feature
-   - "crashes / hangs / incorrect / regression" → bug
-   - "refactor / cleanup / infrastructure" → tech
+The track here is a **provisional floor, not the final track** — Discovery
+(or Discovery-lite) is the authoritative classifier.
 
-2. **Completeness hints.** For bugs, check for: steps to reproduce,
-   expected, actual, environment. For features: goal, user outcome,
-   any non-goals. Where something is obviously missing, append a
-   block inside `raw.md`:
+## Routing recommendation (B+A)
 
-   ```
-   <!-- BEGIN: intake-agent-notes -->
-   - missing: steps to reproduce
-   - missing: expected result
-   <!-- END: intake-agent-notes -->
-   ```
+`route_decision` (from `route_heuristic.decide_route`) drives the printed
+guidance:
 
-   Do not invent the missing content. The block is a signal to
-   Discovery and to the human.
+- **trust** (high confidence, or hint already ≥ M) → confirm route:
+  `klc ack <KEY> --pick 1`.
+- **triage** (short, low/medium confidence, hint ≤ S) → run the cheap
+  **intake triage** (`core/agents/intake-triage.md`) to check for hidden
+  scope before committing to a small track; or `--pick 2` to force full
+  discovery.
+- **full-discovery** (low confidence, triage disabled via
+  `KLC_INTAKE_TRIAGE=0`) → `klc ack <KEY> --pick 2` (force-full-discovery).
 
-3. **Mentions.** Grep `raw.md` for module names (from
-   `.klc/index/modules.json`), file paths, symbol names. Store as
-   `meta.json:mentions: [...]` — an array of `{kind, value}` entries.
-   Discovery uses this list when it shortlists affected modules.
+Why: a short description usually means *under-specified*, not *simple*
+(e.g. "support light theme" is short but cross-cutting). Length raises
+confidence when long; it never lowers the track.
 
-4. **Update meta.** Write back `meta.json` with:
-   - `kind` (if you classified it)
-   - `kind_source: "intake-agent"` when you set kind yourself
-   - `mentions: [...]`
-   - `metrics.intake_agent_ms` — how long you ran.
+## Enrichment notes
 
-## What you never do
+When the triage agent runs and finds the description too vague, it appends
+the missing facts (never invented answers) to `raw.md`:
 
-- Do not estimate complexity / risk / manual / uncertainty. Those are
-  set by Discovery with more context.
-- Do not pick a track.
-- Do not write `spec.md` — that is Discovery.
-- Do not call out to Jira or any external service.
+```
+<!-- BEGIN: intake-notes -->
+- provisional_track: M (was S) — reason: cross-cutting UI change
+- missing: which components? dark theme too?
+<!-- END: intake-notes -->
+```
+
+Discovery and the XS fast-track read this block.
+
+## What intake never does
+
+- Does not run a full estimate (4 axes) — that is Discovery.
+- Does not write `spec.md`.
+- Does not pick the final track — only a provisional `route_hint`.
 
 ## Completion signal
 
-Stdout, one line:
+`klc intake` prints, on success:
 
 ```
 INTAKE_OK <ticket-key>
