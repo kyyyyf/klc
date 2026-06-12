@@ -20,10 +20,11 @@ is [`config/phases.yml`](../config/phases.yml).
    observe. Uses discovery-lite instead of full discovery.
    One build agent call + review-lite.
 6. **Conditional phases.** `observe` runs only when `risk_tags` contains
-   `user-facing`, `data`, `security`, or `migration`. `learn` runs only
-   when rework occurred or budgets were overrun. Discovery agents set
-   `risk_tags` in meta.json; skipped phases are recorded in
-   `phase_history` with `event=skipped`.
+   `user-facing`, `data`, `security`, or `migration`. `learn` always runs
+   for M/L (ADR-accept + terse or full retro); for XS/S it runs only when
+   rework occurred or budgets were overrun. Discovery agents set `risk_tags`
+   in meta.json; skipped phases are recorded in `phase_history` with
+   `event=skipped`.
 
 ---
 
@@ -371,7 +372,7 @@ discovery agents. Skipped phases are recorded in `phase_history` as
 | Phase     | Runs when                                                              |
 |-----------|------------------------------------------------------------------------|
 | `observe` | `meta.risk_tags` contains any of: `user-facing`, `data`, `security`, `migration` |
-| `learn`   | `meta.rework_count` has any value > 0, OR `meta.regression_observed == 1`, OR `meta.budgets` has any overrun |
+| `learn`   | Always for M/L. For XS/S: when `meta.rework_count` > 0, OR `meta.regression_observed == 1`, OR `meta.budgets` any overrun |
 
 Discovery and discovery-lite agents must set `risk_tags: [...]` in
 `meta.json`. Set to `[]` for pure tooling/config changes with no
