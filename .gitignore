@@ -2,6 +2,16 @@
 # (see MIGRATION.md).  The repo itself is the framework; there is no
 # inner framework/ directory any more.
 
+# Per-project runtime state (tickets, index, reports, config).
+.klc/
+
+# Scratch / planning files not part of the framework.
+codex-*.md
+codex_*.md
+kodex-*.md
+plan.md
+mcp.json
+
 # Local caches created by Serena when pointed at the repo.
 .serena-cache/
 

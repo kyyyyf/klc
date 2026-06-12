@@ -31,6 +31,18 @@ Reachable on demand (read only when needed):
   needed. Every signature you cite in a commit message, a docstring,
   or `impl-plan.md` must be verified via LSP — no hallucinated symbols.
 
+## Model note
+
+This phase expects the coding-tier model, not Opus. Resolve it from
+`models.yml` (`per_track.<track>.<phase>` → `phase_roles.<phase>` →
+`defaults`) and, if you just came from a heavy-reasoning phase, switch
+**down** before working. This is a cost note, not a gate — do not stop or
+ask; just print one line if a downgrade is warranted:
+
+```text
+MODEL_NOTE <KEY> phase=<phase-id> expects=<provider:model> (downgrade from design/discovery Opus)
+```
+
 ## Progress log
 
 `build-log.md` in the ticket directory is a running journal of every
@@ -90,10 +102,22 @@ and wait for the human — do not silently fix the plan.
 - [ ] Every file path listed under `affected_files` exists (or the
       step creates it) — no phantom paths.
 
+**Roadmap contract:**
+- [ ] Current step exposes Goal / RED / GREEN / VERIFY / COMMIT (or is a
+      legacy short-form step lacking them — then treat its description as
+      Goal and derive RED from `test-plan.md`).
+- [ ] If the step changes behaviour, the RED test already exists and is
+      known to fail before any code change.
+- [ ] The planned commit subject maps to **this step only**.
+- [ ] `Depends on` steps are all already green.
+
 ## Step bookkeeping
 
 For every step you complete:
 
+- Commit only after the step is green, using the step's `COMMIT`
+  subject when present. If you cannot commit in this environment, record
+  the exact commit subject + changed files in `build-log.md`.
 - Produce **one** logical commit per step when practical. A single
   step spread over multiple commits is fine; a single commit
   covering multiple steps is not — traceability (`step-N` → diff)
