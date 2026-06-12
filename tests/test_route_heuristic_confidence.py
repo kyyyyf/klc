@@ -49,6 +49,31 @@ def test_single_module_short_is_medium_not_high():
     assert r.modules_matched == ["payments"], r
 
 
+def test_russian_access_tokens_raises_track():
+    # The motivating example: short RU ticket, English keyword list would
+    # miss it; bilingual stems catch "токен"/"доступ"/"только на чтение".
+    r = rh.classify("поддержать токены доступа только на чтение",
+                    kind="feature", modules=_MODS)
+    assert r.hint == "M", r
+    assert r.confidence == "high", r
+
+
+def test_russian_light_theme_raises_track():
+    # "support light theme" — short but cross-cutting; "тему" is a theme stem.
+    r = rh.classify("поддержать светлую тему", kind="feature", modules=_MODS)
+    assert r.hint == "M", r
+
+
+def test_no_false_positive_sistema_vs_tema():
+    # "система" must NOT hit the theme stem "тема" (substring would; \b won't).
+    assert rh._signal_from_keywords("обновить систему логирования") != "M"
+
+
+def test_no_false_positive_author_vs_auth():
+    # "author" must NOT hit an auth stem (substring "auth" would; \b + authoriz won't).
+    assert rh._signal_from_keywords("show the commit author name") != "M"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
