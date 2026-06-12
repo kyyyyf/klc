@@ -83,6 +83,11 @@ consistency check.
 Short form: max 15 lines, exactly what the template emits. No
 options / non-goals / rollout sections.
 
+**`Affected` section contract (discovery-lite / XS / S):** every entry
+must be either LSP-verified (`src=path:line`, mandatory) or an explicit
+assumption (`[!ASSUMPTION if-false=scope-may-expand]`). Unanchored
+module names without either marker are not permitted.
+
 ### `test-plan.md`
 
 Written in two passes by `core/agents/test-planner.md`:

@@ -31,7 +31,7 @@ risk_tags: [<user-facing|data|security|migration>, ...]
 [- [ ] <AC-2 if needed>]
 
 ## Affected
-<module-name>: <file-or-symbol, with src=path:line from LSP if available>
+<module-name>: <file-or-symbol, src=path:line — LSP-verified, mandatory>
 [!ASSUMPTION if-false=scope-may-expand] <any uncertain module or file>
 
 ## Estimate
@@ -50,6 +50,9 @@ total: <sum, must be ≤2 for XS or ≤5 for S>
    Do NOT write `[!QUESTION blocks=…]` — those are only for M/L.
 3. **Affected modules via LSP.** Use `workspaceSymbol` or
    `goToDefinition` to verify file paths. Write `src=path:line`.
+   If LSP cannot resolve the path/symbol, do NOT write an unverified
+   module — mark that line `[!ASSUMPTION if-false=scope-may-expand]`
+   instead. No third (unanchored) option.
 4. **Estimate must match track.** XS: total ≤ 2. S: total ≤ 5.
    If you calculate a higher total, set track to M and note it in Goals.
 5. **No sections beyond the template.** Do not add ADR, design options,
