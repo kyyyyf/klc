@@ -335,6 +335,6 @@ phases:
           goto: "learn:work"
     inputs: []
     outputs: ["retrospective.md"]
-    # Skip LLM retrospective when there are no rework signals or budget overruns.
-    # Metrics are still recorded automatically by lifecycle.
-    condition: "meta.rework_count any_overrun OR meta.regression_observed == 1 OR meta.budgets any_overrun"
+    # M/L always run learn (design-heavy work produces learnings worth capturing).
+    # XS/S: run only when failure signals are present.
+    condition: "meta.track in ['M','L'] OR meta.rework_count any_overrun OR meta.regression_observed == 1 OR meta.budgets any_overrun"
