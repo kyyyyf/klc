@@ -74,6 +74,17 @@ def test_no_false_positive_author_vs_auth():
     assert rh._signal_from_keywords("show the commit author name") != "M"
 
 
+def test_decide_route_b_plus_a():
+    d = rh.decide_route
+    assert d("XS", "high", True) == "trust"          # confident → trust
+    assert d("S", "low", True) == "triage"           # B: triage on uncertainty
+    assert d("S", "medium", True) == "triage"
+    assert d("S", "low", False) == "full-discovery"  # A: no triage + low → full
+    assert d("S", "medium", False) == "trust"        # had some signal, triage off
+    assert d("M", "low", True) == "trust"            # already escalated
+    assert d("L", "low", False) == "trust"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

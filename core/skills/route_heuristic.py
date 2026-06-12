@@ -227,6 +227,34 @@ def classify(raw_text: str, kind: str = "unknown",
     )
 
 
+def decide_route(hint: str, confidence: str,
+                 triage_available: bool = True) -> str:
+    """Routing action implied by the heuristic result (B+A policy).
+
+    Returns:
+      "trust"          — use the hint as-is (operator confirms route, pick 1).
+      "triage"         — run the cheap intake triage to disambiguate first
+                         (short, low/medium-confidence ticket that the
+                         heuristic may be under-sizing).
+      "full-discovery" — skip the cheap lite path, go straight to full
+                         discovery (the A fallback when triage is off and we
+                         are not confident).
+
+    The hint is a provisional floor, never the final track — full discovery
+    is the authoritative classifier.
+    """
+    if _TRACK_ORDER[hint] >= _TRACK_ORDER["M"]:
+        return "trust"             # already escalated to M/L
+    if confidence == "high":
+        return "trust"
+    # hint <= S and confidence is medium/low → do not blindly trust a small track
+    if triage_available:
+        return "triage"
+    if confidence == "low":
+        return "full-discovery"    # A fallback: no triage + not confident
+    return "trust"                 # medium with some signal, triage off
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("raw_md", type=Path, help="Path to raw.md")
