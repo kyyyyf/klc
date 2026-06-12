@@ -62,26 +62,31 @@ roles:
     provider:    anthropic
     model:       claude-opus-4-7
     api_key_env: ANTHROPIC_API_KEY
+    rank:        3
 
   coding:
     provider:    anthropic
     model:       claude-sonnet-4-6
     api_key_env: ANTHROPIC_API_KEY
+    rank:        2
 
   local-simple:
     provider:    anthropic
     model:       claude-haiku-4-5-20251001
     api_key_env: ANTHROPIC_API_KEY
+    rank:        1
 
   local-coding:
     provider:    anthropic
     model:       claude-haiku-4-5-20251001
     api_key_env: ANTHROPIC_API_KEY
+    rank:        1
 
   external:
     provider:    anthropic
     model:       claude-sonnet-4-6
     api_key_env: ANTHROPIC_API_KEY
+    rank:        2
 
 # --- phase → role mapping ---------------------------------------------------
 #
