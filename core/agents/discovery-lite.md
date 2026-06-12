@@ -58,6 +58,11 @@ total: <sum, must be ≤2 for XS or ≤5 for S>
    `data`, `security`, `migration`. Use `[]` for pure tooling/config
    changes. The framework reads this field to decide whether `observe`
    runs — do not omit it.
+7. **Blast-radius check (cheap).** Before finalizing the Estimate, glance
+   at `modules.json` `depended_by` for each Affected module. If a
+   foundational module (large fan-in / many dependents) is touched, a
+   short description does not make it small — do **not** keep it XS/S;
+   raise the estimate accordingly or emit `DISCOVERY_LITE_UPGRADE_M`.
 
 ## Signals to emit
 
