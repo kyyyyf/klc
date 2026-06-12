@@ -162,6 +162,18 @@ Same as M track, but longer duration and higher scrutiny at each gate.
 - **Manual**: 0 (fully automated)
 - **Total**: 0 → **XS track**
 
+## Intake track is provisional
+
+The track printed at `klc intake` is a **provisional floor** from a
+deterministic heuristic (`route_heuristic.py`), with a `confidence`. It is
+**not** the final track — Discovery/Discovery-lite is the authoritative
+classifier and reads **blast-radius** (`modules.json` `depended_by`) so a
+foundational-module change is sized by what it breaks, not by description
+length. A short description means *under-specified*, not *simple*: on a
+short, low/medium-confidence ticket intake recommends the cheap
+`intake-triage` agent (or forcing full discovery). Downgrades are forbidden;
+upgrades are always allowed.
+
 ## When to override track
 
 The framework allows manual track override in `meta.json`, but this should be rare. Valid reasons:

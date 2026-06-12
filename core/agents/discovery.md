@@ -13,7 +13,7 @@ revisions.
 
 ## Inputs (from the discovery-context bundle)
 
-- `00-raw.md` — the user's description plus intake-agent notes.
+- `00-raw.md` — the user's description plus intake notes.
 - `10-root-CLAUDE.md` — project-level invariants.
 - `20-module-docs.md` — CLAUDE.md of **at most 3** candidate modules.
   Choose the 3 whose names / descriptions have the highest keyword

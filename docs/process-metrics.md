@@ -25,7 +25,7 @@ phase reads them all and computes derived values.
 | Phase | Metric | Type | Source / writer |
 |-------|--------|------|-----------------|
 | 0 | `intake_ms` | int | `intake.py` timer |
-| 0 | `intake_agent_ms` | int | intake-agent |
+| 0 | `intake_agent_ms` | int | intake-triage agent (only when triage runs) |
 | 1 | `discovery_prep_ms` | int | `discover.py` pre-agent bundle |
 | 1 | `discovery_ms` | int | discovery-agent total |
 | 1 | `discovery_tokens` | int | discovery-agent self-report |

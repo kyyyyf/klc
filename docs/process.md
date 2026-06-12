@@ -167,7 +167,11 @@ emits `[!QUESTION]` or `[!CONFLICT]`; human decides next action.
 Single-agent path for trivial changes (score 0–2).
 
 1. `klc intake <key> --kind bug "<desc>"` → `intake:ack-needed`
-   Intake prints `route=XS` (deterministic heuristic from `route_heuristic.py`).
+   Intake prints `route=XS confidence=<low|medium|high>` (deterministic
+   heuristic from `route_heuristic.py`). The track is a **provisional floor**.
+   On a short, low/medium-confidence ticket intake recommends the cheap
+   `intake-triage` agent (or `--pick 2` to force full discovery) — a short
+   description means under-specified, not necessarily simple.
 2. `klc ack <key> --pick 1` (confirm-route) → `discovery-lite:work`
 3. Run `discovery-lite` agent. Produces compact `spec.md` (Goals, AC,
    Affected, Estimate). Uses `[!ASSUMPTION]` not blocking `[!QUESTION]`.
@@ -217,7 +221,7 @@ Context bundle loaded by `write_prompt_card` when entering
 
 | File | Content |
 |------|---------|
-| `00-raw.md` | raw description + intake-agent notes |
+| `00-raw.md` | raw description + intake notes |
 | `10-root-CLAUDE.md` | project invariants |
 | `20-module-docs.md` | CLAUDE.md of up to 3 modules with highest keyword overlap with `raw.md` |
 | `40-related.md` | recent tickets with matching kind / modules |

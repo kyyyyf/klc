@@ -65,9 +65,9 @@ Machine-readable single-source-of-truth:
 
 ### `raw.md`
 
-Front-matter then user text. Intake-agent may insert an
-`<!-- BEGIN: intake-agent-notes -->` block listing missing details;
-the block is a signal, not a failure.
+Front-matter then user text. The optional intake-triage agent may insert an
+`<!-- BEGIN: intake-notes -->` block listing missing details and a
+provisional track; the block is a signal, not a failure.
 
 ### `spec.md`
 
