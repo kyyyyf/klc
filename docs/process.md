@@ -317,11 +317,16 @@ scope_delta → scan_sentinels → classify_tier → CascadeDecision
 | Classifier returns no file tiers | Full review (fail-closed) |
 | Any sentinel hit | Full review |
 | Any `critical` or `core` tier file | Full review |
-| All `peripheral` + no drift + no sentinels | **Cheap review** (single focused agent) |
+| Peripheral files count > `peripheral_max_files` | Full review |
+| Total changed lines > `peripheral_max_lines` | Full review |
+| All `peripheral` + no drift + no sentinels + within size limits | **Cheap review** (single focused agent) |
 
 **Fail-closed:** the cascade defaults to full review when it cannot prove
 peripheral. "Unavailable" ≠ "no risk". Only proven peripheral + no
 signals → cheap review.
+
+The **cheap reason string** always includes the diff size:
+`peripheral diff, no sentinels, no scope drift → cheap review (N files, M lines)`.
 
 **Cheap review** dispatches `core/agents/review/cheap.md` — correctness,
 test coverage, spec alignment only (no security/architecture depth).
@@ -330,7 +335,8 @@ Controlled by `config/reviewers.yml`:
 ```yaml
 cascade:
   enabled: true
-  peripheral_max_files: 20   # fallback to full if diff is very large
+  peripheral_max_files: 20   # fallback to full when too many peripheral files
+  peripheral_max_lines: 500  # fallback to full when diff volume is too large
 ```
 
 `review-cheap` role in `models.yml` controls the model used for cheap
