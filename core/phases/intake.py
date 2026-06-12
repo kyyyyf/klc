@@ -91,16 +91,39 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _classify_route(desc: str, kind: str) -> tuple[str, dict]:
-    """Run route_heuristic and return (hint, signals). Never raises."""
+def _triage_available() -> bool:
+    """Cheap intake triage is on by default. Disable to fall back to the
+    deterministic-only "A" routing (low confidence → full discovery).
+
+    Off switch: env KLC_INTAKE_TRIAGE in {0,false,no}.
+    """
+    return os.environ.get("KLC_INTAKE_TRIAGE", "").strip().lower() not in (
+        "0", "false", "no")
+
+
+def _classify_route(desc: str, kind: str) -> dict:
+    """Deterministic routing via route_heuristic. Never raises.
+
+    Returns a dict: hint, signals, confidence, mentions, decision.
+    `decision` is the B+A routing action (trust|triage|full-discovery).
+    """
     try:
         skills = Path(__file__).resolve().parent.parent / "skills"
         sys.path.insert(0, str(skills))
         import route_heuristic as _rh
-        result = _rh.classify(desc, kind=kind)
-        return result.hint, result.signals
+        r = _rh.classify(desc, kind=kind)
+        return {
+            "hint":       r.hint,
+            "signals":    r.signals,
+            "confidence": r.confidence,
+            "mentions":   [{"kind": "module", "value": m}
+                           for m in r.modules_matched],
+            "decision":   _rh.decide_route(r.hint, r.confidence,
+                                           _triage_available()),
+        }
     except Exception:
-        return "S", {}
+        return {"hint": "S", "signals": {}, "confidence": "medium",
+                "mentions": [], "decision": "trust"}
 
 
 def run(argv: list[str]) -> int:
@@ -177,12 +200,13 @@ def run(argv: list[str]) -> int:
     )
 
     # Deterministic route classification (no LLM)
-    route_hint, route_signals = _classify_route(desc, args.kind or "unknown")
+    route = _classify_route(desc, args.kind or "unknown")
+    route_hint = route["hint"]
 
     meta = {
         "ticket":        args.ticket,
         "kind":          args.kind or "unknown",
-        "kind_source":   "user" if args.kind else "intake-agent-pending",
+        "kind_source":   "user" if args.kind else "heuristic",
         "phase":         "intake:ack-needed",
         "phase_history": [{"phase": "intake:ack-needed", "started_at": _now()}],
         "track":         route_hint,
@@ -194,8 +218,11 @@ def run(argv: list[str]) -> int:
         "jira_url":      jira_url,
         "links":         [],
         "rework_count":  {},
-        "route_hint":    route_hint,
-        "route_signals": route_signals,
+        "route_hint":       route_hint,
+        "route_signals":    route["signals"],
+        "route_confidence": route["confidence"],
+        "route_decision":   route["decision"],
+        "mentions":         route["mentions"],
         "metrics":       {"intake_ms": int((_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds() * 1000)},
     }
     klc_ticket_meta_file(args.ticket).write_text(
@@ -216,9 +243,17 @@ def run(argv: list[str]) -> int:
     print(f"INTAKE_OK {args.ticket}")
     print(f"  dir:    {tdir}")
     print(f"  kind:   {meta['kind']}")
-    print(f"  route:  {route_hint}  (signals: {route_signals})")
+    print(f"  route:  {route_hint}  confidence={route['confidence']}  (signals: {route['signals']})")
     print(f"  → intake:ack-needed")
-    print(f"  next:   klc ack {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
+    decision = route["decision"]
+    if decision == "triage":
+        print(f"  ⚠ {route['confidence']}-confidence routing — the hint may under-size the ticket.")
+        print(f"     Recommended: run the cheap intake triage (core/agents/intake-triage.md)")
+        print(f"     to disambiguate scope, or `klc ack {args.ticket} --pick 2` to force full discovery.")
+    elif decision == "full-discovery":
+        print(f"  ⚠ low-confidence routing, triage disabled.")
+        print(f"     Recommended: `klc ack {args.ticket} --pick 2` (force-full-discovery).")
+    print(f"  picks:  klc ack {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
 
     _jira_intake_enrich(args.ticket, args.jira_description)
     _warn_stale_modules()

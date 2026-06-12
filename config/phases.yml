@@ -93,7 +93,8 @@ phases:
           goto: "discovery:work"
           supersede: ["discovery-lite"]
     inputs: ["raw.md"]
-    outputs: ["spec.md"]
+    # S adds test-plan.md and impl-plan.md; XS outputs spec.md only.
+    outputs: ["spec.md", "test-plan.md", "impl-plan.md"]
 
   # -------------------------------------------------------------------
   - id: discovery
@@ -114,7 +115,8 @@ phases:
 
   # -------------------------------------------------------------------
   - id: acceptance-test-plan
-    tracks: [S, M, L]
+    # S-track: test-plan.md + impl-plan.md are produced by discovery-lite (no separate phase).
+    tracks: [M, L]
     work:
       prompt: "core/agents/test-planner.md"
     ack:
@@ -162,7 +164,8 @@ phases:
 
   # -------------------------------------------------------------------
   - id: detailed-test-plan
-    tracks: [M, L]
+    # M-track: test-planner enriches impl-plan.md steps directly (no separate phase).
+    tracks: [L]
     work:
       prompt: "core/agents/test-planner.md"
     ack:
@@ -332,6 +335,6 @@ phases:
           goto: "learn:work"
     inputs: []
     outputs: ["retrospective.md"]
-    # Skip LLM retrospective when there are no rework signals or budget overruns.
-    # Metrics are still recorded automatically by lifecycle.
-    condition: "meta.rework_count any_overrun OR meta.regression_observed == 1 OR meta.budgets any_overrun"
+    # M/L always run learn (design-heavy work produces learnings worth capturing).
+    # XS/S: run only when failure signals are present.
+    condition: "meta.track in ['M','L'] OR meta.rework_count any_overrun OR meta.regression_observed == 1 OR meta.budgets any_overrun"

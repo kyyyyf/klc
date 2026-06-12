@@ -65,9 +65,9 @@ Machine-readable single-source-of-truth:
 
 ### `raw.md`
 
-Front-matter then user text. Intake-agent may insert an
-`<!-- BEGIN: intake-agent-notes -->` block listing missing details;
-the block is a signal, not a failure.
+Front-matter then user text. The optional intake-triage agent may insert an
+`<!-- BEGIN: intake-notes -->` block listing missing details and a
+provisional track; the block is a signal, not a failure.
 
 ### `spec.md`
 
@@ -83,15 +83,23 @@ consistency check.
 Short form: max 15 lines, exactly what the template emits. No
 options / non-goals / rollout sections.
 
+**`Affected` section contract (discovery-lite / XS / S):** every entry
+must be either LSP-verified (`src=path:line`, mandatory) or an explicit
+assumption (`[!ASSUMPTION if-false=scope-may-expand]`). Unanchored
+module names without either marker are not permitted.
+
 ### `test-plan.md`
 
-Written in two passes by `core/agents/test-planner.md`:
+**S-track**: written by `discovery-lite` in the same agent call as
+`spec.md` — acceptance coverage table (e2e/acceptance only, no detailed
+section). No separate `acceptance-test-plan` phase runs for S.
 
-- **Phase 2 (acceptance mode)** — fills `## Acceptance coverage`
+**M / L track**: written in two passes by `core/agents/test-planner.md`:
+
+- **Phase 2 (acceptance mode, M/L)** — fills `## Acceptance coverage`
   (AC → e2e/acceptance test), `## Edge cases`, `## Regression
   scenarios`, and `## Manual checklist` when `estimate.manual ≥ 2`.
-  Leaves `## Detailed coverage` as a `TBD` comment (M / L) or omits
-  it (S).
+  Leaves `## Detailed coverage` as a `TBD` comment.
 - **Phase 4 (detailed mode, M / L only)** — replaces the `TBD`
   comment with a `## Detailed coverage` table keyed to the impl-plan
   step IDs. The acceptance section and the manual block stay
@@ -118,12 +126,15 @@ follows MADR via `core/templates/ADR.md.j2` (pre-existing).
 
 ### `impl-plan.md`
 
-Authored by the design agent (S-track: by the test-planner) to match the
+Authored by the design agent (S-track: by discovery-lite) to match the
 shape in `impl-plan.md.j2` (full) / `impl-plan-short.md.j2`. These
 templates are a **contract sample**, not a runtime renderer — no code
 renders them today.
-Full: step-1 ... step-N, each with Goal / RED / GREEN / VERIFY / COMMIT /
+Full (M/L): step-1 ... step-N, each with Goal / RED / GREEN / VERIFY / COMMIT /
 affected files / expected tests / Depends on / optional rollback note.
+For M-track, the `detailed-test-plan` agent appends a `**Tests:**` sub-block
+to each step (unit/integration test names + target symbols) in place of a
+separate detailed coverage phase.
 Manual-blocks preserved.
 
 Short (S-track): 1–3 steps, same per-step contract, kept compact.

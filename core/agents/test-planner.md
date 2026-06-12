@@ -18,11 +18,8 @@ section is appended (and may be regenerated on re-runs).
 
 You never write test code. That is the `test` agent in Build.
 
-For **S-track** tickets there is no Design phase, yet Build still
-requires `impl-plan.md`. In acceptance mode you therefore also produce a
-**short** `impl-plan.md` so Build receives step cards with TDD and commit
-boundaries. Do not do architecture design — derive the minimal roadmap
-from `spec.md` and the acceptance tests only.
+For **S-track** tickets, `impl-plan.md` is produced by `discovery-lite`
+(not by this agent). You only write `test-plan.md` in acceptance mode.
 
 ## Inputs
 
@@ -90,22 +87,32 @@ Rules for acceptance mode:
 - Leave `## Detailed coverage` as a `TBD` comment for M / L;
   omit the section on S.
 
-**S-track only — also write `impl-plan.md` (short form):**
+Do **not** create or overwrite `impl-plan.md` — for S it comes from
+`discovery-lite`; for M/L it comes from `design`.
 
-- 1–3 steps, each exactly one logical commit.
-- Each behaviour-changing step has `Goal`, `RED`, `GREEN`, `VERIFY`,
-  `COMMIT` (prefixed `<KEY> step-N:`), concrete `Affected files`, and
-  `Depends on`.
-- Step headers use the `## step-N — <title>` form so the Build phase can
-  parse them.
-- If the work cannot be planned without design trade-offs, do NOT invent
-  a plan — emit `[!QUESTION blocks=acceptance-test-plan]` recommending an
-  upgrade to M.
+### Phase 4 — detailed mode
 
-Do **not** create `impl-plan.md` for XS (XS uses `xs-fasttrack.md`).
-Do **not** overwrite a Design-produced `impl-plan.md` on M/L.
+**M-track: enrich impl-plan.md per-step (no separate detailed section in test-plan.md)**
 
-### Phase 4 — detailed mode (M / L only)
+For M tickets, the impl-plan already exists from the Design phase. Do NOT write
+`## Detailed coverage` into test-plan.md. Instead, read each `## step-N` in
+`impl-plan.md` and append a `**Tests:**` sub-block inside it:
+
+```markdown
+**Tests:**
+| Test type | Test name / location | Target symbol(s) | Notes |
+|-----------|----------------------|------------------|-------|
+| unit        | tests/payments/test_ledger.py::test_zero_amount | `Ledger.add_entry` | — |
+| integration | tests/api/test_refund.py::test_db_rollback      | `RefundHandler.process` | fixture `db_session` |
+```
+
+Rules for M (impl-plan enrichment):
+- Every step must get a `**Tests:**` block. Wiring-only steps use a single `—` row.
+- Verify target symbols exist via LSP `hover` / `goToDefinition`.
+- Do not modify any other field of the step (Goal, RED, GREEN, VERIFY, COMMIT, etc.).
+- Update `last_generated` in impl-plan.md frontmatter.
+
+**L-track: standalone `## Detailed coverage` in test-plan.md**
 
 Read the existing `test-plan.md` without altering:
 - the frontmatter (update `last_generated` only);
@@ -126,7 +133,7 @@ Replace / populate `## Detailed coverage` with:
 | step-4 | —           | —                                              | —                       | wiring only; covered-by: AC-1 |
 ```
 
-Rules for detailed mode:
+Rules for L (test-plan detailed section):
 
 - Every `step-N` from `impl-plan.md` must either appear in the
   table or carry a `covered-by: AC-N` note in the Notes column.

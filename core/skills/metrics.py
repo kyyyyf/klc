@@ -155,12 +155,29 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             for phase, v in token_by_phase.items()
         }
 
+        # cheap_escape_rate: fraction of cheap/lite reviews that later
+        # had regression or rework.
+        cheap_total = sum(
+            1 for m in ms
+            if m.get("metrics", {}).get("review_depth") in ("cheap", "lite")
+        )
+        cheap_escaped = sum(
+            1 for m in ms
+            if m.get("metrics", {}).get("review_depth") in ("cheap", "lite")
+            and (
+                sum((m.get("rework_count") or {}).values()) > 0
+                or m.get("regression_observed", 0) == 1
+            )
+        )
+        cheap_escape_rate = (cheap_escaped / cheap_total) if cheap_total > 0 else None
+
         per_track[track] = {
             "tickets":               len(ms),
             "cycle_time_sec_median": statistics.median(cts) if cts else None,
             "cycle_time_sec_p95":    _p95(cts),
             "rework_mean":           statistics.mean(rework_totals) if rework_totals else 0,
             "tokens_by_phase":       tokens_summary,
+            "cheap_escape_rate":     cheap_escape_rate,
         }
 
     payload = {

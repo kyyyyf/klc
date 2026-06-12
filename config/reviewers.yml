@@ -11,7 +11,11 @@
 # read from the environment variable named in api_key_env.
 
 external_reviewer:
-  enabled:      false
+  # Default-on for S/M/L tickets. Opt out with --no-external flag or
+  # meta.review.skip_external: true. Skipped automatically when api_key_env
+  # is unset (graceful degradation). XS never reaches the external reviewer.
+  enabled:      true
+  min_track:    S                 # XS skips external regardless of enabled
   provider:     openai            # openai | anthropic | google | ollama
   model:        gpt-4o
   api_key_env:  OPENAI_API_KEY
@@ -58,6 +62,12 @@ cascade:
   # Keeps cheap-review fast; very large peripheral diffs are unusual enough
   # to warrant a second look.
   peripheral_max_files: 20
+
+  # Maximum total added+removed lines across all peripheral files.
+  # A mechanically large diff (e.g. mass rename) warrants a full review
+  # even if every individual file is peripheral.
+  # Default: 500 lines (added + removed combined).
+  peripheral_max_lines: 500
 
 reports:
   # Retention policy for .klc/reports/. Older runs are pruned at the
