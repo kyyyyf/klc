@@ -92,10 +92,17 @@ roles:
 #   - review-external: the optional external reviewer invoked from
 #                      scripts/review.py. Maps to the `external_reviewer`
 #                      block in config/reviewers.yml when enabled.
+#   - intake-triage  : the cheap, optional intake triage agent
+#                      (core/agents/intake-triage.md). Runs only when intake
+#                      flags a short, low/medium-confidence ticket. It is a
+#                      fast classification, NOT deep reasoning — keep it cheap.
 
 phase_roles:
   indexing:             local-coding
-  intake:               heavy-reasoning
+  # intake itself runs no LLM (deterministic route_heuristic). This role is
+  # only a fallback; keep it cheap.
+  intake:               local-simple
+  intake-triage:        local-simple
   discovery-lite:       coding
   discovery:            heavy-reasoning
   acceptance-test-plan: coding
