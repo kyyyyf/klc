@@ -18,11 +18,8 @@ section is appended (and may be regenerated on re-runs).
 
 You never write test code. That is the `test` agent in Build.
 
-For **S-track** tickets there is no Design phase, yet Build still
-requires `impl-plan.md`. In acceptance mode you therefore also produce a
-**short** `impl-plan.md` so Build receives step cards with TDD and commit
-boundaries. Do not do architecture design — derive the minimal roadmap
-from `spec.md` and the acceptance tests only.
+For **S-track** tickets, `impl-plan.md` is produced by `discovery-lite`
+(not by this agent). You only write `test-plan.md` in acceptance mode.
 
 ## Inputs
 
@@ -90,20 +87,8 @@ Rules for acceptance mode:
 - Leave `## Detailed coverage` as a `TBD` comment for M / L;
   omit the section on S.
 
-**S-track only — also write `impl-plan.md` (short form):**
-
-- 1–3 steps, each exactly one logical commit.
-- Each behaviour-changing step has `Goal`, `RED`, `GREEN`, `VERIFY`,
-  `COMMIT` (prefixed `<KEY> step-N:`), concrete `Affected files`, and
-  `Depends on`.
-- Step headers use the `## step-N — <title>` form so the Build phase can
-  parse them.
-- If the work cannot be planned without design trade-offs, do NOT invent
-  a plan — emit `[!QUESTION blocks=acceptance-test-plan]` recommending an
-  upgrade to M.
-
-Do **not** create `impl-plan.md` for XS (XS uses `xs-fasttrack.md`).
-Do **not** overwrite a Design-produced `impl-plan.md` on M/L.
+Do **not** create or overwrite `impl-plan.md` — for S it comes from
+`discovery-lite`; for M/L it comes from `design`.
 
 ### Phase 4 — detailed mode (M / L only)
 

@@ -90,13 +90,16 @@ module names without either marker are not permitted.
 
 ### `test-plan.md`
 
-Written in two passes by `core/agents/test-planner.md`:
+**S-track**: written by `discovery-lite` in the same agent call as
+`spec.md` — acceptance coverage table (e2e/acceptance only, no detailed
+section). No separate `acceptance-test-plan` phase runs for S.
 
-- **Phase 2 (acceptance mode)** — fills `## Acceptance coverage`
+**M / L track**: written in two passes by `core/agents/test-planner.md`:
+
+- **Phase 2 (acceptance mode, M/L)** — fills `## Acceptance coverage`
   (AC → e2e/acceptance test), `## Edge cases`, `## Regression
   scenarios`, and `## Manual checklist` when `estimate.manual ≥ 2`.
-  Leaves `## Detailed coverage` as a `TBD` comment (M / L) or omits
-  it (S).
+  Leaves `## Detailed coverage` as a `TBD` comment.
 - **Phase 4 (detailed mode, M / L only)** — replaces the `TBD`
   comment with a `## Detailed coverage` table keyed to the impl-plan
   step IDs. The acceptance section and the manual block stay
@@ -123,7 +126,7 @@ follows MADR via `core/templates/ADR.md.j2` (pre-existing).
 
 ### `impl-plan.md`
 
-Authored by the design agent (S-track: by the test-planner) to match the
+Authored by the design agent (S-track: by discovery-lite) to match the
 shape in `impl-plan.md.j2` (full) / `impl-plan-short.md.j2`. These
 templates are a **contract sample**, not a runtime renderer — no code
 renders them today.

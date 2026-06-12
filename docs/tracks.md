@@ -46,7 +46,7 @@ Each dimension scores 0-5:
 | Track | Total | Phases | Typical duration | Example tickets |
 |-------|-------|--------|------------------|-----------------|
 | **XS** | ≤3 | intake → discovery → xs-build → review-lite → integrate → learn | 0.5-1 day | Typo fix, simple config change, add log statement |
-| **S** | 4-6 | intake → discovery → acceptance-test-plan → build → review → integrate → observe → learn | 1-3 days | New endpoint, refactor module, add feature flag |
+| **S** | 4-6 | intake → discovery-lite (spec+test-plan+impl-plan) → build → review → integrate → observe → learn | 1-3 days | New endpoint, refactor module, add feature flag |
 | **M** | 7-10 | intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn | 3-7 days | Multi-module refactor, new subsystem, non-trivial algorithm |
 | **L** | ≥11 | intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn | 7-14 days | Architecture change, new service, large-scale migration |
 
@@ -77,9 +77,8 @@ learn:work (lightweight retrospective)
 ```
 intake:ack-needed → intake:ack
   ↓
-discovery:work → discovery:ack-needed → discovery:ack
-  ↓
-acceptance-test-plan:work → acceptance-test-plan:ack-needed → acceptance-test-plan:ack
+discovery-lite:work → discovery-lite:ack-needed → discovery-lite:ack
+  (emits spec.md + test-plan.md + impl-plan.md in one agent call)
   ↓
 build:work (TDD loop with test agent + impl agent)
   ↓
@@ -93,7 +92,8 @@ learn:work (retrospective)
 ```
 
 **Key differences**:
-- Adds acceptance-test-plan phase
+- No separate acceptance-test-plan phase — discovery-lite produces spec.md,
+  test-plan.md, and impl-plan.md (1–3 steps) in one pass
 - Full build TDD loop
 - Full review audit
 - Observe phase monitors metrics

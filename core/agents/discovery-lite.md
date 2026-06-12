@@ -67,9 +67,72 @@ total: <sum, must be ≤2 for XS or ≤5 for S>
    short description does not make it small — do **not** keep it XS/S;
    raise the estimate accordingly or emit `DISCOVERY_LITE_UPGRADE_M`.
 
+## S-track additional outputs
+
+For **S-track only** (skip entirely for XS), after writing `spec.md`,
+also produce:
+
+### `test-plan.md` (acceptance coverage)
+
+```markdown
+---
+ticket: <KEY>
+authority: hybrid
+last_generated: <ISO>
+---
+
+# Test plan — <KEY>
+
+## Acceptance coverage
+
+| AC | Test type | Test name / location | Notes |
+|----|-----------|----------------------|-------|
+| AC-1 | e2e       | tests/…/test_x.py::test_y | — |
+
+## Edge cases
+- <enumerate edges the spec calls out>
+
+## Regression scenarios
+- <scenarios worth recording, per affected module>
+
+## Manual checklist (populated iff estimate.manual ≥ 2)
+- [ ] <step>
+
+<!-- BEGIN: manual -->
+<!-- Human additions to the plan -->
+<!-- END: manual -->
+```
+
+Rules:
+- Every AC in spec.md must appear in the table. Missing one is a phase-failure.
+- Test type at this layer: `e2e` / `acceptance` / `manual` only — not `unit` / `integration`.
+- No `## Detailed coverage` section (not applicable for S).
+
+### `impl-plan.md` (short form, 1–3 steps)
+
+```markdown
+# Implementation plan — <KEY>
+
+## step-1 — <title>
+
+**Goal:** <what this step accomplishes>
+**RED:** <test file and test name that must fail first; or `not applicable — <reason>`>
+**GREEN:** <minimal code change to make RED pass>
+**VERIFY:** `<command>`
+**COMMIT:** `<KEY> step-1: <subject>`
+**Affected files:** `<path/to/file.py>`, …
+**Depends on:** none / step-N
+```
+
+Rules:
+- 1–3 steps only; each step = one logical commit with its own RED/GREEN cycle.
+- If the work cannot be planned without design trade-offs, do NOT invent
+  a plan — emit `[!QUESTION blocks=discovery-lite]` recommending an upgrade to M.
+- Do not produce `impl-plan.md` for XS (XS uses `xs-fasttrack.md`).
+
 ## Signals to emit
 
 End spec.md with one of:
-- `DISCOVERY_LITE_DONE` — spec is complete and consistent.
+- `DISCOVERY_LITE_DONE` — spec (and, for S, test-plan + impl-plan) is complete and consistent.
 - `DISCOVERY_LITE_UPGRADE_M` — scope is larger than S; human should
   re-route to full discovery.

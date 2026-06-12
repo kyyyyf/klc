@@ -50,7 +50,7 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 | `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm-route · 2 = force-full-discovery · 3 = force-xs-skip (XS only) |
 | `discovery-lite`       | XS S        | `core/agents/discovery-lite.md`   | 1 = approve · 2 = needs-rework · 3 = upgrade-to-full      |
 | `discovery`            | M L         | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
-| `acceptance-test-plan` | S M L       | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
+| `acceptance-test-plan` | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
 | `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
 | `detailed-test-plan`   | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
 | `xs-build`             | XS          | `core/agents/xs-fasttrack.md`     | 1 = approve · 2 = upgrade-to-S                            |
@@ -64,7 +64,7 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 
 **XS path**: intake → discovery-lite → xs-build → review-lite → integrate → learn
 
-**S path**: intake → discovery-lite → acceptance-test-plan → build → review → integrate → observe → learn
+**S path**: intake → discovery-lite (spec+test-plan+impl-plan) → build → review → integrate → observe → learn
 
 **M path**: intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn
 
