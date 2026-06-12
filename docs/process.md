@@ -342,6 +342,24 @@ cascade:
 `review-cheap` role in `models.yml` controls the model used for cheap
 review. `per_track.S.review-cheap: local-simple` uses Haiku for S-track.
 
+### External reviewer (default-on for S/M/L)
+
+`external_reviewer.enabled: true` in `config/reviewers.yml` means the external
+reviewer runs for all S/M/L tickets. It runs on both cheap and full cascade
+paths. Skip conditions (first match wins):
+1. `--no-external` flag
+2. `meta.review.skip_external: true`
+3. `external_reviewer.api_key_env` not set in the environment (graceful; `klc doctor` warns)
+
+Controlled by `config/reviewers.yml`:
+
+```yaml
+external_reviewer:
+  enabled:      true
+  min_track:    S       # XS never hits the external reviewer
+  api_key_env:  OPENAI_API_KEY
+```
+
 ---
 
 ## Conditional phases

@@ -816,6 +816,39 @@ def _write_inputs_snapshot(partials_dir: Path, *, diff_hash: str, spec_path: Pat
     )
 
 
+_TRACK_ORDER = {"XS": 0, "S": 1, "M": 2, "L": 3}
+
+
+def _should_run_external(*,
+                         no_external: bool,
+                         reviewers_cfg: dict,
+                         meta: dict) -> bool:
+    """Return True iff the external reviewer should run for this ticket.
+
+    Rules (first False wins):
+    1. no_external flag → False
+    2. meta.review.skip_external → False
+    3. external_reviewer.enabled != True → False
+    4. ticket track < external_reviewer.min_track → False
+    5. api_key_env not set in environment → False (graceful degradation)
+    """
+    if no_external:
+        return False
+    if (meta.get("review") or {}).get("skip_external"):
+        return False
+    if not reviewers_cfg.get("enabled"):
+        return False
+    min_track = reviewers_cfg.get("min_track", "S")
+    ticket_track = meta.get("track", "XS")
+    if _TRACK_ORDER.get(ticket_track, 0) < _TRACK_ORDER.get(min_track, 1):
+        return False
+    api_key_env = reviewers_cfg.get("api_key_env", "")
+    if api_key_env and not os.environ.get(api_key_env):
+        log(f"external reviewer: api_key_env '{api_key_env}' not set — skipping")
+        return False
+    return True
+
+
 # --- main --------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
@@ -827,7 +860,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--spec", required=True, type=Path,
                     help="Path to the ticket spec.")
     ap.add_argument("--external", action="store_true",
-                    help="Also run the external reviewer.")
+                    help="Also run the external reviewer (legacy flag; default-on for S+ now).")
+    ap.add_argument("--no-external", dest="no_external", action="store_true",
+                    help="Skip the external reviewer even when default-on in reviewers.yml.")
     args = ap.parse_args(argv)
 
     if not args.spec.is_file():
@@ -1055,17 +1090,31 @@ def main(argv: list[str]) -> int:
         # Still incomplete: return 0 and wait for re-entry.
         return 0
 
-    # 5. Optional external reviewer.
+    # 5. Optional external reviewer (default-on for S+ per reviewers.yml).
     ext_card: Path | None = None
     ext_out: Path | None = None
-    want_external = args.external
-    if not want_external:
-        # Honour the framework config toggle too.
-        rv_cfg = FRAMEWORK_ROOT / "config" / "reviewers.yml"
-        if rv_cfg.exists():
-            text = rv_cfg.read_text(encoding="utf-8")
-            if re.search(r"^\s*enabled:\s*true", text, re.MULTILINE):
-                want_external = True
+    # Load ticket meta for track + skip_external check.
+    ticket_meta: dict = {}
+    if ticket_key:
+        try:
+            meta_path = klc_dir() / "tickets" / ticket_key / "meta.json"
+            if meta_path.exists():
+                ticket_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    # Load external_reviewer config block.
+    try:
+        from _yaml import parse as _yml_parse
+        rv_cfg_path = FRAMEWORK_ROOT / "config" / "reviewers.yml"
+        _rv_cfg = _yml_parse(rv_cfg_path.read_text(encoding="utf-8")) if rv_cfg_path.exists() else {}
+        ext_cfg = _rv_cfg.get("external_reviewer") or {}
+    except Exception:
+        ext_cfg = {}
+    want_external = args.external or _should_run_external(
+        no_external=getattr(args, "no_external", False),
+        reviewers_cfg=ext_cfg,
+        meta=ticket_meta,
+    )
     if want_external:
         ext_card = pending_dir / "job-external.md"
         ext_out  = partials_dir / "external.json"

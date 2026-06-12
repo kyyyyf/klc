@@ -11,7 +11,11 @@
 # read from the environment variable named in api_key_env.
 
 external_reviewer:
-  enabled:      false
+  # Default-on for S/M/L tickets. Opt out with --no-external flag or
+  # meta.review.skip_external: true. Skipped automatically when api_key_env
+  # is unset (graceful degradation). XS never reaches the external reviewer.
+  enabled:      true
+  min_track:    S                 # XS skips external regardless of enabled
   provider:     openai            # openai | anthropic | google | ollama
   model:        gpt-4o
   api_key_env:  OPENAI_API_KEY
