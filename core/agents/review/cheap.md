@@ -10,6 +10,19 @@ or core-tier files, no scope drift. Your job is a fast, targeted pass.
 - `spec` — ticket spec or bug description
 - `context` — relevant CLAUDE.md sections
 
+## Manual full-review confirmation
+
+If you are running this card manually in Claude Code / Codex CLI, do not
+start reviewing until the operator confirms cheap review is acceptable
+for this pass. Show the cascade reason from the job card if present. If
+the operator asks for full review, emit and stop without a cheap verdict:
+
+```text
+FULL_REVIEW_REQUESTED <KEY>
+```
+
+Unattended runner mode: proceed without asking.
+
 ## Focus areas (only these)
 
 1. **Correctness** — obvious bugs introduced by the diff (off-by-one,

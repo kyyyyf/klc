@@ -6,10 +6,21 @@ authority: hybrid
 
 # Implementation plan (short) — {{ ticket }}
 
-## step-1 — {{ step.title }}
+{% for step in steps %}
+## step-{{ loop.index }} — {{ step.title }}
 
-{{ step.description }}
+**Goal**: {{ step.goal or step.description }}
+
+**RED**: {{ step.red or "write failing test from test-plan.md before code" }}
+
+**GREEN**: {{ step.green or "smallest code change to pass RED" }}
+
+**VERIFY**: `{{ step.verify or (step.tests[0] if step.tests else "see test-plan.md") }}`
+
+**COMMIT**: `{{ ticket }} step-{{ loop.index }}: {{ step.commit_subject or step.title }}`
 
 Affected: {% for f in step.files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
 
-Test: `{{ step.tests[0] if step.tests else "see test-plan.md" }}`
+**Depends on**: {{ step.depends_on or "none" }}
+
+{% endfor %}

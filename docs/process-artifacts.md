@@ -118,11 +118,15 @@ follows MADR via `core/templates/ADR.md.j2` (pre-existing).
 
 ### `impl-plan.md`
 
-Rendered from `impl-plan.md.j2` (full) or `impl-plan-short.md.j2`.
-Full: step-1 ... step-N, each with description / affected files /
-expected tests / optional rollback note. Manual-blocks preserved.
+Authored by the design agent (S-track: by the test-planner) to match the
+shape in `impl-plan.md.j2` (full) / `impl-plan-short.md.j2`. These
+templates are a **contract sample**, not a runtime renderer — no code
+renders them today.
+Full: step-1 ... step-N, each with Goal / RED / GREEN / VERIFY / COMMIT /
+affected files / expected tests / Depends on / optional rollback note.
+Manual-blocks preserved.
 
-Short: exactly one step, ≤ 10 lines rendered.
+Short (S-track): 1–3 steps, same per-step contract, kept compact.
 
 ### `build-log.md`
 
