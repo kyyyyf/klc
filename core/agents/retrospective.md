@@ -14,6 +14,8 @@ reviewer prompts.
   `test-plan.md`, review reports, manual checklist, scratch archive.
 - `.klc/tickets/<KEY>/meta.json`: track, estimate, phase_history,
   metrics, rework_count.
+- Review report frontmatter: `review_depth` (`cheap` | `lite` | `full`),
+  `full_review_offered`, `full_review_declined`.
 - Output of `metrics.py rollup` — lets you compare this ticket to
   the 30-day median for its track.
 ## Output
@@ -109,6 +111,21 @@ last_generated: <ISO>
 
 Use the full template only when at least one failure signal is present
 (rework, regression, or budget overrun).
+
+## Cheap-path miss detection
+
+Read the review report's `review_depth` field. If `review_depth` is
+`cheap` or `lite` AND any of the failure signals fired (rework, regression,
+budget overrun), emit a **`cheap-path miss`** finding in the Lessons section:
+
+```
+[!CHEAP_PATH_MISS] review_depth=cheap, rework_count={build:1}
+  — the cheap cascade path may have missed issues that triggered rework.
+  Consider: run full review by default for this ticket's module set, or
+  add sentinel patterns that force full review for similar diffs.
+```
+
+This finding feeds the `cheap_escape_rate` rollup (see `docs/process-metrics.md`).
 
 ## Rules
 

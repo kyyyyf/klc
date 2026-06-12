@@ -1,6 +1,9 @@
 # Code Review Report
 Generated: {{ timestamp }}
 Spec: {{ spec_path }}
+review_depth: {{ review_depth | default('full') }}
+full_review_offered: {{ full_review_offered | default(false) }}
+full_review_declined: {{ full_review_declined | default(false) }}
 
 ## Summary
 | Reviewer | Issues | Blocking | Status |

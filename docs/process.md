@@ -343,6 +343,10 @@ cascade:
 `review-cheap` role in `models.yml` controls the model used for cheap
 review. `per_track.S.review-cheap: local-simple` uses Haiku for S-track.
 
+The review report frontmatter carries `review_depth` (`cheap` | `lite` | `full`),
+`full_review_offered`, and `full_review_declined` to feed the retro and
+`cheap_escape_rate` rollup in `process-metrics.json`.
+
 ### External reviewer (default-on for S/M/L)
 
 `external_reviewer.enabled: true` in `config/reviewers.yml` means the external
