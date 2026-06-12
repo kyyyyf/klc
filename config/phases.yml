@@ -164,7 +164,8 @@ phases:
 
   # -------------------------------------------------------------------
   - id: detailed-test-plan
-    tracks: [M, L]
+    # M-track: test-planner enriches impl-plan.md steps directly (no separate phase).
+    tracks: [L]
     work:
       prompt: "core/agents/test-planner.md"
     ack:

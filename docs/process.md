@@ -52,7 +52,7 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 | `discovery`            | M L         | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
 | `acceptance-test-plan` | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
 | `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
-| `detailed-test-plan`   | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
+| `detailed-test-plan`   | L           | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework (M: tests folded into impl-plan steps) |
 | `xs-build`             | XS          | `core/agents/xs-fasttrack.md`     | 1 = approve · 2 = upgrade-to-S                            |
 | `build`                | S M L       | `core/agents/impl.md`             | 1 = approve                                                |
 | `review-lite`          | XS          | `core/agents/review-lite.md`      | 1 = approve · 2 = request-changes · 3 = override          |
@@ -66,7 +66,7 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 
 **S path**: intake → discovery-lite (spec+test-plan+impl-plan) → build → review → integrate → observe → learn
 
-**M path**: intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn
+**M path**: intake → discovery → acceptance-test-plan → design (impl-plan w/ tests) → build → review → manual → integrate → observe → learn
 
 ---
 

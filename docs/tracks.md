@@ -47,7 +47,7 @@ Each dimension scores 0-5:
 |-------|-------|--------|------------------|-----------------|
 | **XS** | ≤3 | intake → discovery → xs-build → review-lite → integrate → learn | 0.5-1 day | Typo fix, simple config change, add log statement |
 | **S** | 4-6 | intake → discovery-lite (spec+test-plan+impl-plan) → build → review → integrate → observe → learn | 1-3 days | New endpoint, refactor module, add feature flag |
-| **M** | 7-10 | intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn | 3-7 days | Multi-module refactor, new subsystem, non-trivial algorithm |
+| **M** | 7-10 | intake → discovery → acceptance-test-plan → design (impl-plan w/ per-step tests) → build → review → manual → integrate → observe → learn | 3-7 days | Multi-module refactor, new subsystem, non-trivial algorithm |
 | **L** | ≥11 | intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn | 7-14 days | Architecture change, new service, large-scale migration |
 
 ## Phase sequences
@@ -108,8 +108,7 @@ discovery:work → discovery:ack-needed → discovery:ack
 acceptance-test-plan:work → acceptance-test-plan:ack-needed → acceptance-test-plan:ack
   ↓
 design:work → design:ack-needed → design:ack
-  ↓
-detailed-test-plan:work → detailed-test-plan:ack-needed → detailed-test-plan:ack
+  (test-planner enriches each impl-plan step with unit/integration tests — no separate phase)
   ↓
 build:work (TDD loop with impl-plan.md)
   ↓
@@ -125,12 +124,13 @@ learn:work
 ```
 
 **Key differences**:
-- Adds design phase (options.md → adr.md)
-- detailed-test-plan phase (updates test-plan.md with unit/integration tests keyed to impl-plan steps)
+- Adds design phase (options.md → adr.md); test-planner enriches impl-plan steps with
+  per-step unit/integration tests (no standalone detailed-test-plan gate for M)
 - manual phase between review and integrate (human validation)
 
 ### L track
-Same as M track, but longer duration and higher scrutiny at each gate.
+Same as M track but adds a `detailed-test-plan` gate after design (standalone
+`## Detailed coverage` in test-plan.md) and has longer duration and higher scrutiny.
 
 ## Decision examples
 

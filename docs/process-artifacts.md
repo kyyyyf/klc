@@ -130,8 +130,11 @@ Authored by the design agent (S-track: by discovery-lite) to match the
 shape in `impl-plan.md.j2` (full) / `impl-plan-short.md.j2`. These
 templates are a **contract sample**, not a runtime renderer — no code
 renders them today.
-Full: step-1 ... step-N, each with Goal / RED / GREEN / VERIFY / COMMIT /
+Full (M/L): step-1 ... step-N, each with Goal / RED / GREEN / VERIFY / COMMIT /
 affected files / expected tests / Depends on / optional rollback note.
+For M-track, the `detailed-test-plan` agent appends a `**Tests:**` sub-block
+to each step (unit/integration test names + target symbols) in place of a
+separate detailed coverage phase.
 Manual-blocks preserved.
 
 Short (S-track): 1–3 steps, same per-step contract, kept compact.
