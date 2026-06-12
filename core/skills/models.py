@@ -40,6 +40,10 @@ class Role:
     # = defer to defaults. Strings carry the env var name.
     api_key_env: object = _SENTINEL_UNSET
     extra_args:  list[str] = field(default_factory=list)
+    # Abstract tier ordering for MODEL_MISMATCH guard + plugin-gen.
+    # Convention: heavy-reasoning=3, coding=2, local-simple=1.
+    # Roles sharing one concrete model must share a rank.
+    rank:        int = 0
 
 
 @dataclass
@@ -172,12 +176,17 @@ def _build_role(name: str, raw: dict) -> Role:
     extra_args = raw.get("extra_args") or []
     if not isinstance(extra_args, list):
         raise ValueError(f"models.yml: role {name!r} extra_args must be a list")
+    rank_raw = raw.get("rank")
+    if rank_raw is not None and not isinstance(rank_raw, int):
+        raise ValueError(f"models.yml: role {name!r} rank must be an integer")
+    rank = int(rank_raw) if rank_raw is not None else 0
     return Role(
         name=name,
         provider=str(provider),
         model=str(model),
         api_key_env=api_key_env,
         extra_args=[str(a) for a in extra_args],
+        rank=rank,
     )
 
 
