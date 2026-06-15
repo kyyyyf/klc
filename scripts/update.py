@@ -96,8 +96,11 @@ def _compute_stale(index_dir: Path, changed: list[str]) -> dict:
         return {"stale_modules": [], "changed_files": len(changed), "total_modules": 0}
 
     try:
-        modules: list[dict] = json.loads(modules_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        raw = json.loads(modules_file.read_text(encoding="utf-8"))
+        modules: list[dict] = raw.get("modules", raw) if isinstance(raw, dict) else raw
+        if not isinstance(modules, list):
+            raise ValueError("unexpected modules.json shape")
+    except (json.JSONDecodeError, OSError, ValueError, AttributeError):
         return {"stale_modules": [], "changed_files": len(changed), "total_modules": 0}
 
     total = len(modules)
