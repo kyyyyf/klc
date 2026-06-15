@@ -45,6 +45,8 @@ def _meta(ticket: str) -> dict | None:
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc status", description=__doc__)
     ap.add_argument("ticket")
+    ap.add_argument("--json", action="store_true",
+                    help="machine-readable JSON output")
     args = ap.parse_args(argv)
 
     meta = _meta(args.ticket)
@@ -58,6 +60,24 @@ def run(argv: list[str]) -> int:
     track = meta.get("track") or "M"
     kind = meta.get("kind") or "?"
     phase_value = meta.get("phase") or ""
+
+    if args.json:
+        if phase_value == _ph.STATE_ARCHIVED:
+            print(json.dumps({"ticket": args.ticket, "phase": "archived",
+                              "track": track, "kind": kind,
+                              "phase_id": "archived", "state": "archived"}))
+            return 0
+        try:
+            cur_pid, cur_state = _ph.parse_state(phase_value)
+        except ValueError:
+            sys.stderr.write(
+                f"klc status: meta.json:phase is unparseable: {phase_value!r}\n"
+            )
+            return 1
+        print(json.dumps({"ticket": args.ticket, "phase": phase_value,
+                          "track": track, "kind": kind,
+                          "phase_id": cur_pid, "state": cur_state}))
+        return 0
 
     print(f"{args.ticket}  track={track}  kind={kind}")
     print()
