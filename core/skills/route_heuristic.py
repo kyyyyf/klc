@@ -6,19 +6,23 @@ classify(raw_text, kind, modules) -> RouteResult
 Signals used (highest-priority wins; downgrades forbidden):
   1. kind       — bug/typo → XS bias; feature/tech with migration/auth
                   keywords → M/L bias
-  2. raw length — word count: <30=XS, <100=S, <300=M, else=L
+  2. raw length — word count recorded in signals/telemetry and used to
+                  raise confidence; does NOT contribute to the track ceiling
+                  (KLC-028: "long != big" — verbose descriptions of small
+                  tasks were over-routing before this change)
   3. keywords   — XS-keywords push toward XS; M/L-keywords push toward M
   4. modules    — count of module names found in raw text;
                   ≥3 distinct modules → M floor
 
-Aggregation: take the maximum track from all signals (downgrade
-forbidden). Result written to meta.json:route_hint and :route_signals.
+Aggregation: take the maximum track from kind/keywords/modules (length
+excluded from ceiling, confidence-only). Result written to
+meta.json:route_hint and :route_signals.
 
 Also returns a `confidence` ("low"|"medium"|"high"): how much to trust
 the hint. Short + no keyword/module signal = "low" (under-specified, not
 necessarily simple) — the caller should run a cheap triage or route to
 full discovery instead of trusting a small track. Length raises
-confidence when long; it never lowers the track.
+confidence when long.
 
 CLI:
     python core/skills/route_heuristic.py <raw.md>
@@ -212,7 +216,9 @@ def classify(raw_text: str, kind: str = "unknown",
     }
 
     hint = "XS"
-    for sig in signals.values():
+    for key, sig in signals.items():
+        if key == "length":
+            continue  # length is confidence-only; does not raise the ceiling
         hint = _track_max(hint, sig)
 
     has_ml = bool(_ML_RE.search(raw_text))

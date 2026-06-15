@@ -163,7 +163,10 @@ total ≥ 7 forces L.
 
 Set:
 - `track`
+- `track_source: "discovery"` (when discovery sets the final track)
 - `estimate: {complexity, uncertainty, risk, manual, total}`
+- `blast_radius: {available: bool, external_dependents: [...]}` — or
+  `{available: false, reason: "..."}` when graph is unavailable
 - `layer: "code" | "content" | "config" | "mixed" | "unknown"`
 - `affected_modules: [...]` (names from `modules.json`, not paths)
 - `related_tickets: [...]` (keys from 40-related.md you actually
@@ -181,8 +184,18 @@ discovery.
 ## Hard rules
 
 - Every FACT requires `src=<file:line or stable ref>`. Use LSP to verify.
-- Downgrading the track is forbidden; the human may upgrade later
-  via `klc ack ... --upgrade-track L`.
+- Downgrading the track below `route_hint` (the intake floor) is
+  **only allowed when blast-radius evidence is present and low**:
+  every affected module's `depended_by` must be known AND the union
+  of external dependents (dependents outside the affected set) must
+  be empty. When this is satisfied, record in `meta.json`:
+  `track_source: "discovery"` and a `blast_radius` object
+  `{available: true, external_dependents: []}`.
+  When the condition is NOT met, hold the floor (`track >= route_hint`)
+  and note `blast_radius: {available: false, reason: "<why>"}`.
+  `can_complete_discovery` enforces this — an unjustified downgrade
+  will block the phase. Use `klc retrack` as the operator escape hatch.
+  The human may always upgrade later via `klc ack ... --upgrade-track L`.
 - `affected_modules` must be a subset of `modules.json` names;
   anything else goes into `unknown_module_refs` with a QUESTION.
 
