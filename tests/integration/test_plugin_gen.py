@@ -59,17 +59,22 @@ def test_model_frontmatter_from_models_yml() -> None:
 
 def test_regen_reflects_models_change() -> None:
     """After changing a model in models.yml, regenerating updates the frontmatter."""
-    import yaml
-    import copy
+    import re
 
     models_path = FW_ROOT / "config" / "models.yml"
     original = models_path.read_text(encoding="utf-8")
-    raw = yaml.safe_load(original)
 
-    # Change the coding role model to a recognisably different value
-    modified = copy.deepcopy(raw)
-    modified["roles"]["coding"]["model"] = "claude-test-regen-marker"
-    modified_yml = yaml.dump(modified, default_flow_style=False, allow_unicode=True)
+    # Patch the coding role model by string replacement (avoids yaml re-dump issues)
+    modified_yml = re.sub(
+        r"(coding:.*?model:\s*)claude-sonnet-4-6",
+        r"\1claude-test-regen-marker",
+        original,
+        count=1,
+        flags=re.DOTALL,
+    )
+    assert "claude-test-regen-marker" in modified_yml, (
+        "regex substitution failed — check models.yml format"
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "agents"

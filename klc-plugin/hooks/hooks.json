@@ -1,0 +1,16 @@
+{
+  "description": "klc plugin hooks — enforce phase gates, no MCP server",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
