@@ -134,6 +134,11 @@ def _dispatch(argv: list[str]) -> int:
             sys.stderr.write("usage: klc metrics <ticket> | klc metrics --rollup\n"); return 2
         return _run_skill_subcommand("metrics", "show", ["--ticket", rest[0]])
 
+    if cmd == "plugin-gen":
+        sys.path.insert(0, str(SKILLS_DIR))
+        import plugin_gen as _pg
+        return _pg.main(rest)
+
     if cmd in ("init", "update"):
         script = FRAMEWORK_ROOT / "scripts" / f"{cmd}.py"
         if not script.exists():
