@@ -33,6 +33,10 @@ def is_downgrade_safe(
     Returns (False, {reason: str}) on any evidence gap.
     Returns (True, {external_dependents: []}) when the gate passes.
     """
+    # C-001: absence of evidence must never be treated as low impact.
+    if not affected_modules:
+        return False, {"reason": "no affected modules; blast-radius unavailable"}
+
     modules: list[dict] = modules_index.get("modules", [])
     by_name: dict[str, dict] = {m["name"]: m for m in modules if "name" in m}
     affected_set = set(affected_modules)

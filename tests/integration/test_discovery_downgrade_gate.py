@@ -87,6 +87,14 @@ def test_internal_dependent_ok():
     assert safe is True
 
 
+def test_empty_affected_set_holds_floor():
+    """No affected modules = absence of evidence → not safe (hold floor)."""
+    idx = _modules_index([_mod("modA", "src/a", [])])
+    safe, info = _tc.is_downgrade_safe([], idx)
+    assert safe is False
+    assert "blast" in info["reason"].lower() or "no affected" in info["reason"].lower()
+
+
 # ---------------------------------------------------------------------------
 # final_track
 # ---------------------------------------------------------------------------
