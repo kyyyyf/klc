@@ -2,6 +2,7 @@
 #
 # Consumed by:
 #   - core/skills/review.py (orchestrates reviewer agents)
+#   - scripts/review.py (orchestrates reviewer agents)
 #
 # Controls the multi-agent code-review pipeline, the mutation-score gate for
 # the test agent, and the optional external reviewer.
@@ -9,6 +10,18 @@
 # When adding new keys here, ensure external-review.md and review.md honour
 # the defaults they list. Do not commit secrets to this file; API keys are
 # read from the environment variable named in api_key_env.
+#
+# Conditional reviewer schema (profiles/<name>/manifest.yml reviewers.conditional):
+#   - path: core/agents/review/<name>.md
+#     # Legacy: single diff-regex trigger (backward-compat, still supported)
+#     trigger: "regex"
+#     # Extended schema (KLC-025): structured trigger evaluation ($0 pre-spawn gate)
+#     enabled_for_tracks: [S, M, L]   # omit to run on all tracks
+#     triggers:                        # OR semantics; omit to always run
+#       - changed_public_api           # diff adds/removes public API symbols
+#       - config_or_persistence_change # diff touches config/yaml/sql/env files
+#       - security_sensitive_diff      # diff touches auth/crypto/token patterns
+#       - dependency_edge_added        # diff adds an import of a module in modules.json
 
 external_reviewer:
   # Default-on for S/M/L tickets. Opt out with --no-external flag or

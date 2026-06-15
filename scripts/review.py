@@ -254,11 +254,26 @@ def _collect_adrs(root: Path,
     return adr_paths, adr_inlined
 
 
+# --- ticket meta reader ------------------------------------------------------
+
+def _read_ticket_meta(spec_path: Path) -> dict:
+    """Read meta.json for the ticket whose spec is at spec_path, or {} on error."""
+    try:
+        meta_path = spec_path.parent / "meta.json"
+        if meta_path.exists():
+            return json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
 # --- reviewer discovery ------------------------------------------------------
 
 def _load_reviewers() -> tuple[list[dict], list[dict]]:
     """Return (always[], conditional[]) from the profile manifest.
-    Each entry: {name, path, trigger?, filter?}."""
+    Each conditional entry: {name, path, filter?, trigger?, enabled_for_tracks?, triggers?}.
+    The legacy single-string trigger: and the new structured triggers: list are
+    both preserved; _evaluate_conditional_trigger handles both."""
     raw = _resolve_profile_field("reviewers")
     if not raw:
         return [], []
@@ -278,10 +293,97 @@ def _load_reviewers() -> tuple[list[dict], list[dict]]:
                      "filter": r.get("filter") or ""}
             if include_trigger:
                 entry["trigger"] = r.get("trigger") or ""
+                # structured trigger extensions (KLC-025)
+                if r.get("enabled_for_tracks"):
+                    entry["enabled_for_tracks"] = list(r["enabled_for_tracks"])
+                if r.get("triggers"):
+                    entry["triggers"] = list(r["triggers"])
             out.append(entry)
         return out
 
     return _flatten(data.get("always"), False), _flatten(data.get("conditional"), True)
+
+
+# Built-in diff-regex patterns for named structured triggers.
+# Use ^\+(?!\+) to match added lines only (excludes +++ diff header lines).
+_TRIGGER_PATTERNS: dict[str, str] = {
+    "changed_public_api": (
+        r"^\+(?!\+).*\b(def |class |export |pub fn |pub struct |pub enum |public )"
+    ),
+    "config_or_persistence_change": (
+        r"(\.ya?ml|\.toml|\.ini|\.env|\.cfg|migration|schema|DATABASE|DB_URL"
+        r"|\.sql|persistence|config\.)"
+    ),
+    "security_sensitive_diff": (
+        r"\b(password|secret|token|auth|crypt|cipher|hmac|jwt|oauth|api_key"
+        r"|access_key|private_key)\b"
+    ),
+}
+
+
+def _trigger_dependency_edge_added(diff_text: str, modules_json_path: Path | None) -> bool:
+    """Return True iff the diff adds an import of a named module in modules.json."""
+    if modules_json_path is None or not modules_json_path.exists():
+        return False
+    try:
+        raw = json.loads(modules_json_path.read_text(encoding="utf-8"))
+        modules = raw.get("modules", [])
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not modules:
+        return False
+    module_names = {m["name"] for m in modules if m.get("name")}
+    if not module_names:
+        return False
+    # Look for added import lines that reference a known module name
+    import_re = re.compile(
+        r"^\+(?!\+).*\b(?:import|require|from|include|use)\b[^;]*\b("
+        + "|".join(re.escape(n) for n in sorted(module_names))
+        + r")\b",
+        re.MULTILINE,
+    )
+    return bool(import_re.search(diff_text))
+
+
+def _evaluate_conditional_trigger(
+    entry: dict,
+    diff_text: str,
+    meta_track: str,
+    modules_json_path: Path | None,
+) -> bool:
+    """Return True iff this conditional reviewer should run.
+
+    Evaluation order:
+    1. enabled_for_tracks: if set, meta_track must be in the list.
+    2. triggers (structured list): any named trigger fires → True.
+    3. trigger (legacy regex string): if no structured triggers, fall back.
+    4. Neither specified → always run (backward compat).
+    """
+    # 1. Track gate
+    allowed_tracks = entry.get("enabled_for_tracks")
+    if allowed_tracks is not None and meta_track not in allowed_tracks:
+        return False
+
+    # 2. Structured triggers (OR semantics)
+    structured = entry.get("triggers")
+    if structured:
+        for trigger_name in structured:
+            if trigger_name == "dependency_edge_added":
+                if _trigger_dependency_edge_added(diff_text, modules_json_path):
+                    return True
+            else:
+                pattern = _TRIGGER_PATTERNS.get(trigger_name)
+                if pattern and _grep_match(pattern, diff_text):
+                    return True
+        return False  # structured triggers specified but none fired
+
+    # 3. Legacy single-regex trigger
+    trig = entry.get("trigger", "")
+    if trig:
+        return _grep_match(trig, diff_text)
+
+    # 4. No trigger at all → always run
+    return True
 
 
 def _grep_match(pattern: str, text: str) -> bool:
@@ -938,12 +1040,14 @@ def main(argv: list[str]) -> int:
     # 3. Reviewer discovery + job cards.
     always, conditional = _load_reviewers()
     diff_text = diff_file.read_text(encoding="utf-8", errors="ignore")
+    meta_track = _read_ticket_meta(args.spec).get("track", "")
     active: list[dict] = list(always)
     for r in conditional:
+        # Validate legacy regex if present (still required for backward compat)
         trig = r.get("trigger", "")
         if trig and not _validate_regex(trig):
             return die(f"reviewer '{r['name']}': bad trigger regex: {trig}")
-        if not trig or _grep_match(trig, diff_text):
+        if _evaluate_conditional_trigger(r, diff_text, meta_track, modules_json):
             active.append(r)
         else:
             _write_skip_partial(partials_dir / f"{r['name']}.partial.md",
