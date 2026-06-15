@@ -22,7 +22,17 @@ reviewers:
       filter: '\.(py|ts|tsx|js|jsx|rs|go|java|kt|cs|cpp|cc|h|hpp)$'
     - path: core/agents/review/test-coverage.md
       filter: '(^|/)(tests?|__tests__|spec)/|_test\.|\.test\.|_spec\.|\.spec\.'
-  conditional: []
+  conditional:
+    # deep-impact: recursive reviewer that catches runtime regressions the
+    # static import graph misses (stale config/registry/string references).
+    # Runs only on S/M/L tracks when at least one trigger fires ($0 gate, AC-5).
+    - path: core/agents/review/deep-impact.md
+      enabled_for_tracks: [S, M, L]
+      triggers:
+        - changed_public_api
+        - config_or_persistence_change
+        - security_sensitive_diff
+        - dependency_edge_added
 
 excludes: []
 

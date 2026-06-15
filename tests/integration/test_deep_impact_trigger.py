@@ -169,6 +169,77 @@ def test_dependency_edge_added_via_graph():
         modules_path.unlink(missing_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# step-2: manifest entry present + _load_reviewers passes through new fields
+# ---------------------------------------------------------------------------
+
+def test_manifest_entry_present_and_loads():
+    """The deep-impact reviewer entry is in profiles/generic/manifest.yml
+    and _load_reviewers returns it with enabled_for_tracks + triggers
+    when the generic profile is active."""
+    import json as _json
+    rv = _import_review()
+    # Read the generic manifest directly (no subprocess needed)
+    manifest_path = FW_ROOT / "profiles" / "generic" / "manifest.yml"
+    assert manifest_path.exists(), "generic manifest not found"
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+
+    # Parse via _yaml (same as _load_reviewers does internally)
+    sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
+    from _yaml import parse as _yml_parse
+    manifest = _yml_parse(manifest_text)
+    reviewers = manifest.get("reviewers") or {}
+    conditional = reviewers.get("conditional") or []
+
+    names = [
+        rv._import_review.__module__ if False else  # never, just for type
+        (lambda r: r.get("path", "").split("/")[-1].replace(".md", ""))(r)
+        for r in conditional
+    ]
+    # simpler: extract names directly
+    names = [r.get("path", "").split("/")[-1].replace(".md", "") for r in conditional]
+    assert "deep-impact" in names, \
+        f"deep-impact not found in generic manifest conditional; got: {names}"
+    di = next(r for r in conditional if "deep-impact" in r.get("path", ""))
+    assert di.get("enabled_for_tracks"), "enabled_for_tracks missing from manifest"
+    assert "S" in di["enabled_for_tracks"]
+    assert "M" in di["enabled_for_tracks"]
+    assert "L" in di["enabled_for_tracks"]
+    assert di.get("triggers"), "triggers list missing from manifest"
+
+    # Also verify _load_reviewers passes enabled_for_tracks + triggers through
+    # by mocking _resolve_profile_field to return the generic manifest content
+    with patch.object(rv, "_resolve_profile_field") as mock_resolve:
+        def _side_effect(field):
+            if field == "reviewers":
+                return _json.dumps(reviewers)
+            return ""
+        mock_resolve.side_effect = _side_effect
+        _, loaded = rv._load_reviewers()
+    di_loaded = next((r for r in loaded if r["name"] == "deep-impact"), None)
+    assert di_loaded is not None, "_load_reviewers did not return deep-impact entry"
+    assert di_loaded.get("enabled_for_tracks"), \
+        "_load_reviewers did not pass through enabled_for_tracks"
+    assert di_loaded.get("triggers"), \
+        "_load_reviewers did not pass through triggers"
+
+
+def test_legacy_trigger_entry_still_resolves():
+    """A single-trigger: entry in the manifest resolves without enabled_for_tracks."""
+    rv = _import_review()
+    # Synthesize a conditional entry in old-style format
+    entry = {
+        "name": "old-style",
+        "path": "core/agents/review/security.md",
+        "filter": "",
+        "trigger": r"secret|password",
+    }
+    diff_match = _diff_with("secret_key = 'abc'")
+    diff_no = _diff_with("x = 1")
+    assert rv._evaluate_conditional_trigger(entry, diff_match, "XS", None)
+    assert not rv._evaluate_conditional_trigger(entry, diff_no, "XS", None)
+
+
 def test_dependency_edge_added_inert_on_stub_graph():
     """dependency_edge_added trigger is inert (no error) when modules.json is empty/unavailable (C-003)."""
     rv = _import_review()
