@@ -32,6 +32,7 @@ FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 from _paths import project_root, klc_index_dir, klc_logs_dir  # noqa: E402
+from module_edges import aggregate_module_edges  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -173,6 +174,33 @@ def _regen_skeleton(index_dir: Path, stale_names: list[str]) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# module edge aggregation
+# --------------------------------------------------------------------------- #
+
+def _aggregate_and_write_module_edges(index_dir: Path) -> None:
+    """Read modules.json + depgraph.json, write back with populated
+    depends_on/depended_by. No-ops silently if either file is missing."""
+    modules_file = index_dir / "modules.json"
+    depgraph_file = index_dir / "depgraph.json"
+    if not modules_file.exists():
+        return
+    try:
+        modules_data = json.loads(modules_file.read_text(encoding="utf-8"))
+        if not isinstance(modules_data, dict):
+            modules_data = {"modules": modules_data}
+    except (json.JSONDecodeError, OSError):
+        return
+    try:
+        depgraph = json.loads(depgraph_file.read_text(encoding="utf-8")) if depgraph_file.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        depgraph = {}
+    updated = aggregate_module_edges(modules_data, depgraph)
+    modules_file.write_text(json.dumps(updated, indent=2, ensure_ascii=False), encoding="utf-8")
+    n = len(updated.get("modules", []))
+    log(f"  reverse edges written for {n} module(s)")
+
+
+# --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
 
@@ -225,7 +253,7 @@ def main(argv: list[str]) -> int:
         return err("file_scanner failed")
 
     # Step 2: re-scan dep graph (non-fatal)
-    log("Step 2/3: dep_graph")
+    log("Step 2/4: dep_graph")
     rc = _run_scanner(
         FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
         index_dir / "depgraph.json",
@@ -233,8 +261,12 @@ def main(argv: list[str]) -> int:
     if rc:
         log("  WARN: dep_graph failed; stale detection may be less precise")
 
-    # Step 3: compute stale modules
-    log("Step 3/3: computing stale modules")
+    # Step 3: aggregate module-level reverse edges from depgraph (non-fatal)
+    log("Step 3/4: aggregating module reverse edges")
+    _aggregate_and_write_module_edges(index_dir)
+
+    # Step 4: compute stale modules
+    log("Step 4/4: computing stale modules")
     stale = _compute_stale(index_dir, changed)
     stale_file = index_dir / "stale.json"
     stale_file.write_text(json.dumps(stale, indent=2, ensure_ascii=False),

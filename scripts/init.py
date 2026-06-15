@@ -39,6 +39,7 @@ sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 from _paths import (  # noqa: E402
     project_root, klc_dir, klc_index_dir, klc_logs_dir,
 )
+from module_edges import aggregate_module_edges  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -86,6 +87,29 @@ def _finalize(index_dir: Path) -> int:
     log("  2. klc doctor   # verify installation health")
 
     return 0
+
+
+def _aggregate_and_write_module_edges(index_dir: Path) -> None:
+    """Read modules.json + depgraph.json, write back with populated
+    depends_on/depended_by. No-ops silently if either file is missing."""
+    modules_file = index_dir / "modules.json"
+    depgraph_file = index_dir / "depgraph.json"
+    if not modules_file.exists():
+        return
+    try:
+        modules_data = json.loads(modules_file.read_text(encoding="utf-8"))
+        if not isinstance(modules_data, dict):
+            modules_data = {"modules": modules_data}
+    except (json.JSONDecodeError, OSError):
+        return
+    try:
+        depgraph = json.loads(depgraph_file.read_text(encoding="utf-8")) if depgraph_file.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        depgraph = {}
+    updated = aggregate_module_edges(modules_data, depgraph)
+    modules_file.write_text(json.dumps(updated, indent=2, ensure_ascii=False), encoding="utf-8")
+    n = len(updated.get("modules", []))
+    log(f"  reverse edges written for {n} module(s)")
 
 
 def _run_scanner(script: Path, out_file: Path, step: str) -> int:
@@ -160,6 +184,10 @@ def main(argv: list[str]) -> int:
     if rc:
         log("  WARN: dep_graph failed; inventory will note this")
 
+    # Aggregate module reverse edges from depgraph (non-fatal; no-op if
+    # modules.json not yet written — LLM decompose agent writes it later).
+    _aggregate_and_write_module_edges(index_dir)
+
     # --scan-only: record baseline and stop — no LLM needed.
     if args.scan_only:
         rc = _finalize(index_dir)
@@ -198,6 +226,8 @@ def main(argv: list[str]) -> int:
                     f"inspect {out_path.relative_to(root)}"
                 )
             log(f"  [{name}] {trailer} ✓")
+        # After decompose agent writes modules.json, aggregate reverse edges.
+        _aggregate_and_write_module_edges(index_dir)
         log("Step 5/5: recording baseline sha")
         return _finalize(index_dir)
 
