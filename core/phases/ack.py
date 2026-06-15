@@ -9,6 +9,7 @@ supersede). This script has no phase-specific knowledge.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -41,6 +42,8 @@ def run(argv: list[str]) -> int:
     ap.add_argument("ticket")
     ap.add_argument("--pick", type=int, default=None,
                     help="numeric pick id (see `klc status <ticket>` for options)")
+    ap.add_argument("--json", action="store_true",
+                    help="machine-readable JSON output")
     args = ap.parse_args(argv)
 
     if not klc_ticket_meta_file(args.ticket).exists():
@@ -149,15 +152,24 @@ def run(argv: list[str]) -> int:
                     )
 
             new_state = _lc.apply_ack(args.ticket, args.pick)
+            meta = _lc.read_meta(args.ticket)
 
             if new_state == _ph.STATE_ARCHIVED:
-                print(f"ARCHIVED {args.ticket}")
+                if args.json:
+                    print(json.dumps({"ticket": args.ticket, "phase": "archived",
+                                      "track": meta.get("track")}))
+                else:
+                    print(f"ARCHIVED {args.ticket}")
                 return 0
 
             # Render prompt card for the new :work phase (if any).
             new_pid, new_st = _ph.parse_state(new_state)
+            if args.json:
+                print(json.dumps({"ticket": args.ticket, "phase": new_state,
+                                  "track": meta.get("track")}))
+                return 0
+
             if new_st == _ph.STATE_WORK:
-                meta = _lc.read_meta(args.ticket)
                 step = 1 if new_pid == "build" else None
                 card = write_prompt_card(args.ticket, new_pid, meta, step=step)
                 print(f"→ {new_state}")
