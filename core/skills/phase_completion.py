@@ -19,6 +19,7 @@ sys.path.insert(0, str(_project_root))
 from core.shared.paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
+import track_classifier as _tc  # noqa: E402
 
 
 def can_complete_discovery(ticket: str) -> tuple[bool, str]:
@@ -115,6 +116,31 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
 
     except Exception as e:
         return False, f"Cannot read/parse meta.json: {e}"
+
+    # Floor guard (KLC-028): reject unjustified downgrades below route_hint.
+    # A downgrade is only allowed when blast-radius evidence is present and low.
+    route_hint = meta.get("route_hint", "")
+    track = meta.get("track", "")
+    _TRACK_ORDER_LOCAL = {"XS": 0, "S": 1, "M": 2, "L": 3}
+    if (route_hint in _TRACK_ORDER_LOCAL and track in _TRACK_ORDER_LOCAL
+            and _TRACK_ORDER_LOCAL[track] < _TRACK_ORDER_LOCAL[route_hint]):
+        from core.shared.paths import klc_index_dir
+        import json as _json
+        modules_path = klc_index_dir() / "modules.json"
+        try:
+            modules_index = _json.loads(modules_path.read_text(encoding="utf-8"))
+        except Exception:
+            modules_index = {}
+        affected = meta.get("affected_modules") or []
+        safe, info = _tc.is_downgrade_safe(affected, modules_index)
+        if not safe:
+            reason = info.get("reason", "blast-radius unavailable")
+            return (
+                False,
+                f"{ticket}: track {track!r} is below intake floor {route_hint!r} "
+                f"but blast-radius is not low ({reason}); "
+                f"raise the track or use `klc retrack`",
+            )
 
     # All checks passed — extract risk_tags from spec.md frontmatter into meta
     _sync_risk_tags(ticket)
