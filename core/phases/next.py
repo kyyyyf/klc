@@ -12,6 +12,7 @@ Always takes the per-ticket lock so concurrent `next`/`ack` can't race.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -34,6 +35,8 @@ def _friendly_missing_ticket(ticket: str) -> int:
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc next", description=__doc__)
     ap.add_argument("ticket")
+    ap.add_argument("--json", action="store_true",
+                    help="machine-readable JSON output")
     args = ap.parse_args(argv)
 
     if not klc_ticket_meta_file(args.ticket).exists():
@@ -75,10 +78,19 @@ def run(argv: list[str]) -> int:
             new_state = _lc.advance_to_next(args.ticket, note="klc next")
             meta = _lc.read_meta(args.ticket)
             if new_state == _ph.STATE_ARCHIVED:
-                print(f"ARCHIVED {args.ticket}")
+                if args.json:
+                    print(json.dumps({"ticket": args.ticket, "phase": "archived",
+                                      "track": meta.get("track")}))
+                else:
+                    print(f"ARCHIVED {args.ticket}")
                 return 0
 
             new_pid, _ = _ph.parse_state(new_state)
+            if args.json:
+                print(json.dumps({"ticket": args.ticket, "phase": new_state,
+                                  "track": meta.get("track")}))
+                return 0
+
             step = 1 if new_pid == "build" else None
             card = write_prompt_card(args.ticket, new_pid, meta, step=step)
             print(f"→ {new_state}")
