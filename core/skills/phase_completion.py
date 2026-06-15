@@ -118,29 +118,38 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
         return False, f"Cannot read/parse meta.json: {e}"
 
     # Floor guard (KLC-028): reject unjustified downgrades below route_hint.
-    # A downgrade is only allowed when blast-radius evidence is present and low.
     route_hint = meta.get("route_hint", "")
     track = meta.get("track", "")
     _TRACK_ORDER_LOCAL = {"XS": 0, "S": 1, "M": 2, "L": 3}
     if (route_hint in _TRACK_ORDER_LOCAL and track in _TRACK_ORDER_LOCAL
             and _TRACK_ORDER_LOCAL[track] < _TRACK_ORDER_LOCAL[route_hint]):
-        from core.shared.paths import klc_index_dir
-        import json as _json
-        modules_path = klc_index_dir() / "modules.json"
-        try:
-            modules_index = _json.loads(modules_path.read_text(encoding="utf-8"))
-        except Exception:
-            modules_index = {}
-        affected = meta.get("affected_modules") or []
-        safe, info = _tc.is_downgrade_safe(affected, modules_index)
-        if not safe:
-            reason = info.get("reason", "blast-radius unavailable")
-            return (
-                False,
-                f"{ticket}: track {track!r} is below intake floor {route_hint!r} "
-                f"but blast-radius is not low ({reason}); "
-                f"raise the track or use `klc retrack`",
-            )
+        # Operator retrack (KLC-027) is the sanctioned escape hatch; its audit
+        # lives in phase_history. Never block it here.
+        if meta.get("track_source") != "operator":
+            from core.shared.paths import klc_index_dir
+            import json as _json
+            modules_path = klc_index_dir() / "modules.json"
+            try:
+                modules_index = _json.loads(modules_path.read_text(encoding="utf-8"))
+            except Exception:
+                modules_index = {}
+            affected = meta.get("affected_modules") or []
+            safe, info = _tc.is_downgrade_safe(affected, modules_index)
+            if not safe:
+                reason = info.get("reason", "blast-radius unavailable")
+                return (
+                    False,
+                    f"{ticket}: track {track!r} is below intake floor {route_hint!r} "
+                    f"but blast-radius is not low ({reason}); "
+                    f"raise the track or use `klc retrack`",
+                )
+            # AC-3: persist the audit trail so retrospective can verify the evidence.
+            meta["track_source"] = "discovery"
+            meta["blast_radius"] = {
+                "available": True,
+                "external_dependents": info.get("external_dependents", []),
+            }
+            _lc.write_meta(ticket, meta)
 
     # All checks passed — extract risk_tags from spec.md frontmatter into meta
     _sync_risk_tags(ticket)

@@ -20,7 +20,8 @@ def _write_spec(ticket_dir: Path, ticket: str) -> None:
 
 
 def _write_meta(ticket_dir: Path, ticket: str, track: str, route_hint: str,
-                estimate: dict, affected_modules: list) -> None:
+                estimate: dict, affected_modules: list,
+                track_source: str | None = None) -> None:
     meta = {
         "ticket": ticket,
         "kind": "feature",
@@ -31,6 +32,8 @@ def _write_meta(ticket_dir: Path, ticket: str, track: str, route_hint: str,
         "affected_modules": affected_modules,
         "layer": "code",
     }
+    if track_source is not None:
+        meta["track_source"] = track_source
     (ticket_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
@@ -105,3 +108,43 @@ def test_no_downgrade_unaffected(tmp_path, monkeypatch):
 
     ok, msg = can_complete_discovery(ticket)
     assert ok, f"Expected ok (no downgrade) but got: {msg}"
+
+
+def test_downgrade_audited_in_meta(tmp_path, monkeypatch):
+    """A permitted downgrade backfills track_source + blast_radius into meta.json."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    ticket = "KLC-T04"
+    ticket_dir = tmp_path / ".klc" / "tickets" / ticket
+    ticket_dir.mkdir(parents=True)
+    index_dir = tmp_path / ".klc" / "index"
+
+    _write_spec(ticket_dir, ticket)
+    _write_meta(ticket_dir, ticket, track="S", route_hint="M",
+                estimate=_estimate(1, 1, 1, 0, total=3), affected_modules=["modA"])
+    _write_modules(index_dir, [{"name": "modA", "path": "src/a",
+                                "depends_on": [], "depended_by": []}])
+
+    ok, _ = can_complete_discovery(ticket)
+    assert ok
+    meta = json.loads((ticket_dir / "meta.json").read_text())
+    assert meta["track_source"] == "discovery"
+    assert meta["blast_radius"] == {"available": True, "external_dependents": []}
+
+
+def test_operator_retrack_not_blocked(tmp_path, monkeypatch):
+    """track_source=operator bypasses the floor guard even with no blast-radius evidence."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    ticket = "KLC-T05"
+    ticket_dir = tmp_path / ".klc" / "tickets" / ticket
+    ticket_dir.mkdir(parents=True)
+    index_dir = tmp_path / ".klc" / "index"
+
+    _write_spec(ticket_dir, ticket)
+    # track M below floor L, operator-set, modA has NO depended_by (unavailable)
+    _write_meta(ticket_dir, ticket, track="M", route_hint="L",
+                estimate=_estimate(2, 2, 1, 1, total=6), affected_modules=["modA"],
+                track_source="operator")
+    _write_modules(index_dir, [{"name": "modA", "path": "src/a", "depends_on": []}])
+
+    ok, msg = can_complete_discovery(ticket)
+    assert ok, f"operator retrack must not be blocked: {msg}"
