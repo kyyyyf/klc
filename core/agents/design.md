@@ -53,6 +53,27 @@ in `options.md` / `adr.md` must be verified via LSP before citing it.
 
 ## Steps
 
+### Step 0 — deep-context scout (conditional, KLC-026)
+
+Before generating options, check whether the scout pre-analysis should run.
+
+**Trigger** — run the scout when EITHER:
+- `meta.estimate.uncertainty >= 2` (read from `.klc/tickets/<KEY>/meta.json`), OR
+- The spec describes a public-API change (look for "public API", "rename",
+  "signature change", or non-empty `affected public APIs:` in spec.md).
+
+**When triggered:**
+1. Read `core/agents/design-scout.md` and follow its instructions.
+2. The scout writes `design/scout.md` with four sections:
+   `confirmed_files`, `dependency_impact`, `open_questions`,
+   `recommended_option_shape` (advisory).
+3. After the scout completes, continue with step 1a below, consuming
+   `design/scout.md` as additional context. The scout deepens step 1a;
+   it does not replace it.
+
+**When neither trigger fires** — skip the scout; proceed as today with
+step 1a and the standard three-option flow unchanged.
+
 ### 1a. Dependency impact analysis
 
 Before generating options, compute the blast radius of the change so it
