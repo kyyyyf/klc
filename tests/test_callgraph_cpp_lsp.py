@@ -192,6 +192,71 @@ def test_header_function_attribution():
         assert not file_attr.endswith("auth.h"), "hash_password must not be attributed to header"
 
 
+# --- Step-4 fixture: header-only / inline function ---
+
+HEADER_ONLY_FILES = {
+    "src/util.h": """\
+#pragma once
+inline int add_one(int n) { return n + 1; }
+""",
+    "src/main.cpp": """\
+#include "util.h"
+
+int compute(int x) {
+    return add_one(x);
+}
+""",
+}
+
+
+def create_header_only_workspace(base_path: Path) -> Path:
+    """Create C++ workspace with an inline function defined only in a header."""
+    for rel, content in HEADER_ONLY_FILES.items():
+        full = base_path / rel
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(content)
+
+    src_dir = str(base_path / "src")
+    compile_commands = [
+        {
+            "directory": str(base_path),
+            "file": str(base_path / "src/main.cpp"),
+            "command": f"clang++ -std=c++17 -I{src_dir} {base_path}/src/main.cpp -o /dev/null",
+        },
+    ]
+    (base_path / "compile_commands.json").write_text(json.dumps(compile_commands, indent=2))
+    return base_path
+
+
+@pytest.mark.skipif(not CLANGD_AVAILABLE, reason="clangd not on PATH")
+def test_header_only_function_indexed():
+    """AC-3 (header-only): inline function defined in .h appears as graph node with edges."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        create_header_only_workspace(workspace)
+        output_file = workspace / "callgraph.json"
+
+        result = _run_script(workspace, output_file)
+        assert result.returncode == 0, f"script failed: {result.stderr}"
+
+        symbols = json.loads(output_file.read_text())["symbols"]
+
+        add_one = _find_symbol(symbols, "add_one")
+        assert add_one is not None, f"add_one not found; keys={list(symbols)[:10]}"
+        assert "util.h" in add_one["file"], (
+            f"add_one must be attributed to util.h; got '{add_one['file']}'"
+        )
+
+        compute = _find_symbol(symbols, "compute")
+        assert compute is not None, "compute not found"
+        assert any("add_one" in c for c in compute["calls"]), (
+            f"compute.calls missing add_one; got {compute['calls']}"
+        )
+        assert any("compute" in cb for cb in add_one["called_by"]), (
+            f"add_one.called_by missing compute; got {add_one['called_by']}"
+        )
+
+
 # --- Step-2 tests (written here, made green in step-2) ---
 
 @pytest.mark.skipif(not CLANGD_AVAILABLE, reason="clangd not on PATH")

@@ -221,6 +221,38 @@ def load_compdb(compdb_path: Path) -> list[dict]:
     return json.loads(compdb_path.read_text(encoding="utf-8"))
 
 
+_EXCLUDE_DIRS = frozenset({
+    "build", "cmake-build", "_build", ".build", "out", "install",
+    "_deps", "CMakeFiles", ".klc", ".git", "node_modules", "__pycache__",
+})
+
+
+def collect_header_files(root: Path) -> list[Path]:
+    """Find header files that may contain header-only / inline functions.
+
+    Excludes common build output directories and the .klc state directory.
+    """
+    header_exts = {".h", ".hpp", ".hh", ".hxx"}
+    headers: list[Path] = []
+    seen: set[str] = set()
+
+    for p in sorted(root.rglob("*")):
+        if not p.is_file() or p.suffix.lower() not in header_exts:
+            continue
+        try:
+            parts = p.relative_to(root).parts[:-1]
+        except ValueError:
+            continue
+        if any(d in _EXCLUDE_DIRS for d in parts):
+            continue
+        key = str(p.resolve())
+        if key not in seen:
+            seen.add(key)
+            headers.append(p.resolve())
+
+    return headers
+
+
 def collect_tu_files(compdb: list[dict]) -> list[Path]:
     """Return absolute paths of translation units from compile_commands.json."""
     tu_exts = {".cpp", ".cc", ".cxx", ".c", ".C"}
@@ -316,11 +348,24 @@ async def build_call_graph_async(root: Path, compdb_path: Path, clangd: str) -> 
 
         compdb = load_compdb(compdb_path)
         tu_files = collect_tu_files(compdb)
-        sys.stderr.write(f"callgraph_cpp: found {len(tu_files)} TU(s) in compile_commands.json\n")
+        header_files = collect_header_files(root)
+        sys.stderr.write(
+            f"callgraph_cpp: found {len(tu_files)} TU(s) in compile_commands.json, "
+            f"{len(header_files)} header(s)\n"
+        )
 
-        # Phase 1: open all TUs so clangd indexes them
+        # Phase 1: open TUs first (establish compilation context), then headers
         sys.stderr.write("callgraph_cpp: opening TU files...\n")
         for file_path in tu_files:
+            file_uri = f"file://{file_path}"
+            try:
+                text = file_path.read_text(encoding="utf-8", errors="replace")
+                await client.did_open(file_uri, text)
+            except Exception as e:
+                sys.stderr.write(f"callgraph_cpp: error opening {file_path.name}: {e}\n")
+
+        sys.stderr.write("callgraph_cpp: opening header files...\n")
+        for file_path in header_files:
             file_uri = f"file://{file_path}"
             try:
                 text = file_path.read_text(encoding="utf-8", errors="replace")
@@ -338,9 +383,11 @@ async def build_call_graph_async(root: Path, compdb_path: Path, clangd: str) -> 
         await asyncio.sleep(2.0)
 
         # Phase 2: collect all symbols + their call-hierarchy items
+        # TUs iterated before headers so dedup keeps TU-attributed entries for
+        # functions declared in a header but defined in a .cpp (AC-3).
         sym_items: list[tuple[str, dict, dict]] = []  # (canonical_id, entry, ch_item)
 
-        for file_path in tu_files:
+        for file_path in tu_files + header_files:
             file_uri = f"file://{file_path}"
             try:
                 doc_syms = await client.document_symbols(file_uri)
