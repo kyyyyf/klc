@@ -487,6 +487,42 @@ async def build_call_graph_async(root: Path, compdb_path: Path, clangd: str) -> 
                 except Exception:
                     pass
 
+        # Phase 4b: best-effort virtual-override resolution (AC-2)
+        for canonical_id, entry in symbols_map.items():
+            if entry.get("kind") != "method":
+                continue
+            item = item_by_id.get(canonical_id)
+            if not item:
+                continue
+            try:
+                item_uri = item.get("uri", "")
+                item_sel = item.get("selectionRange", {}).get("start", {})
+                impl_locs = await client.go_to_implementation(
+                    item_uri, item_sel.get("line", 0), item_sel.get("character", 0)
+                )
+                impls: list[str] = []
+                for loc in impl_locs:
+                    loc_uri = loc.get("uri") or loc.get("targetUri", "")
+                    range_obj = (
+                        loc.get("range")
+                        or loc.get("targetSelectionRange")
+                        or loc.get("targetRange")
+                        or {}
+                    )
+                    loc_line = range_obj.get("start", {}).get("line", 0) + 1
+                    try:
+                        loc_file = str(Path(loc_uri[7:]).relative_to(root))
+                    except (ValueError, Exception):
+                        loc_file = loc_uri
+                    loc_str = f"{loc_file}:{loc_line}"
+                    # Filter self-reference so only distinct overrides are recorded
+                    if loc_str != f"{entry['file']}:{entry['line']}":
+                        impls.append(loc_str)
+                if impls:
+                    entry["implementations"] = sorted(set(impls))
+            except Exception:
+                pass
+
         return symbols_map
 
     finally:

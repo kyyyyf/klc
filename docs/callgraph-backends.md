@@ -27,8 +27,10 @@ callgraph_cpp.py --backend clangd --compdb <path/to/compile_commands.json> --out
 
 **Scope:** queries translation units listed in `compile_commands.json` plus
 header files found in the project tree (for header-only / inline functions).
-Virtual-method overrides are best-effort via `goToImplementation`; full
-override resolution is not guaranteed.
+Virtual-method overrides are resolved best-effort via `goToImplementation`
+and stored as `implementations: [file:line, ...]` on each method symbol;
+full override resolution is not guaranteed (pure-virtual + single-level
+inheritance works reliably).
 
 **Query mode** (AC-4/D-002): find all references or symbol locations without
 loading source into the caller's context:

@@ -257,6 +257,69 @@ def test_header_only_function_indexed():
         )
 
 
+# --- Step-6 fixture: virtual method override ---
+
+VIRTUAL_OVERRIDE_FILES = {
+    "src/shape.h": """\
+#pragma once
+struct Shape {
+    virtual void draw() = 0;
+    virtual ~Shape() = default;
+};
+""",
+    "src/circle.cpp": """\
+#include "shape.h"
+struct Circle : Shape {
+    void draw() override {}
+};
+""",
+}
+
+
+def create_virtual_override_workspace(base_path: Path) -> Path:
+    """Create C++ workspace with a pure virtual method and a concrete override."""
+    for rel, content in VIRTUAL_OVERRIDE_FILES.items():
+        full = base_path / rel
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(content)
+
+    src_dir = str(base_path / "src")
+    compile_commands = [
+        {
+            "directory": str(base_path),
+            "file": str(base_path / "src/circle.cpp"),
+            "command": f"clang++ -std=c++17 -I{src_dir} {base_path}/src/circle.cpp -o /dev/null",
+        },
+    ]
+    (base_path / "compile_commands.json").write_text(json.dumps(compile_commands, indent=2))
+    return base_path
+
+
+@pytest.mark.skipif(not CLANGD_AVAILABLE, reason="clangd not on PATH")
+def test_virtual_override_best_effort():
+    """AC-2 (best-effort): goToImplementation resolves ≥1 override for a virtual method."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        create_virtual_override_workspace(workspace)
+        output_file = workspace / "callgraph.json"
+
+        result = _run_script(workspace, output_file)
+        assert result.returncode == 0, f"script failed: {result.stderr}"
+
+        symbols = json.loads(output_file.read_text())["symbols"]
+
+        draw_syms = {k: v for k, v in symbols.items() if k.endswith("::draw")}
+        assert draw_syms, f"no draw symbol found; keys={list(symbols)[:10]}"
+        has_impls = any(
+            "implementations" in sym and len(sym["implementations"]) >= 1
+            for sym in draw_syms.values()
+        )
+        assert has_impls, (
+            f"expected ≥1 implementation for a virtual draw method (best-effort); "
+            f"draw_syms={draw_syms}"
+        )
+
+
 # --- Step-2 tests (written here, made green in step-2) ---
 
 @pytest.mark.skipif(not CLANGD_AVAILABLE, reason="clangd not on PATH")
