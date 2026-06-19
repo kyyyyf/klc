@@ -162,6 +162,11 @@ class AsyncLSPClient:
         })
         return result if isinstance(result, list) else []
 
+    async def workspace_symbol(self, query: str) -> list[dict]:
+        """Find symbols in the workspace matching query (AC-4/D-002)."""
+        result = await self._send_request("workspace/symbol", {"query": query})
+        return result if isinstance(result, list) else []
+
     async def go_to_implementation(self, file_uri: str, line: int, character: int) -> list[dict]:
         """Best-effort virtual-override resolution (AC-2)."""
         try:
@@ -488,13 +493,108 @@ async def build_call_graph_async(root: Path, compdb_path: Path, clangd: str) -> 
         await client.shutdown()
 
 
+async def query_references_async(root: Path, compdb_path: Path, clangd: str, symbol_name: str) -> list[str]:
+    """Find all references to symbol_name, returning sorted file:line strings (AC-4/D-002)."""
+    client = AsyncLSPClient(clangd, root, compdb_path.parent)
+    try:
+        await client.start()
+        await client.initialize()
+
+        compdb = load_compdb(compdb_path)
+        tu_files = collect_tu_files(compdb)
+        header_files = collect_header_files(root)
+        for file_path in tu_files + header_files:
+            file_uri = f"file://{file_path}"
+            try:
+                text = file_path.read_text(encoding="utf-8", errors="replace")
+                await client.did_open(file_uri, text)
+            except Exception as e:
+                sys.stderr.write(f"callgraph_cpp: error opening {file_path.name}: {e}\n")
+        try:
+            await asyncio.wait_for(client.indexing_done.wait(), timeout=15.0)
+        except asyncio.TimeoutError:
+            pass
+        await asyncio.sleep(2.0)
+
+        sym_results = await client.workspace_symbol(symbol_name)
+        refs: set[str] = set()
+        for sym in sym_results:
+            loc = sym.get("location", {})
+            sym_uri = loc.get("uri", "")
+            sym_pos = loc.get("range", {}).get("start", {})
+            if not sym_uri.startswith("file://"):
+                continue
+            try:
+                Path(sym_uri[7:]).relative_to(root)
+            except ValueError:
+                continue  # outside project root
+            ref_locs = await client.find_references(
+                sym_uri, sym_pos.get("line", 0), sym_pos.get("character", 0),
+            )
+            for ref_loc in ref_locs:
+                ref_uri = ref_loc.get("uri", "")
+                ref_line = ref_loc.get("range", {}).get("start", {}).get("line", 0) + 1
+                try:
+                    ref_file = str(Path(ref_uri[7:]).relative_to(root))
+                except (ValueError, Exception):
+                    ref_file = ref_uri
+                refs.add(f"{ref_file}:{ref_line}")
+        return sorted(refs)
+    finally:
+        await client.shutdown()
+
+
+async def query_workspace_symbol_async(root: Path, compdb_path: Path, clangd: str, symbol_name: str) -> list[str]:
+    """Find workspace symbols by name, returning sorted file:line strings (AC-4/D-002)."""
+    client = AsyncLSPClient(clangd, root, compdb_path.parent)
+    try:
+        await client.start()
+        await client.initialize()
+
+        compdb = load_compdb(compdb_path)
+        tu_files = collect_tu_files(compdb)
+        header_files = collect_header_files(root)
+        for file_path in tu_files + header_files:
+            file_uri = f"file://{file_path}"
+            try:
+                text = file_path.read_text(encoding="utf-8", errors="replace")
+                await client.did_open(file_uri, text)
+            except Exception as e:
+                sys.stderr.write(f"callgraph_cpp: error opening {file_path.name}: {e}\n")
+        try:
+            await asyncio.wait_for(client.indexing_done.wait(), timeout=15.0)
+        except asyncio.TimeoutError:
+            pass
+        await asyncio.sleep(2.0)
+
+        sym_results = await client.workspace_symbol(symbol_name)
+        locs: set[str] = set()
+        for sym in sym_results:
+            loc = sym.get("location", {})
+            uri = loc.get("uri", "")
+            line = loc.get("range", {}).get("start", {}).get("line", 0) + 1
+            if not uri.startswith("file://"):
+                continue
+            try:
+                file = str(Path(uri[7:]).relative_to(root))
+            except ValueError:
+                continue  # outside project root
+            locs.add(f"{file}:{line}")
+        return sorted(locs)
+    finally:
+        await client.shutdown()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="C++ call graph via clangd LSP")
     ap.add_argument("--backend", default="clangd", choices=["clangd"],
                     help="LSP backend (only clangd supported)")
     ap.add_argument("--compdb", required=True,
                     help="Path to compile_commands.json (or directory containing it)")
-    ap.add_argument("--out", required=True, help="Output JSON file path")
+    ap.add_argument("--out", help="Output JSON file path (required without --query)")
+    ap.add_argument("--query", choices=["references", "workspace-symbol"],
+                    help="Query mode: find references or workspace symbols (prints JSON to stdout)")
+    ap.add_argument("--symbol", help="Symbol name for --query mode")
     args = ap.parse_args()
 
     compdb_path = Path(args.compdb)
@@ -509,9 +609,28 @@ def main() -> int:
     clangd = find_clangd()
     sys.stderr.write(f"callgraph_cpp: using {clangd}\n")
 
-    # Workspace root = directory containing compile_commands.json
     root = compdb_path.parent.resolve()
 
+    if args.query:
+        if not args.symbol:
+            sys.stderr.write("callgraph_cpp: --symbol is required with --query\n")
+            return 1
+        if args.query == "references":
+            results = asyncio.run(
+                query_references_async(root, compdb_path.resolve(), clangd, args.symbol)
+            )
+        else:
+            results = asyncio.run(
+                query_workspace_symbol_async(root, compdb_path.resolve(), clangd, args.symbol)
+            )
+        print(json.dumps(results))
+        return 0
+
+    if not args.out:
+        sys.stderr.write("callgraph_cpp: --out is required without --query\n")
+        return 1
+
+    # Workspace root = directory containing compile_commands.json
     symbols = asyncio.run(build_call_graph_async(root, compdb_path.resolve(), clangd))
 
     output = {"symbols": symbols}

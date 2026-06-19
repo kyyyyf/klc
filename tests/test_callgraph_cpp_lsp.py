@@ -274,6 +274,7 @@ def test_find_references_scope():
         # references key populated for at least one symbol
         symbols = data["symbols"]
         has_refs = any("references" in sym for sym in symbols.values())
+        assert has_refs, "at least one symbol must have a 'references' field populated"
         # references are file:line strings, not source bodies
         for sym in symbols.values():
             for ref in sym.get("references", []):
@@ -281,6 +282,62 @@ def test_find_references_scope():
                 assert ":" in ref, f"reference must be 'file:line', got '{ref}'"
                 # No source content — reference must not contain newlines
                 assert "\n" not in ref, "reference must not contain source content"
+
+
+def _run_query(workspace: Path, query: str, symbol: str, timeout: int = 90) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            sys.executable, str(CALLGRAPH_CPP_SCRIPT),
+            "--backend", "clangd",
+            "--compdb", str(workspace / "compile_commands.json"),
+            "--query", query,
+            "--symbol", symbol,
+        ],
+        capture_output=True, text=True, timeout=timeout, cwd=str(_ROOT),
+    )
+
+
+@pytest.mark.skipif(not CLANGD_AVAILABLE, reason="clangd not on PATH")
+def test_query_references_repo_wide():
+    """AC-4/D-002: --query references returns compact file:line list for a named symbol."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        create_test_workspace(workspace)
+
+        result = _run_query(workspace, "references", "hash_password")
+        assert result.returncode == 0, f"script failed: {result.stderr}"
+
+        locs = json.loads(result.stdout)
+        assert isinstance(locs, list), "output must be a JSON array"
+        assert len(locs) > 0, f"expected at least one reference; got {locs}"
+        for loc in locs:
+            assert isinstance(loc, str) and ":" in loc, f"expected file:line, got {loc!r}"
+            assert "\n" not in loc, "reference must not contain source content"
+        # register_user in main.cpp calls hash_password
+        assert any("main" in loc for loc in locs), (
+            f"expected reference in main.cpp; got {locs}"
+        )
+
+
+@pytest.mark.skipif(not CLANGD_AVAILABLE, reason="clangd not on PATH")
+def test_query_workspace_symbol():
+    """AC-4/D-002: --query workspace-symbol returns file:line locations for matching symbols."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        create_test_workspace(workspace)
+
+        result = _run_query(workspace, "workspace-symbol", "insert_user")
+        assert result.returncode == 0, f"script failed: {result.stderr}"
+
+        locs = json.loads(result.stdout)
+        assert isinstance(locs, list), "output must be a JSON array"
+        assert len(locs) > 0, f"expected at least one location; got {locs}"
+        for loc in locs:
+            assert isinstance(loc, str) and ":" in loc, f"expected file:line, got {loc!r}"
+        # insert_user is defined in db.cpp
+        assert any("db" in loc for loc in locs), (
+            f"expected location in db files; got {locs}"
+        )
 
 
 def test_missing_clangd_error():
