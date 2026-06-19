@@ -19,13 +19,13 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
-from core.shared.paths import framework_root  # noqa: E402
 
 
 class AsyncLSPClient:
@@ -210,10 +210,9 @@ def find_clangd() -> str:
         sys.stderr.write("  Set $CLANGD to a valid path or unset to use PATH\n")
         sys.exit(1)
 
-    import subprocess
-    result = subprocess.run(["which", "clangd"], capture_output=True, text=True)
-    if result.returncode == 0:
-        return result.stdout.strip()
+    path = shutil.which("clangd")
+    if path:
+        return path
 
     sys.stderr.write("callgraph_cpp: clangd not found on PATH\n")
     sys.stderr.write("  Install clangd: https://clangd.llvm.org/installation\n")
@@ -237,24 +236,25 @@ def collect_header_files(root: Path) -> list[Path]:
 
     Excludes common build output directories and the .klc state directory.
     """
-    header_exts = {".h", ".hpp", ".hh", ".hxx"}
     headers: list[Path] = []
     seen: set[str] = set()
 
-    for p in sorted(root.rglob("*")):
-        if not p.is_file() or p.suffix.lower() not in header_exts:
-            continue
-        try:
-            parts = p.relative_to(root).parts[:-1]
-        except ValueError:
-            continue
-        if any(d in _EXCLUDE_DIRS for d in parts):
-            continue
-        key = str(p.resolve())
-        if key not in seen:
-            seen.add(key)
-            headers.append(p.resolve())
+    for ext in ("*.h", "*.hpp", "*.hh", "*.hxx"):
+        for p in root.rglob(ext):
+            if not p.is_file():
+                continue
+            try:
+                parts = p.relative_to(root).parts[:-1]
+            except ValueError:
+                continue
+            if any(d in _EXCLUDE_DIRS for d in parts):
+                continue
+            key = str(p.resolve())
+            if key not in seen:
+                seen.add(key)
+                headers.append(p.resolve())
 
+    headers.sort()
     return headers
 
 
