@@ -271,6 +271,26 @@ def test_missing_compdb_error():
         )
 
 
+@pytest.mark.skipif(not CLANGD_AVAILABLE, reason="clangd not on PATH")
+def test_indexing_is_prompt():
+    """Step-3: indexing wait happens after didOpen — 3-TU fixture completes < 20s wall-clock."""
+    import time
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        create_test_workspace(workspace)
+        output_file = workspace / "callgraph.json"
+
+        start = time.monotonic()
+        result = _run_script(workspace, output_file, timeout=120)
+        elapsed = time.monotonic() - start
+
+        assert result.returncode == 0, f"script failed: {result.stderr}"
+        assert elapsed < 20.0, (
+            f"script took {elapsed:.1f}s — indexing wait must happen after didOpen "
+            f"(expected < 20s); check initialize() for premature indexing_done.wait()"
+        )
+
+
 def test_schema_compat():
     """AC-6: output schema byte-compatible with python.json / rust.json."""
     python_json = _ROOT / ".klc/index/callgraph/python.json"

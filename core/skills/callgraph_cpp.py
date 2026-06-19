@@ -130,12 +130,6 @@ class AsyncLSPClient:
             },
         })
         await self._send_notification("initialized", {})
-        sys.stderr.write("callgraph_cpp: waiting for indexing...\n")
-        try:
-            await asyncio.wait_for(self.indexing_done.wait(), timeout=60.0)
-            sys.stderr.write("callgraph_cpp: indexing complete\n")
-        except asyncio.TimeoutError:
-            sys.stderr.write("callgraph_cpp: indexing timeout — proceeding\n")
 
     async def did_open(self, file_uri: str, text: str):
         await self._send_notification("textDocument/didOpen", {
@@ -334,6 +328,13 @@ async def build_call_graph_async(root: Path, compdb_path: Path, clangd: str) -> 
             except Exception as e:
                 sys.stderr.write(f"callgraph_cpp: error opening {file_path.name}: {e}\n")
 
+        # Wait for clangd to finish indexing now that files are open
+        sys.stderr.write("callgraph_cpp: waiting for indexing...\n")
+        try:
+            await asyncio.wait_for(client.indexing_done.wait(), timeout=15.0)
+            sys.stderr.write("callgraph_cpp: indexing complete\n")
+        except asyncio.TimeoutError:
+            sys.stderr.write("callgraph_cpp: indexing timeout — proceeding\n")
         await asyncio.sleep(2.0)
 
         # Phase 2: collect all symbols + their call-hierarchy items
