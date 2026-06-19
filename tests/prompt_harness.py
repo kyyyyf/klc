@@ -1,5 +1,14 @@
 from __future__ import annotations
+import os
 import re
+import sys
+import tempfile
+from pathlib import Path
+
+_FW_ROOT = Path(__file__).resolve().parent.parent
+
+sys.path.insert(0, str(_FW_ROOT))
+from core.skills.runner import run_agent  # noqa: E402
 
 PLACEHOLDER_TOKENS = ("TODO", "TBD", "write tests", "<...>", "...")
 REQUIRED_STEP_FIELDS = ("Goal", "VERIFY", "COMMIT", "Affected")
@@ -51,6 +60,55 @@ def impl_plan_violations(text: str) -> list[str]:
             violations.append(f"{sid}: contains empty code fence")
 
     return violations
+
+
+def _judge_api_key_env() -> str:
+    """Resolve the judge model's api_key_env via models.resolve('review')."""
+    from core.skills.models import load_models
+    return load_models().resolve("review").api_key_env or "ANTHROPIC_API_KEY"
+
+
+def judge_available() -> bool:
+    return bool(os.environ.get(_judge_api_key_env()))
+
+
+def judge(output: str, rubric: str) -> dict:
+    """Ask the judge model whether output satisfies rubric.
+
+    Returns {"pass": bool, "reason": str}. Caller must guard with
+    judge_available() — raises RuntimeError if key missing.
+    """
+    if not judge_available():
+        raise RuntimeError("Judge API key not set; check judge_available() first")
+
+    prompt = (
+        f"{rubric}\n\n"
+        "---\n"
+        "Agent output to evaluate:\n\n"
+        f"{output}\n\n"
+        "---\n"
+        "Reply with a single line in one of these forms:\n"
+        "  PASS: <brief reason>\n"
+        "  FAIL: <brief reason>\n"
+    )
+    with (
+        tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False, encoding="utf-8") as pf,
+        tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False, encoding="utf-8") as of,
+    ):
+        pf.write(prompt)
+        prompt_path = Path(pf.name)
+        out_path = Path(of.name)
+
+    try:
+        run_agent(phase_id="review", prompt_path=prompt_path, out_path=out_path, track="S")
+        raw = out_path.read_text(encoding="utf-8").strip()
+    finally:
+        prompt_path.unlink(missing_ok=True)
+        out_path.unlink(missing_ok=True)
+
+    if raw.upper().startswith("PASS"):
+        return {"pass": True, "reason": raw.split(":", 1)[-1].strip()}
+    return {"pass": False, "reason": raw.split(":", 1)[-1].strip() if ":" in raw else raw}
 
 
 def has_min_approaches(text: str, n: int = 2) -> bool:

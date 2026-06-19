@@ -1,6 +1,7 @@
 from tests.prompt_harness import impl_plan_violations, has_min_approaches
 from pathlib import Path
 import pytest
+import tests.prompt_harness as H
 
 GOOD = (
     "## step-1 — x\n"
@@ -54,6 +55,18 @@ def test_violations_no_steps():
 def test_has_min_approaches_not_prose():
     # Normal prose shouldn't be counted as approaches
     assert not has_min_approaches("We will implement this using clangd.", 2)
+
+
+def test_judge_skips_without_key(monkeypatch):
+    monkeypatch.delenv(H._judge_api_key_env(), raising=False)
+    assert H.judge_available() is False
+
+
+def test_judge_returns_structured(monkeypatch):
+    monkeypatch.setattr(H, "run_agent", lambda **kw: Path(kw["out_path"]).write_text("PASS: ok") or 0, raising=False)
+    monkeypatch.setattr(H, "judge_available", lambda: True)
+    r = H.judge("out", "rubric")
+    assert r["pass"] is True and isinstance(r["reason"], str)
 
 
 @pytest.mark.xfail(reason="Socratic directives not yet added to discovery-lite.md")
