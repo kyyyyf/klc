@@ -117,6 +117,12 @@ def compare(ticket: str) -> dict:
         }
 
     changed_files = _git_changed_files(project_root())
+    # Drop klc's own state directory: `.klc/` holds ticket metadata,
+    # the index, and reports — process state, never application scope.
+    # It is git-tracked and klc itself dirties it on every phase
+    # transition, so counting it would flag a false expansion on every
+    # review ack (it maps to the `.klc/tickets/` module).
+    changed_files = [f for f in changed_files if not f.startswith(".klc/")]
     if not changed_files:
         return {
             "planned": planned, "actual": [], "drift": [], "expansion": [],
