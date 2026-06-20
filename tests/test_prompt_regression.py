@@ -69,12 +69,13 @@ def test_judge_returns_structured(monkeypatch):
     assert r["pass"] is True and isinstance(r["reason"], str)
 
 
-@pytest.mark.xfail(reason="Socratic directives not yet added to discovery-lite.md")
-def test_discovery_lite_has_socratic_directives():
-    """Sentinel: discovery-lite.md does not yet carry Socratic brainstorm directives."""
-    discovery_lite = Path(__file__).resolve().parent.parent / "core/agents/discovery-lite.md"
-    text = discovery_lite.read_text(encoding="utf-8")
-    # Check for Socratic brainstorm directive keywords
-    assert "socratic" in text.lower() or "brainstorm" in text.lower(), (
-        "discovery-lite.md lacks Socratic directives — Phase 1 will add them"
-    )
+@pytest.mark.xfail(
+    reason="Socratic directives land in Phase 1 (KLC-1.1); sentinel flips to pass then.",
+    strict=True,
+)
+def test_discovery_lite_lacks_socratic_sentinel():
+    from tests.prompt_harness import _FW_ROOT
+    txt = (_FW_ROOT / "core/agents/discovery-lite.md").read_text(encoding="utf-8")
+    low = txt.lower()
+    assert "one question at a time" in low
+    assert ("2-3 approaches" in low) or ("2–3 approaches" in low)

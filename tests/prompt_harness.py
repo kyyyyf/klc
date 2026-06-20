@@ -1,3 +1,15 @@
+"""Prompt-regression harness for klc agent prompts.
+
+Structural helpers (impl_plan_violations, has_min_approaches) run fully offline
+with no API key.  The judge() helper calls the review model and requires an API
+key — guard calls with judge_available().  Tests that depend on judge() use
+monkeypatching or pytest.importorskip; all other tests are CI-safe.
+
+Adding fixtures for a new phase:
+  1. Write a test in tests/test_prompt_regression.py importing from this module.
+  2. For prompt-gap sentinels use @pytest.mark.xfail(strict=True) so the suite
+     fails loudly when the gap is closed but the sentinel is not removed.
+"""
 from __future__ import annotations
 import os
 import re
