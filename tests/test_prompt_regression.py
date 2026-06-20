@@ -23,6 +23,11 @@ def test_has_min_approaches_counts():
     assert not has_min_approaches("- Option A: x", 2)
 
 
+def test_has_min_approaches_no_duplicate_label():
+    # "Option A" repeated with different descriptions must NOT count as 2
+    assert not has_min_approaches("- Option A: first\n- Option A: repeated", 2)
+
+
 def test_violations_missing_required_field():
     text = (
         "## step-1 — x\n"
@@ -62,9 +67,10 @@ def test_judge_skips_without_key(monkeypatch):
     assert H.judge_available() is False
 
 
-def test_judge_raises_without_key(monkeypatch):
+def test_judge_skips_gracefully_without_key(monkeypatch):
+    """AC-2: judge() must skip (not fail) when API key is absent."""
     monkeypatch.delenv(H._judge_api_key_env(), raising=False)
-    with pytest.raises(RuntimeError, match="Judge API key not set"):
+    with pytest.raises(pytest.skip.Exception):
         H.judge("output", "rubric")
 
 

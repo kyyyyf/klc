@@ -87,11 +87,12 @@ def judge_available() -> bool:
 def judge(output: str, rubric: str) -> dict:
     """Ask the judge model whether output satisfies rubric.
 
-    Returns {"pass": bool, "reason": str}. Caller must guard with
-    judge_available() — raises RuntimeError if key missing.
+    Returns {"pass": bool, "reason": str}. When the API key is unset,
+    calls pytest.skip() so the calling test is skipped gracefully (AC-2).
     """
     if not judge_available():
-        raise RuntimeError("Judge API key not set; check judge_available() first")
+        import pytest as _pytest
+        _pytest.skip(f"judge API key ({_judge_api_key_env()}) not set")
 
     prompt = (
         f"{rubric}\n\n"
@@ -126,10 +127,14 @@ def judge(output: str, rubric: str) -> dict:
 
 
 def has_min_approaches(text: str, n: int = 2) -> bool:
-    """True iff the text proposes >= n distinct approaches."""
-    line_pattern = re.compile(
-        r"(?im)^(\s*(?:[-*]|\d+\.|#{2,3})\s*(?:option|approach|approach\s+\d|alternative)\b[^\n]*)"
+    """True iff the text proposes >= n distinct approaches.
+
+    De-duplicates by normalized label (keyword + trailing identifier), not
+    by full line — so 'Option A: foo' and 'Option A: bar' count as one.
+    """
+    label_pattern = re.compile(
+        r"(?im)^\s*(?:[-*]|\d+\.|#{2,3})\s*((?:option|approach|alternative)\s*[a-z0-9]*)\b",
     )
-    matches = line_pattern.findall(text)
+    matches = label_pattern.findall(text)
     normalized = {m.strip().lower() for m in matches}
     return len(normalized) >= n
