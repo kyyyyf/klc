@@ -50,6 +50,25 @@ Each dimension scores 0-5:
 | **M** | 7-10 | intake → discovery → acceptance-test-plan → design (impl-plan w/ per-step tests) → build → review → manual → integrate → observe → learn | 3-7 days | Multi-module refactor, new subsystem, non-trivial algorithm |
 | **L** | ≥11 | intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn | 7-14 days | Architecture change, new service, large-scale migration |
 
+<!-- BEGIN GENERATED:tracks-thresholds -->
+| Track | Max total |
+| ----- | --------- |
+| XS | 2 |
+| S | 5 |
+| M | 8 |
+| L | unbounded (≥9) |
+<!-- END GENERATED:tracks-thresholds -->
+
+<!-- BEGIN GENERATED:tracks-phase-sequences -->
+**XS**: intake → discovery-lite → xs-build → review-lite → integrate → learn
+
+**S**: intake → discovery-lite → build → review → integrate → observe → learn
+
+**M**: intake → discovery → acceptance-test-plan → design → build → review → manual → integrate → observe → learn
+
+**L**: intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn
+<!-- END GENERATED:tracks-phase-sequences -->
+
 ## Phase sequences
 
 ### XS track
