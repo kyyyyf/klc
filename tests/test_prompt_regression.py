@@ -62,8 +62,17 @@ def test_judge_skips_without_key(monkeypatch):
     assert H.judge_available() is False
 
 
+def test_judge_raises_without_key(monkeypatch):
+    monkeypatch.delenv(H._judge_api_key_env(), raising=False)
+    with pytest.raises(RuntimeError, match="Judge API key not set"):
+        H.judge("output", "rubric")
+
+
 def test_judge_returns_structured(monkeypatch):
-    monkeypatch.setattr(H, "run_agent", lambda **kw: Path(kw["out_path"]).write_text("PASS: ok") or 0, raising=False)
+    def _fake_run(**kw):
+        Path(kw["out_path"]).write_text("PASS: ok")
+        return 0
+    monkeypatch.setattr(H, "run_agent", _fake_run, raising=False)
     monkeypatch.setattr(H, "judge_available", lambda: True)
     r = H.judge("out", "rubric")
     assert r["pass"] is True and isinstance(r["reason"], str)

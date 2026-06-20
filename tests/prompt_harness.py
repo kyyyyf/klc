@@ -112,7 +112,9 @@ def judge(output: str, rubric: str) -> dict:
         out_path = Path(of.name)
 
     try:
-        run_agent(phase_id="review", prompt_path=prompt_path, out_path=out_path, track="S")
+        rc = run_agent(phase_id="review", prompt_path=prompt_path, out_path=out_path, track="S")
+        if rc != 0:
+            raise RuntimeError(f"run_agent dispatch failed (exit {rc})")
         raw = out_path.read_text(encoding="utf-8").strip()
     finally:
         prompt_path.unlink(missing_ok=True)
