@@ -20,6 +20,22 @@ sys.path.insert(0, str(_skills_dir))
 import models as _m
 
 
+def check_subagent_dispatch(resolved: "_m.ResolvedModel",
+                            *, context: str = "subagent") -> str | None:
+    """Return a MODEL_NOTE if `resolved` fell back to defaults (no explicit mapping).
+
+    Returns None when the phase was explicitly mapped in per_track or phase_roles.
+    """
+    if getattr(resolved, "source", "default") == "default":
+        return (
+            f"MODEL_NOTE {context} phase={resolved.phase} "
+            f"resolved={resolved.provider}:{resolved.model} "
+            f"explicit-model-missing "
+            f"(no per_track/phase_roles entry — using defaults)"
+        )
+    return None
+
+
 def check(phase: str, *, track: str | None = None,
           session_model: str) -> str | None:
     """Return a mismatch warning or None.
