@@ -1,5 +1,7 @@
+import re
 import sys
 from pathlib import Path
+import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.skills.track_classifier import final_track, TRACK_THRESHOLDS
@@ -25,14 +27,50 @@ def test_render_contains_thresholds_and_sequences():
     assert "XS" in table and "5" in table
 
 
+def _strip_generated(s: str) -> str:
+    return re.sub(
+        r"<!-- BEGIN GENERATED:[^-]*-->.*?<!-- END GENERATED:[^-]*-->", "", s, flags=re.DOTALL
+    )
+
+
 def test_generation_preserves_prose():
-    import re
     cur = G.DOC_PATH.read_text(encoding="utf-8")
     new = G.apply(cur)
-    strip = lambda s: re.sub(
-        r"<!-- BEGIN GENERATED:.*?<!-- END GENERATED:[^>]*-->", "", s, flags=re.DOTALL
-    )
-    assert strip(cur) == strip(new)
+    assert _strip_generated(cur) == _strip_generated(new)
+
+
+def test_replace_region_append_when_markers_absent():
+    """_replace_region must append block when neither marker exists yet."""
+    doc = "# prose\nsome text\n"
+    result = G._replace_region(doc, "x", "body content")
+    assert "# prose" in result
+    assert "<!-- BEGIN GENERATED:x -->" in result
+    assert "body content" in result
+    assert "<!-- END GENERATED:x -->" in result
+
+
+def test_replace_region_raises_on_malformed():
+    """_replace_region must raise ValueError when BEGIN present but END missing."""
+    doc = "# prose\n<!-- BEGIN GENERATED:x -->\nstale body\n"
+    with pytest.raises(ValueError, match="Malformed region"):
+        G._replace_region(doc, "x", "new body")
+
+
+def test_l_lower_bound_derived_from_thresholds():
+    """L lower bound in table must be computed from M max, not hardcoded."""
+    table = G.render_thresholds_table()
+    # Find M's max from TRACK_THRESHOLDS
+    m_max = dict(TRACK_THRESHOLDS)["M"]
+    assert f"≥{m_max + 1}" in table, f"L row should show ≥{m_max + 1}, got: {table}"
+
+
+def test_render_rows_present():
+    """Threshold table must contain all four tracks with correct values."""
+    table = G.render_thresholds_table()
+    assert "| M | 8 |" in table
+    assert "| S | 5 |" in table
+    assert "| XS | 2 |" in table
+    assert "| L | unbounded" in table
 
 
 def test_committed_doc_matches_fresh_render():
