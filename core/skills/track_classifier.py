@@ -12,6 +12,16 @@ from __future__ import annotations
 _TRACK_ORDER: dict[str, int] = {"XS": 0, "S": 1, "M": 2, "L": 3}
 _TRACKS: list[str] = ["XS", "S", "M", "L"]
 
+# Ordered low→high. (track, inclusive_max_total). L is the open-ended top.
+TRACK_THRESHOLDS: list[tuple[str, int | None]] = [("XS", 2), ("S", 5), ("M", 8), ("L", None)]
+
+
+def _track_for_total(total: int) -> str:
+    for name, hi in TRACK_THRESHOLDS:
+        if hi is None or total <= hi:
+            return name
+    return "L"
+
 
 def _rank(track: str) -> int:
     return _TRACK_ORDER.get(track, 1)
@@ -78,14 +88,7 @@ def final_track(
     total = estimate.get("total", complexity + uncertainty + risk + manual)
 
     # Derive band from total
-    if total <= 2:
-        band = "XS"
-    elif total <= 5:
-        band = "S"
-    elif total <= 8:
-        band = "M"
-    else:
-        band = "L"
+    band = _track_for_total(total)
 
     # Upward overrides
     axes = [complexity, uncertainty, risk, manual]
