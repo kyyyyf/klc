@@ -48,6 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from models import load_models, ResolvedModel  # noqa: E402
+from model_guard import check_subagent_dispatch  # noqa: E402
 
 
 # --- budget loading ----------------------------------------------------------
@@ -313,6 +314,10 @@ def run_agent(phase_id: str,
     except (FileNotFoundError, KeyError, ValueError) as e:
         _write_synthetic_critical(out_path, phase_id, str(e))
         return 2
+
+    note = check_subagent_dispatch(resolved)
+    if note:
+        sys.stderr.write(f"runner: {note}\n")
 
     if not prompt_path.exists():
         msg = f"runner: prompt file missing: {prompt_path}"

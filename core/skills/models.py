@@ -56,6 +56,7 @@ class ResolvedModel:
     model:       str
     api_key_env: str | None
     extra_args:  list[str]
+    source:      str = "default"  # "per_track" | "phase_roles" | "default"
 
     def as_env(self) -> dict[str, str]:
         """Env vars the runner passes to its child process. Names are
@@ -113,14 +114,28 @@ class Models:
     def resolve(self, phase_id: str, *, track: str | None = None) -> ResolvedModel:
         """Return the ResolvedModel for `phase_id` on the given track."""
         role_name: str | None = None
+        source = "default"
         if track and track in self.per_track:
             role_name = self.per_track[track].get(phase_id)
+            if role_name is not None:
+                source = "per_track"
         if role_name is None:
             role_name = self.phase_roles.get(phase_id)
+            if role_name is not None:
+                source = "phase_roles"
         if role_name is None:
-            raise KeyError(
-                f"models.yml has no phase_roles[{phase_id!r}]; add it or "
-                "set it under per_track[<track>] for this flow"
+            # Unmapped phase — fall back to defaults so the guard can detect it.
+            d = self.defaults
+            api_key_env = d.api_key_env if d.api_key_env is not _SENTINEL_UNSET else None
+            return ResolvedModel(
+                role=d.name,
+                phase=phase_id,
+                track=track,
+                provider=d.provider,
+                model=d.model,
+                api_key_env=api_key_env,
+                extra_args=list(d.extra_args),
+                source="default",
             )
         role = self.roles.get(role_name)
         if role is None:
@@ -153,6 +168,7 @@ class Models:
             model=model,
             api_key_env=api_key_env,
             extra_args=extra_args,
+            source=source,
         )
 
 
