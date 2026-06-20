@@ -570,6 +570,18 @@ def _write_job_card(card: Path, *,
         "Required trailer (last line of the markdown partial):\n"
         "  ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>\n"
     )
+
+    # Lint the per-run injected instruction text only (not the prompt-file body).
+    _injected = (
+        f"an entry whose `reviewer` is \"{reviewer}\" or \"*\", downgrade to "
+        "INFO and append\n"
+        "`(allowlisted: <reason>)` to the title, per the prompt's Hard rules.\n"
+    )
+    from core.skills.lint_review_prompts import lint_text as _lint
+    _hits = _lint(_injected)
+    if _hits:
+        sys.stderr.write(f"[no-pre-judgment] reviewer={reviewer}: {_hits}\n")
+
     card.write_text(body, encoding="utf-8")
 
 
