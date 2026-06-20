@@ -99,7 +99,7 @@ def _resolve_diff(diff_arg: str, out_path: Path) -> bool:
     to out_path. Returns True on success."""
     p = Path(diff_arg)
     if p.is_file():
-        shutil.copy2(p, out_path)
+        out_path.write_bytes(p.read_bytes())
         return True
     root = project_root()
     r = subprocess.run(
