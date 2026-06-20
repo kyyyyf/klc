@@ -23,3 +23,18 @@ def test_render_contains_thresholds_and_sequences():
     assert "build" in seqs and "review" in seqs
     table = G.render_thresholds_table()
     assert "XS" in table and "5" in table
+
+
+def test_generation_preserves_prose():
+    import re
+    cur = G.DOC_PATH.read_text(encoding="utf-8")
+    new = G.apply(cur)
+    strip = lambda s: re.sub(
+        r"<!-- BEGIN GENERATED:.*?<!-- END GENERATED:[^>]*-->", "", s, flags=re.DOTALL
+    )
+    assert strip(cur) == strip(new)
+
+
+def test_committed_doc_matches_fresh_render():
+    cur = G.DOC_PATH.read_text(encoding="utf-8")
+    assert G.apply(cur) == cur, "run: python3 core/skills/gen_tracks_doc.py --write"
