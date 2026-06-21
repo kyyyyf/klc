@@ -22,9 +22,16 @@ DOC_PATH = _FW_ROOT / "docs" / "tracks.md"
 def render_thresholds_table() -> str:
     """Markdown table of Track | Max total from TRACK_THRESHOLDS."""
     rows = ["| Track | Max total |", "| ----- | --------- |"]
+    prev_hi: int | None = None
     for name, hi in TRACK_THRESHOLDS:
-        cell = str(hi) if hi is not None else "unbounded (≥9)"
+        if hi is not None:
+            cell = str(hi)
+        else:
+            # L lower bound = previous finite threshold + 1; computed, not hardcoded
+            cell = f"unbounded (≥{prev_hi + 1})" if prev_hi is not None else "unbounded"
         rows.append(f"| {name} | {cell} |")
+        if hi is not None:
+            prev_hi = hi
     return "\n".join(rows)
 
 
@@ -46,12 +53,22 @@ def render_region(region_id: str) -> str:
 
 
 def _replace_region(doc: str, region_id: str, body: str) -> str:
-    """Replace text between GENERATED markers; append if absent."""
+    """Replace text between GENERATED markers; append if both absent.
+
+    Raises ValueError if exactly one marker is present (malformed document).
+    """
     begin = f"<!-- BEGIN GENERATED:{region_id} -->"
     end   = f"<!-- END GENERATED:{region_id} -->"
+    has_begin = begin in doc
+    has_end   = end in doc
+    if has_begin and not has_end:
+        raise ValueError(
+            f"Malformed region '{region_id}': BEGIN marker present but END marker missing. "
+            "Repair docs/tracks.md manually."
+        )
     block = f"{begin}\n{body.strip()}\n{end}"
     pat = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
-    return pat.sub(block, doc) if begin in doc else doc.rstrip() + "\n\n" + block + "\n"
+    return pat.sub(block, doc) if has_begin else doc.rstrip() + "\n\n" + block + "\n"
 
 
 def apply(doc: str) -> str:
