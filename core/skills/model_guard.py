@@ -98,3 +98,43 @@ def check(phase: str, *, track: str | None = None,
             f"'{required.role}' (rank {required_rank}) — you may /model "
             f"down to a lower-rank model."
         )
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    """CLI for the subagent-dispatch guard.
+
+    Returns 0 when the model is explicitly mapped, 1 when it fell back to
+    defaults, 2 on error.  Prints a JSON object to stdout.
+
+    Example::
+
+        python3 model_guard.py --phase totally-unmapped --track S
+        {"note": "MODEL_NOTE ...", "source": "default"}
+    """
+    import argparse
+    import json as _json
+
+    ap = argparse.ArgumentParser(
+        description="Check whether a phase/track resolves to an explicit model"
+    )
+    ap.add_argument("--phase", required=True, help="phase id (e.g. 'review')")
+    ap.add_argument(
+        "--track", default=None, choices=("XS", "S", "M", "L"),
+        help="ticket track"
+    )
+    args = ap.parse_args(argv)
+
+    try:
+        mc = _m.load_models()
+        resolved = mc.resolve(args.phase, track=args.track)
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        sys.stderr.write(f"model_guard: {exc}\n")
+        return 2
+
+    note = check_subagent_dispatch(resolved)
+    print(_json.dumps({"note": note, "source": resolved.source}))
+    return 1 if note else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

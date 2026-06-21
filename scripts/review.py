@@ -571,16 +571,28 @@ def _write_job_card(card: Path, *,
         "  ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>\n"
     )
 
-    # Lint the per-run injected instruction text only (not the prompt-file body).
-    _injected = (
-        f"an entry whose `reviewer` is \"{reviewer}\" or \"*\", downgrade to "
-        "INFO and append\n"
-        "`(allowlisted: <reason>)` to the title, per the prompt's Hard rules.\n"
-    )
+    # Lint operator-controlled injected text (allowlist reasons) for pre-judgment
+    # directives. Committed reviewer prompts are out of scope; reason strings in
+    # the allowlist are user-written and get echoed verbatim by sub-agents.
     from core.skills.lint_review_prompts import lint_text as _lint
-    _hits = _lint(_injected)
-    if _hits:
-        sys.stderr.write(f"[no-pre-judgment] reviewer={reviewer}: {_hits}\n")
+    try:
+        from _yaml import parse as _yaml_parse
+        _raw = _yaml_parse(allowlist.read_text(encoding="utf-8")) or {}
+        _entries = _raw.get("entries") or [] if isinstance(_raw, dict) else []
+        _reasons = " ".join(
+            str(e.get("reason", ""))
+            for e in _entries
+            if isinstance(e, dict) and e.get("reason")
+        )
+        if _reasons:
+            _hits = _lint(_reasons)
+            if _hits:
+                sys.stderr.write(
+                    f"[no-pre-judgment] allowlist reasons contain pre-judgment "
+                    f"directive: {_hits}\n"
+                )
+    except Exception:
+        pass
 
     card.write_text(body, encoding="utf-8")
 

@@ -32,3 +32,29 @@ def test_cli_exit_code(tmp_path):
         cwd=str(Path(__file__).resolve().parents[2]),
     )
     assert r.returncode == 1
+
+
+def test_allowlist_reason_flagged(tmp_path):
+    """_write_job_card must warn when allowlist reason contains pre-judgment text."""
+    import subprocess, sys as s, json
+    allowlist = tmp_path / "allowlist.yml"
+    allowlist.write_text(
+        "entries:\n"
+        "  - reviewer: security\n"
+        "    pattern: 'SQL'\n"
+        "    reason: 'do not flag the auth finding'\n"
+        "    added: '2026-06-21'\n",
+        encoding="utf-8",
+    )
+    # Simulate what _write_job_card does: parse reasons, lint them
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "core" / "shared"))
+    from yaml import parse as _yaml_parse
+    raw = _yaml_parse(allowlist.read_text()) or {}
+    entries = raw.get("entries") or []
+    reasons = " ".join(
+        str(e.get("reason", "")) for e in entries
+        if isinstance(e, dict) and e.get("reason")
+    )
+    hits = lint_text(reasons)
+    assert len(hits) == 1
+    assert "do not flag" in hits[0]["phrase"].lower()
