@@ -199,6 +199,27 @@ discovery.
 - `affected_modules` must be a subset of `modules.json` names;
   anything else goes into `unknown_module_refs` with a QUESTION.
 
+## Socratic sub-protocol (S and up)
+
+Before finalizing `spec.md`, work through these four steps in order:
+
+1. **Explore context first.** Thoroughly read all inputs (raw.md, CLAUDE.md, related
+   tickets, module docs) before forming any opinion on approach.
+2. **Ask one question at a time.** Never batch questions. Stop at the single most
+   important unknown; wait for an answer; continue.
+3. **Present 2-3 approaches with explicit trade-offs.** For each candidate: name,
+   one-line summary, pros, cons. Record the shortlist (brief labels) in `spec.md`;
+   full pros/cons detail goes in `design/options.md`.
+4. **Record the pick.** After operator selection, add a `Picked:` line in `spec.md`
+   (the approaches detail lives in `design/options.md`):
+   ```
+   Picked: <approach name> — <reason>
+   ```
+
+When the request spans multiple independent subsystems, emit `DISCOVERY_DECOMPOSE`
+in `spec.md` before the completion signal so the operator can decompose or upgrade
+the track.
+
 ## Self-review before emitting
 
 Before writing the completion signal, scan `spec.md` for violations and fix them inline:

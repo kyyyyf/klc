@@ -72,6 +72,22 @@ total: <sum, must be ≤2 for XS or ≤5 for S>
 For **S-track only** (skip entirely for XS), after writing `spec.md`,
 also produce:
 
+### `options-lite.md` (approach shortlist + pick)
+
+```markdown
+## Approach options
+- Option A: <name> — <one-line trade-off>
+- Option B: <name> — <one-line trade-off>
+[- Option C: <name> — <one-line trade-off>]
+
+Picked: <approach name> — <reason>
+```
+
+Rules:
+- Must have ≥ 2 labelled options (`Option A`, `Approach B`, etc.) — the ack gate reads this file.
+- Must have a `Picked:` line — the ack gate reads this too.
+- Write during the Socratic loop (before `spec.md`); the gate blocks ack if the file is missing or incomplete.
+
 ### `test-plan.md` (acceptance coverage)
 
 ```markdown
@@ -129,6 +145,30 @@ Rules:
 - If the work cannot be planned without design trade-offs, do NOT invent
   a plan — emit `[!QUESTION blocks=discovery-lite]` recommending an upgrade to M.
 - Do not produce `impl-plan.md` for XS (XS uses `xs-fasttrack.md`).
+
+## Socratic sub-protocol (S and up)
+
+Before writing `spec.md`, work through these four steps in order:
+
+1. **Explore context first.** Read `raw.md`, `CLAUDE.md`, and related tickets before
+   forming any opinion on approach.
+2. **Ask one question at a time.** Never batch questions. Ask the single most important
+   unknown, wait for an answer, then ask the next if needed.
+3. **Present 2-3 approaches with explicit trade-offs.** For each: name, one-line
+   description, pros, cons. Do not recommend without evidence.
+4. **Record approaches + pick in `options-lite.md`.** Write the full shortlist AND the
+   chosen pick there (the ack gate reads this artifact — not spec.md — for S-track):
+   ```
+   ## Approach options
+   - Option A: <name> — <one-line trade-off>
+   - Option B: <name> — <one-line trade-off>
+
+   Picked: Option A — <reason>
+   ```
+
+When the request spans multiple independent subsystems (changes required in 3+ modules
+with no single owner), emit `DISCOVERY_DECOMPOSE` before the completion signal instead
+of forcing a single spec.
 
 ## Self-review before emitting
 

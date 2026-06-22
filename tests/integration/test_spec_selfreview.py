@@ -111,6 +111,11 @@ def test_gate_passes_clean_spec(tmp_path, monkeypatch):
     (ticket_dir / "spec.md").write_text(
         _VALID_SPEC.format(ticket=ticket), encoding="utf-8"
     )
+    # S-track also requires options-lite.md with ≥2 approaches + pick (KLC-032 AC-3).
+    (ticket_dir / "options-lite.md").write_text(
+        "- Option A: fast impl\n- Option B: safer impl\nPicked: Option A — lower risk\n",
+        encoding="utf-8",
+    )
     ok, msg = can_complete_discovery_lite(ticket)
     assert ok, f"expected True for clean spec, got: {msg!r}"
 
