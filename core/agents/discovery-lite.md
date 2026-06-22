@@ -130,6 +130,25 @@ Rules:
   a plan — emit `[!QUESTION blocks=discovery-lite]` recommending an upgrade to M.
 - Do not produce `impl-plan.md` for XS (XS uses `xs-fasttrack.md`).
 
+## Socratic sub-protocol (S and up)
+
+Before writing `spec.md`, work through these four steps in order:
+
+1. **Explore context first.** Read `raw.md`, `CLAUDE.md`, and related tickets before
+   forming any opinion on approach.
+2. **Ask one question at a time.** Never batch questions. Ask the single most important
+   unknown, wait for an answer, then ask the next if needed.
+3. **Present 2-3 approaches with explicit trade-offs.** For each: name, one-line
+   description, pros, cons. Do not recommend without evidence.
+4. **Record the pick.** Once an approach is chosen, write it in `options-lite.md`:
+   ```
+   Picked: <approach name> — <reason>
+   ```
+
+When the request spans multiple independent subsystems (changes required in 3+ modules
+with no single owner), emit `DISCOVERY_DECOMPOSE` before the completion signal instead
+of forcing a single spec.
+
 ## Self-review before emitting
 
 Before writing the completion signal, scan `spec.md` for violations and fix them inline:

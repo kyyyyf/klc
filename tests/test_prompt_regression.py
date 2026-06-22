@@ -84,16 +84,25 @@ def test_judge_returns_structured(monkeypatch):
     assert r["pass"] is True and isinstance(r["reason"], str)
 
 
-@pytest.mark.xfail(
-    reason="Socratic directives land in Phase 1 (KLC-1.1); sentinel flips to pass then.",
-    strict=True,
-)
 def test_discovery_lite_lacks_socratic_sentinel():
     from tests.prompt_harness import _FW_ROOT
     txt = (_FW_ROOT / "core/agents/discovery-lite.md").read_text(encoding="utf-8")
     low = txt.lower()
     assert "one question at a time" in low
     assert ("2-3 approaches" in low) or ("2–3 approaches" in low)
+
+
+def test_discovery_prompts_have_socratic_step():
+    """AC-1/AC-5 (KLC-032): both discovery prompts must have the Socratic protocol markers."""
+    from tests.prompt_harness import _FW_ROOT
+    for name in ("discovery-lite.md", "discovery.md"):
+        txt = (_FW_ROOT / "core/agents" / name).read_text(encoding="utf-8")
+        low = txt.lower()
+        assert "one question at a time" in low, f"{name}: missing 'one question at a time'"
+        assert "explore" in low, f"{name}: missing 'explore' (context-first step)"
+        assert ("2-3 approaches" in low) or ("2–3 approaches" in low), (
+            f"{name}: missing approach count"
+        )
 
 
 def test_discovery_prompts_have_self_review_step():
