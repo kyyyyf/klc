@@ -23,6 +23,7 @@ sys.path.insert(0, str(_FW_ROOT))
 from core.skills.runner import run_agent  # noqa: E402
 
 from core.skills.spec_selfreview import PLACEHOLDER_TOKENS  # noqa: E402
+from core.skills.spec_structure import has_min_approaches  # noqa: E402
 REQUIRED_STEP_FIELDS = ("Goal", "VERIFY", "COMMIT", "Affected")
 
 
@@ -125,16 +126,3 @@ def judge(output: str, rubric: str) -> dict:
         return {"pass": True, "reason": raw.split(":", 1)[-1].strip()}
     return {"pass": False, "reason": raw.split(":", 1)[-1].strip() if ":" in raw else raw}
 
-
-def has_min_approaches(text: str, n: int = 2) -> bool:
-    """True iff the text proposes >= n distinct approaches.
-
-    De-duplicates by normalized label (keyword + trailing identifier), not
-    by full line — so 'Option A: foo' and 'Option A: bar' count as one.
-    """
-    label_pattern = re.compile(
-        r"(?im)^\s*(?:[-*]|\d+\.|#{2,3})\s*((?:option|approach|alternative)\s*[a-z0-9]*)\b",
-    )
-    matches = label_pattern.findall(text)
-    normalized = {m.strip().lower() for m in matches}
-    return len(normalized) >= n
