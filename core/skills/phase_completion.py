@@ -20,6 +20,7 @@ from core.shared.paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
+import spec_selfreview as _spec_selfreview  # noqa: E402
 
 
 def can_complete_discovery(ticket: str) -> tuple[bool, str]:
@@ -150,6 +151,12 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
                 "external_dependents": info.get("external_dependents", []),
             }
             _lc.write_meta(ticket, meta)
+
+    # Self-review gate (KLC-033): reject specs with placeholder/conflict/stub violations.
+    _sr = _spec_selfreview.scan_spec(spec_path.read_text(encoding="utf-8"))
+    if _sr:
+        v = _sr[0]
+        return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
 
     # All checks passed — extract risk_tags from spec.md frontmatter into meta
     _sync_risk_tags(ticket)
@@ -303,6 +310,12 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
 
     except Exception as e:
         return False, f"Cannot read meta.json: {e}"
+
+    # Self-review gate (KLC-033): reject specs with placeholder/conflict/stub violations.
+    _sr = _spec_selfreview.scan_spec(spec_path.read_text(encoding="utf-8"))
+    if _sr:
+        v = _sr[0]
+        return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
 
     # All checks passed — sync risk_tags from spec.md into meta.json
     _sync_risk_tags(ticket)
