@@ -38,7 +38,7 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
     if not spec_path.exists():
         return False, "Missing spec.md"
 
-    # Check spec.md has valid frontmatter
+    # Read once; reused by structural checks and the self-review gate below.
     try:
         spec_text = spec_path.read_text(encoding="utf-8")
         lines = spec_text.splitlines()
@@ -153,7 +153,7 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
             _lc.write_meta(ticket, meta)
 
     # Self-review gate (KLC-033): reject specs with placeholder/conflict/stub violations.
-    _sr = _spec_selfreview.scan_spec(spec_path.read_text(encoding="utf-8"))
+    _sr = _spec_selfreview.scan_spec(spec_text)
     if _sr:
         v = _sr[0]
         return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
@@ -251,6 +251,7 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
     if not spec_path.exists():
         return False, "Missing spec.md"
 
+    # Read once; reused by structural checks and the self-review gate below.
     try:
         text = spec_path.read_text(encoding="utf-8")
         lines = text.splitlines()
@@ -312,7 +313,7 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
         return False, f"Cannot read meta.json: {e}"
 
     # Self-review gate (KLC-033): reject specs with placeholder/conflict/stub violations.
-    _sr = _spec_selfreview.scan_spec(spec_path.read_text(encoding="utf-8"))
+    _sr = _spec_selfreview.scan_spec(text)
     if _sr:
         v = _sr[0]
         return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"

@@ -11,7 +11,7 @@ sys.path.insert(0, str(_FW_ROOT / "core" / "skills"))  # for bare imports inside
 import core.skills.spec_selfreview as spec_selfreview  # noqa: E402
 from core.skills.spec_selfreview import scan_spec  # noqa: E402
 import tests.prompt_harness as prompt_harness  # noqa: E402
-from core.skills.phase_completion import can_complete_discovery_lite  # noqa: E402
+from core.skills.phase_completion import can_complete_discovery_lite, can_complete_discovery  # noqa: E402
 
 _SELFREVIEW_SCRIPT = _FW_ROOT / "core" / "skills" / "spec_selfreview.py"
 
@@ -113,6 +113,42 @@ def test_gate_passes_clean_spec(tmp_path, monkeypatch):
     )
     ok, msg = can_complete_discovery_lite(ticket)
     assert ok, f"expected True for clean spec, got: {msg!r}"
+
+
+def test_gate_rejects_dirty_spec_m_track(tmp_path, monkeypatch):
+    """cov-1 fix: can_complete_discovery (M/L path) must also reject dirty specs."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    ticket = "KLC-T98"
+    ticket_dir = tmp_path / ".klc" / "tickets" / ticket
+    ticket_dir.mkdir(parents=True)
+    # modules index required by the floor guard
+    index_dir = tmp_path / ".klc" / "index"
+    index_dir.mkdir(parents=True)
+    (index_dir / "modules.json").write_text(
+        json.dumps({"modules": [{"name": "test_module", "path": "src/t",
+                                 "depends_on": [], "depended_by": []}]}),
+        encoding="utf-8",
+    )
+    meta = {
+        "ticket": ticket, "kind": "feature", "phase": "discovery:work",
+        "track": "M", "route_hint": "M",
+        "estimate": {"complexity": 2, "uncertainty": 2, "risk": 1, "manual": 0, "total": 5},
+        "affected_modules": ["test_module"], "layer": "code",
+    }
+    (ticket_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    _M_SPEC = (
+        f"---\nticket: {ticket}\nkind: feature\nauthority: agent\n---\n\n"
+        "## Goals\nTest.\n\n"
+        "## Acceptance Criteria\n- [ ] AC-1: The system does X.\n\n"
+        "## Estimate\ncomplexity: 2\n\n"
+        "TODO fill in\n"
+    )
+    (ticket_dir / "spec.md").write_text(_M_SPEC, encoding="utf-8")
+
+    ok, msg = can_complete_discovery(ticket)
+    assert not ok, "expected False for dirty M-track spec"
+    assert "self-review" in msg, f"expected 'self-review' in message, got: {msg!r}"
 
 
 def test_cli_exit_code(tmp_path):

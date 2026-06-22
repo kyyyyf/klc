@@ -19,28 +19,33 @@ PLACEHOLDER_TOKENS = ("TODO", "TBD", "write tests", "<...>", "...")
 
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 _FENCED_CODE_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
+# Scans stripped text (fences + inline code removed).
 _CONFLICT_RE = re.compile(r"\[!CONFLICT\b[^\]]*\]", re.IGNORECASE)
 # Stub AC: checklist line whose body ends right after the label (optionally a bare colon).
 _STUB_AC_RE = re.compile(r"(?m)^[ \t]*-[ \t]*\[[ xX]\][ \t]*(AC-\d+)[ \t]*:?[ \t]*$")
+
+# Precompile one pattern per token so scan_spec() pays no compile cost per call.
+_TOKEN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (token,
+     re.compile(r"(?<![\w.])\.\.\.(?![\w.])") if token == "..."
+     else re.compile(r"\b" + re.escape(token) + r"\b"))
+    for token in PLACEHOLDER_TOKENS
+]
 
 
 def scan_spec(text: str) -> list[dict]:
     """Return structured violations. Each: {'class': str, 'phrase': str, 'offset': int}."""
     violations: list[dict] = []
 
-    # Strip fenced blocks and inline code before placeholder scan to avoid false positives.
+    # Strip fenced blocks and inline code before scanning to avoid false positives.
     stripped = _FENCED_CODE_RE.sub("", text)
     stripped = _INLINE_CODE_RE.sub("", stripped)
 
-    for token in PLACEHOLDER_TOKENS:
-        if token == "...":
-            pat = re.compile(r"(?<![\w.])\.\.\.(?![\w.])")
-        else:
-            pat = re.compile(r"\b" + re.escape(token) + r"\b")
+    for token, pat in _TOKEN_PATTERNS:
         for m in pat.finditer(stripped):
             violations.append({"class": "placeholder", "phrase": token, "offset": m.start()})
 
-    for m in _CONFLICT_RE.finditer(text):
+    for m in _CONFLICT_RE.finditer(stripped):
         violations.append({"class": "conflict", "phrase": m.group(0), "offset": m.start()})
 
     for m in _STUB_AC_RE.finditer(text):
