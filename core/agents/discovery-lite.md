@@ -130,6 +130,17 @@ Rules:
   a plan — emit `[!QUESTION blocks=discovery-lite]` recommending an upgrade to M.
 - Do not produce `impl-plan.md` for XS (XS uses `xs-fasttrack.md`).
 
+## Self-review before emitting
+
+Before writing the completion signal, scan `spec.md` for violations and fix them inline:
+
+- **Placeholder tokens** (`TODO`, `TBD`, `write tests`, `<...>`, `...`): replace with concrete content.
+- **Unresolved `[!CONFLICT]` markers**: resolve or escalate before acking.
+- **Stub AC items** — a `- [ ] AC-N` line with no body: expand with a testable condition.
+
+A spec carrying any of the above will fail the mechanical self-review gate
+(`spec_selfreview.scan_spec`) and block the discovery-lite ack.
+
 ## Signals to emit
 
 End spec.md with one of:

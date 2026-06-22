@@ -199,6 +199,17 @@ discovery.
 - `affected_modules` must be a subset of `modules.json` names;
   anything else goes into `unknown_module_refs` with a QUESTION.
 
+## Self-review before emitting
+
+Before writing the completion signal, scan `spec.md` for violations and fix them inline:
+
+- **Placeholder tokens** (`TODO`, `TBD`, `write tests`, `<...>`, `...`): replace with concrete content.
+- **Unresolved `[!CONFLICT]` markers**: resolve or escalate before acking.
+- **Stub AC items** — a `- [ ] AC-N` line with no body: expand with a testable condition.
+
+A spec carrying any of the above will fail the mechanical self-review gate
+(`spec_selfreview.scan_spec`) and block the discovery ack.
+
 ## Completion signal
 
 Stdout, on success:

@@ -94,3 +94,13 @@ def test_discovery_lite_lacks_socratic_sentinel():
     low = txt.lower()
     assert "one question at a time" in low
     assert ("2-3 approaches" in low) or ("2–3 approaches" in low)
+
+
+def test_discovery_prompts_have_self_review_step():
+    """AC-5 (KLC-033): both discovery prompts must have a self-review step."""
+    from tests.prompt_harness import _FW_ROOT
+    for name in ("discovery-lite.md", "discovery.md"):
+        txt = (_FW_ROOT / "core/agents" / name).read_text(encoding="utf-8")
+        assert "self-review" in txt.lower(), (
+            f"{name}: missing self-review step before '## Signals to emit' (KLC-033 AC-5)"
+        )
