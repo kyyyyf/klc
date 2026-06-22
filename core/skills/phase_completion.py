@@ -21,6 +21,7 @@ import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
 import spec_selfreview as _spec_selfreview  # noqa: E402
+import spec_structure as _spec_structure  # noqa: E402
 
 
 def can_complete_discovery(ticket: str) -> tuple[bool, str]:
@@ -157,6 +158,12 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
     if _sr:
         v = _sr[0]
         return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
+
+    # Approaches+pick gate (KLC-032): M/L discovery must record ≥2 approaches and a pick in spec.md.
+    if not _spec_structure.has_min_approaches(spec_text):
+        return False, "spec.md: fewer than 2 approaches — Socratic protocol requires ≥2 before pick"
+    if not _spec_structure.recorded_pick(spec_text):
+        return False, "spec.md: no recorded pick — add 'Picked: <approach>' before acking"
 
     # All checks passed — extract risk_tags from spec.md frontmatter into meta
     _sync_risk_tags(ticket)
@@ -317,6 +324,18 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
     if _sr:
         v = _sr[0]
         return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
+
+    # Approaches+pick gate (KLC-032): S-track must have ≥2 approaches and a recorded pick.
+    # XS is exempt (short tasks don't require a formal options artifact).
+    if track == "S":
+        _opts_path = ticket_dir / "options-lite.md"
+        if not _opts_path.exists():
+            return False, "options-lite.md: missing — S-track must record ≥2 approaches and a pick"
+        _opts_text = _opts_path.read_text(encoding="utf-8")
+        if not _spec_structure.has_min_approaches(_opts_text):
+            return False, "options-lite.md: fewer than 2 approaches — Socratic protocol requires ≥2 before pick"
+        if not _spec_structure.recorded_pick(_opts_text):
+            return False, "options-lite.md: no recorded pick — add 'Picked: <approach>' before acking"
 
     # All checks passed — sync risk_tags from spec.md into meta.json
     _sync_risk_tags(ticket)
