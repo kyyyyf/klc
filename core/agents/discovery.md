@@ -208,7 +208,8 @@ Before finalizing `spec.md`, work through these four steps in order:
 2. **Ask one question at a time.** Never batch questions. Stop at the single most
    important unknown; wait for an answer; continue.
 3. **Present 2-3 approaches with explicit trade-offs.** For each candidate: name,
-   one-line summary, pros, cons. Record shortlist in `design/options.md`.
+   one-line summary, pros, cons. Record the shortlist (brief labels) in `spec.md`;
+   full pros/cons detail goes in `design/options.md`.
 4. **Record the pick.** After operator selection, add a `Picked:` line in `spec.md`
    (the approaches detail lives in `design/options.md`):
    ```

@@ -61,19 +61,24 @@ def run(argv: list[str]) -> int:
             pid, state = _ph.parse_state(cur)
             if state == _ph.STATE_WORK:
                 # KLC-02: Check for manual completion artifacts
-                can_complete, error = phase_completion.can_complete(args.ticket, pid)
+                can_complete, advisory = phase_completion.can_complete(args.ticket, pid)
                 if can_complete:
                     # Artifacts complete — auto-advance to ack-needed
                     sys.stderr.write(
                         f"klc ack: detected manual completion for {pid} phase\n"
                     )
+                    if advisory:
+                        sys.stderr.write(f"  note: {advisory}\n")
+                    note = "artifacts detected by phase_completion.py"
+                    if advisory:
+                        note = f"{note}; {advisory}"
                     new_state = _ph.STATE_ACK_NEEDED
                     _lc.set_state(
                         args.ticket,
                         pid,
                         new_state,
                         event="manual-completion",
-                        note="artifacts detected by phase_completion.py"
+                        note=note
                     )
                     sys.stderr.write(f"→ {pid}:{new_state} (manual completion)\n")
                     # Recurse: now in ack-needed, apply normal ack logic
