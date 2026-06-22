@@ -87,7 +87,7 @@ def run(argv: list[str]) -> int:
                     # Artifacts incomplete — show specific error
                     sys.stderr.write(
                         f"klc ack: ticket is in `{cur}`; cannot complete:\n"
-                        f"  {error}\n"
+                        f"  {advisory}\n"
                         f"(or `klc abort {args.ticket}` to cancel).\n"
                     )
                     return 1
