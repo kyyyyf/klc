@@ -167,6 +167,8 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
 
     # All checks passed — extract risk_tags from spec.md frontmatter into meta
     _sync_risk_tags(ticket)
+    if _spec_structure.has_decompose_signal(spec_text):
+        return True, "DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building"
     return True, ""
 
 
@@ -339,6 +341,8 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
 
     # All checks passed — sync risk_tags from spec.md into meta.json
     _sync_risk_tags(ticket)
+    if _spec_structure.has_decompose_signal(text):
+        return True, "DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building"
     return True, ""
 
 

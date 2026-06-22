@@ -209,3 +209,31 @@ def test_m_gate_blocks_missing_approaches_or_pick(tmp_path, monkeypatch):
     (d2 / "spec.md").write_text(spec_with_pick, encoding="utf-8")
     ok2, msg2 = can_complete_discovery("KLC-M02")
     assert ok2, f"expected True for M-track spec with approaches+pick, got: {msg2!r}"
+
+
+# ---------------------------------------------------------------------------
+# Step-3: DISCOVERY_DECOMPOSE advisory
+# ---------------------------------------------------------------------------
+
+def test_decompose_signal_helper():
+    assert spec_structure.has_decompose_signal("DISCOVERY_DECOMPOSE")
+    assert spec_structure.has_decompose_signal("Emitting DISCOVERY_DECOMPOSE here.")
+    assert not spec_structure.has_decompose_signal("No signal here")
+
+
+def test_decompose_signal_recognized(tmp_path, monkeypatch):
+    """DISCOVERY_DECOMPOSE in spec.md is non-blocking but surfaces an advisory note."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+
+    d = _make_s_ticket(tmp_path, "KLC-D01")
+    (d / "spec.md").write_text(
+        _VALID_S_SPEC.format(ticket="KLC-D01") + "\nDISCOVERY_DECOMPOSE\n",
+        encoding="utf-8",
+    )
+    (d / "options-lite.md").write_text(
+        "- Option A: fast impl\n- Option B: safer impl\nPicked: Option A — lower risk\n",
+        encoding="utf-8",
+    )
+    ok, msg = can_complete_discovery_lite("KLC-D01")
+    assert ok, f"DISCOVERY_DECOMPOSE must not block ack, got: {msg!r}"
+    assert "DISCOVERY_DECOMPOSE" in msg, f"expected advisory note in msg, got: {msg!r}"

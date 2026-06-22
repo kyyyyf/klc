@@ -9,6 +9,7 @@ _APPROACH_LABEL_RE = re.compile(
 
 _PICKED_RE = re.compile(r"\bPicked:")
 _DECISION_RE = re.compile(r"\bDECISION\s+D-\d+\b")
+_DECOMPOSE_RE = re.compile(r"\bDISCOVERY_DECOMPOSE\b")
 
 
 def has_min_approaches(text: str, n: int = 2) -> bool:
@@ -25,3 +26,8 @@ def has_min_approaches(text: str, n: int = 2) -> bool:
 def recorded_pick(text: str) -> bool:
     """True iff text contains a recorded pick marker (Picked: or DECISION D-NNN)."""
     return bool(_PICKED_RE.search(text) or _DECISION_RE.search(text))
+
+
+def has_decompose_signal(text: str) -> bool:
+    """True iff text contains a DISCOVERY_DECOMPOSE signal."""
+    return bool(_DECOMPOSE_RE.search(text))
