@@ -22,7 +22,7 @@ _FW_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_FW_ROOT))
 from core.skills.runner import run_agent  # noqa: E402
 
-PLACEHOLDER_TOKENS = ("TODO", "TBD", "write tests", "<...>", "...")
+from core.skills.spec_selfreview import PLACEHOLDER_TOKENS  # noqa: E402
 REQUIRED_STEP_FIELDS = ("Goal", "VERIFY", "COMMIT", "Affected")
 
 

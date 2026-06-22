@@ -20,6 +20,7 @@ from core.shared.paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
+import spec_selfreview as _spec_selfreview  # noqa: E402
 
 
 def can_complete_discovery(ticket: str) -> tuple[bool, str]:
@@ -37,7 +38,7 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
     if not spec_path.exists():
         return False, "Missing spec.md"
 
-    # Check spec.md has valid frontmatter
+    # Read once; reused by structural checks and the self-review gate below.
     try:
         spec_text = spec_path.read_text(encoding="utf-8")
         lines = spec_text.splitlines()
@@ -151,6 +152,12 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
             }
             _lc.write_meta(ticket, meta)
 
+    # Self-review gate (KLC-033): reject specs with placeholder/conflict/stub violations.
+    _sr = _spec_selfreview.scan_spec(spec_text)
+    if _sr:
+        v = _sr[0]
+        return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
+
     # All checks passed — extract risk_tags from spec.md frontmatter into meta
     _sync_risk_tags(ticket)
     return True, ""
@@ -244,6 +251,7 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
     if not spec_path.exists():
         return False, "Missing spec.md"
 
+    # Read once; reused by structural checks and the self-review gate below.
     try:
         text = spec_path.read_text(encoding="utf-8")
         lines = text.splitlines()
@@ -303,6 +311,12 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
 
     except Exception as e:
         return False, f"Cannot read meta.json: {e}"
+
+    # Self-review gate (KLC-033): reject specs with placeholder/conflict/stub violations.
+    _sr = _spec_selfreview.scan_spec(text)
+    if _sr:
+        v = _sr[0]
+        return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
 
     # All checks passed — sync risk_tags from spec.md into meta.json
     _sync_risk_tags(ticket)
