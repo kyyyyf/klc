@@ -167,6 +167,23 @@ Rules for L (test-plan detailed section):
 - Detailed mode: use LSP `hover` or `goToDefinition` to verify a
   target symbol's signature when the test name embeds it.
 
+## Self-review before emit (M-track detailed mode)
+
+After enriching `impl-plan.md` with `**Tests:**` blocks (M-track detailed
+mode), scan every `## step-N` block and fix any violations in-place before
+emitting the completion signal:
+
+- **Required fields** (`REQUIRED_STEP_FIELDS`): Goal, VERIFY, COMMIT,
+  Affected, Interfaces, Expected, Code sketch — all must be present.
+  `Code sketch` may be omitted only when the step is marked
+  `RED: not applicable`.
+- **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`,
+  `write tests`, `...` — none may appear outside fenced blocks.
+- **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+
+If a violation cannot be fixed inline (e.g. scope is unclear), add a
+`[!CONFLICT C-NNN]` to the affected step so the reviewer is alerted.
+
 ## Completion signals
 
 Acceptance mode:
