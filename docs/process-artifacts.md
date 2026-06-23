@@ -148,10 +148,18 @@ Every `## step-N` must include all of the following fields:
 | `Depends on` | — | Earlier step IDs required, or `none`. |
 | `Code sketch` | ✓ | A non-empty fenced block showing the key change. |
 
-**Harness ✓** = checked by `impl_plan_violations()` in `tests/prompt_harness.py`.
+**Harness ✓** = checked by `impl_plan_violations()` in `core/skills/impl_plan_check.py`
+(re-exported via `tests/prompt_harness.py`).
 **Harness —** = contract convention enforced by review and prompt discipline, not the harness.
 `RED`, `GREEN`, and `Depends on` are in the latter category — they are required by the prompts
 and reviewed by humans, but not mechanically gated.
+
+**Plan-completeness gate (KLC-036)**: `impl_plan_violations()` is also called by
+`core/skills/phase_completion.py` at two ack points:
+- `discovery-lite` ack (S-track): if `impl-plan.md` is present, it must be clean.
+- `design` ack (M/L-track): `impl-plan.md` is a required output; it must be clean.
+A step with a missing required field, a placeholder token outside fenced blocks,
+or an empty code fence blocks ack until the plan is corrected.
 
 **`RED: not applicable` exemption**: steps that are prompt/doc/config
 only (no behaviour change) may mark `RED: not applicable — <reason>`,
