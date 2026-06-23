@@ -128,6 +128,32 @@ def test_impl_plan_requires_executable_fields():
     assert any("Expected" in v for v in violations), f"violations={violations}"
 
 
+def test_legacy_step_flags_full_step_clean():
+    """AC-3 (KLC-035): legacy step → violations non-empty; fully-populated step → violations empty."""
+    legacy = (
+        "## step-1 — do something\n"
+        "**Goal:** implement the feature\n"
+        "**VERIFY:** `pytest tests/ -q`\n"
+        "**COMMIT:** `KLC-000 step-1: do something`\n"
+        "**Affected:** some/module.py\n"
+        # old contract: no Interfaces, Expected, or code sketch
+    )
+    full = (
+        "## step-1 — do something\n"
+        "**Goal:** implement the feature\n"
+        "**RED:** not applicable — config-only change\n"
+        "**GREEN:** update the config file\n"
+        "**VERIFY:** `pytest tests/ -q`\n"
+        "**Expected:** 1 passed\n"
+        "**COMMIT:** `KLC-000 step-1: do something`\n"
+        "**Affected:** some/module.py\n"
+        "**Interfaces:** none — no new signatures\n"
+        "**Depends-on:** none\n"
+    )
+    assert impl_plan_violations(legacy), "legacy step should have violations"
+    assert impl_plan_violations(full) == [], "fully-populated step should have no violations"
+
+
 def test_discovery_prompts_have_self_review_step():
     """AC-5 (KLC-033): both discovery prompts must have a self-review step."""
     from tests.prompt_harness import _FW_ROOT
