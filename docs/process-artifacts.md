@@ -130,8 +130,36 @@ Authored by the design agent (S-track: by discovery-lite) to match the
 shape in `impl-plan.md.j2` (full) / `impl-plan-short.md.j2`. These
 templates are a **contract sample**, not a runtime renderer — no code
 renders them today.
-Full (M/L): step-1 ... step-N, each with Goal / RED / GREEN / VERIFY / COMMIT /
-affected files / expected tests / Depends on / optional rollback note.
+
+#### Executable step contract (enforced by `tests/prompt_harness.py`)
+
+Every `## step-N` must include all of the following fields:
+
+| Field | Description |
+|-------|-------------|
+| `Goal` | One sentence — the behaviour or structural change. |
+| `RED` | Failing test to write first; or `RED: not applicable — <reason>` for prompt/doc/config steps. |
+| `GREEN` | Minimal code change expected to make RED pass. |
+| `VERIFY` | Exact test command or suite/case name. |
+| `Expected` | Expected output of the VERIFY command (e.g. `1 passed`). |
+| `COMMIT` | Proposed commit subject, prefixed `<ticket-key> step-N:`. |
+| `Affected` | Concrete file paths. |
+| `Interfaces` | Function/method signatures added or changed, or `none`. |
+| `Depends on` | Earlier step IDs required, or `none`. |
+| code sketch | A non-empty fenced block showing the key change. |
+
+**`RED: not applicable` exemption**: steps that are prompt/doc/config
+only (no behaviour change) may mark `RED: not applicable — <reason>`,
+which also exempts the step from the code-sketch requirement. This is
+the **only** sanctioned way to omit a code sketch — it cannot be used
+as a placeholder loophole.
+
+`impl_plan_violations()` in `tests/prompt_harness.py` enforces this
+contract mechanically: any step missing a required field, carrying a
+placeholder token, or lacking a code sketch (unless exempted) is
+reported as a violation.
+
+Full (M/L): step-1 ... step-N, each following the executable contract above.
 For M-track, the `detailed-test-plan` agent appends a `**Tests:**` sub-block
 to each step (unit/integration test names + target symbols) in place of a
 separate detailed coverage phase.
