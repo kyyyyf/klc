@@ -24,7 +24,15 @@ from core.skills.runner import run_agent  # noqa: E402
 
 from core.skills.spec_selfreview import PLACEHOLDER_TOKENS  # noqa: E402
 from core.skills.spec_structure import has_min_approaches  # noqa: E402
-REQUIRED_STEP_FIELDS = ("Goal", "VERIFY", "COMMIT", "Affected")
+REQUIRED_STEP_FIELDS = ("Goal", "VERIFY", "COMMIT", "Affected", "Interfaces", "Expected")
+
+_CODE_FENCE_RE = re.compile(r"```[a-z]*\n([\s\S]+?)```")
+
+
+def _has_code_sketch(body: str) -> bool:
+    """True when body has a non-empty fenced code block (empty ``` ``` does not count)."""
+    m = _CODE_FENCE_RE.search(body)
+    return m is not None and bool(m.group(1).strip())
 
 
 def parse_impl_plan_steps(text: str) -> list[dict]:
@@ -71,6 +79,14 @@ def impl_plan_violations(text: str) -> list[str]:
 
         if re.search(r"```[a-z]*\s*```", body):
             violations.append(f"{sid}: contains empty code fence")
+
+        # require a non-empty code sketch unless the step is prompt/doc/config only
+        if not re.search(r"(?i)\bred:.*not applicable", body):
+            if not _has_code_sketch(body):
+                violations.append(
+                    f"{sid}: missing code sketch (add a non-empty fenced block, "
+                    "or mark 'RED: not applicable' for prompt/doc/config steps)"
+                )
 
     return violations
 
