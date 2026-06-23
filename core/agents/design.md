@@ -156,10 +156,14 @@ logical commit. Each step MUST contain, in this order:
   `RED: not applicable` + a one-sentence reason.
 - **GREEN**: the smallest code change expected to pass RED.
 - **VERIFY**: the exact targeted test command or suite/case name.
+- **Expected**: the expected output of the VERIFY command (e.g. `1 passed`).
 - **COMMIT**: proposed commit subject, prefixed `<ticket-key> step-N:`.
 - **Affected files**: concrete paths. Unknown paths require an
   `[!ASSUMPTION]` or `[!QUESTION]`, never a guess.
+- **Interfaces**: function/method signatures added or changed, or `none`.
 - **Depends on**: earlier `step-K` ids this step needs, or `none`.
+- **Code sketch**: a non-empty fenced block showing the key change.
+  Omit only when this is a prompt/doc/config step (`RED: not applicable`).
 - **Rollback note**: only if the step is risky.
 
 Track-specific shape (do not drop steps to hit a number — split or merge
