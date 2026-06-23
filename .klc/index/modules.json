@@ -75,6 +75,22 @@
     {
       "name": "index",
       "path": ".klc/index/"
+    },
+    {
+      "name": "install",
+      "path": "core/phases/install"
+    },
+    {
+      "name": "core/agents",
+      "path": "core/agents/"
+    },
+    {
+      "name": "core/skills",
+      "path": "core/skills/"
+    },
+    {
+      "name": "CLAUDE",
+      "path": "CLAUDE.md"
     }
   ]
 }
