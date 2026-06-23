@@ -249,3 +249,15 @@ def test_test_planner_prompt_has_impl_plan_self_review():
     assert "REQUIRED_STEP_FIELDS" in txt or "required fields" in txt.lower(), (
         "test-planner.md: self-review step must cite the required field contract"
     )
+
+
+def test_discovery_lite_prompt_has_impl_plan_self_review():
+    """Codex [HIGH] (KLC-037): discovery-lite.md must self-review impl-plan for S-track."""
+    txt = (H._FW_ROOT / "core/agents/discovery-lite.md").read_text(encoding="utf-8")
+    low = txt.lower()
+    assert "required fields" in low or "REQUIRED_STEP_FIELDS" in txt, (
+        "discovery-lite.md: S-track impl-plan self-review must cite required field contract"
+    )
+    assert "placeholder" in low, (
+        "discovery-lite.md: S-track impl-plan self-review must cite placeholder tokens"
+    )
