@@ -22,6 +22,7 @@ import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
 import spec_selfreview as _spec_selfreview  # noqa: E402
 import spec_structure as _spec_structure  # noqa: E402
+import impl_plan_check as _impl_plan_check  # noqa: E402
 
 
 def can_complete_discovery(ticket: str) -> tuple[bool, str]:
@@ -339,6 +340,15 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
         if not _spec_structure.recorded_pick(_opts_text):
             return False, "options-lite.md: no recorded pick — add 'Picked: <approach>' before acking"
 
+    # Plan-completeness gate (KLC-036): if impl-plan.md exists, it must be clean.
+    _impl_plan_path = ticket_dir / "impl-plan.md"
+    if _impl_plan_path.exists():
+        _violations = _impl_plan_check.impl_plan_violations(
+            _impl_plan_path.read_text(encoding="utf-8")
+        )
+        if _violations:
+            return False, f"impl-plan.md: {_violations[0]}"
+
     # All checks passed — sync risk_tags from spec.md into meta.json
     _sync_risk_tags(ticket)
     if _spec_structure.has_decompose_signal(text):
@@ -389,6 +399,16 @@ def _can_complete_generic(ticket: str, phase_id: str) -> tuple[bool, str]:
             return False, f"Missing {rel}"
         if path.stat().st_size == 0:
             return False, f"{rel} is empty"
+
+    # Plan-completeness gate (KLC-036): if impl-plan.md is an output of this phase,
+    # it must have no violations.
+    if "impl-plan.md" in phase.outputs:
+        _impl_plan_path = ticket_dir / "impl-plan.md"
+        _violations = _impl_plan_check.impl_plan_violations(
+            _impl_plan_path.read_text(encoding="utf-8")
+        )
+        if _violations:
+            return False, f"impl-plan.md: {_violations[0]}"
 
     return True, ""
 
