@@ -217,3 +217,47 @@ def test_out_of_range_step_errors(ticket_dir, monkeypatch):
     from core.phases import task_brief as tb_phase
     rc = tb_phase.run(["KLC-T1", "99"])
     assert rc != 0
+
+
+# ---------------------------------------------------------------------------
+# step-4 tests: handoff templates
+# ---------------------------------------------------------------------------
+
+def test_handoff_templates_exist():
+    tmpl_dir = _FW_ROOT / "core" / "templates"
+    assert (tmpl_dir / "task-brief.md.j2").exists()
+    assert (tmpl_dir / "step-impl-report.md.j2").exists()
+    assert (tmpl_dir / "step-review-package.md.j2").exists()
+    assert (tmpl_dir / "step-review.md.j2").exists()
+
+
+def test_impl_report_template_sections(ticket_dir, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from task_brief import _render_report_skeleton
+    rendered = _render_report_skeleton("KLC-T1", 3)
+    assert "## Outcome" in rendered
+    assert "## Evidence" in rendered
+    assert "## Notes" in rendered
+
+
+def test_review_package_template_sections():
+    from jinja2 import Environment, FileSystemLoader
+    tmpl_dir = str(_FW_ROOT / "core" / "templates")
+    env = Environment(loader=FileSystemLoader(tmpl_dir), keep_trailing_newline=True)
+    rendered = env.get_template("step-review-package.md.j2").render(
+        ticket="KLC-T1", step=3, brief="b", report="r", diff="d"
+    )
+    assert "## Brief" in rendered
+    assert "## Report" in rendered
+    assert "## Diff" in rendered
+
+
+def test_review_template_sections():
+    from jinja2 import Environment, FileSystemLoader
+    tmpl_dir = str(_FW_ROOT / "core" / "templates")
+    env = Environment(loader=FileSystemLoader(tmpl_dir), keep_trailing_newline=True)
+    rendered = env.get_template("step-review.md.j2").render(
+        ticket="KLC-T1", step=3, findings=[], verdict="pass"
+    )
+    assert "## Findings" in rendered
+    assert "## Verdict" in rendered
