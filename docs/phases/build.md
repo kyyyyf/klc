@@ -27,8 +27,9 @@ M/L-track: Follow impl-plan.md steps
 ## Completion criteria
 - All tests green
 - All ACs have corresponding passing tests
-- build-log.md records all iterations
+- build-log.md records all iterations and has a `## Evidence` section with at least one non-empty fenced block
 - impl-plan.md fully ticked (M/L only)
+- Git history shows a failing-test commit before the implementation commit for each behaviour step (verified mechanically by `klc ack` via `core/skills/tdd_order.py`; steps with `RED: not applicable` are exempt)
 
 ## Ack options
 - `--pick 1` (approve): Advance to review:work

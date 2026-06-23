@@ -48,15 +48,24 @@ def step_commits(
 
     Each entry is ``{"sha": str, "subject": str}``.  Returns ``[]`` when git
     is unavailable or no matching commits exist.
+
+    Post-filters git output so that step-1 does not accidentally include
+    commits for step-10, step-11, etc.
     """
+    import re as _re
     pattern = f"{ticket} step-{step}"
     out = _git(["log", "--format=%H\t%s", "--reverse", f"--grep={pattern}"], repo)
+    # Require the step number to not be followed by another digit.
+    exact_re = _re.compile(rf"{_re.escape(ticket)}\s+step-{step}(?!\d)")
     commits = []
     for line in out.splitlines():
         line = line.strip()
         if "\t" in line:
             sha, subject = line.split("\t", 1)
-            commits.append({"sha": sha.strip(), "subject": subject.strip()})
+            sha = sha.strip()
+            subject = subject.strip()
+            if exact_re.search(subject):
+                commits.append({"sha": sha, "subject": subject})
     return commits
 
 
@@ -97,9 +106,9 @@ def verify_step(
     if not commits:
         return (
             False,
-            f"{ticket} step-{step}: no commits found matching subject pattern "
-            f"'{ticket} step-{step}' — cannot verify TDD order; "
-            "ensure commits carry the step subject per the impl-plan contract",
+            f"{ticket} step-{step}: no commits found matching '{ticket} step-{step}' "
+            "in git message — cannot verify TDD order; "
+            "ensure commits carry the step key in their commit message",
         )
 
     classified = [(c, classify(c["sha"], repo)) for c in commits]

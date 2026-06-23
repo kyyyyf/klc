@@ -380,7 +380,7 @@ def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
         start = m.end()
         nxt = _re.search(r"^## ", text[start:], _re.MULTILINE)
         step_body = text[start : start + nxt.start()] if nxt else text[start:]
-        red_m = _re.search(r"\*\*RED:\*\*\s*(.+)", step_body)
+        red_m = _re.search(r"(?i)\bRED:(.+)", step_body)
         red_val = red_m.group(1).strip().lower() if red_m else ""
         steps.append({
             "step": step_num,

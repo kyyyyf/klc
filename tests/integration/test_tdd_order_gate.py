@@ -93,15 +93,15 @@ _NOT_APPLICABLE_IMPL_PLAN = """\
 
 ## step-1 — update prompt
 
-**Goal:** update the agent prompt
-**RED:** not applicable — prompt-only edit
-**GREEN:** edit core/agents/impl.md
-**VERIFY:** `grep -n Evidence core/agents/impl.md`
-**Expected:** line found
-**COMMIT:** `{ticket} step-1: update prompt`
-**Affected files:** `core/agents/impl.md`
-**Interfaces:** none
-**Depends on:** none
+- Goal: update the agent prompt
+- RED: not applicable — prompt-only edit
+- GREEN: edit core/agents/impl.md
+- VERIFY: `grep -n Evidence core/agents/impl.md`
+- Expected: line found
+- COMMIT: `{ticket} step-1: update prompt`
+- Affected files: `core/agents/impl.md`
+- Interfaces: none
+- Depends on: none
 """
 
 

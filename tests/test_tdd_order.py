@@ -82,6 +82,27 @@ def test_step_commits_empty_on_missing_repo(tmp_path):
     assert commits == []
 
 
+def test_step_commits_does_not_match_step_ten(tmp_path):
+    """step_commits for step-1 must not return commits for step-10."""
+    repo = _make_repo(tmp_path)
+    # step-10 commits — should NOT appear when querying step-1
+    _commit(repo, {"tests/test_x.py": "# test"}, "KLC-XXX step-10: add test")
+    _commit(repo, {"src/x.py": "# impl"}, "KLC-XXX step-10: add impl")
+    commits = step_commits("KLC-XXX", 1, repo)
+    assert commits == [], f"step-1 should return [] when only step-10 commits exist; got: {commits}"
+
+
+def test_step_commits_step_ten_not_matched_by_step_one(tmp_path):
+    """Both step-1 and step-10 commits exist; each step only sees its own."""
+    repo = _make_repo(tmp_path)
+    sha1 = _commit(repo, {"tests/test_x.py": "# test"}, "KLC-XXX step-1: add test")
+    sha10 = _commit(repo, {"tests/test_y.py": "# test y"}, "KLC-XXX step-10: add test")
+    commits_1 = step_commits("KLC-XXX", 1, repo)
+    commits_10 = step_commits("KLC-XXX", 10, repo)
+    assert len(commits_1) == 1 and commits_1[0]["sha"] == sha1
+    assert len(commits_10) == 1 and commits_10[0]["sha"] == sha10
+
+
 # ---------------------------------------------------------------------------
 # classify
 # ---------------------------------------------------------------------------
