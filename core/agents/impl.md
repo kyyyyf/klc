@@ -192,6 +192,33 @@ Raise a `[!QUESTION]` or `[!CONFLICT]` inline (in `impl-plan.md` or
 In all three the correct answer is **stop writing code**. The
 TDD-loop isn't valid once the upstream assumption cracked.
 
+## Evidence block (required before IMPL_ALL_GREEN)
+
+Before emitting `IMPL_ALL_GREEN`, append an `## Evidence` section to
+`build-log.md`.  For each acceptance check run during the build, paste a
+fenced block containing the command and its actual output:
+
+```markdown
+## Evidence
+
+```
+$ python3 -m pytest tests/integration/test_build_evidence_gate.py -q
+5 passed in 0.04s
+```
+
+```
+$ grep -n "Evidence" core/agents/impl.md
+196:## Evidence block (required before IMPL_ALL_GREEN)
+```
+```
+
+Rules:
+- At least one non-empty fenced block must appear under `## Evidence`.
+- An empty fence (` ``` ``` `) does not satisfy the requirement.
+- Paste real output — do not fabricate or summarise.
+- The `klc ack <KEY>` gate reads this section and blocks if it is absent
+  or contains no non-empty fenced block.
+
 ## Completion signal
 
 After every green step:
