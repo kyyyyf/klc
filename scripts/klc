@@ -89,7 +89,7 @@ def _project_root() -> str:
 
 LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
-    "retrack",
+    "retrack", "task-brief", "build-run",
 )
 OPERATIONAL_CMDS = (
     "board", "doctor", "metrics", "reindex", "install", "jira-sync", "jira", "setup",
