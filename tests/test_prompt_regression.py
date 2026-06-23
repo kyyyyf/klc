@@ -126,6 +126,30 @@ def test_impl_plan_requires_executable_fields():
     assert violations, "expected violations for step missing Interfaces/Expected/code sketch"
     assert any("Interfaces" in v for v in violations), f"violations={violations}"
     assert any("Expected" in v for v in violations), f"violations={violations}"
+    assert any("Code sketch" in v for v in violations), f"violations={violations}"
+
+
+def test_code_sketch_field_required_not_any_fence():
+    """Codex review [HIGH]: a fenced output block in Expected must not satisfy code-sketch check."""
+    step_with_expected_fence_only = (
+        "## step-1 — implement x\n"
+        "**Goal:** implement the helper\n"
+        "**RED:** `tests/test_x.py::test_y` — fails today\n"
+        "**GREEN:** add helper in module.py\n"
+        "**VERIFY:** `pytest tests/ -q`\n"
+        "**Expected:**\n"
+        "```text\n"
+        "1 passed\n"
+        "```\n"
+        "**COMMIT:** `KLC-000 step-1: add helper`\n"
+        "**Affected:** module.py\n"
+        "**Interfaces:** `def helper() -> None`\n"
+        # has a fenced block (output) but no **Code sketch:** field
+    )
+    violations = impl_plan_violations(step_with_expected_fence_only)
+    assert any("Code sketch" in v for v in violations), (
+        f"expected 'Code sketch' violation when only Expected has a fence; got: {violations}"
+    )
 
 
 def test_legacy_step_flags_full_step_clean():

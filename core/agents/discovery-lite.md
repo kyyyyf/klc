@@ -140,9 +140,10 @@ Rules:
 **Affected files:** `<path/to/file.py>`, …
 **Interfaces:** <signatures added or changed; or `none`>
 **Depends on:** none / step-N
-
+**Code sketch:**
 ```python
-# code sketch — key change; omit block only when RED: not applicable
+# key change — required for behaviour-changing steps
+# omit this field and its block only when RED: not applicable
 ```
 ```
 
