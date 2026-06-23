@@ -186,3 +186,66 @@ def test_discovery_prompts_have_self_review_step():
         assert "self-review" in txt.lower(), (
             f"{name}: missing self-review step before '## Signals to emit' (KLC-033 AC-5)"
         )
+
+
+# ---------------------------------------------------------------------------
+# KLC-037: planning agent impl-plan self-review
+# ---------------------------------------------------------------------------
+
+_DIRTY_PLAN_FIXTURE = (
+    "## step-1 — implement helper\n"
+    "**Goal:** TODO\n"
+    "**VERIFY:** `pytest tests/ -q`\n"
+    "**COMMIT:** `KLC-000 step-1: add helper`\n"
+    "**Affected:** module.py\n"
+    # missing: Interfaces, Expected, Code sketch; Goal is a placeholder
+)
+
+_PLANNING_SELF_REVIEW_RUBRIC = """\
+The planning agent was given an impl-plan draft that contains a step with
+a placeholder Goal ('TODO') and missing required fields (Interfaces, Expected,
+Code sketch).  The agent must self-review and fix the plan before emitting it.
+
+Pass if the final emitted impl-plan satisfies ALL of:
+  1. impl_plan_violations() returns [] for the emitted plan.
+  2. No step contains a bare placeholder token (TODO, TBD, <...>).
+  3. Every step has Interfaces, Expected, and Code sketch fields.
+
+Fail if the agent emits the dirty plan unchanged or partially fixed.
+"""
+
+
+def test_dirty_plan_fixture_has_violations():
+    """Offline: the dirty fixture must trigger violations (confirms RED state)."""
+    vs = impl_plan_violations(_DIRTY_PLAN_FIXTURE)
+    assert vs, "dirty fixture must have violations"
+    assert any("Goal" in v or "TODO" in v or "Interfaces" in v for v in vs), f"got: {vs}"
+
+
+def test_planning_agent_self_reviews_impl_plan(monkeypatch):
+    """AC-1/AC-2 (KLC-037): design agent must not emit a plan with violations.
+
+    Requires ANTHROPIC_API_KEY; skips gracefully without it.
+    """
+    if not H.judge_available():
+        pytest.skip(f"judge API key ({H._judge_api_key_env()}) not set")
+    result = H.judge(_DIRTY_PLAN_FIXTURE, _PLANNING_SELF_REVIEW_RUBRIC)
+    assert result["pass"], f"planning agent emitted a dirty plan: {result['reason']}"
+
+
+def test_design_prompt_has_impl_plan_self_review():
+    """AC-3 (KLC-037): design.md must instruct the agent to self-review impl-plan."""
+    txt = (H._FW_ROOT / "core/agents/design.md").read_text(encoding="utf-8")
+    assert "self-review" in txt.lower(), "design.md: missing impl-plan self-review step"
+    assert "REQUIRED_STEP_FIELDS" in txt or "required fields" in txt.lower(), (
+        "design.md: self-review step must cite the required field contract"
+    )
+
+
+def test_test_planner_prompt_has_impl_plan_self_review():
+    """AC-3 (KLC-037): test-planner.md must instruct the agent to self-review impl-plan."""
+    txt = (H._FW_ROOT / "core/agents/test-planner.md").read_text(encoding="utf-8")
+    assert "self-review" in txt.lower(), "test-planner.md: missing impl-plan self-review step"
+    assert "REQUIRED_STEP_FIELDS" in txt or "required fields" in txt.lower(), (
+        "test-planner.md: self-review step must cite the required field contract"
+    )
