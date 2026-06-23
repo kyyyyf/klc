@@ -360,6 +360,43 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
     return True, ""
 
 
+def can_complete_build(ticket: str) -> tuple[bool, str]:
+    """Check if build phase artifacts are complete.
+
+    Requires build-log.md to exist, be non-empty, and contain an ## Evidence
+    section with at least one non-empty fenced block.
+    """
+    import re as _re
+
+    ticket_dir = klc_ticket_meta_file(ticket).parent
+    build_log_path = ticket_dir / "build-log.md"
+
+    if not build_log_path.exists():
+        return False, "Missing build-log.md"
+    if build_log_path.stat().st_size == 0:
+        return False, "build-log.md is empty"
+
+    text = build_log_path.read_text(encoding="utf-8")
+
+    # Find ## Evidence heading (level-2 only).
+    evidence_match = _re.search(r"^## Evidence\b", text, _re.MULTILINE)
+    if not evidence_match:
+        return False, "build-log.md: missing ## Evidence section — append evidence of each acceptance check before acking"
+
+    # Find at least one non-empty fenced block after ## Evidence.
+    after_evidence = text[evidence_match.end():]
+    # Stop at the next level-2 heading so we don't bleed into later sections.
+    next_h2 = _re.search(r"^## ", after_evidence, _re.MULTILINE)
+    evidence_section = after_evidence[:next_h2.start()] if next_h2 else after_evidence
+
+    fence_content_re = _re.compile(r"```[^\n]*\n(.*?)```", _re.DOTALL)
+    for m in fence_content_re.finditer(evidence_section):
+        if m.group(1).strip():
+            return True, ""
+
+    return False, "build-log.md: ## Evidence section has no non-empty fenced block — paste the command and its output inside a fenced block"
+
+
 def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
     """Check if a phase can be manually completed based on artifacts.
 
@@ -378,6 +415,9 @@ def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
 
     if phase_id == "acceptance-test-plan":
         return can_complete_acceptance_test_plan(ticket)
+
+    if phase_id == "build":
+        return can_complete_build(ticket)
 
     # Generic check: every output declared in phases.yml must exist and
     # be non-empty.  Phases with no declared outputs pass immediately
