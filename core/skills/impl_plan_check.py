@@ -61,19 +61,19 @@ def impl_plan_violations(text: str) -> list[str]:
         body = step["body"]
         sid = step["id"]
 
-        _not_applicable = _NOT_APPLICABLE_RE.search(body)
+        # Strip fenced blocks before field and placeholder detection so that
+        # content inside code sketches (e.g. # Code sketch: or TODO) does not
+        # falsely satisfy or trigger checks.
+        body_outside_fences = _ANY_FENCE_RE.sub("", body)
+        _not_applicable = _NOT_APPLICABLE_RE.search(body_outside_fences)
         for field in REQUIRED_STEP_FIELDS:
             if field == "Code sketch" and _not_applicable:
                 continue
             pattern = re.compile(
                 rf"(?im)(?:\*\*{re.escape(field)}\b|\b{re.escape(field)}:)"
             )
-            if not pattern.search(body):
+            if not pattern.search(body_outside_fences):
                 violations.append(f"{sid}: missing required field '{field}'")
-
-        # Strip fenced blocks before checking placeholder tokens so that
-        # code sketches with TODO-style comments don't falsely trigger.
-        body_outside_fences = _ANY_FENCE_RE.sub("", body)
         for token in PLACEHOLDER_TOKENS:
             if token == "...":
                 if re.search(r"(?<![\w.])\.\.\.(?![\w.])", body_outside_fences):

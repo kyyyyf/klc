@@ -50,6 +50,31 @@ manual: 0
 total: 3
 """
 
+_VALID_XS_SPEC = """\
+---
+ticket: {ticket}
+kind: feature
+authority: agent
+risk_tags: []
+---
+
+## Goals
+Tiny XS change with no impl-plan required.
+
+## Acceptance Criteria
+- [ ] AC-1: Change is applied.
+
+## Affected
+phase_completion: core/skills/phase_completion.py, src=core/skills/phase_completion.py:1
+
+## Estimate
+complexity: 0
+uncertainty: 1
+risk: 0
+manual: 0
+total: 1
+"""
+
 _VALID_M_SPEC = """\
 ---
 ticket: {ticket}
@@ -108,6 +133,20 @@ _CLEAN_IMPL_PLAN = """\
 **Interfaces:** none
 **Depends-on:** none
 """
+
+
+def _make_xs_ticket(tmp_path: Path, ticket: str) -> Path:
+    ticket_dir = tmp_path / ".klc" / "tickets" / ticket
+    ticket_dir.mkdir(parents=True)
+    meta = {
+        "ticket": ticket, "kind": "feature", "phase": "discovery-lite:ack-needed",
+        "track": "XS",
+        "estimate": {"complexity": 0, "uncertainty": 1, "risk": 0, "manual": 0, "total": 1},
+        "affected_modules": ["phase_completion"], "layer": "code",
+    }
+    (ticket_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (ticket_dir / "spec.md").write_text(_VALID_XS_SPEC.format(ticket=ticket), encoding="utf-8")
+    return ticket_dir
 
 
 def _make_s_ticket(tmp_path: Path, ticket: str, impl_plan: str | None = None) -> Path:
@@ -174,12 +213,21 @@ def test_clean_impl_plan_passes_discovery_lite(tmp_path, monkeypatch):
     assert ok, f"expected True for clean impl-plan, got: {msg!r}"
 
 
-def test_no_impl_plan_passes_discovery_lite(tmp_path, monkeypatch):
-    """Missing impl-plan.md does not block (plan authored later for XS/S)."""
+def test_s_track_missing_impl_plan_blocks_discovery_lite(tmp_path, monkeypatch):
+    """S-track impl-plan.md is required at discovery-lite ack; absent → blocked."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _make_s_ticket(tmp_path, "KLC-PC03", impl_plan=None)
     ok, msg = can_complete_discovery_lite("KLC-PC03")
-    assert ok, f"expected True when no impl-plan.md, got: {msg!r}"
+    assert not ok, "expected False: S-track must have impl-plan.md"
+    assert "impl-plan.md" in msg, f"expected 'impl-plan.md' in msg, got: {msg!r}"
+
+
+def test_xs_track_no_impl_plan_passes_discovery_lite(tmp_path, monkeypatch):
+    """XS-track does not produce impl-plan.md; absent is fine."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_xs_ticket(tmp_path, "KLC-PC03B")
+    ok, msg = can_complete_discovery_lite("KLC-PC03B")
+    assert ok, f"expected True for XS without impl-plan.md, got: {msg!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -309,4 +357,33 @@ def test_zero_steps_is_violation(tmp_path, monkeypatch):
     _make_s_ticket(tmp_path, "KLC-PC10", impl_plan=no_steps)
     ok, msg = can_complete_discovery_lite("KLC-PC10")
     assert not ok, "expected False for impl-plan with no steps"
+    assert "impl-plan.md" in msg, f"expected 'impl-plan.md' in msg, got: {msg!r}"
+
+
+_PLAN_CODE_SKETCH_LABEL_INSIDE_FENCE = """\
+# Implementation plan — {ticket}
+
+## step-1 — implement helper
+**Goal:** add the helper function
+**RED:** `tests/test_x.py::test_y` — failing today
+**GREEN:** add helper in module.py
+**VERIFY:** `pytest tests/ -q`
+**Expected:** 1 passed
+**COMMIT:** `{ticket} step-1: add helper`
+**Affected:** module.py
+**Interfaces:** none
+**Depends-on:** none
+```python
+# **Code sketch:** label is inside a fence, must NOT satisfy the field
+def helper(): pass
+```
+"""
+
+
+def test_code_sketch_label_inside_fence_not_satisfying(tmp_path, monkeypatch):
+    """Code sketch: label inside a fenced block must not satisfy the required field."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_s_ticket(tmp_path, "KLC-PC11", impl_plan=_PLAN_CODE_SKETCH_LABEL_INSIDE_FENCE)
+    ok, msg = can_complete_discovery_lite("KLC-PC11")
+    assert not ok, "expected False: Code sketch label inside fence must not satisfy field check"
     assert "impl-plan.md" in msg, f"expected 'impl-plan.md' in msg, got: {msg!r}"

@@ -340,8 +340,12 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
         if not _spec_structure.recorded_pick(_opts_text):
             return False, "options-lite.md: no recorded pick — add 'Picked: <approach>' before acking"
 
-    # Plan-completeness gate (KLC-036): if impl-plan.md exists, it must be clean.
+    # Plan-completeness gate (KLC-036): S-track must have impl-plan.md (it is a
+    # discovery-lite output for S); XS does not produce one.  When present, the
+    # plan must be free of violations.
     _impl_plan_path = ticket_dir / "impl-plan.md"
+    if track == "S" and not _impl_plan_path.exists():
+        return False, "Missing impl-plan.md (required for S-track; produced by discovery-lite)"
     if _impl_plan_path.exists():
         _violations = _impl_plan_check.impl_plan_violations(
             _impl_plan_path.read_text(encoding="utf-8")
