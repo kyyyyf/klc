@@ -135,9 +135,16 @@ Rules:
 **RED:** <test file and test name that must fail first; or `not applicable — <reason>`>
 **GREEN:** <minimal code change to make RED pass>
 **VERIFY:** `<command>`
+**Expected:** <expected output of the VERIFY command, e.g. `1 passed`>
 **COMMIT:** `<KEY> step-1: <subject>`
 **Affected files:** `<path/to/file.py>`, …
+**Interfaces:** <signatures added or changed; or `none`>
 **Depends on:** none / step-N
+**Code sketch:**
+```python
+# key change — required for behaviour-changing steps
+# omit this field and its block only when RED: not applicable
+```
 ```
 
 Rules:

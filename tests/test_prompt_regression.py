@@ -6,9 +6,14 @@ import tests.prompt_harness as H
 GOOD = (
     "## step-1 — x\n"
     "**Goal:** do the thing\n"
+    "**RED:** not applicable — prompt-only edit\n"
+    "**GREEN:** update the prompt text\n"
     "**VERIFY:** `pytest tests/ -q`\n"
+    "**Expected:** 1 passed\n"
     "**COMMIT:** `KLC-029 step-1: do the thing`\n"
     "**Affected:** tests/prompt_harness.py\n"
+    "**Interfaces:** none — no new signatures\n"
+    "**Depends-on:** none\n"
 )
 BAD = "## step-1 — x\n**Goal:** TODO\n"
 
@@ -103,6 +108,74 @@ def test_discovery_prompts_have_socratic_step():
         assert ("2-3 approaches" in low) or ("2–3 approaches" in low), (
             f"{name}: missing approach count"
         )
+
+
+def test_impl_plan_requires_executable_fields():
+    """AC-2/AC-3 (KLC-035): steps missing Interfaces/Expected/code sketch must be flagged."""
+    old_style = (
+        "## step-1 — implement the helper\n"
+        "**Goal:** add the helper function\n"
+        "**RED:** `tests/test_x.py::test_y` — failing today\n"
+        "**GREEN:** add helper function in module.py\n"
+        "**VERIFY:** `pytest tests/ -q`\n"
+        "**COMMIT:** `KLC-035 step-1: add helper`\n"
+        "**Affected:** tests/prompt_harness.py\n"
+        # deliberately missing: Interfaces, Expected, code sketch
+    )
+    violations = impl_plan_violations(old_style)
+    assert violations, "expected violations for step missing Interfaces/Expected/code sketch"
+    assert any("Interfaces" in v for v in violations), f"violations={violations}"
+    assert any("Expected" in v for v in violations), f"violations={violations}"
+    assert any("Code sketch" in v for v in violations), f"violations={violations}"
+
+
+def test_code_sketch_field_required_not_any_fence():
+    """Codex review [HIGH]: a fenced output block in Expected must not satisfy code-sketch check."""
+    step_with_expected_fence_only = (
+        "## step-1 — implement x\n"
+        "**Goal:** implement the helper\n"
+        "**RED:** `tests/test_x.py::test_y` — fails today\n"
+        "**GREEN:** add helper in module.py\n"
+        "**VERIFY:** `pytest tests/ -q`\n"
+        "**Expected:**\n"
+        "```text\n"
+        "1 passed\n"
+        "```\n"
+        "**COMMIT:** `KLC-000 step-1: add helper`\n"
+        "**Affected:** module.py\n"
+        "**Interfaces:** `def helper() -> None`\n"
+        # has a fenced block (output) but no **Code sketch:** field
+    )
+    violations = impl_plan_violations(step_with_expected_fence_only)
+    assert any("Code sketch" in v for v in violations), (
+        f"expected 'Code sketch' violation when only Expected has a fence; got: {violations}"
+    )
+
+
+def test_legacy_step_flags_full_step_clean():
+    """AC-3 (KLC-035): legacy step → violations non-empty; fully-populated step → violations empty."""
+    legacy = (
+        "## step-1 — do something\n"
+        "**Goal:** implement the feature\n"
+        "**VERIFY:** `pytest tests/ -q`\n"
+        "**COMMIT:** `KLC-000 step-1: do something`\n"
+        "**Affected:** some/module.py\n"
+        # old contract: no Interfaces, Expected, or code sketch
+    )
+    full = (
+        "## step-1 — do something\n"
+        "**Goal:** implement the feature\n"
+        "**RED:** not applicable — config-only change\n"
+        "**GREEN:** update the config file\n"
+        "**VERIFY:** `pytest tests/ -q`\n"
+        "**Expected:** 1 passed\n"
+        "**COMMIT:** `KLC-000 step-1: do something`\n"
+        "**Affected:** some/module.py\n"
+        "**Interfaces:** none — no new signatures\n"
+        "**Depends-on:** none\n"
+    )
+    assert impl_plan_violations(legacy), "legacy step should have violations"
+    assert impl_plan_violations(full) == [], "fully-populated step should have no violations"
 
 
 def test_discovery_prompts_have_self_review_step():

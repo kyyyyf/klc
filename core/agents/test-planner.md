@@ -109,7 +109,7 @@ For M tickets, the impl-plan already exists from the Design phase. Do NOT write
 Rules for M (impl-plan enrichment):
 - Every step must get a `**Tests:**` block. Wiring-only steps use a single `—` row.
 - Verify target symbols exist via LSP `hover` / `goToDefinition`.
-- Do not modify any other field of the step (Goal, RED, GREEN, VERIFY, COMMIT, etc.).
+- Do not modify any other field of the step (Goal, RED, GREEN, VERIFY, Expected, COMMIT, Affected files, Interfaces, Depends on, code sketch, etc.).
 - Update `last_generated` in impl-plan.md frontmatter.
 
 **L-track: standalone `## Detailed coverage` in test-plan.md**
