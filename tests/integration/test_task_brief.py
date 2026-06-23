@@ -183,3 +183,37 @@ def test_brief_decisions_section_absent_when_no_decisions(ticket_dir, monkeypatc
     from task_brief import build_step_brief
     brief = build_step_brief("KLC-T1", 3)
     assert "DECISION D-" not in brief
+
+
+# ---------------------------------------------------------------------------
+# step-3 tests: CLI verb + scaffold
+# ---------------------------------------------------------------------------
+
+def test_verb_registered():
+    text = (Path(_FW_ROOT) / "scripts" / "klc").read_text()
+    assert '"task-brief"' in text or "'task-brief'" in text
+
+
+def test_cli_writes_brief_and_scaffold(ticket_dir, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    import sys as _sys
+    mod_name = "core.phases.task_brief"
+    if mod_name in _sys.modules:
+        del _sys.modules[mod_name]
+    from core.phases import task_brief as tb_phase
+    rc = tb_phase.run(["KLC-T1", "3"])
+    assert rc == 0
+    build = ticket_dir / ".klc" / "tickets" / "KLC-T1" / "build"
+    assert (build / "step-3-brief.md").exists()
+    assert (build / "step-3-impl-report.md").exists()
+
+
+def test_out_of_range_step_errors(ticket_dir, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    import sys as _sys
+    mod_name = "core.phases.task_brief"
+    if mod_name in _sys.modules:
+        del _sys.modules[mod_name]
+    from core.phases import task_brief as tb_phase
+    rc = tb_phase.run(["KLC-T1", "99"])
+    assert rc != 0
