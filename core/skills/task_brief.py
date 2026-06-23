@@ -127,10 +127,17 @@ def build_step_brief(ticket: str, step: int) -> str:
 
 
 def _render_report_skeleton(ticket: str, step: int) -> str:
-    """Render an empty impl-report scaffold."""
-    return (
-        f"# Impl report — {ticket} step-{step}\n\n"
-        "## Outcome\n\n(green | red | blocked)\n\n"
-        "## Evidence\n\n```\n(command + output)\n```\n\n"
-        "## Notes\n\n(optional)\n"
+    """Render an empty impl-report scaffold from the template."""
+    try:
+        from jinja2 import Environment, FileSystemLoader
+    except ImportError:
+        sys.stderr.write("task_brief: jinja2 not installed\n")
+        sys.exit(1)
+
+    fw = framework_root()
+    env = Environment(
+        loader=FileSystemLoader(str(fw / "core" / "templates")),
+        keep_trailing_newline=True,
     )
+    tmpl = env.get_template("step-impl-report.md.j2")
+    return tmpl.render(ticket=ticket, step=step)
