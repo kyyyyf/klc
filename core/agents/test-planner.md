@@ -109,7 +109,10 @@ For M tickets, the impl-plan already exists from the Design phase. Do NOT write
 Rules for M (impl-plan enrichment):
 - Every step must get a `**Tests:**` block. Wiring-only steps use a single `—` row.
 - Verify target symbols exist via LSP `hover` / `goToDefinition`.
-- Do not modify any other field of the step (Goal, RED, GREEN, VERIFY, Expected, COMMIT, Affected files, Interfaces, Depends on, code sketch, etc.).
+- Do not add, remove, or reorder steps. Do not alter the semantic intent of
+  Goal, RED, GREEN, or COMMIT fields. You may fix a field that violates the
+  impl-plan contract (missing value, placeholder token, empty fence) as part of
+  the self-review below — document the fix with a `[!FACT]` note on the same line.
 - Update `last_generated` in impl-plan.md frontmatter.
 
 **L-track: standalone `## Detailed coverage` in test-plan.md**
@@ -166,6 +169,23 @@ Rules for L (test-plan detailed section):
 
 - Detailed mode: use LSP `hover` or `goToDefinition` to verify a
   target symbol's signature when the test name embeds it.
+
+## Self-review before emit (M-track detailed mode)
+
+After enriching `impl-plan.md` with `**Tests:**` blocks (M-track detailed
+mode), scan every `## step-N` block and fix any violations in-place before
+emitting the completion signal:
+
+- **Required fields** (`REQUIRED_STEP_FIELDS`): Goal, VERIFY, COMMIT,
+  Affected, Interfaces, Expected, Code sketch — all must be present.
+  `Code sketch` may be omitted only when the step is marked
+  `RED: not applicable`.
+- **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`,
+  `write tests`, `...` — none may appear outside fenced blocks.
+- **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+
+If a violation cannot be fixed inline (e.g. scope is unclear), add a
+`[!CONFLICT C-NNN]` to the affected step so the reviewer is alerted.
 
 ## Completion signals
 
