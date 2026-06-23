@@ -163,3 +163,23 @@ def test_missing_plan_raises(tmp_path, monkeypatch):
     from task_brief import build_step_brief
     with pytest.raises(ValueError, match="impl-plan"):
         build_step_brief("KLC-NOPLAN", 1)
+
+
+# ---------------------------------------------------------------------------
+# step-2 tests: template sections
+# ---------------------------------------------------------------------------
+
+def test_brief_sections_present(ticket_dir, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from task_brief import build_step_brief
+    brief = build_step_brief("KLC-T1", 3)
+    assert "## Global constraints" in brief
+    assert "## This step" in brief
+    assert "## Depended-on interfaces" in brief
+
+
+def test_brief_decisions_section_absent_when_no_decisions(ticket_dir, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from task_brief import build_step_brief
+    brief = build_step_brief("KLC-T1", 3)
+    assert "DECISION D-" not in brief
