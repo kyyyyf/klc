@@ -200,6 +200,22 @@ and confirmed failing **before** its implementation code.
 If validation reveals scope that wasn't in the spec, add a
 `[!CONFLICT C-NNN]` to `design/options.md` before writing the plan.
 
+**Self-review before emit.** After drafting `impl-plan.md` and before
+emitting the draft signal, scan every `## step-N` block and fix any
+violations in-place:
+
+- **Required fields** (`REQUIRED_STEP_FIELDS`): Goal, VERIFY, COMMIT,
+  Affected, Interfaces, Expected, Code sketch — all must be present.
+  `Code sketch` may be omitted only when the step is marked
+  `RED: not applicable`.
+- **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`,
+  `write tests`, `...` — none may appear outside fenced blocks.
+- **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+
+If any step still has a violation after your fix attempt, add a
+`[!CONFLICT C-NNN]` to that step describing what is missing, so the
+human reviewer can resolve it rather than a broken plan entering build.
+
 **Draft signal.** After writing `impl-plan.md` (but before closing the
 phase), emit:
 

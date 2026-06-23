@@ -188,6 +188,20 @@ Before writing the completion signal, scan `spec.md` for violations and fix them
 A spec carrying any of the above will fail the mechanical self-review gate
 (`spec_selfreview.scan_spec`) and block the discovery-lite ack.
 
+**S-track: also self-review `impl-plan.md` before emitting.** After writing
+`impl-plan.md`, scan every `## step-N` block and fix violations in-place:
+
+- **Required fields** (`REQUIRED_STEP_FIELDS`): Goal, VERIFY, COMMIT, Affected,
+  Interfaces, Expected, Code sketch — all must be present. `Code sketch` may be
+  omitted only when the step is marked `RED: not applicable`.
+- **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`, `write tests`,
+  `...` — none may appear outside fenced blocks.
+- **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+
+If a violation cannot be resolved inline, add a `[!CONFLICT C-NNN]` to the step
+so the reviewer can address it before ack. A plan with unresolved violations will
+be caught by the plan-completeness gate at discovery-lite ack.
+
 ## Signals to emit
 
 End spec.md with one of:

@@ -120,9 +120,15 @@ choose a pick before `next` proceeds.
 
 Mechanical pre-conditions block `ack` before the human pick is offered:
 - **discovery-lite ack (S)**: spec self-review clean; ≥2 approaches + pick in `options-lite.md`;
-  if `impl-plan.md` present, it must pass `impl_plan_violations()` (plan-completeness gate).
+  `impl-plan.md` required and must pass `impl_plan_violations()` (plan-completeness gate).
 - **design ack (M/L)**: `design/options.md` and `impl-plan.md` must exist and be non-empty;
   `impl-plan.md` must pass the plan-completeness gate.
+
+Agent-side discipline (KLC-037): the design agent and test-planner (M detailed mode)
+self-review `impl-plan.md` before emitting their completion signal — scanning every
+`## step-N` for missing `REQUIRED_STEP_FIELDS`, placeholder tokens, and empty fences,
+and fixing violations inline. This acts as a first line of defence before the
+mechanical gate runs at ack.
 
 ---
 
