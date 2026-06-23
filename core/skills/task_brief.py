@@ -85,19 +85,26 @@ def _decisions(plan_text: str) -> str:
 
 
 def _render(goals_acs: str, target: dict, dep_surfaces: list[dict], decisions: str, ticket: str, step: int) -> str:
-    parts: list[str] = []
-    parts.append(f"# Task brief — {ticket} step-{step}\n")
-    parts.append(f"\n## Global constraints\n\n{goals_acs}\n")
-    parts.append(f"\n## This step — {target['title']}\n\n{target['body'].strip()}\n")
-    parts.append("\n## Depended-on interfaces\n")
-    if dep_surfaces:
-        for s in dep_surfaces:
-            parts.append(f"\n### {s['id']} — {s['title']}\n\n{s['interfaces']}\n\n{s['commit']}\n")
-    else:
-        parts.append("\n(none)\n")
-    if decisions:
-        parts.append(f"\n## Decisions\n\n{decisions}\n")
-    return "".join(parts)
+    try:
+        from jinja2 import Environment, FileSystemLoader
+    except ImportError:
+        sys.stderr.write("task_brief: jinja2 not installed (pip install jinja2)\n")
+        sys.exit(1)
+
+    fw = framework_root()
+    env = Environment(
+        loader=FileSystemLoader(str(fw / "core" / "templates")),
+        keep_trailing_newline=True,
+    )
+    tmpl = env.get_template("task-brief.md.j2")
+    return tmpl.render(
+        ticket=ticket,
+        step=step,
+        goals_acs=goals_acs,
+        target=target,
+        dep_surfaces=dep_surfaces,
+        decisions=decisions,
+    )
 
 
 def build_step_brief(ticket: str, step: int) -> str:
