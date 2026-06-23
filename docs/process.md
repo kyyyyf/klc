@@ -118,6 +118,12 @@ choose a pick before `next` proceeds.
 | observe outcome   | `observe:ack-needed`           | S M L   |
 | learn outcome     | `learn:ack-needed`             | all     |
 
+Mechanical pre-conditions block `ack` before the human pick is offered:
+- **discovery-lite ack (S)**: spec self-review clean; ≥2 approaches + pick in `options-lite.md`;
+  if `impl-plan.md` present, it must pass `impl_plan_violations()` (plan-completeness gate).
+- **design ack (M/L)**: `design/options.md` and `impl-plan.md` must exist and be non-empty;
+  `impl-plan.md` must pass the plan-completeness gate.
+
 ---
 
 ## Build phase — TDD loop (S / M / L)

@@ -25,6 +25,7 @@ REQUIRED_STEP_FIELDS = (
 
 _NOT_APPLICABLE_RE = re.compile(r"(?i)\bred:.*not applicable")
 _CODE_FENCE_RE = re.compile(r"```[a-z]*\n([\s\S]+?)```")
+_ANY_FENCE_RE = re.compile(r"```[^\n]*\n[\s\S]*?```")
 
 
 def _has_code_sketch(body: str) -> bool:
@@ -70,12 +71,15 @@ def impl_plan_violations(text: str) -> list[str]:
             if not pattern.search(body):
                 violations.append(f"{sid}: missing required field '{field}'")
 
+        # Strip fenced blocks before checking placeholder tokens so that
+        # code sketches with TODO-style comments don't falsely trigger.
+        body_outside_fences = _ANY_FENCE_RE.sub("", body)
         for token in PLACEHOLDER_TOKENS:
             if token == "...":
-                if re.search(r"(?<![\w.])\.\.\.(?![\w.])", body):
+                if re.search(r"(?<![\w.])\.\.\.(?![\w.])", body_outside_fences):
                     violations.append(f"{sid}: contains placeholder token '...'")
             else:
-                if token in body:
+                if token in body_outside_fences:
                     violations.append(f"{sid}: contains placeholder token '{token}'")
 
         if re.search(r"```[a-z]*\s*```", body):

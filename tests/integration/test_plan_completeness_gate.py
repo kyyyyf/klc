@@ -240,3 +240,73 @@ def test_placeholder_impl_plan_blocks_design_ack(tmp_path, monkeypatch):
     ok, msg = can_complete("KLC-PC07", "design")
     assert not ok, "expected False for impl-plan with TBD placeholder"
     assert "impl-plan.md" in msg, f"expected 'impl-plan.md' in msg, got: {msg!r}"
+
+
+# ---------------------------------------------------------------------------
+# Step-4: edge cases
+# ---------------------------------------------------------------------------
+
+_PLAN_WITH_TODO_IN_FENCE = """\
+# Implementation plan — {ticket}
+
+## step-1 — implement helper
+**Goal:** add the helper function
+**RED:** `tests/test_x.py::test_y` — failing today
+**GREEN:** add helper in module.py
+**VERIFY:** `pytest tests/ -q`
+**Expected:** 1 passed
+**COMMIT:** `{ticket} step-1: add helper`
+**Affected:** module.py
+**Interfaces:** `def helper() -> None`
+**Depends-on:** none
+**Code sketch:**
+```python
+def helper() -> None:
+    x = TODO  # placeholder comment inside fence — must NOT be flagged
+```
+"""
+
+_PLAN_WITH_EMPTY_FENCE = """\
+# Implementation plan — {ticket}
+
+## step-1 — implement helper
+**Goal:** add the helper function
+**RED:** `tests/test_x.py::test_y` — failing today
+**GREEN:** add helper in module.py
+**VERIFY:** `pytest tests/ -q`
+**Expected:** 1 passed
+**COMMIT:** `{ticket} step-1: add helper`
+**Affected:** module.py
+**Interfaces:** none
+**Depends-on:** none
+**Code sketch:**
+```python
+```
+"""
+
+
+def test_placeholder_in_fenced_block_not_a_violation(tmp_path, monkeypatch):
+    """TODO inside a code fence must not be flagged as a placeholder violation."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_s_ticket(tmp_path, "KLC-PC08", impl_plan=_PLAN_WITH_TODO_IN_FENCE)
+    ok, msg = can_complete_discovery_lite("KLC-PC08")
+    assert ok, f"expected True: TODO inside fence is not a placeholder violation; got: {msg!r}"
+
+
+def test_empty_fence_is_violation(tmp_path, monkeypatch):
+    """An empty code fence in Code sketch must be flagged."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_s_ticket(tmp_path, "KLC-PC09", impl_plan=_PLAN_WITH_EMPTY_FENCE)
+    ok, msg = can_complete_discovery_lite("KLC-PC09")
+    assert not ok, "expected False for impl-plan with empty code fence"
+    assert "impl-plan.md" in msg, f"expected 'impl-plan.md' in msg, got: {msg!r}"
+
+
+def test_zero_steps_is_violation(tmp_path, monkeypatch):
+    """An impl-plan with no step headings must be flagged."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    no_steps = "# Implementation plan — {ticket}\n\nJust prose, no step headings.\n"
+    _make_s_ticket(tmp_path, "KLC-PC10", impl_plan=no_steps)
+    ok, msg = can_complete_discovery_lite("KLC-PC10")
+    assert not ok, "expected False for impl-plan with no steps"
+    assert "impl-plan.md" in msg, f"expected 'impl-plan.md' in msg, got: {msg!r}"
