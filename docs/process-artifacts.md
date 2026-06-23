@@ -22,6 +22,11 @@ Filenames are stable — skills and agents look for them by name.
     adr.md                   # optional, only when ADR_NEEDED=yes
   impl-plan.md               # step list; bumped during Build
   build-log.md               # running journal of build iterations (S/M/L)
+  build/
+    step-N-brief.md          # dependency-resolved context for step N (klc task-brief)
+    step-N-impl-report.md    # impl agent's outcome + evidence for step N
+    step-N-review-package.md # reviewer input: brief + report + diff
+    step-N-review.md         # per-step review findings + verdict
   manual-checklist.md        # only when estimate.manual >= 2
   retrospective.md           # final, human-authority after Learn
   README.md                  # auto-generated summary from ticket-readme.md.j2
