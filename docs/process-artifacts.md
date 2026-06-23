@@ -189,6 +189,19 @@ phase (S/M/L tracks). Each iteration appends one entry:
 **Notes**: <what changed, DECISION refs if plan diverged>
 ```
 
+Before `klc ack` the impl agent must also append an `## Evidence` section
+with at least one non-empty fenced block (command + pasted output) for each
+acceptance check performed. `build:ack` is mechanically blocked without it.
+
+```markdown
+## Evidence
+
+```
+$ python3 -m pytest tests/ -q
+15 passed in 0.42s
+```
+```
+
 Authority: `generated` (agent appends; never overwritten). Persists
 through review rework cycles so reviewer and retrospective agent can
 see the full build history. Archived with the ticket.
