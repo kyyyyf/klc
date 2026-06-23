@@ -210,3 +210,33 @@ def test_missing_impl_plan_blocks_design_ack(tmp_path, monkeypatch):
     ok, msg = can_complete("KLC-PC06", "design")
     assert not ok, "expected False when impl-plan.md is absent at design ack"
     assert "impl-plan.md" in msg.lower(), f"expected impl-plan.md in msg, got: {msg!r}"
+
+
+_PLACEHOLDER_IMPL_PLAN = """\
+# Implementation plan — {ticket}
+
+## step-1 — implement helper
+**Goal:** TBD
+**RED:** `tests/test_x.py::test_y` — failing today
+**GREEN:** add helper in module.py
+**VERIFY:** `pytest tests/ -q`
+**Expected:** 1 passed
+**COMMIT:** `{ticket} step-1: add helper`
+**Affected:** module.py
+**Interfaces:** none
+**Depends-on:** none
+**Code sketch:**
+```python
+def helper() -> None:
+    pass
+```
+"""
+
+
+def test_placeholder_impl_plan_blocks_design_ack(tmp_path, monkeypatch):
+    """M-track impl-plan with placeholder token (TBD) blocks design ack."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_m_ticket(tmp_path, "KLC-PC07", impl_plan=_PLACEHOLDER_IMPL_PLAN)
+    ok, msg = can_complete("KLC-PC07", "design")
+    assert not ok, "expected False for impl-plan with TBD placeholder"
+    assert "impl-plan.md" in msg, f"expected 'impl-plan.md' in msg, got: {msg!r}"
