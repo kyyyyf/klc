@@ -360,13 +360,48 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
     return True, ""
 
 
-def can_complete_build(ticket: str) -> tuple[bool, str]:
+def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
+    """Parse impl-plan.md and return step metadata.
+
+    Each entry: {"step": int, "red_not_applicable": bool}.
+    Returns [] when impl-plan.md is absent or unreadable.
+    """
+    import re as _re
+    impl_plan_path = ticket_dir / "impl-plan.md"
+    if not impl_plan_path.exists():
+        return []
+    try:
+        text = impl_plan_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    steps = []
+    for m in _re.finditer(r"^## step-(\d+)\b", text, _re.MULTILINE):
+        step_num = int(m.group(1))
+        start = m.end()
+        nxt = _re.search(r"^## ", text[start:], _re.MULTILINE)
+        step_body = text[start : start + nxt.start()] if nxt else text[start:]
+        red_m = _re.search(r"\*\*RED:\*\*\s*(.+)", step_body)
+        red_val = red_m.group(1).strip().lower() if red_m else ""
+        steps.append({
+            "step": step_num,
+            "red_not_applicable": "not applicable" in red_val,
+        })
+    return steps
+
+
+def can_complete_build(ticket: str, repo: Path | None = None) -> tuple[bool, str]:
     """Check if build phase artifacts are complete.
 
     Requires build-log.md to exist, be non-empty, and contain an ## Evidence
-    section with at least one non-empty fenced block.
+    section with at least one non-empty fenced block (KLC-038).
+
+    Also verifies red-before-green commit ordering for each behaviour step
+    in impl-plan.md (KLC-039).  Steps marked ``RED: not applicable`` are exempt.
+    Pass *repo* to override the git repository used for commit attribution
+    (defaults to the current working directory).
     """
     import re as _re
+    import tdd_order as _tdd_order
 
     ticket_dir = klc_ticket_meta_file(ticket).parent
     build_log_path = ticket_dir / "build-log.md"
@@ -390,11 +425,21 @@ def can_complete_build(ticket: str) -> tuple[bool, str]:
     evidence_section = after_evidence[:next_h2.start()] if next_h2 else after_evidence
 
     fence_content_re = _re.compile(r"```[^\n]*\n(.*?)```", _re.DOTALL)
-    for m in fence_content_re.finditer(evidence_section):
-        if m.group(1).strip():
-            return True, ""
+    evidence_ok = any(
+        m.group(1).strip() for m in fence_content_re.finditer(evidence_section)
+    )
+    if not evidence_ok:
+        return False, "build-log.md: ## Evidence section has no non-empty fenced block — paste the command and its output inside a fenced block"
 
-    return False, "build-log.md: ## Evidence section has no non-empty fenced block — paste the command and its output inside a fenced block"
+    # Red-before-green ordering gate (KLC-039): check each behaviour step.
+    for step_info in _impl_plan_steps(ticket_dir):
+        if step_info["red_not_applicable"]:
+            continue
+        ok, reason = _tdd_order.verify_step(ticket, step_info["step"], repo)
+        if not ok:
+            return False, f"TDD order: {reason}"
+
+    return True, ""
 
 
 def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
