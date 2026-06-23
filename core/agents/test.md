@@ -129,7 +129,20 @@ Call the review agent with `--focus test-coverage` on the list of
 `test_files`. If `CHANGES REQUESTED`, iterate on the tests. Code work
 may start only after `APPROVED`.
 
-### 9. Completion
+### 9. Commit the failing tests with the step subject
+
+Before emitting `TEST_OK`, commit the failing tests using the step subject format
+so the red-before-green ordering gate can attribute the commit:
+
+```
+KLC-NNN step-N: add failing test for <feature>
+```
+
+This commit subject convention is required. The `klc ack` gate (`core/skills/tdd_order.py`)
+searches git history for commits matching `TICKET step-N` and sanctions the step if no
+test-touching commit precedes the implementation commit.
+
+### 10. Completion
 After the JSON:
 
 ```

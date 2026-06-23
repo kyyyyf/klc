@@ -111,6 +111,23 @@ and wait for the human — do not silently fix the plan.
 - [ ] The planned commit subject maps to **this step only**.
 - [ ] `Depends on` steps are all already green.
 
+## Red-before-green commit order (required for behaviour steps) {#red-before-green}
+
+For every step whose impl-plan marks `RED:` with a real test (not `not applicable`):
+
+1. **Commit the failing test first.** Write the test, confirm it fails, then
+   commit with the step subject (e.g. `KLC-NNN step-1: add failing test`).
+   Record `**RED:** <test path>::<test name> failing` in `build-log.md`.
+2. **Then commit the implementation.** Only after the test passes, commit the
+   source changes with the step subject.
+
+The `klc ack` gate verifies this ordering mechanically (`core/skills/tdd_order.py`):
+an implementation commit that precedes a test commit — or a step with no test
+commit at all — sanctions the step and blocks ack. Squashing or amending commits
+to collapse the red state also triggers the sanction.
+
+Steps marked `RED: not applicable — <reason>` (prompt/doc/config only) are exempt.
+
 ## Step bookkeeping
 
 For every step you complete:
