@@ -198,7 +198,7 @@ Before emitting `IMPL_ALL_GREEN`, append an `## Evidence` section to
 `build-log.md`.  For each acceptance check run during the build, paste a
 fenced block containing the command and its actual output:
 
-```markdown
+````markdown
 ## Evidence
 
 ```
@@ -207,10 +207,10 @@ $ python3 -m pytest tests/integration/test_build_evidence_gate.py -q
 ```
 
 ```
-$ grep -n "Evidence" core/agents/impl.md
-196:## Evidence block (required before IMPL_ALL_GREEN)
+$ grep -rn "Evidence" core/agents/impl.md
+<actual grep output here>
 ```
-```
+````
 
 Rules:
 - At least one non-empty fenced block must appear under `## Evidence`.

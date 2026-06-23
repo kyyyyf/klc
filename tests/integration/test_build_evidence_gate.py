@@ -173,3 +173,96 @@ def test_build_log_multiple_evidence_blocks_passes(tmp_path, monkeypatch):
     _make_build_ticket(tmp_path, "KLC-BE05", _BUILD_LOG_MULTIPLE_EVIDENCE_BLOCKS)
     ok, msg = can_complete("KLC-BE05", "build")
     assert ok, f"expected True for build-log with multiple Evidence fences, got: {msg!r}"
+
+
+# ---------------------------------------------------------------------------
+# BE06: language-tagged fenced block (```bash, ```text) counts as Evidence
+# ---------------------------------------------------------------------------
+
+_BUILD_LOG_EVIDENCE_LANG_FENCE = """\
+---
+ticket: {ticket}
+kind: build-log
+---
+
+# Build log — {ticket}
+
+## Evidence
+
+```bash
+$ python3 -m pytest tests/ -q
+15 passed in 0.42s
+```
+"""
+
+
+def test_build_log_language_tagged_fence_passes(tmp_path, monkeypatch):
+    """Edge case: language-tagged fence (```bash) under Evidence passes."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_build_ticket(tmp_path, "KLC-BE06", _BUILD_LOG_EVIDENCE_LANG_FENCE)
+    ok, msg = can_complete("KLC-BE06", "build")
+    assert ok, f"expected True for language-tagged Evidence fence, got: {msg!r}"
+
+
+# ---------------------------------------------------------------------------
+# BE07: Evidence fenced block followed by another ## section → passes
+# ---------------------------------------------------------------------------
+
+_BUILD_LOG_EVIDENCE_THEN_SECTION = """\
+---
+ticket: {ticket}
+kind: build-log
+---
+
+# Build log — {ticket}
+
+## Step 1 — 2026-06-23
+**Attempt**: write the feature
+**Outcome**: green
+
+## Evidence
+
+```
+$ python3 -m pytest tests/ -q
+5 passed in 0.04s
+```
+
+## Step 2 — 2026-06-23
+**Attempt**: follow-up fix
+**Outcome**: green
+"""
+
+_BUILD_LOG_FENCE_ONLY_AFTER_STEP = """\
+---
+ticket: {ticket}
+kind: build-log
+---
+
+# Build log — {ticket}
+
+## Evidence
+
+## Step 1 — 2026-06-23
+
+```
+$ python3 -m pytest tests/ -q
+5 passed in 0.04s
+```
+"""
+
+
+def test_build_log_evidence_before_later_section_passes(tmp_path, monkeypatch):
+    """Edge case: Evidence block + later ## section — fence in Evidence still passes."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_build_ticket(tmp_path, "KLC-BE07", _BUILD_LOG_EVIDENCE_THEN_SECTION)
+    ok, msg = can_complete("KLC-BE07", "build")
+    assert ok, f"expected True when Evidence fence precedes a later ## section, got: {msg!r}"
+
+
+def test_build_log_fence_after_boundary_blocks(tmp_path, monkeypatch):
+    """Edge case: non-empty fence appears only after next ## heading (outside Evidence) → blocks."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_build_ticket(tmp_path, "KLC-BE08", _BUILD_LOG_FENCE_ONLY_AFTER_STEP)
+    ok, msg = can_complete("KLC-BE08", "build")
+    assert not ok, "expected False: fence is outside ## Evidence section (after next ##)"
+    assert "Evidence" in msg, f"expected 'Evidence' in msg, got: {msg!r}"

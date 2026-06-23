@@ -123,6 +123,8 @@ Mechanical pre-conditions block `ack` before the human pick is offered:
   `impl-plan.md` required and must pass `impl_plan_violations()` (plan-completeness gate).
 - **design ack (M/L)**: `design/options.md` and `impl-plan.md` must exist and be non-empty;
   `impl-plan.md` must pass the plan-completeness gate.
+- **build ack (S/M/L)**: `build-log.md` must exist, be non-empty, and contain a
+  `## Evidence` section with at least one non-empty fenced block (command + pasted output).
 
 Agent-side discipline (KLC-037): the design agent and test-planner (M detailed mode)
 self-review `impl-plan.md` before emitting their completion signal — scanning every
@@ -151,8 +153,10 @@ mechanical gate runs at ack.
 
 **`build-log.md`** is an append-only journal maintained by the impl
 agent: one entry per iteration with outcome (`green | red | blocked`)
-and notes. The reviewer reads it to understand what was attempted; the
-retrospective agent uses it for metrics.
+and notes. Before `klc ack`, the impl agent must append an `## Evidence`
+section (see `core/agents/impl.md`) — `build:ack` is mechanically blocked
+without a non-empty fenced block under it. The reviewer reads the full log
+to understand what was attempted; the retrospective agent uses it for metrics.
 
 **Review signal rule.** `APPROVED` / `REVIEW_LITE_PASS` means "this
 iteration found zero issues". If the reviewer finds and fixes
