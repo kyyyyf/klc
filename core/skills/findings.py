@@ -33,13 +33,12 @@ class Finding:
     body: str
     fix: Optional[str]
     reviewer: str
-    issue_id: str = field(init=False)
+    issue_id: str = field(init=False, default="")
 
     def __post_init__(self):
-        """Compute deterministic issue_id."""
-        if not self.issue_id:  # allow explicit override for testing
-            payload = f"{self.rule_name}|{self.file}|{self.line}"
-            self.issue_id = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+        """Compute deterministic issue_id. Override after construction if needed."""
+        payload = f"{self.rule_name}|{self.file}|{self.line}"
+        self.issue_id = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
     @classmethod
     def from_dict(cls, d: dict) -> Finding:

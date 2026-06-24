@@ -4,7 +4,7 @@
 
 {% if findings %}
 {% for f in findings %}
-- [{{ f.severity }}] {{ f.description }}{% if f.suggested_fix %} — {{ f.suggested_fix }}{% endif %}
+- [{{ f.severity }}] {{ f.title }} — {{ f.body }}{% if f.fix %} — Fix: {{ f.fix }}{% endif %}
 
 {% endfor %}
 {% else %}
