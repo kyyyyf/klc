@@ -185,6 +185,16 @@ def test_brief_decisions_section_absent_when_no_decisions(ticket_dir, monkeypatc
     assert "DECISION D-" not in brief
 
 
+def test_brief_contains_decisions_when_present(ticket_dir, monkeypatch):
+    plan_with_decision = _PLAN.rstrip() + "\n\n[!DECISION D-001] owner=impl-agent date=2026-06-23 refs=step-1\n"
+    (ticket_dir / ".klc" / "tickets" / "KLC-T1" / "impl-plan.md").write_text(plan_with_decision)
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from task_brief import build_step_brief
+    brief = build_step_brief("KLC-T1", 3)
+    assert "## Decisions" in brief
+    assert "DECISION D-001" in brief
+
+
 # ---------------------------------------------------------------------------
 # step-3 tests: CLI verb + scaffold
 # ---------------------------------------------------------------------------
@@ -261,3 +271,26 @@ def test_review_template_sections():
     )
     assert "## Findings" in rendered
     assert "## Verdict" in rendered
+
+
+def test_dangling_dep_ref_does_not_crash(ticket_dir, monkeypatch):
+    plan = _PLAN.replace("Depends-on: step-1", "Depends-on: step-99")
+    (ticket_dir / ".klc" / "tickets" / "KLC-T1" / "impl-plan.md").write_text(plan)
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from task_brief import build_step_brief
+    brief = build_step_brief("KLC-T1", 3)
+    assert "## Depended-on interfaces" in brief
+
+
+def test_scaffold_does_not_overwrite_filled_report(ticket_dir, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    import sys as _sys
+    mod_name = "core.phases.task_brief"
+    if mod_name in _sys.modules:
+        del _sys.modules[mod_name]
+    from core.phases import task_brief as tb_phase
+    tb_phase.run(["KLC-T1", "3"])
+    report = ticket_dir / ".klc" / "tickets" / "KLC-T1" / "build" / "step-3-impl-report.md"
+    report.write_text("## Outcome\ngreen\n## Evidence\n```\nok\n```\n")
+    tb_phase.run(["KLC-T1", "3"])
+    assert "green" in report.read_text()

@@ -119,7 +119,7 @@ def build_step_brief(ticket: str, step: int) -> str:
             dep = _by_id(steps, dep_id)
             dep_surfaces.append(_interface_surface(dep))
         except ValueError:
-            pass
+            sys.stderr.write(f"task-brief: warning: dependency {dep_id!r} not found in plan — skipped\n")
 
     goals_acs = _extract_goals_acs(klc_ticket_dir(ticket) / "spec.md")
     decisions = _decisions(plan_text)
