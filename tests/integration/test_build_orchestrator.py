@@ -148,3 +148,33 @@ def test_ledger_malformed_raises(ticket_dir, monkeypatch):
     (build_dir / "progress.md").write_text("not-yaml-frontmatter\n")
     with pytest.raises(ValueError):
         Ledger.load("KLC-T2")
+
+
+# ---------------------------------------------------------------------------
+# step-2 tests: orchestrator dispatch loop
+# ---------------------------------------------------------------------------
+
+def test_orchestrator_dispatches_each_pending_step(ticket_dir, monkeypatch):
+    """Stub dispatch is called once per step in order; ledger ends all-green."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+
+    calls = []
+
+    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
+        calls.append((phase_id, str(prompt_path), str(out_path)))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
+        return 0
+
+    from build_orchestrator import run_build
+    rc = run_build("KLC-T2", dispatch=stub_dispatch)
+
+    assert rc == 0
+    assert len(calls) == 2
+    assert "step-1" in calls[0][1]
+    assert "step-2" in calls[1][1]
+
+    from build_ledger import Ledger
+    led = Ledger.load("KLC-T2")
+    assert led.steps[0].state == "green"
+    assert led.steps[1].state == "green"
