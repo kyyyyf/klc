@@ -109,6 +109,9 @@ def test_ledger_roundtrip(ticket_dir, monkeypatch):
     led2 = Ledger.load("KLC-T2")
     assert led2.steps[0].state == "green"
     assert led2.steps[0].model == "claude-sonnet-4-6"
+    assert led2.steps[0].ts is not None
+    import re as _re
+    assert _re.match(r"\d{4}-\d{2}-\d{2}T", led2.steps[0].ts)
     assert led2.first_pending() == 2
 
 
@@ -150,6 +153,23 @@ def test_ledger_malformed_raises(ticket_dir, monkeypatch):
         Ledger.load("KLC-T2")
 
 
+def test_ledger_load_converts_running_to_pending(ticket_dir, monkeypatch):
+    """Crash recovery: a step with state running is reset to pending on load."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from build_ledger import Ledger
+    build_dir = ticket_dir / ".klc" / "tickets" / "KLC-T2" / "build"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "progress.md").write_text(
+        "---\nticket: KLC-T2\nsteps:\n"
+        "  - id: step-1\n    state: running\n    model: m\n"
+        "  - id: step-2\n    state: pending\n"
+        "---\n# Build progress — KLC-T2\n"
+    )
+    led = Ledger.load("KLC-T2")
+    assert led.steps[0].state == "pending"  # running → pending
+    assert led.steps[1].state == "pending"
+
+
 # ---------------------------------------------------------------------------
 # step-2 tests: orchestrator dispatch loop
 # ---------------------------------------------------------------------------
@@ -178,6 +198,25 @@ def test_orchestrator_dispatches_each_pending_step(ticket_dir, monkeypatch):
     led = Ledger.load("KLC-T2")
     assert led.steps[0].state == "green"
     assert led.steps[1].state == "green"
+
+
+def test_model_note_printed_on_fallback(ticket_dir, monkeypatch, capsys):
+    """MODEL_NOTE is printed when check_subagent_dispatch returns a note string."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+
+    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
+        return 0
+
+    import build_orchestrator as _bo
+    monkeypatch.setattr(_bo, "check_subagent_dispatch", lambda resolved: "MODEL_NOTE fallback test")
+
+    from build_orchestrator import run_build
+    run_build("KLC-T2", dispatch=stub_dispatch)
+
+    captured = capsys.readouterr()
+    assert "MODEL_NOTE" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +250,8 @@ def test_resume_skips_completed_steps(ticket_dir, monkeypatch):
 
 def test_blocked_step_halts_and_is_resumable(ticket_dir, monkeypatch):
     """Stub returns non-zero for step-1 → step-1 blocked, step-2 never dispatched.
-    Second run re-dispatches step-1 (crash recovery: blocked → pending on reload).
+    Second run re-dispatches step-1 because first_pending() returns steps where
+    state != green, including blocked.
     """
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
 
@@ -233,6 +273,7 @@ def test_blocked_step_halts_and_is_resumable(ticket_dir, monkeypatch):
     from build_ledger import Ledger
     led = Ledger.load("KLC-T2")
     assert led.steps[0].state == "blocked"
+    assert led.steps[0].reason == "dispatch rc=1"
     assert led.steps[1].state == "pending"
 
     # Second run re-dispatches the blocked step (treated as pending)
