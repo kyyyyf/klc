@@ -167,11 +167,18 @@ def test_repro_template_has_failing_test_placeholder():
     assert "FAILING-TEST:" in rendered
 
 
-def test_repro_template_filled_passes_validation():
-    """A repro.md.j2 rendered and filled with content passes validate_repro."""
-    from repro_check import validate_repro
-    filled = _VALID_REPRO  # _VALID_REPRO is a correctly filled repro.md
-    assert validate_repro(filled) == []
+def test_repro_template_rendered_passes_gate_roundtrip():
+    """Rendered template has correct headings and has_failing_test_ref returns True."""
+    from jinja2 import Environment, FileSystemLoader
+    from repro_check import validate_repro, has_failing_test_ref
+    templates_dir = _FW_ROOT / "core" / "templates"
+    env = Environment(loader=FileSystemLoader(str(templates_dir)), keep_trailing_newline=True)
+    rendered = env.get_template("repro.md.j2").render(ticket="KLC-TEST")
+    # Template has guide-comment bodies which count as non-empty — sections present
+    errors = validate_repro(rendered)
+    assert errors == [], f"Rendered template should pass validate_repro: {errors}"
+    # FAILING-TEST placeholder is present so the marker check passes
+    assert has_failing_test_ref(rendered, "") is True
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +213,75 @@ def test_red_fix_limit_emits_arch_review(tmp_path, monkeypatch):
     output = out.getvalue()
     assert "ARCH_REVIEW" in output
     assert "KLC-T5" in output
+
+
+def test_discovery_lite_wired_bug_gate(tmp_path, monkeypatch):
+    """can_complete_discovery_lite blocks for XS kind=bug without repro.md (wiring check)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    tdir = tmp_path / ".klc" / "tickets" / "KLC-T6"
+    tdir.mkdir(parents=True)
+    import json
+    meta = {
+        "ticket": "KLC-T6", "kind": "bug", "track": "XS",
+        "phase": "discovery:work", "layer": "core",
+        "affected_modules": ["src"],
+        "estimate": {"complexity": 1, "uncertainty": 0, "risk": 0, "manual": 0, "total": 1},
+        "risk_tags": [],
+    }
+    (tdir / "meta.json").write_text(json.dumps(meta))
+    spec = textwrap.dedent("""\
+        ---
+        ticket: KLC-T6
+        kind: bug
+        authority: human
+        risk_tags: []
+        ---
+
+        ## Goals
+        Fix login.
+
+        ## Acceptance Criteria
+        - [ ] AC-1: Login works.
+
+        ## Affected
+        src/auth.py
+
+        ## Estimate
+        | Axis | Score |
+        |------|-------|
+        | total | 1 |
+    """)
+    (tdir / "spec.md").write_text(spec)
+    # No repro.md — gate must block
+    from phase_completion import can_complete_discovery_lite
+    ok, msg = can_complete_discovery_lite("KLC-T6")
+    assert not ok
+    assert "repro" in msg.lower()
+
+
+def test_bump_by2_skipping_limit_still_emits_arch_review(tmp_path, monkeypatch):
+    """Bumping by 2 past the limit (skipping the exact boundary) still emits ARCH_REVIEW."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    tdir = tmp_path / ".klc" / "tickets" / "KLC-T5"
+    tdir.mkdir(parents=True)
+    import json
+    # Start at 1; bump by 2 → current=3 == limit; bump again by 2 → current=5 > limit
+    meta = {
+        "ticket": "KLC-T5", "kind": "bug", "track": "S",
+        "phase": "build:work", "affected_modules": ["src"],
+        "estimate": {"complexity": 1, "uncertainty": 1, "risk": 1, "manual": 0, "total": 3},
+        "risk_tags": [], "budgets": {"red_test_fix_attempts": 1},
+    }
+    (tdir / "meta.json").write_text(json.dumps(meta))
+
+    from budget import cmd_bump
+    import argparse, io, contextlib
+    # bump by 2: 1 → 3 (>= limit of 3) → ARCH_REVIEW should fire
+    args = argparse.Namespace(ticket="KLC-T5", counter="red_test_fix_attempts", by=2)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_bump(args)
+    assert "ARCH_REVIEW" in out.getvalue()
 
 
 def test_pre_limit_bump_no_arch_review(tmp_path, monkeypatch):

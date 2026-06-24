@@ -70,7 +70,7 @@ def _write(ticket: str, meta: dict) -> None:
 
 def _maybe_escalate(ticket: str, counter: str, current: int, limit: int) -> str | None:
     """Return an ARCH_REVIEW advisory string when red-fix budget hits its limit."""
-    if counter == "red_test_fix_attempts" and current == limit:
+    if counter == "red_test_fix_attempts" and current >= limit:
         return (
             f"ARCH_REVIEW {ticket}: red-fix budget exhausted — "
             "revisit hypothesis/architecture before retrying"
