@@ -94,6 +94,25 @@ must be either LSP-verified (`src=path:line`, mandatory) or an explicit
 assumption (`[!ASSUMPTION if-false=scope-may-expand]`). Unanchored
 module names without either marker are not permitted.
 
+### `repro.md` (bug tickets only)
+
+Required discovery artifact for `kind=bug`. Produced by the discovery agent from
+`core/templates/repro.md.j2`. The discovery ack gate (`can_complete_discovery` and
+`can_complete_discovery_lite`) blocks until `repro.md` exists, is non-empty, and
+contains all four required sections and the `FAILING-TEST:` marker.
+
+Required sections (enforced by `repro_check.validate_repro`):
+- `## Problem` — one sentence: what is broken and where.
+- `## Environment` — OS, runtime version, browser, relevant config.
+- `## Steps` — numbered exact reproduction steps.
+- `## Expected vs actual` — expected behaviour vs. actual.
+
+Required marker (enforced by `repro_check.has_failing_test_ref`):
+```
+FAILING-TEST: tests/path/to/test.py::test_function_name
+```
+The marker may appear in `repro.md` or `spec.md`; the gate checks both.
+
 ### `test-plan.md`
 
 **S-track**: written by `discovery-lite` in the same agent call as
@@ -211,6 +230,20 @@ $ python3 -m pytest tests/ -q
 Authority: `generated` (agent appends; never overwritten). Persists
 through review rework cycles so reviewer and retrospective agent can
 see the full build history. Archived with the ticket.
+
+### `ARCH_REVIEW` advisory
+
+Not a file — a line printed to stdout by `budget.py cmd_bump` when
+`red_test_fix_attempts` reaches its limit (default: 3):
+
+```
+ARCH_REVIEW <ticket>: red-fix budget exhausted — revisit hypothesis/architecture before retrying
+```
+
+This signals that the fix hypothesis was likely wrong. For `kind=bug` tickets,
+re-examine `repro.md` root-cause analysis; for all tickets, reconsider the design
+before retrying. The advisory fires exactly once at the boundary and does not
+replace the existing budget block — both appear in the output.
 
 ### `manual-checklist.md`
 

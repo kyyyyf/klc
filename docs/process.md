@@ -121,6 +121,10 @@ choose a pick before `next` proceeds.
 Mechanical pre-conditions block `ack` before the human pick is offered:
 - **discovery-lite ack (S)**: spec self-review clean; ≥2 approaches + pick in `options-lite.md`;
   `impl-plan.md` required and must pass `impl_plan_violations()` (plan-completeness gate).
+  For `kind=bug`: additionally requires `repro.md` (all four sections present and non-empty)
+  and a `FAILING-TEST:` marker in `repro.md` or `spec.md`.
+- **discovery ack (M/L)**: same spec/meta requirements as discovery-lite plus approaches gate.
+  For `kind=bug`: same `repro.md` + `FAILING-TEST:` requirement as above.
 - **design ack (M/L)**: `design/options.md` and `impl-plan.md` must exist and be non-empty;
   `impl-plan.md` must pass the plan-completeness gate.
 - **build ack (S/M/L)**: `build-log.md` must exist, be non-empty, and contain a
@@ -189,6 +193,14 @@ Budget counters in `meta.json:budgets` (limits in `config/budgets.yml`):
 
 Hitting a limit writes `meta.json:blocked_reason` and halts. Agent
 emits `[!QUESTION]` or `[!CONFLICT]`; human decides next action.
+
+When `red_test_fix_attempts` hits its limit, `budget.py` also emits an
+`ARCH_REVIEW` advisory alongside the block:
+```
+ARCH_REVIEW <ticket>: red-fix budget exhausted — revisit hypothesis/architecture before retrying
+```
+This signals the fix hypothesis was likely wrong; re-examine `repro.md` (for bug
+tickets) or the design before retrying.
 
 ---
 
