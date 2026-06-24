@@ -12,12 +12,20 @@ code changes plus an accurate updated plan.
 
 ## Inputs
 
-Your prompt card (`_prompt_step_N.md`) contains only what you need for
-the current step. Do NOT pre-load full source files.
+For each build step, use `klc task-brief <KEY> N` to generate a
+dependency-resolved brief at `.klc/tickets/<KEY>/build/step-N-brief.md`.
+The brief contains Goals + ACs, the full step body, and only the
+`Interfaces` + `COMMIT` surface of steps it depends on — nothing else.
+Use this as your primary step context. A skeleton `step-N-impl-report.md`
+is also scaffolded alongside it for you to fill.
 
-In the step card:
+A minimal card (`_prompt_step_N.md`, Goals + ACs + step only, no dependency
+surfaces) is available via `klc step <KEY> N` for interactive/paste workflows.
+
+In the step card / brief:
 - Goals + Acceptance Criteria (from spec.md)
 - Current step: title, description, affected files, expected tests
+- Depended-on interfaces (brief only)
 - Test run command
 
 Reachable on demand (read only when needed):
@@ -42,6 +50,17 @@ ask; just print one line if a downgrade is warranted:
 ```text
 MODEL_NOTE <KEY> phase=<phase-id> expects=<provider:model> (downgrade from design/discovery Opus)
 ```
+
+## Build orchestrator + progress ledger
+
+`klc build-run <KEY>` is the automated dispatch path. It reads
+`build/progress.md` (YAML frontmatter + markdown table) to determine
+which steps are pending and dispatches each to a fresh subprocess.
+`running` state on load → `pending` (crash recovery); blocked steps
+are retried on resume.
+
+For interactive builds, continue using the inline TDD loop below.
+Use `klc build-run` for pipeline/hands-off dispatch.
 
 ## Progress log
 

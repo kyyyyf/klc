@@ -11,6 +11,7 @@ Implement code via TDD loop. Make failing tests pass, one step at a time.
 ## Outputs
 - Code changes
 - `build-log.md` — iteration journal
+- `build/progress.md` — durable step ledger (see [Build orchestrator](#build-orchestrator))
 - Git commits (one per step when practical)
 
 ## Process
@@ -30,6 +31,27 @@ M/L-track: Follow impl-plan.md steps
 - build-log.md records all iterations and has a `## Evidence` section with at least one non-empty fenced block
 - impl-plan.md fully ticked (M/L only)
 - Git history shows a failing-test commit before the implementation commit for each behaviour step (verified mechanically by `klc ack` via `core/skills/tdd_order.py`; steps with `RED: not applicable` are exempt)
+
+## Build orchestrator
+
+`klc build-run <KEY>` dispatches each impl-plan step to a fresh Claude
+subprocess (via `runner.run_agent`) with a dependency-resolved brief.
+
+**Flow:**
+1. Load `build/progress.md` if it exists; otherwise derive from `impl-plan.md`.
+2. For each non-green step: write `build/step-N-brief.md`, dispatch a fresh
+   subagent, mark step green or blocked in the ledger.
+3. Exit 0 when all steps green; non-zero on first blocked step (resume by
+   re-running `klc build-run`).
+
+**progress.md format:** YAML frontmatter (source of truth) + regenerated
+markdown table. `running` state → `pending` on reload (crash recovery).
+Blocked steps are retried on resume. Implemented in `core/skills/build_orchestrator.py`
++ `core/skills/build_ledger.py`.
+
+The inline TDD loop (test agent → impl agent → verifier) is still the
+primary workflow for interactive builds. `klc build-run` is the automated
+dispatch path for hands-off or pipeline builds.
 
 ## Ack options
 - `--pick 1` (approve): Advance to review:work

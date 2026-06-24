@@ -143,8 +143,13 @@ mechanical gate runs at ack.
 2. **Impl agent** (`core/agents/impl.md`) makes it pass. Uses
    LSP (`workspaceSymbol`, `goToDefinition`, `findReferences`) for
    all symbol navigation — no speculative file reads.
-   Each step gets a minimal card via `klc step <key> N` (Goals + ACs
-   + current step only — no full spec/plan context).
+   Each step gets a dependency-resolved brief via `klc task-brief <key> N`
+   (Goals + ACs + current step body + dependency interfaces/COMMIT surfaces
+   — no foreign step bodies). The brief is written to
+   `build/step-N-brief.md`; a skeleton `step-N-impl-report.md` is also
+   scaffolded for the impl agent to fill.
+   For a lightweight minimal card (Goals + ACs + current step only),
+   use `klc step <key> N` instead.
    By default the step card **references** `core/agents/impl.md` by
    path instead of embedding it (~7.5 KB saved per step). For paste-only
    workflows without filesystem access, set `KLC_CARD_INLINE=1` to
