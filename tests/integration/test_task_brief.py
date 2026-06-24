@@ -178,11 +178,45 @@ def test_brief_sections_present(ticket_dir, monkeypatch):
     assert "## Depended-on interfaces" in brief
 
 
+def test_brief_dep_header_has_no_title(ticket_dir, monkeypatch):
+    """Dep section must show only step-id, not the dep step's title (AC-2 compactness)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from task_brief import build_step_brief
+    brief = build_step_brief("KLC-T1", 3)
+    # "foundation" is step-1's title — must NOT appear in dep section
+    assert "### step-1 — foundation" not in brief
+    assert "### step-1" in brief  # but the id itself is present
+
+
 def test_brief_decisions_section_absent_when_no_decisions(ticket_dir, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
     from task_brief import build_step_brief
     brief = build_step_brief("KLC-T1", 3)
     assert "DECISION D-" not in brief
+
+
+def test_decisions_not_extracted_from_fences(ticket_dir, monkeypatch):
+    """DECISION markers inside fenced code blocks must not appear in the brief."""
+    plan_with_fenced_decision = _PLAN.replace(
+        "```python\ndef foo():\n    return 42\n```",
+        "```python\n# example: DECISION D-999 mentioned here\ndef foo():\n    return 42\n```"
+    )
+    (ticket_dir / ".klc" / "tickets" / "KLC-T1" / "impl-plan.md").write_text(plan_with_fenced_decision)
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from task_brief import build_step_brief
+    brief = build_step_brief("KLC-T1", 3)
+    assert "DECISION D-999" not in brief
+
+
+def test_missing_spec_raises(tmp_path, monkeypatch):
+    """klc task-brief must raise when spec.md is absent, not produce a fake brief."""
+    tdir = tmp_path / ".klc" / "tickets" / "KLC-NOSPEC"
+    tdir.mkdir(parents=True)
+    (tdir / "impl-plan.md").write_text(_PLAN.replace("KLC-T1", "KLC-NOSPEC"))
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    from task_brief import build_step_brief
+    with pytest.raises(ValueError, match="spec.md"):
+        build_step_brief("KLC-NOSPEC", 1)
 
 
 def test_brief_contains_decisions_when_present(ticket_dir, monkeypatch):

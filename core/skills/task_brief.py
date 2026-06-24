@@ -39,6 +39,7 @@ _COMMIT_RE = re.compile(
     re.DOTALL,
 )
 _DECISION_RE = re.compile(r"(?m)^.*\bDECISION\s+D-\d+\b.*$")
+_ANY_FENCE_RE = re.compile(r"```[^\n]*\n[\s\S]*?```")
 _STEP_REF_RE = re.compile(r"\bstep-(\d+)\b", re.IGNORECASE)
 
 
@@ -80,7 +81,8 @@ def _interface_surface(step: dict) -> dict:
 
 
 def _decisions(plan_text: str) -> str:
-    lines = _DECISION_RE.findall(plan_text)
+    text_outside_fences = _ANY_FENCE_RE.sub("", plan_text)
+    lines = _DECISION_RE.findall(text_outside_fences)
     return "\n".join(lines).strip()
 
 
@@ -122,6 +124,8 @@ def build_step_brief(ticket: str, step: int) -> str:
             sys.stderr.write(f"task-brief: warning: dependency {dep_id!r} not found in plan — skipped\n")
 
     goals_acs = _extract_goals_acs(klc_ticket_dir(ticket) / "spec.md")
+    if goals_acs.startswith("_("):
+        raise ValueError(f"spec.md for ticket {ticket!r} is missing or unparseable: {goals_acs}")
     decisions = _decisions(plan_text)
     return _render(goals_acs, target, dep_surfaces, decisions, ticket, step)
 
