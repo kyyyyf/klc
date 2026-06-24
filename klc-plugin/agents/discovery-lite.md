@@ -135,6 +135,22 @@ Rules:
   a plan — emit `[!QUESTION blocks=discovery-lite]` recommending an upgrade to M.
 - Do not produce `impl-plan.md` for XS (XS uses `xs-fasttrack.md`).
 
+## Reproduce-first (kind=bug)
+
+When `meta.kind == "bug"`, apply the following discipline **before** writing `spec.md`:
+
+1. **Reproduce the defect** — trace the failure mode from the raw description.
+2. **Write a failing test** — identify the minimal test capturing the defect. Record:
+   ```
+   FAILING-TEST: tests/path/to/test.py::test_function_name
+   ```
+3. **Fill `repro.md`** (scaffold: `core/templates/repro.md.j2`) with all four sections:
+   Problem, Environment, Steps, Expected vs actual — plus the `FAILING-TEST:` line.
+4. **Root-cause** — trace data flow backward; check recent changes. State one hypothesis.
+5. **Single fix** — the spec must describe a fix targeting that hypothesis.
+
+`repro.md` is required for bug ack; the gate blocks until it exists and is valid.
+
 ## Signals to emit
 
 End spec.md with one of:

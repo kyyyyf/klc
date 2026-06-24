@@ -220,6 +220,33 @@ When the request spans multiple independent subsystems, emit `DISCOVERY_DECOMPOS
 in `spec.md` before the completion signal so the operator can decompose or upgrade
 the track.
 
+## Reproduce-first (kind=bug)
+
+When `meta.kind == "bug"`, apply the following discipline **before** writing `spec.md`:
+
+1. **Reproduce the defect** — follow the raw description to reproduce it yourself
+   (mentally trace or read the code). Confirm the failure mode is understood.
+2. **Write a failing test** — identify or describe the minimal test that captures the defect.
+   Record it with a `FAILING-TEST:` marker:
+   ```
+   FAILING-TEST: tests/path/to/test.py::test_function_name
+   ```
+3. **Fill `repro.md`** from the scaffold template (`core/templates/repro.md.j2`):
+   - `## Problem` — one sentence: what is broken.
+   - `## Environment` — OS, runtime, relevant config.
+   - `## Steps` — numbered exact reproduction steps.
+   - `## Expected vs actual` — what should happen vs. what does.
+   - `FAILING-TEST:` line pointing at the reproducing test.
+4. **Root-cause** — trace the data flow from the failure point backward; check
+   recent changes (`git log -p` on the affected module). State which change or
+   invariant violation caused the defect.
+5. **Single hypothesis** — commit to one root-cause hypothesis before writing `spec.md`.
+   The fix must address this hypothesis; if confidence is low, surface a `QUESTION`.
+
+`repro.md` is a required discovery artifact for bug tickets. The discovery ack gate
+(`can_complete_discovery`) will block until `repro.md` is present, structurally valid,
+and contains the `FAILING-TEST:` marker.
+
 ## Self-review before emitting
 
 Before writing the completion signal, scan `spec.md` for violations and fix them inline:
