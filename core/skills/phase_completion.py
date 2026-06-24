@@ -23,6 +23,26 @@ import track_classifier as _tc  # noqa: E402
 import spec_selfreview as _spec_selfreview  # noqa: E402
 import spec_structure as _spec_structure  # noqa: E402
 import impl_plan_check as _impl_plan_check  # noqa: E402
+import repro_check as _repro_check  # noqa: E402
+
+
+def _bug_discovery_gate(ticket: str, spec_text: str, meta: dict) -> tuple[bool, str]:
+    """Block discovery ack for kind=bug until repro.md + FAILING-TEST marker exist.
+
+    Returns (True, "") for non-bug tickets (AC-3 no-op guarantee).
+    """
+    if meta.get("kind") != "bug":
+        return True, ""
+    repro_path = klc_ticket_meta_file(ticket).parent / "repro.md"
+    if not repro_path.exists() or not repro_path.read_text(encoding="utf-8").strip():
+        return False, "kind=bug: missing repro.md (reproduce-first required before ack)"
+    repro_text = repro_path.read_text(encoding="utf-8")
+    violations = _repro_check.validate_repro(repro_text)
+    if violations:
+        return False, violations[0]
+    if not _repro_check.has_failing_test_ref(repro_text, spec_text):
+        return False, "kind=bug: no FAILING-TEST: marker — record the reproducing test in repro.md or spec.md"
+    return True, ""
 
 
 def can_complete_discovery(ticket: str) -> tuple[bool, str]:
@@ -165,6 +185,11 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
         return False, "spec.md: fewer than 2 approaches — Socratic protocol requires ≥2 before pick"
     if not _spec_structure.recorded_pick(spec_text):
         return False, "spec.md: no recorded pick — add 'Picked: <approach>' before acking"
+
+    # Bug-discipline gate (KLC-044): require repro.md + FAILING-TEST for kind=bug.
+    ok, msg = _bug_discovery_gate(ticket, spec_text, meta)
+    if not ok:
+        return False, msg
 
     # All checks passed — extract risk_tags from spec.md frontmatter into meta
     _sync_risk_tags(ticket)
@@ -352,6 +377,12 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
         )
         if _violations:
             return False, f"impl-plan.md: {_violations[0]}"
+
+    # Bug-discipline gate (KLC-044): require repro.md + FAILING-TEST for kind=bug.
+    _meta_lite = _lc.read_meta(ticket)
+    ok, msg = _bug_discovery_gate(ticket, text, _meta_lite)
+    if not ok:
+        return False, msg
 
     # All checks passed — sync risk_tags from spec.md into meta.json
     _sync_risk_tags(ticket)
