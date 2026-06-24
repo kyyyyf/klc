@@ -172,3 +172,60 @@ def test_repro_template_filled_passes_validation():
     from repro_check import validate_repro
     filled = _VALID_REPRO  # _VALID_REPRO is a correctly filled repro.md
     assert validate_repro(filled) == []
+
+
+# ---------------------------------------------------------------------------
+# step-5: ARCH_REVIEW escalation at red-fix limit
+# ---------------------------------------------------------------------------
+
+def test_red_fix_limit_emits_arch_review(tmp_path, monkeypatch):
+    """Bumping red_test_fix_attempts to the limit emits ARCH_REVIEW advisory."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    tdir = tmp_path / ".klc" / "tickets" / "KLC-T5"
+    tdir.mkdir(parents=True)
+    import json
+    meta = {
+        "ticket": "KLC-T5", "kind": "bug", "track": "S",
+        "phase": "build:work", "affected_modules": ["src"],
+        "estimate": {"complexity": 1, "uncertainty": 1, "risk": 1, "manual": 0, "total": 3},
+        "risk_tags": [], "budgets": {"red_test_fix_attempts": 2},
+    }
+    (tdir / "meta.json").write_text(json.dumps(meta))
+
+    from budget import cmd_bump, DEFAULT_LIMITS
+    import argparse
+    limit = DEFAULT_LIMITS["red_test_fix_attempts"]
+
+    # Bump to the limit
+    args = argparse.Namespace(ticket="KLC-T5", counter="red_test_fix_attempts", by=1)
+    import io, contextlib
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_bump(args)
+
+    output = out.getvalue()
+    assert "ARCH_REVIEW" in output
+    assert "KLC-T5" in output
+
+
+def test_pre_limit_bump_no_arch_review(tmp_path, monkeypatch):
+    """Bumping below the limit must NOT emit ARCH_REVIEW."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    tdir = tmp_path / ".klc" / "tickets" / "KLC-T5"
+    tdir.mkdir(parents=True)
+    import json
+    meta = {
+        "ticket": "KLC-T5", "kind": "bug", "track": "S",
+        "phase": "build:work", "affected_modules": ["src"],
+        "estimate": {"complexity": 1, "uncertainty": 1, "risk": 1, "manual": 0, "total": 3},
+        "risk_tags": [], "budgets": {"red_test_fix_attempts": 0},
+    }
+    (tdir / "meta.json").write_text(json.dumps(meta))
+
+    from budget import cmd_bump
+    import argparse, io, contextlib
+    args = argparse.Namespace(ticket="KLC-T5", counter="red_test_fix_attempts", by=1)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_bump(args)
+    assert "ARCH_REVIEW" not in out.getvalue()
