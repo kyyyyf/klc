@@ -56,6 +56,17 @@ ask; just print one line if a downgrade is warranted:
 MODEL_NOTE <KEY> phase=<phase-id> expects=<provider:model> (downgrade from design/discovery Opus)
 ```
 
+## Build orchestrator + progress ledger
+
+`klc build-run <KEY>` is the automated dispatch path. It reads
+`build/progress.md` (YAML frontmatter + markdown table) to determine
+which steps are pending and dispatches each to a fresh subprocess.
+`running` state on load → `pending` (crash recovery); blocked steps
+are retried on resume.
+
+For interactive builds, continue using the inline TDD loop below.
+Use `klc build-run` for pipeline/hands-off dispatch.
+
 ## Progress log
 
 `build-log.md` in the ticket directory is a running journal of every
