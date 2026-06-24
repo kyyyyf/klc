@@ -141,3 +141,34 @@ def test_bug_passes_with_valid_repro_and_marker(bug_ticket_dir):
     from phase_completion import _bug_discovery_gate
     ok, msg = _bug_discovery_gate("KLC-T4", "", {"kind": "bug"})
     assert ok, msg
+
+
+# ---------------------------------------------------------------------------
+# step-3: repro.md scaffold template
+# ---------------------------------------------------------------------------
+
+def test_repro_template_renders_all_sections():
+    """Rendered repro.md.j2 carries all four REPRO_SECTIONS headings."""
+    from jinja2 import Environment, FileSystemLoader
+    from repro_check import REPRO_SECTIONS, validate_repro
+    templates_dir = _FW_ROOT / "core" / "templates"
+    env = Environment(loader=FileSystemLoader(str(templates_dir)), keep_trailing_newline=True)
+    rendered = env.get_template("repro.md.j2").render(ticket="KLC-TEST")
+    for sec in REPRO_SECTIONS:
+        assert f"## {sec}" in rendered, f"Missing section: {sec}"
+
+
+def test_repro_template_has_failing_test_placeholder():
+    """Rendered repro.md.j2 contains a FAILING-TEST: placeholder line."""
+    from jinja2 import Environment, FileSystemLoader
+    templates_dir = _FW_ROOT / "core" / "templates"
+    env = Environment(loader=FileSystemLoader(str(templates_dir)), keep_trailing_newline=True)
+    rendered = env.get_template("repro.md.j2").render(ticket="KLC-TEST")
+    assert "FAILING-TEST:" in rendered
+
+
+def test_repro_template_filled_passes_validation():
+    """A repro.md.j2 rendered and filled with content passes validate_repro."""
+    from repro_check import validate_repro
+    filled = _VALID_REPRO  # _VALID_REPRO is a correctly filled repro.md
+    assert validate_repro(filled) == []
