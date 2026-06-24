@@ -23,6 +23,7 @@ Filenames are stable — skills and agents look for them by name.
   impl-plan.md               # step list; bumped during Build
   build-log.md               # running journal of build iterations (S/M/L)
   build/
+    progress.md              # durable step ledger (klc build-run); YAML frontmatter + table
     step-N-brief.md          # dependency-resolved context for step N (klc task-brief)
     step-N-impl-report.md    # impl agent's outcome + evidence for step N
     step-N-review-package.md # reviewer input: brief + report + diff
