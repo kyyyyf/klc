@@ -247,3 +247,44 @@ def test_blocked_step_halts_and_is_resumable(ticket_dir, monkeypatch):
     rc2 = run_build("KLC-T2", dispatch=success_dispatch)
     assert rc2 == 0
     assert len(call_log) == 2  # step-1 retried + step-2
+
+
+# ---------------------------------------------------------------------------
+# step-4 tests: build-run verb + CLI handler
+# ---------------------------------------------------------------------------
+
+def test_build_run_verb_registered():
+    text = (Path(_FW_ROOT) / "scripts" / "klc").read_text()
+    assert '"build-run"' in text or "'build-run'" in text
+
+
+def test_build_run_appends_progress_and_returns_zero(ticket_dir, monkeypatch):
+    """CLI via core/phases/build_run runs orchestrator; progress.md shows green."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+
+    import importlib, sys as _sys
+    for mod in list(_sys.modules.keys()):
+        if "build_run" in mod or "build_orchestrator" in mod or "build_ledger" in mod:
+            del _sys.modules[mod]
+
+    def _stub_run_build(ticket, *, dispatch=None):
+        from build_ledger import Ledger
+        led = Ledger.from_plan(ticket)
+        for s in led.steps:
+            led.mark(s.id, "green", model="m")
+        led.save()
+        return 0
+
+    import unittest.mock as _mock
+    with _mock.patch.dict(_sys.modules, {}):
+        import build_orchestrator as _bo
+        with _mock.patch.object(_bo, "run_build", side_effect=_stub_run_build):
+            from core.phases import build_run as br_phase
+            importlib.reload(br_phase)
+            rc = br_phase.run(["KLC-T2"])
+
+    assert rc == 0
+    from build_ledger import Ledger
+    led = Ledger.load("KLC-T2")
+    assert led is not None
+    assert all(s.state == "green" for s in led.steps)
