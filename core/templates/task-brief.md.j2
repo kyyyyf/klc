@@ -1,0 +1,30 @@
+# Task brief — {{ ticket }} step-{{ step }}
+
+## Global constraints
+
+{{ goals_acs }}
+
+## This step — {{ target.title }}
+
+{{ target.body | trim }}
+
+## Depended-on interfaces
+
+{% if dep_surfaces %}
+{% for s in dep_surfaces %}
+### {{ s.id }}
+
+{{ s.interfaces }}
+
+{{ s.commit }}
+
+{% endfor %}
+{% else %}
+(none)
+{% endif %}
+{% if decisions %}
+
+## Decisions
+
+{{ decisions }}
+{% endif %}
