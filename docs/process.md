@@ -154,7 +154,15 @@ mechanical gate runs at ack.
    path instead of embedding it (~7.5 KB saved per step). For paste-only
    workflows without filesystem access, set `KLC_CARD_INLINE=1` to
    embed the full role prompt.
-3. Repeat until all steps are green, then `klc ack <key> --pick 1`.
+3. **Per-step review** (M/L always; S only with `risk_tags`; XS never): after
+   each green step, an independent reviewer reads only the step package
+   (`step-N-brief.md` + `step-N-impl-report.md` + step diff) and routes
+   findings by severity. CRITICAL/HIGH are blocking — a fix subagent is
+   dispatched and the step is re-reviewed (capped at `PER_STEP_REREVIEW_CAP`
+   attempts, then blocked). MEDIUM/LOW are logged to `step-N-review.md`
+   without blocking. The per-step review runs as a post-green hook inside
+   the `klc build-run` orchestrator (`core/skills/per_step_review.py`).
+4. Repeat until all steps are green, then `klc ack <key> --pick 1`.
 
 **`build-log.md`** is an append-only journal maintained by the impl
 agent: one entry per iteration with outcome (`green | red | blocked`)
