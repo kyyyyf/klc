@@ -33,7 +33,7 @@ class Finding:
     body: str
     fix: Optional[str]
     reviewer: str
-    issue_id: str = field(init=False)
+    issue_id: str = field(init=False, default="")
 
     def __post_init__(self):
         """Compute deterministic issue_id."""
