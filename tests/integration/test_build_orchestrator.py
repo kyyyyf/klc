@@ -71,7 +71,7 @@ _SPEC = textwrap.dedent("""\
 
 _META = json.dumps({
     "ticket": "KLC-T2",
-    "track": "M",
+    "track": "XS",   # XS: per-step review skipped; these tests focus on dispatch loop only
     "kind": "feature",
     "phase": "build:work",
     "estimate": {"complexity": 2, "uncertainty": 1, "risk": 1, "manual": 0, "total": 4},
