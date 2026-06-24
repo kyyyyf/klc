@@ -98,8 +98,12 @@ def _write_review(ticket: str, step: int, result: "RouteResult") -> None:
     (build / f"step-{step}-review.md").write_text(rendered, encoding="utf-8")
 
 
-def compose_review_input(ticket: str, step: int) -> str:
-    """Return brief + impl-report concatenated as the reviewer's input package."""
+def compose_review_input(ticket: str, step: int, *, step_diff: str = "") -> str:
+    """Return brief + impl-report + optional step diff as the reviewer's input package.
+
+    step_diff: the git diff for this step's commit(s). Callers that know the
+    commit range should pass it; omitting it produces a valid but diff-less package.
+    """
     build = klc_ticket_dir(ticket) / "build"
     brief_path = build / f"step-{step}-brief.md"
     report_path = build / f"step-{step}-impl-report.md"
@@ -109,4 +113,6 @@ def compose_review_input(ticket: str, step: int) -> str:
         parts.append(f"## step-{step} brief\n\n{brief_path.read_text(encoding='utf-8')}")
     if report_path.exists():
         parts.append(f"## step-{step} impl-report\n\n{report_path.read_text(encoding='utf-8')}")
+    if step_diff:
+        parts.append(f"## step-{step} diff\n\n```diff\n{step_diff}\n```")
     return "\n\n".join(parts)

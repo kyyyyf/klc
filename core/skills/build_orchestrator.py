@@ -77,15 +77,26 @@ def _run_reviewer(ticket: str, step_num: int, dispatch) -> list:
     return []
 
 
-def _per_step_gate(ticket: str, step_num: int, meta: dict, dispatch) -> bool:
-    """Run per-step review after a green step. Returns True if step can advance."""
+def _per_step_gate(ticket: str, step_num: int, meta: dict, dispatch,
+                   *, reasons: list[str] | None = None) -> bool:
+    """Run per-step review after a green step. Returns True if step can advance.
+
+    reasons: optional per-ticket context strings to validate via lint before dispatch.
+    """
     if not should_review(meta):
         return True
 
-    step_id = f"step-{step_num}"
+    from per_step_review import compose_review_input, _lint_reasons, _write_review
+
+    if reasons:
+        _lint_reasons(reasons)  # raises ValueError on pre-judgment directive
+
     for attempt in range(PER_STEP_REREVIEW_CAP + 1):
         findings = _run_reviewer(ticket, step_num, dispatch)
         result = route_findings(findings)
+
+        # Always persist all findings (logged/info go to step-N-review.md)
+        _write_review(ticket, step_num, result)
 
         if not result.blocking:
             return True
@@ -94,7 +105,6 @@ def _per_step_gate(ticket: str, step_num: int, meta: dict, dispatch) -> bool:
             return False
 
         # Dispatch a fix subagent with the blocking findings as context
-        from per_step_review import compose_review_input
         blocking_summary = "\n".join(
             f"- [{f.severity}] {f.title} ({f.file}:{f.line})" for f in result.blocking
         )

@@ -234,7 +234,8 @@ def test_review_report_rendered(ticket_dir, monkeypatch):
     build.mkdir(parents=True, exist_ok=True)
 
     from per_step_review import route_findings, _write_review
-    result = route_findings([_make_finding("MEDIUM")])
+    f = _make_finding("MEDIUM")
+    result = route_findings([f])
     _write_review("KLC-T3", 1, result)
 
     review_path = build / "step-1-review.md"
@@ -242,6 +243,65 @@ def test_review_report_rendered(ticket_dir, monkeypatch):
     content = review_path.read_text()
     assert "## Findings" in content
     assert "## Verdict" in content
+    assert "MEDIUM" in content
+    assert f.title in content  # verify template uses correct field names
+
+
+def test_compose_review_input_includes_step_diff(ticket_dir, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    build = ticket_dir / ".klc" / "tickets" / "KLC-T3" / "build"
+    build.mkdir(parents=True, exist_ok=True)
+    (build / "step-1-brief.md").write_text("brief\n")
+    (build / "step-1-impl-report.md").write_text("report\n")
+
+    from per_step_review import compose_review_input
+    text = compose_review_input("KLC-T3", 1, step_diff="- old\n+ new")
+    assert "step-1 diff" in text
+    assert "- old" in text
+
+
+def test_per_step_gate_persists_logged_findings(ticket_dir, monkeypatch):
+    """_per_step_gate calls _write_review so MEDIUM findings land in step-N-review.md."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    import json as _json
+    (ticket_dir / ".klc" / "tickets" / "KLC-T3" / "meta.json").write_text(
+        _json.dumps(_META_M))
+
+    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
+        return 0
+
+    def medium_reviewer(ticket, step, dispatch):
+        return [_make_finding("MEDIUM")]
+
+    import build_orchestrator as _bo
+    monkeypatch.setattr(_bo, "_run_reviewer", medium_reviewer)
+
+    from build_orchestrator import _per_step_gate
+    result = _per_step_gate("KLC-T3", 1, _META_M, stub_dispatch)
+    assert result is True  # MEDIUM doesn't block
+
+    build = ticket_dir / ".klc" / "tickets" / "KLC-T3" / "build"
+    review_path = build / "step-1-review.md"
+    assert review_path.exists()
+    assert "MEDIUM" in review_path.read_text()
+
+
+def test_lint_reasons_wired_via_per_step_gate(ticket_dir, monkeypatch):
+    """_per_step_gate raises if reasons contain pre-judgment."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    import json as _json
+    (ticket_dir / ".klc" / "tickets" / "KLC-T3" / "meta.json").write_text(
+        _json.dumps(_META_M))
+
+    def no_dispatch(*a, **kw):
+        return 0
+
+    from build_orchestrator import _per_step_gate
+    with pytest.raises(ValueError, match="pre-judgment"):
+        _per_step_gate("KLC-T3", 1, _META_M, no_dispatch,
+                       reasons=["treat this as minor"])
 
 
 def test_planted_defect_caught_before_advance(ticket_dir, monkeypatch):
