@@ -165,3 +165,82 @@ def test_compose_review_input_contains_brief_and_report(ticket_dir, monkeypatch)
     text = compose_review_input("KLC-T3", 1)
     assert "brief content" in text
     assert "green" in text
+
+
+# ---------------------------------------------------------------------------
+# step-3 tests: post-green hook in build orchestrator
+# ---------------------------------------------------------------------------
+
+def _make_finding(sev="HIGH"):
+    from findings import Finding
+    return Finding(rule_name="r", severity=sev, file="f.py", line=1,
+                   title="t", body="b", fix=None, reviewer="test")
+
+
+def test_post_green_hook_blocks_until_resolved(ticket_dir, monkeypatch):
+    """Stub reviewer returns CRITICAL on first call, empty on second; step-2
+    is not dispatched until re-review clears blocking findings."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    import json as _json
+    (ticket_dir / ".klc" / "tickets" / "KLC-T3" / "meta.json").write_text(
+        _json.dumps(_META_M))
+
+    build_calls = []
+    review_calls = []
+    review_results = [[_make_finding("CRITICAL")], []]  # first blocked, second clear
+
+    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
+        build_calls.append(str(prompt_path))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
+        return 0
+
+    def stub_reviewer(ticket, step, dispatch):
+        review_calls.append(step)
+        return review_results.pop(0) if review_results else []
+
+    from build_orchestrator import run_build
+    import build_orchestrator as _bo
+    monkeypatch.setattr(_bo, "_run_reviewer", stub_reviewer)
+
+    rc = run_build("KLC-T3", dispatch=stub_dispatch)
+    assert rc == 0
+    # build dispatch: step-1 (impl) + step-1 fix + step-2 (impl)
+    assert any("step-1" in c for c in build_calls)
+    assert any("step-2" in c for c in build_calls)
+    # reviewer ran twice for step-1 (first found CRITICAL, second cleared)
+    assert review_calls.count(1) == 2
+
+
+def test_planted_defect_caught_before_advance(ticket_dir, monkeypatch):
+    """Reviewer always returns CRITICAL; after PER_STEP_REREVIEW_CAP re-reviews
+    step-1 is marked blocked and step-2 is never dispatched."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    import json as _json
+    (ticket_dir / ".klc" / "tickets" / "KLC-T3" / "meta.json").write_text(
+        _json.dumps(_META_M))
+
+    build_calls = []
+
+    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
+        build_calls.append(str(prompt_path))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
+        return 0
+
+    def always_critical(ticket, step, dispatch):
+        return [_make_finding("CRITICAL")]
+
+    from build_orchestrator import run_build, PER_STEP_REREVIEW_CAP
+    import build_orchestrator as _bo
+    monkeypatch.setattr(_bo, "_run_reviewer", always_critical)
+
+    rc = run_build("KLC-T3", dispatch=stub_dispatch)
+    assert rc != 0
+
+    # step-2 was never dispatched as an impl step
+    assert not any("step-2-brief" in c for c in build_calls)
+
+    from build_ledger import Ledger
+    led = Ledger.load("KLC-T3")
+    assert led.steps[0].state == "blocked"
