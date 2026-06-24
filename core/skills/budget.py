@@ -68,12 +68,28 @@ def _write(ticket: str, meta: dict) -> None:
     )
 
 
+def _maybe_escalate(ticket: str, counter: str, current: int, limit: int) -> str | None:
+    """Return an ARCH_REVIEW advisory string when red-fix budget hits its limit."""
+    if counter == "red_test_fix_attempts" and current == limit:
+        return (
+            f"ARCH_REVIEW {ticket}: red-fix budget exhausted — "
+            "revisit hypothesis/architecture before retrying"
+        )
+    return None
+
+
 def cmd_bump(args: argparse.Namespace) -> int:
     meta = _meta(args.ticket)
     budgets = meta.setdefault("budgets", {})
     budgets[args.counter] = int(budgets.get(args.counter, 0)) + args.by
     _write(args.ticket, meta)
-    print(json.dumps({args.counter: budgets[args.counter]}))
+    current = budgets[args.counter]
+    limits = _load_limits()
+    limit = limits.get(args.counter)
+    advisory = _maybe_escalate(args.ticket, args.counter, current, limit) if limit is not None else None
+    print(json.dumps({args.counter: current}))
+    if advisory:
+        print(advisory)
     return 0
 
 

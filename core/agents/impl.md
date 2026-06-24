@@ -208,9 +208,19 @@ For every step you complete:
 | `mutation_fix_attempts` | each iteration where mutation score is below threshold | 3 |
 | `regenerate_impl_plan` | each time a human asks for a fresh plan | 3 |
 
-Hitting a limit writes `meta.json:blocked_reason` and the phase
-halts. Never try to "work around" a limit — escalate to the human
-by adding a `[!QUESTION]` or `[!CONFLICT]` item with context.
+Hitting a limit writes `meta.json:blocked_reason` and the phase halts.
+Never try to "work around" a limit — escalate to the human by adding a
+`[!QUESTION]` or `[!CONFLICT]` item with context.
+
+When `red_test_fix_attempts` hits its limit, `budget.py` emits an
+`ARCH_REVIEW` advisory:
+
+```
+ARCH_REVIEW <ticket>: red-fix budget exhausted — revisit hypothesis/architecture before retrying
+```
+
+This signals that the fix hypothesis was likely wrong. The human should re-examine the
+root-cause analysis (`repro.md` for bug tickets) or the design before retrying.
 
 ## When to stop and ask
 
