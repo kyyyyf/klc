@@ -81,3 +81,63 @@ def test_has_failing_test_ref_absent():
     from repro_check import has_failing_test_ref
     repro = _VALID_REPRO.replace("FAILING-TEST: tests/test_auth.py::test_login_redirects\n", "")
     assert has_failing_test_ref(repro, "") is False
+
+
+# ---------------------------------------------------------------------------
+# step-2: kind=bug discovery gate
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def bug_ticket_dir(tmp_path, monkeypatch):
+    """Minimal bug ticket directory — repro.md present and valid."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    tdir = tmp_path / ".klc" / "tickets" / "KLC-T4"
+    tdir.mkdir(parents=True)
+    import json
+    meta = {
+        "ticket": "KLC-T4", "kind": "bug", "track": "M",
+        "phase": "discovery:work", "layer": "core",
+        "affected_modules": ["src"],
+        "estimate": {"complexity": 2, "uncertainty": 1, "risk": 1, "manual": 0, "total": 4},
+        "risk_tags": [],
+    }
+    (tdir / "meta.json").write_text(json.dumps(meta))
+    (tdir / "repro.md").write_text(_VALID_REPRO)
+    return tmp_path
+
+
+def test_bug_blocked_without_repro(bug_ticket_dir):
+    """kind=bug without repro.md: _bug_discovery_gate returns (False, msg with 'repro')."""
+    (bug_ticket_dir / ".klc" / "tickets" / "KLC-T4" / "repro.md").unlink()
+    from phase_completion import _bug_discovery_gate
+    ok, msg = _bug_discovery_gate("KLC-T4", "", {"kind": "bug"})
+    assert not ok
+    assert "repro" in msg.lower()
+
+
+def test_bug_blocked_without_marker(bug_ticket_dir):
+    """kind=bug with repro.md but no FAILING-TEST marker: gate returns (False, msg)."""
+    repro_no_marker = _VALID_REPRO.replace(
+        "FAILING-TEST: tests/test_auth.py::test_login_redirects\n", "")
+    (bug_ticket_dir / ".klc" / "tickets" / "KLC-T4" / "repro.md").write_text(repro_no_marker)
+    from phase_completion import _bug_discovery_gate
+    ok, msg = _bug_discovery_gate("KLC-T4", "", {"kind": "bug"})
+    assert not ok
+    assert "FAILING-TEST" in msg
+
+
+def test_feature_gate_is_noop(bug_ticket_dir):
+    """Non-bug tickets: _bug_discovery_gate is a no-op (AC-3)."""
+    # Even without repro.md, feature meta passes straight through
+    (bug_ticket_dir / ".klc" / "tickets" / "KLC-T4" / "repro.md").unlink()
+    from phase_completion import _bug_discovery_gate
+    ok, msg = _bug_discovery_gate("KLC-T4", "", {"kind": "feature"})
+    assert ok
+    assert msg == ""
+
+
+def test_bug_passes_with_valid_repro_and_marker(bug_ticket_dir):
+    """kind=bug with valid repro.md + FAILING-TEST marker: gate passes."""
+    from phase_completion import _bug_discovery_gate
+    ok, msg = _bug_discovery_gate("KLC-T4", "", {"kind": "bug"})
+    assert ok, msg
