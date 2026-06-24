@@ -178,3 +178,72 @@ def test_orchestrator_dispatches_each_pending_step(ticket_dir, monkeypatch):
     led = Ledger.load("KLC-T2")
     assert led.steps[0].state == "green"
     assert led.steps[1].state == "green"
+
+
+# ---------------------------------------------------------------------------
+# step-3 tests: resume + blocked semantics
+# ---------------------------------------------------------------------------
+
+def test_resume_skips_completed_steps(ticket_dir, monkeypatch):
+    """Seed step-1 green in ledger; run_build dispatches only step-2."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+
+    from build_ledger import Ledger
+    led = Ledger.from_plan("KLC-T2")
+    led.mark("step-1", "green", model="m")
+    led.save()
+
+    calls = []
+
+    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
+        calls.append(str(prompt_path))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
+        return 0
+
+    from build_orchestrator import run_build
+    rc = run_build("KLC-T2", dispatch=stub_dispatch)
+
+    assert rc == 0
+    assert len(calls) == 1
+    assert "step-2" in calls[0]
+
+
+def test_blocked_step_halts_and_is_resumable(ticket_dir, monkeypatch):
+    """Stub returns non-zero for step-1 → step-1 blocked, step-2 never dispatched.
+    Second run re-dispatches step-1 (crash recovery: blocked → pending on reload).
+    """
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+
+    call_log = []
+
+    def failing_dispatch(phase_id, prompt_path, out_path, *, track=None):
+        call_log.append(("fail", str(prompt_path)))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("## Outcome\nerror\n", encoding="utf-8")
+        return 1
+
+    from build_orchestrator import run_build
+    rc = run_build("KLC-T2", dispatch=failing_dispatch)
+
+    assert rc != 0
+    assert len(call_log) == 1
+    assert "step-1" in call_log[0][1]
+
+    from build_ledger import Ledger
+    led = Ledger.load("KLC-T2")
+    assert led.steps[0].state == "blocked"
+    assert led.steps[1].state == "pending"
+
+    # Second run re-dispatches the blocked step (treated as pending)
+    call_log.clear()
+
+    def success_dispatch(phase_id, prompt_path, out_path, *, track=None):
+        call_log.append(("ok", str(prompt_path)))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
+        return 0
+
+    rc2 = run_build("KLC-T2", dispatch=success_dispatch)
+    assert rc2 == 0
+    assert len(call_log) == 2  # step-1 retried + step-2
