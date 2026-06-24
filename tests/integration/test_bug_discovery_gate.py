@@ -167,18 +167,22 @@ def test_repro_template_has_failing_test_placeholder():
     assert "FAILING-TEST:" in rendered
 
 
-def test_repro_template_rendered_passes_gate_roundtrip():
-    """Rendered template has correct headings and has_failing_test_ref returns True."""
+def test_repro_template_rendered_rejected_by_gate():
+    """Rendered-but-unfilled repro.md.j2 is rejected by validate_repro and has_failing_test_ref.
+
+    This confirms an agent cannot satisfy the bug gate by writing the template verbatim
+    without filling in real reproduction content (AC-1 / AC-2 integrity check).
+    """
     from jinja2 import Environment, FileSystemLoader
     from repro_check import validate_repro, has_failing_test_ref
     templates_dir = _FW_ROOT / "core" / "templates"
     env = Environment(loader=FileSystemLoader(str(templates_dir)), keep_trailing_newline=True)
     rendered = env.get_template("repro.md.j2").render(ticket="KLC-TEST")
-    # Template has guide-comment bodies which count as non-empty — sections present
+    # HTML comment bodies are stripped → sections appear empty → must fail
     errors = validate_repro(rendered)
-    assert errors == [], f"Rendered template should pass validate_repro: {errors}"
-    # FAILING-TEST placeholder is present so the marker check passes
-    assert has_failing_test_ref(rendered, "") is True
+    assert len(errors) > 0, "Unfilled template should be rejected by validate_repro"
+    # FAILING-TEST: tests/REPLACE::test_REPLACE is a placeholder → must be rejected
+    assert has_failing_test_ref(rendered, "") is False
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +217,60 @@ def test_red_fix_limit_emits_arch_review(tmp_path, monkeypatch):
     output = out.getvalue()
     assert "ARCH_REVIEW" in output
     assert "KLC-T5" in output
+
+
+_MTRACK_BUG_SPEC = textwrap.dedent("""\
+    ---
+    ticket: KLC-T7
+    kind: bug
+    authority: human
+    risk_tags: []
+    ---
+
+    ## Goals
+    Fix the login redirect bug.
+
+    ## Acceptance Criteria
+    - [ ] AC-1: Login redirects to /dashboard after fix.
+
+    ## Affected
+    src/auth.py
+
+    ## Estimate
+    | Axis | Score |
+    |------|-------|
+    | total | 5 |
+
+    ## Approaches
+
+    - Option A: Fix the root cause in auth.py middleware.
+    - Option B: Add a redirect shim in the view layer.
+
+    Picked: Option A — root cause is cleaner.
+""")
+
+
+def test_discovery_full_wired_bug_gate(tmp_path, monkeypatch):
+    """can_complete_discovery blocks for M-track kind=bug without repro.md (wiring check)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    tdir = tmp_path / ".klc" / "tickets" / "KLC-T7"
+    tdir.mkdir(parents=True)
+    import json
+    meta = {
+        "ticket": "KLC-T7", "kind": "bug", "track": "M",
+        "phase": "discovery:work", "layer": "core",
+        "affected_modules": ["src"],
+        "estimate": {"complexity": 2, "uncertainty": 1, "risk": 1, "manual": 0, "total": 4},
+        "risk_tags": [],
+        "track_source": "operator",  # skip floor guard
+    }
+    (tdir / "meta.json").write_text(json.dumps(meta))
+    (tdir / "spec.md").write_text(_MTRACK_BUG_SPEC)
+    # No repro.md — gate must block
+    from phase_completion import can_complete_discovery
+    ok, msg = can_complete_discovery("KLC-T7")
+    assert not ok
+    assert "repro" in msg.lower()
 
 
 def test_discovery_lite_wired_bug_gate(tmp_path, monkeypatch):
