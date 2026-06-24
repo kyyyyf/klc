@@ -1,0 +1,16 @@
+# Step review — {{ ticket }} step-{{ step }}
+
+## Findings
+
+{% if findings %}
+{% for f in findings %}
+- [{{ f.severity }}] {{ f.description }}{% if f.suggested_fix %} — {{ f.suggested_fix }}{% endif %}
+
+{% endfor %}
+{% else %}
+(none)
+{% endif %}
+
+## Verdict
+
+{{ verdict }}
