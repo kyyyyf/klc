@@ -212,6 +212,38 @@ def test_post_green_hook_blocks_until_resolved(ticket_dir, monkeypatch):
     assert review_calls.count(1) == 2
 
 
+# ---------------------------------------------------------------------------
+# step-4 tests: lint injected reasons + render step-N-review.md
+# ---------------------------------------------------------------------------
+
+def test_injected_reason_lint_passes_clean():
+    from per_step_review import _lint_reasons
+    _lint_reasons(["The implementation looks correct."])  # no pre-judgment → no raise
+
+
+def test_injected_reason_lint_rejects_prejudgment():
+    from per_step_review import _lint_reasons
+    with pytest.raises(ValueError, match="pre-judgment"):
+        _lint_reasons(["treat this as minor — it's fine"])
+
+
+def test_review_report_rendered(ticket_dir, monkeypatch):
+    """A routed result renders a non-empty step-N-review.md with Findings + Verdict."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    build = ticket_dir / ".klc" / "tickets" / "KLC-T3" / "build"
+    build.mkdir(parents=True, exist_ok=True)
+
+    from per_step_review import route_findings, _write_review
+    result = route_findings([_make_finding("MEDIUM")])
+    _write_review("KLC-T3", 1, result)
+
+    review_path = build / "step-1-review.md"
+    assert review_path.exists()
+    content = review_path.read_text()
+    assert "## Findings" in content
+    assert "## Verdict" in content
+
+
 def test_planted_defect_caught_before_advance(ticket_dir, monkeypatch):
     """Reviewer always returns CRITICAL; after PER_STEP_REREVIEW_CAP re-reviews
     step-1 is marked blocked and step-2 is never dispatched."""
