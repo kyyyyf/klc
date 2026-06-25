@@ -22,4 +22,8 @@ def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc build-run", description=__doc__)
     ap.add_argument("ticket")
     args = ap.parse_args(argv)
-    return build_orchestrator.run_build(args.ticket)
+    try:
+        return build_orchestrator.run_build(args.ticket)
+    except ValueError as exc:
+        sys.stderr.write(f"klc build-run: {exc}\n")
+        return 1
