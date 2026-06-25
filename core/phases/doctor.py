@@ -302,13 +302,27 @@ def _jira_sync_conflicts() -> list[str]:
     return errs
 
 
+def _run_tests(path: str = "tests/") -> int:
+    return subprocess.call([sys.executable, "-m", "pytest", path,
+                            "-q", "--ignore=tests/fixtures"])
+
+
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc doctor")
     ap.add_argument("--json", action="store_true",
                     help="machine-readable JSON output")
     ap.add_argument("--strict", action="store_true",
                     help="Fail on missing project-specific tools (default: warn only)")
+    ap.add_argument("--tests", action="store_true",
+                    help="Run the test suite as a gate; exit 0 only if all tests pass")
+    ap.add_argument("--tests-path", default="tests/",
+                    help="Path to pass to pytest (default: tests/); useful in tests")
     args = ap.parse_args(argv)
+
+    if args.tests:
+        rc = _run_tests(args.tests_path)
+        print("doctor --tests: PASS" if rc == 0 else "doctor --tests: FAIL")
+        return 0 if rc == 0 else 1
 
     results = []
     overall_ok = True
