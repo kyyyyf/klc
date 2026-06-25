@@ -81,3 +81,19 @@ Step-7 re-run post-fixes: **441 passed, 11 skipped, 0 failed** — no regression
 ## Verdict
 
 **APPROVED**. All AC pass. All HIGH and MEDIUM findings from both reviewers fixed before this report was written. Two LOW findings (style) also fixed. Branch is ready to advance to manual.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/skills', 'core/templates', 'tests', 'docs']
+  actual modules:  ['core/phases', 'core/skills', 'core/templates', 'docs', 'phase_completion', 'runner', 'tests']
+  unplanned:       ['core/phases', 'phase_completion', 'runner']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-050`.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/phases', 'core/skills', 'core/templates', 'tests', 'docs']
+  actual modules:  ['core/phases', 'core/skills', 'core/templates', 'docs', 'phase_completion', 'runner', 'tests']
+  unplanned:       ['phase_completion', 'runner']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-050`.
