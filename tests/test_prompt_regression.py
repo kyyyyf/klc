@@ -277,3 +277,14 @@ def test_planning_prompts_endtoend_rule():
             f"{name}: missing test-coverage discipline rule "
             "(expected: 'public entry point' — AC-4 KLC-051)"
         )
+
+
+def test_planning_prompts_api_check_directive():
+    """AC-5 (KLC-051): design.md and discovery-lite.md must instruct agent to run plan_quality.unresolved_api_refs."""
+    from tests.prompt_harness import _FW_ROOT
+    AGENTS = _FW_ROOT / "core" / "agents"
+    for name in ("design.md", "discovery-lite.md"):
+        text = (AGENTS / name).read_text(encoding="utf-8")
+        assert "plan_quality.unresolved_api_refs" in text, (
+            f"{name}: missing self-review directive for plan_quality.unresolved_api_refs (AC-5 KLC-051)"
+        )
