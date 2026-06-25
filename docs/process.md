@@ -683,6 +683,27 @@ klc/                           # framework repo
   docs/                        # this directory
   tests/smoke.py
 
+## Suite-green gate (KLC-049)
+
+The full test suite must remain green across all phases.
+
+**`klc doctor --tests`** runs `python3 -m pytest tests/ -q --ignore=tests/fixtures` and
+exits 0 only when every non-skipped test passes.  Use it as a gate after each feature
+branch lands:
+
+```
+klc doctor --tests
+# or with a specific path for CI:
+klc doctor --tests --tests-path tests/integration/
+```
+
+**Fixture-repair rule:** when a gate is added to a shared completion function
+(`can_complete_discovery`, `can_complete_discovery_lite`, etc.), the implementing
+agent **must** update all sibling test fixtures in the same change.  A gate that
+silently breaks existing tests defeats the purpose of gating.
+
+---
+
 <project>/
   .klc/
     config/                    # per-project overrides
