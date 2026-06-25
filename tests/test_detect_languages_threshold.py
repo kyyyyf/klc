@@ -24,22 +24,18 @@ class TestLanguageDetectionThreshold(unittest.TestCase):
         (self.klc_dir / "index").mkdir()
         (self.klc_dir / "config").mkdir()
 
-        # Mock _paths to use temp directory
+        # Mock klc_index_dir to use temp directory
         import detect_languages
         self.original_klc_index_dir = detect_languages.klc_index_dir
-        self.original_klc_config_dir = detect_languages.klc_config_dir
         detect_languages.klc_index_dir = lambda: self.klc_dir / "index"
-        detect_languages.klc_config_dir = lambda: self.klc_dir / "config"
 
     def tearDown(self):
         """Clean up temp directories and restore mocks."""
         import shutil
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
-        # Restore original functions
         import detect_languages
         detect_languages.klc_index_dir = self.original_klc_index_dir
-        detect_languages.klc_config_dir = self.original_klc_config_dir
 
     def test_threshold_below_9_files_not_detected(self):
         """Test 9 Python files (below threshold=10) - should NOT detect."""
@@ -93,6 +89,7 @@ class TestLanguageDetectionThreshold(unittest.TestCase):
         self.assertIn("typescript", languages)
         self.assertNotIn("cpp", languages)
 
+    @unittest.skip("detect_languages no longer reads profile.yml (profile detection removed)")
     def test_threshold_override_by_profile(self):
         """Test that profile.yml explicit language overrides threshold."""
         from detect_languages import detect
