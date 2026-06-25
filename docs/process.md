@@ -730,6 +730,38 @@ to the `{step: int, red_not_applicable: bool}` shape the caller at line 466 expe
 duplicate parser regex is gone.  The stale `core/templates/impl-plan.md.j2` and
 `impl-plan-short.md.j2` (unreferenced, missing gate-required fields) were removed.
 
+## Plan-quality gate (KLC-051)
+
+Added in KLC-051 (2026-06-25): mechanical check at design and discovery-lite ack that catches
+invented or misspelled APIs before build.
+
+**plan-quality gate** (`core/skills/plan_quality.py::unresolved_api_refs`): extracts
+`module.attr(` references from fenced code sketches in `impl-plan.md`. For every `module` that
+is the basename of a real `core/skills/*.py` file, flags any `attr` not defined at the top
+level of that module. Symbols introduced by the plan's own sketches (`def`/`class` inside a
+fenced block) are exempt. Stdlib and third-party prefixes are ignored (low false-positive by
+design). Wired into `phase_completion.can_complete_discovery_lite` (S) and `can_complete`
+(design/M-L ack) immediately after the plan-completeness (KLC-036) check.
+
+**Test-coverage discipline**: all three planning prompts (`design.md`, `discovery-lite.md`,
+`test-planner.md`) now carry a mandatory rule: every AC describing a CLI, gate, or wired
+behaviour maps to a test at the public entry point (not a private helper); every gate/validator
+AC maps to a negative test (gate bites) plus a fail-closed test. Enforced by a prompt-regression
+assert (`tests/test_prompt_regression.py::test_planning_prompts_endtoend_rule`).
+
+**Build-ready prep: adversarial completeness-audit** — before declaring a ticket build-ready
+(before `design:ack` or `discovery-lite:ack`), launch a fresh subagent to read `spec.md`,
+`test-plan.md`, and `impl-plan.md` and answer:
+
+1. Does every wired-behaviour AC have a test at the PUBLIC entry point?
+2. Does every gate/validator AC have a negative test (gate bites) and a fail-closed test?
+3. Do any code sketches call a `core/skills` API that does not exist (`plan_quality.unresolved_api_refs`)?
+4. Is any helper defined but never wired into a real call site?
+
+This is the planning analog of the mandatory code-reviewer required before `review-report.md`.
+Findings block ack until resolved; the gate (`unresolved_api_refs`) is mechanical; the rest is
+judgment confirmed by the audit.
+
 ---
 
 <project>/
