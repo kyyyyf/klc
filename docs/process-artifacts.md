@@ -16,6 +16,7 @@ Filenames are stable — skills and agents look for them by name.
   meta.json                  # source of truth for phase, track, metrics
   raw.md                     # user's original description (immutable)
   spec.md                    # discovery output (authority: human)
+  options-lite.md            # S-track: ≥2 approach options + Picked line (gate reads this)
   test-plan.md               # test-planner output
   design/
     options.md               # three options + recommendation
@@ -93,6 +94,30 @@ options / non-goals / rollout sections.
 must be either LSP-verified (`src=path:line`, mandatory) or an explicit
 assumption (`[!ASSUMPTION if-false=scope-may-expand]`). Unanchored
 module names without either marker are not permitted.
+
+### `options-lite.md`
+
+Written by `discovery-lite` for **S-track only** (XS is exempt). Contains ≥ 2 labelled
+approach options and a `Picked:` line. The ack gate (`can_complete_discovery_lite`) reads
+this file and blocks until both conditions are met.
+
+```markdown
+## Approach options
+- Option A: <name> — <one-line trade-off>
+- Option B: <name> — <one-line trade-off>
+
+Picked: Option A — <reason>
+```
+
+**Re-route signals** optionally appended at the end of `spec.md` (not `options-lite.md`):
+
+| Signal | Emitted when | Advisory surfaced by `can_complete_discovery_lite` |
+|--------|-------------|---------------------------------------------------|
+| `DISCOVERY_DECOMPOSE` | Ticket spans ≥ 3 independent subsystems | "consider decomposing …" |
+| `DISCOVERY_LITE_UPGRADE_M` | S scope exceeds S ceiling | "re-route via `klc retrack <KEY> M`" |
+
+Both signals are non-blocking — the advisory is returned in the `can_complete` message, not
+as a hard block.
 
 ### `test-plan.md`
 
