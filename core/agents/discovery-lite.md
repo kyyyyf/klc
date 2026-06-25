@@ -159,8 +159,10 @@ Before writing `spec.md`, work through these four steps in order:
 
 1. **Explore context first.** Read `raw.md`, `CLAUDE.md`, and related tickets before
    forming any opinion on approach.
-2. **Ask one question at a time.** Never batch questions. Ask the single most important
-   unknown, wait for an answer, then ask the next if needed.
+2. **Ask one question at a time.** Use the `AskUserQuestion` tool — exactly one
+   question per call — and wait for the answer before asking the next. If context
+   already answers every material unknown, skip questioning and go straight to the
+   approaches step. Never batch questions.
 3. **Present 2-3 approaches with explicit trade-offs.** For each: name, one-line
    description, pros, cons. Do not recommend without evidence.
 4. **Record approaches + pick in `options-lite.md`.** Write the full shortlist AND the
