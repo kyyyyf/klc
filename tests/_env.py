@@ -22,7 +22,7 @@ def require_skills_executable() -> "pytest.MarkDecorator":
     doctor's skills-executable check will fail independently of the
     project-deps scenario being tested, making the test result misleading.
     """
-    sentinel = FRAMEWORK_ROOT / "core" / "phases" / "doctor.py"
+    sentinel = FRAMEWORK_ROOT / "core" / "skills" / "artefacts.py"
     return pytest.mark.skipif(
         not os.access(sentinel, os.X_OK),
         reason=(

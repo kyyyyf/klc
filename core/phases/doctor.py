@@ -302,9 +302,13 @@ def _jira_sync_conflicts() -> list[str]:
     return errs
 
 
-def _run_tests(path: str = "tests/") -> int:
+_FW_TESTS = str(Path(__file__).resolve().parents[2] / "tests")
+_FW_FIXTURES = str(Path(__file__).resolve().parents[2] / "tests" / "fixtures")
+
+
+def _run_tests(path: str = _FW_TESTS) -> int:
     return subprocess.call([sys.executable, "-m", "pytest", path,
-                            "-q", "--ignore=tests/fixtures"])
+                            "-q", f"--ignore={_FW_FIXTURES}"])
 
 
 def run(argv: list[str]) -> int:
@@ -315,8 +319,8 @@ def run(argv: list[str]) -> int:
                     help="Fail on missing project-specific tools (default: warn only)")
     ap.add_argument("--tests", action="store_true",
                     help="Run the test suite as a gate; exit 0 only if all tests pass")
-    ap.add_argument("--tests-path", default="tests/",
-                    help="Path to pass to pytest (default: tests/); useful in tests")
+    ap.add_argument("--tests-path", default=_FW_TESTS,
+                    help="Path to pass to pytest (default: framework tests/); useful in tests")
     args = ap.parse_args(argv)
 
     if args.tests:
