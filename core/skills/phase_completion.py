@@ -17,6 +17,7 @@ _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
 from core.shared.paths import klc_ticket_meta_file  # noqa: E402
+import re  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
@@ -230,7 +231,6 @@ def _sync_risk_tags(ticket: str) -> None:
         fm_end = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "---"), None)
         if fm_end is None:
             return
-        import re
         risk_tags: list[str] = []
         for line in lines[1:fm_end]:
             m = re.match(r"risk_tags\s*:\s*\[([^\]]*)\]", line.strip())
@@ -368,7 +368,6 @@ def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
     Each entry: {"step": int, "red_not_applicable": bool}.
     Returns [] when impl-plan.md is absent or unreadable.
     """
-    import re as _re
     import impl_plan_check as _ipc
     impl_plan_path = ticket_dir / "impl-plan.md"
     if not impl_plan_path.exists():
@@ -380,7 +379,7 @@ def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
     out = []
     for s in _ipc.parse_impl_plan_steps(text):
         step_num = int(s["id"].split("-")[1])
-        red_m = _re.search(r"(?i)\bRED:(.+)", s["body"])
+        red_m = re.search(r"(?i)\bRED:(.+)", s["body"])
         red_val = red_m.group(1).strip().lower() if red_m else ""
         out.append({
             "step": step_num,
