@@ -360,6 +360,8 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
     _sync_risk_tags(ticket)
     if _spec_structure.has_decompose_signal(text):
         return True, "DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building"
+    if _spec_structure.has_upgrade_m_signal(text):
+        return True, "DISCOVERY_LITE_UPGRADE_M: scope exceeds S — re-route via 'klc retrack <KEY> M'"
     return True, ""
 
 
