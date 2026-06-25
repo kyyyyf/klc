@@ -297,6 +297,26 @@ def test_upgrade_m_signal_recognized(tmp_path, monkeypatch):
     assert "retrack" in msg, f"expected re-route advisory in msg, got: {msg!r}"
 
 
+def test_both_signals_both_surfaced(tmp_path, monkeypatch):
+    """Both DISCOVERY_DECOMPOSE and DISCOVERY_LITE_UPGRADE_M must both appear in advisory."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+
+    d = _make_s_ticket(tmp_path, "KLC-B01")
+    (d / "spec.md").write_text(
+        _VALID_S_SPEC.format(ticket="KLC-B01")
+        + "\nDISCOVERY_DECOMPOSE\nDISCOVERY_LITE_UPGRADE_M\n",
+        encoding="utf-8",
+    )
+    (d / "options-lite.md").write_text(
+        "- Option A: fast impl\n- Option B: safer impl\nPicked: Option A — lower risk\n",
+        encoding="utf-8",
+    )
+    ok, msg = can_complete_discovery_lite("KLC-B01")
+    assert ok, f"both signals must not block ack, got: {msg!r}"
+    assert "DISCOVERY_DECOMPOSE" in msg, f"expected DECOMPOSE in msg, got: {msg!r}"
+    assert "DISCOVERY_LITE_UPGRADE_M" in msg, f"expected UPGRADE_M in msg, got: {msg!r}"
+
+
 def test_socratic_impl_plan_gate_still_bites(tmp_path, monkeypatch):
     """Removing impl-plan.md from an otherwise-complete S-ticket re-blocks discovery-lite ack.
 
