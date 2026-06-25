@@ -158,7 +158,14 @@ def _make_ticket(tmp_path, ticket, spec_text, impl_plan_text):
     td.mkdir(parents=True)
     (td / "spec.md").write_text(spec_text.format(ticket=ticket), encoding="utf-8")
     (td / "impl-plan.md").write_text(impl_plan_text.format(ticket=ticket), encoding="utf-8")
-    (td / "test-plan.md").write_text("# test plan\n## Acceptance coverage\n| AC | Test |\n|---|---|\n| AC-1 | test_foo |\n", encoding="utf-8")
+    (td / "test-plan.md").write_text(
+        "# test plan\n## Acceptance coverage\n| AC | Test |\n|---|---|\n| AC-1 | test_foo |\n",
+        encoding="utf-8",
+    )
+    (td / "options-lite.md").write_text(
+        "# Options\n## Option A\nDo it this way.\n## Option B\nDo it another way.\nPicked: Option A\n",
+        encoding="utf-8",
+    )
     (td / "meta.json").write_text(json.dumps({
         "ticket": ticket, "phase": "discovery-lite:ack-needed",
         "track": "S", "kind": "feature",
