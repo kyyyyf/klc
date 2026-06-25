@@ -14,10 +14,14 @@ from pathlib import Path
 # Imperative pre-judgment directives. \s+ tolerates line breaks.
 _PATTERNS = [
     r"do\s+not\s+flag\s+(?:the\s+|this\s+)?\w+",
-    r"treat\s+(?:this|it|the\s+\w+)\s+as\s+minor",
+    r"don'?t\s+flag\b",
+    r"treat\s+(?:this|it|the\s+\w+)\s+as\s+(?:minor|trivial)",
+    r"treat\s+as\s+(?:minor|trivial)",
     r"mark\s+(?:this|it|the\s+\w+)\s+(?:as\s+)?minor",
     r"ignore\s+(?:the\s+|this\s+)?\w+\s+finding",
+    r"ignore\s+(?:this|the)\s+(?:issue|finding|file)\b",
     r"skip\s+(?:the\s+|this\s+)?\w+\s+check",
+    r"downgrade\s+(?:it|this|the\s+severity)\b",
 ]
 _RE = re.compile("|".join(_PATTERNS), re.IGNORECASE)
 

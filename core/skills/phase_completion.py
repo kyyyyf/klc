@@ -17,6 +17,7 @@ _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
 from core.shared.paths import klc_ticket_meta_file  # noqa: E402
+import re  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
@@ -230,7 +231,6 @@ def _sync_risk_tags(ticket: str) -> None:
         fm_end = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "---"), None)
         if fm_end is None:
             return
-        import re
         risk_tags: list[str] = []
         for line in lines[1:fm_end]:
             m = re.match(r"risk_tags\s*:\s*\[([^\]]*)\]", line.strip())
@@ -363,10 +363,12 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
 def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
     """Parse impl-plan.md and return step metadata.
 
+    Delegates to impl_plan_check.parse_impl_plan_steps (single parser) and
+    adapts the output to the shape this function's callers expect:
     Each entry: {"step": int, "red_not_applicable": bool}.
     Returns [] when impl-plan.md is absent or unreadable.
     """
-    import re as _re
+    import impl_plan_check as _ipc
     impl_plan_path = ticket_dir / "impl-plan.md"
     if not impl_plan_path.exists():
         return []
@@ -374,19 +376,16 @@ def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
         text = impl_plan_path.read_text(encoding="utf-8")
     except OSError:
         return []
-    steps = []
-    for m in _re.finditer(r"^## step-(\d+)\b", text, _re.MULTILINE):
-        step_num = int(m.group(1))
-        start = m.end()
-        nxt = _re.search(r"^## ", text[start:], _re.MULTILINE)
-        step_body = text[start : start + nxt.start()] if nxt else text[start:]
-        red_m = _re.search(r"(?i)\bRED:(.+)", step_body)
+    out = []
+    for s in _ipc.parse_impl_plan_steps(text):
+        step_num = int(s["id"].split("-")[1])
+        red_m = re.search(r"(?i)\bRED:(.+)", s["body"])
         red_val = red_m.group(1).strip().lower() if red_m else ""
-        steps.append({
+        out.append({
             "step": step_num,
             "red_not_applicable": "not applicable" in red_val,
         })
-    return steps
+    return out
 
 
 def can_complete_build(ticket: str, repo: Path | None = None) -> tuple[bool, str]:

@@ -20,6 +20,15 @@ sys.path.insert(0, str(_skills_dir))
 import models as _m
 
 
+def require_subagent_model(resolved: "_m.ResolvedModel | None") -> None:
+    """Raise ValueError if resolved has no model — hard rejection before dispatch."""
+    if resolved is None or not getattr(resolved, "model", None):
+        raise ValueError(
+            "subagent dispatch requires a resolved model — "
+            "add a phase_roles or per_track entry in config/models.yml"
+        )
+
+
 def check_subagent_dispatch(resolved: "_m.ResolvedModel",
                             *, context: str = "subagent") -> str | None:
     """Return a MODEL_NOTE if `resolved` fell back to defaults (no explicit mapping).

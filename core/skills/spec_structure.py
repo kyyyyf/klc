@@ -7,8 +7,9 @@ _APPROACH_LABEL_RE = re.compile(
     r"(?im)^\s*(?:[-*]|\d+\.|#{2,3})\s*((?:option|approach|alternative)\s*[a-z0-9]*)\b",
 )
 
-_PICKED_RE = re.compile(r"\bPicked:")
+_PICK_LINE_RE = re.compile(r"(?im)^\s*Picked:\s*(.*?)\s*$")
 _DECISION_RE = re.compile(r"\bDECISION\s+D-\d+\b")
+_PLACEHOLDER_RE = re.compile(r"^(?:<[^>]*>|tbd)$", re.IGNORECASE)
 _DECOMPOSE_RE = re.compile(r"\bDISCOVERY_DECOMPOSE\b")
 
 
@@ -24,8 +25,21 @@ def has_min_approaches(text: str, n: int = 2) -> bool:
 
 
 def recorded_pick(text: str) -> bool:
-    """True iff text contains a recorded pick marker (Picked: or DECISION D-NNN)."""
-    return bool(_PICKED_RE.search(text) or _DECISION_RE.search(text))
+    """True iff text contains a concrete pick (Picked: <non-placeholder>) or DECISION D-NNN.
+
+    Rejects empty, angle-bracket placeholders, and TBD markers.
+    """
+    if _DECISION_RE.search(text):
+        return True
+    m = _PICK_LINE_RE.search(text)
+    if not m:
+        return False
+    val = m.group(1).strip()
+    if not val:
+        return False
+    if _PLACEHOLDER_RE.match(val):
+        return False
+    return True
 
 
 def has_decompose_signal(text: str) -> bool:
