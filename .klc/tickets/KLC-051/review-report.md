@@ -83,3 +83,11 @@ Step-7 post-fix re-run in progress; expected ≥451 passed (4 additional tests a
 ## Verdict
 
 **APPROVED**. All ACs pass. Both MEDIUMs and LOW-3 fixed before this report; LOW-4 won't-fix with documented rationale. Branch ready for manual → integrate → archived.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/skills', 'core/agents', 'tests', 'docs']
+  actual modules:  ['core/agents', 'core/skills', 'docs', 'phase_completion', 'tests']
+  unplanned:       ['phase_completion']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-051`.
