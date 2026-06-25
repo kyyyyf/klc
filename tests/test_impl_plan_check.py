@@ -104,11 +104,12 @@ _SAMPLE_PLAN = (
 
 def test_single_step_parser_delegates(tmp_path):
     """phase_completion._impl_plan_steps must delegate to parse_impl_plan_steps (unified parser)."""
-    from core.skills import phase_completion, impl_plan_check
+    import impl_plan_check as _ipc  # bare name — matches what phase_completion imports
+    from core.skills import phase_completion
     (tmp_path / "impl-plan.md").write_text(_SAMPLE_PLAN)
 
-    with patch.object(impl_plan_check, "parse_impl_plan_steps",
-                      wraps=impl_plan_check.parse_impl_plan_steps) as spy:
+    with patch.object(_ipc, "parse_impl_plan_steps",
+                      wraps=_ipc.parse_impl_plan_steps) as spy:
         result = phase_completion._impl_plan_steps(tmp_path)
         spy.assert_called_once()
 
