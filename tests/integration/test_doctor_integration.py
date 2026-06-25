@@ -10,9 +10,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests._env import require_skills_executable  # noqa: E402
+
 FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent.parent
 
+_skills_executable = require_skills_executable()
 
+
+@_skills_executable
 class TestDoctorIntegration(unittest.TestCase):
     """Integration tests for klc doctor project-tools validation."""
 

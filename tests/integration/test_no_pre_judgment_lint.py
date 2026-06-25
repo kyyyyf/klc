@@ -47,8 +47,10 @@ def test_allowlist_reason_flagged(tmp_path):
         encoding="utf-8",
     )
     # Simulate what _write_job_card does: parse reasons, lint them
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "core" / "shared"))
-    from yaml import parse as _yaml_parse
+    # Import explicitly from the klc shared module, not via ambiguous 'yaml' name
+    # (bare `from yaml import parse` can resolve to PyYAML's event-parser when
+    # sys.modules['yaml'] is already real PyYAML from a prior test).
+    from core.shared.yaml import parse as _yaml_parse
     raw = _yaml_parse(allowlist.read_text()) or {}
     entries = raw.get("entries") or []
     reasons = " ".join(

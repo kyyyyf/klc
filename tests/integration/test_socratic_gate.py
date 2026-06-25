@@ -113,6 +113,19 @@ total: 4
 """
 
 
+_GATE_PASSING_IMPL_PLAN = """\
+## step-1 — do the thing
+
+- **Goal:** implement the feature
+- RED: not applicable
+- **Interfaces:** `def f() -> None`
+- **Expected:** f runs
+- **VERIFY:** pytest
+- **COMMIT:** KLC-X step-1: do the thing
+- **Affected:** src/x.py
+"""
+
+
 def _make_s_ticket(tmp_path: Path, ticket: str) -> Path:
     ticket_dir = tmp_path / ".klc" / "tickets" / ticket
     ticket_dir.mkdir(parents=True)
@@ -124,6 +137,7 @@ def _make_s_ticket(tmp_path: Path, ticket: str) -> Path:
     }
     (ticket_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     (ticket_dir / "spec.md").write_text(_VALID_S_SPEC.format(ticket=ticket), encoding="utf-8")
+    (ticket_dir / "impl-plan.md").write_text(_GATE_PASSING_IMPL_PLAN, encoding="utf-8")
     return ticket_dir
 
 
@@ -237,3 +251,25 @@ def test_decompose_signal_recognized(tmp_path, monkeypatch):
     ok, msg = can_complete_discovery_lite("KLC-D01")
     assert ok, f"DISCOVERY_DECOMPOSE must not block ack, got: {msg!r}"
     assert "DISCOVERY_DECOMPOSE" in msg, f"expected advisory note in msg, got: {msg!r}"
+
+
+def test_socratic_impl_plan_gate_still_bites(tmp_path, monkeypatch):
+    """Removing impl-plan.md from an otherwise-complete S-ticket re-blocks discovery-lite ack.
+
+    Regression guard: the fixture repair in step-2 must not defang the gate.
+    """
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    d = _make_s_ticket(tmp_path, "KLC-BITE")
+    (d / "options-lite.md").write_text(
+        "- Option A: fast impl\n- Option B: safer impl\nPicked: Option A — lower risk\n",
+        encoding="utf-8",
+    )
+    # Gate should pass with impl-plan.md present
+    ok, _ = can_complete_discovery_lite("KLC-BITE")
+    assert ok, "pre-condition: complete S-ticket should pass"
+
+    # Remove the impl-plan.md — gate should bite again
+    (d / "impl-plan.md").unlink()
+    ok2, msg2 = can_complete_discovery_lite("KLC-BITE")
+    assert not ok2, "gate must block after impl-plan.md removed"
+    assert "impl-plan" in msg2.lower(), f"expected 'impl-plan' in message, got: {msg2!r}"
