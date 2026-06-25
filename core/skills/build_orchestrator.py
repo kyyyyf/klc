@@ -127,14 +127,14 @@ def run_build(ticket: str, *, dispatch=None) -> int:
     mc = load_models()
 
     while (n := led.first_pending()) is not None:
+        resolved = mc.resolve("build", track=track)
+        require_subagent_model(resolved)
+        note = check_subagent_dispatch(resolved)
+
         brief = build_step_brief(ticket, n)
         brief_path = _brief_path(ticket, n)
         brief_path.parent.mkdir(parents=True, exist_ok=True)
         brief_path.write_text(brief, encoding="utf-8")
-
-        resolved = mc.resolve("build", track=track)
-        require_subagent_model(resolved)
-        note = check_subagent_dispatch(resolved)
         if note:
             print(note)
 
