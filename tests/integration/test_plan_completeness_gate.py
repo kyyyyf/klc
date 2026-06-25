@@ -387,3 +387,63 @@ def test_code_sketch_label_inside_fence_not_satisfying(tmp_path, monkeypatch):
     ok, msg = can_complete_discovery_lite("KLC-PC11")
     assert not ok, "expected False: Code sketch label inside fence must not satisfy field check"
     assert "impl-plan.md" in msg, f"expected 'impl-plan.md' in msg, got: {msg!r}"
+
+
+# ---------------------------------------------------------------------------
+# KLC-051 step-2: plan_quality API-existence check on M/L design path
+# ---------------------------------------------------------------------------
+
+_BAD_API_IMPL_PLAN = """\
+# Implementation plan — {ticket}
+
+## step-1 — implement helper
+**Goal:** add the helper function
+**RED:** not applicable — config-only change
+**GREEN:** update config
+**VERIFY:** `pytest tests/ -q`
+**Expected:** 1 passed
+**COMMIT:** `{ticket} step-1: add helper`
+**Affected:** module.py
+**Interfaces:** none
+**Depends-on:** none
+**Code sketch:**
+```python
+result = scan_sentinels.scan(ticket_dir)
+```
+"""
+
+_GOOD_API_IMPL_PLAN = """\
+# Implementation plan — {ticket}
+
+## step-1 — implement helper
+**Goal:** add the helper function
+**RED:** not applicable — config-only change
+**GREEN:** update config
+**VERIFY:** `pytest tests/ -q`
+**Expected:** 1 passed
+**COMMIT:** `{ticket} step-1: add helper`
+**Affected:** module.py
+**Interfaces:** none
+**Depends-on:** none
+**Code sketch:**
+```python
+result = scan_sentinels.scan_diff(ticket_dir)
+```
+"""
+
+
+def test_plan_quality_gate_blocks_bad_ref_on_design_ack(tmp_path, monkeypatch):
+    """M-track impl-plan with unresolved API ref blocks design ack."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_m_ticket(tmp_path, "KLC-PC12", impl_plan=_BAD_API_IMPL_PLAN)
+    ok, msg = can_complete(str(tmp_path / ".klc" / "tickets" / "KLC-PC12"), "design")
+    assert not ok, "bad API ref should block design ack"
+    assert "scan_sentinels.scan" in msg, f"expected ref in msg, got: {msg!r}"
+
+
+def test_plan_quality_gate_passes_good_ref_on_design_ack(tmp_path, monkeypatch):
+    """M-track impl-plan with valid API ref passes design ack."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _make_m_ticket(tmp_path, "KLC-PC13", impl_plan=_GOOD_API_IMPL_PLAN)
+    ok, msg = can_complete(str(tmp_path / ".klc" / "tickets" / "KLC-PC13"), "design")
+    assert ok, f"good API ref should pass design ack, got: {msg!r}"

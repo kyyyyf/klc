@@ -51,14 +51,17 @@ def unresolved_api_refs(impl_plan_text: str) -> list[str]:
     fenced_blocks = re.findall(r"```[^\n]*\n([\s\S]*?)```", impl_plan_text)
     fenced = "\n".join(fenced_blocks)
 
-    # Symbols introduced by the plan's own sketches (def/class at any indent)
+    # Module-level names introduced by the plan's own sketches (def/class at any indent).
+    # These exempt calls where the MODULE PREFIX itself was locally defined — e.g. an
+    # inline helper class. They do NOT exempt attr names, because a plan-local `def scan`
+    # cannot be an attribute of a real core/skills module like scan_sentinels.
     introduced = set(re.findall(r"(?m)^\s*(?:def|class)\s+(\w+)", fenced))
 
     out: set[str] = set()
     for mod, attr in re.findall(r"(?<![\w.])(\w+)\.(\w+)\s*\(", fenced):
         if mod not in known:
             continue
-        if attr in introduced:
+        if mod in introduced:
             continue
         if attr not in _defined(mod):
             out.add(
