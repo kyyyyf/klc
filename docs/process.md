@@ -704,6 +704,34 @@ silently breaks existing tests defeats the purpose of gating.
 
 ---
 
+## Gate hardening (KLC-050)
+
+Four judgment-side weaknesses hardened in KLC-050 (2026-06-25):
+
+**Broadened no-pre-judgment lint** (`core/skills/lint_review_prompts.py`): in addition to
+the canonical `do not flag X` form, `lint_text` now catches contractions and paraphrases —
+`don't flag`, `ignore this issue`, `treat as minor/trivial`, `downgrade it/this/the severity`.
+Benign review prose ("should not ignore edge cases") remains unflagged.
+
+**Placeholder-aware `recorded_pick`** (`core/skills/spec_structure.py`): `recorded_pick`
+returns False when the text after `Picked:` is empty, an angle-bracket placeholder
+(`<approach>`, `<chosen option>`), or `TBD`/`tbd`.  Only a concrete non-empty value or a
+`DECISION D-NNN` marker returns True.  Trailing whitespace does not produce a false negative.
+
+**strict model guard** (`core/skills/model_guard.py`): `require_subagent_model(resolved)`
+raises `ValueError` when `resolved` is None or has an empty model — hard rejection before
+any subprocess/dispatch is invoked.  Both `runner.run_agent` and
+`build_orchestrator.run_build` call it before dispatching; the soft `MODEL_NOTE` for
+default-fallback sources is kept as a separate, complementary signal.
+
+**Unified step parser** (`core/skills/phase_completion.py`): `_impl_plan_steps` now
+delegates to `impl_plan_check.parse_impl_plan_steps` (single regex) and adapts its output
+to the `{step: int, red_not_applicable: bool}` shape the caller at line 466 expects.  The
+duplicate parser regex is gone.  The stale `core/templates/impl-plan.md.j2` and
+`impl-plan-short.md.j2` (unreferenced, missing gate-required fields) were removed.
+
+---
+
 <project>/
   .klc/
     config/                    # per-project overrides
