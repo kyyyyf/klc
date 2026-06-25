@@ -730,6 +730,25 @@ to the `{step: int, red_not_applicable: bool}` shape the caller at line 466 expe
 duplicate parser regex is gone.  The stale `core/templates/impl-plan.md.j2` and
 `impl-plan-short.md.j2` (unreferenced, missing gate-required fields) were removed.
 
+## Discovery Socratic protocol (KLC-034)
+
+Both discovery prompts (`discovery.md` and `discovery-lite.md`) use the `AskUserQuestion`
+tool for the Socratic questioning step: exactly one question per call, waiting for the answer
+before asking the next. If context already answers every material unknown, the agent skips
+questioning and goes straight to the approaches step.
+
+**Live re-route signals** — two tokens emitted in `spec.md` when scope outgrows the track:
+
+| Signal | Meaning | Advisory |
+|--------|---------|---------|
+| `DISCOVERY_DECOMPOSE` | Ticket spans ≥ 3 independent subsystems | Decompose before building |
+| `DISCOVERY_LITE_UPGRADE_M` | S scope exceeds S ceiling | Re-route via `klc retrack <KEY> M` |
+
+Both signals are non-blocking: `can_complete_discovery_lite` returns `(True, advisory)` when
+either is present. The operator decides whether to re-route or proceed.
+
+---
+
 ## Plan-quality gate (KLC-051)
 
 Added in KLC-051 (2026-06-25): mechanical check at design and discovery-lite ack that catches
