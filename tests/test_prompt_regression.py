@@ -294,6 +294,52 @@ def test_discovery_prompts_use_askuserquestion():
         )
 
 
+# ---------------------------------------------------------------------------
+# KLC-034 step-4: behavioural one-question-at-a-time judge fixture
+# ---------------------------------------------------------------------------
+
+_SOCRATIC_FIXTURE_PATH = H._FW_ROOT / "tests" / "fixtures" / "klc-034-socratic-input.md"
+
+_ONE_QUESTION_RUBRIC = """\
+You are evaluating whether a discovery agent prompt correctly enforces the
+one-question-at-a-time Socratic protocol.
+
+The agent's prompt instructs it to use the AskUserQuestion tool — exactly one
+question per call — and wait for the answer before proceeding. Context:
+
+{prompt_excerpt}
+
+Given a ticket with multiple genuine unknowns (shown below), does the prompt
+clearly instruct the agent to ask at most ONE question before waiting?
+Answer PASS if the instructions unambiguously mandate asking one question at a
+time (with AskUserQuestion); FAIL if the instructions could be read as allowing
+the agent to batch or ask multiple questions in a single response.
+
+Ticket input with multiple unknowns:
+
+{fixture}
+"""
+
+
+def test_one_question_at_a_time_judge_fixture():
+    """AC-5 (KLC-034): judge verifies prompt instructs one question per turn; skips without key."""
+    if not H.judge_available():
+        pytest.skip(f"judge API key ({H._judge_api_key_env()}) not set")
+
+    prompt_text = (H._FW_ROOT / "core/agents/discovery-lite.md").read_text(encoding="utf-8")
+    # Extract the Socratic sub-protocol section as the relevant excerpt
+    lines = prompt_text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "Socratic sub-protocol" in l), 0)
+    end = next((i for i, l in enumerate(lines[start+1:], start+1) if l.startswith("## ")), len(lines))
+    excerpt = "\n".join(lines[start:end]).strip()
+
+    fixture = _SOCRATIC_FIXTURE_PATH.read_text(encoding="utf-8")
+    rubric = _ONE_QUESTION_RUBRIC.format(prompt_excerpt=excerpt, fixture=fixture)
+
+    result = H.judge("(evaluate the prompt instructions above, not an agent response)", rubric)
+    assert result["pass"], f"prompt does not clearly enforce one-question-at-a-time: {result['reason']}"
+
+
 def test_planning_prompts_api_check_directive():
     """AC-5 (KLC-051): design.md and discovery-lite.md must instruct agent to run plan_quality.unresolved_api_refs."""
     from tests.prompt_harness import _FW_ROOT
