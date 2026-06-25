@@ -36,6 +36,21 @@ def test_recorded_pick_rejects_prose():
     assert not spec_structure.recorded_pick("pick any approach you like")
 
 
+def test_recorded_pick_rejects_placeholder():
+    assert not spec_structure.recorded_pick("Picked: <approach>")
+    assert not spec_structure.recorded_pick("Picked: <chosen option>")
+    assert not spec_structure.recorded_pick("Picked: TBD")
+    assert not spec_structure.recorded_pick("Picked: tbd")
+    assert not spec_structure.recorded_pick("Picked:")
+    assert not spec_structure.recorded_pick("Picked:   ")
+
+
+def test_recorded_pick_accepts_concrete():
+    assert spec_structure.recorded_pick("Picked: Option A — reason")
+    assert spec_structure.recorded_pick("Picked: Option A — reason   ")  # trailing whitespace
+    assert spec_structure.recorded_pick("DECISION D-001")                # decision-only spec
+
+
 # ---------------------------------------------------------------------------
 # Step-2: gate fixtures
 # ---------------------------------------------------------------------------
