@@ -205,8 +205,10 @@ Before finalizing `spec.md`, work through these four steps in order:
 
 1. **Explore context first.** Thoroughly read all inputs (raw.md, CLAUDE.md, related
    tickets, module docs) before forming any opinion on approach.
-2. **Ask one question at a time.** Never batch questions. Stop at the single most
-   important unknown; wait for an answer; continue.
+2. **Ask one question at a time.** Use the `AskUserQuestion` tool — exactly one
+   question per call — and wait for the answer before asking the next. If context
+   already answers every material unknown, skip questioning and go straight to the
+   approaches step. Never batch questions.
 3. **Present 2-3 approaches with explicit trade-offs.** For each candidate: name,
    one-line summary, pros, cons. Record the shortlist (brief labels) in `spec.md`;
    full pros/cons detail goes in `design/options.md`.
