@@ -211,6 +211,10 @@ violations in-place:
 - **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`,
   `write tests`, `...` — none may appear outside fenced blocks.
 - **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+- **Unresolved API refs** (`plan_quality.unresolved_api_refs`): run the API-existence check
+  over the full impl-plan text. For each `module.attr(` call in a code sketch where `module`
+  is a real `core/skills` module and `attr` is not defined there, either correct the sketch
+  to use the real attribute name or add a `[!CONFLICT C-NNN]` noting the ref needs resolution.
 
 If any step still has a violation after your fix attempt, add a
 `[!CONFLICT C-NNN]` to that step describing what is missing, so the
