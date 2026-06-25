@@ -1,3 +1,12 @@
+# Agent prompt — KLC-034 · discovery:work
+
+You are working in phase **discovery**. Read the role prompt below,
+then produce the outputs listed at the bottom. When you claim the
+work is done, the human runs `klc ack KLC-034` (with `--pick N` if
+required) to confirm.
+
+## Role prompt
+
 # Discovery Agent
 
 > **Human context**: See [docs/phases/discovery.md](../../docs/phases/discovery.md) for phase overview, completion criteria, and ack rules.
@@ -205,10 +214,8 @@ Before finalizing `spec.md`, work through these four steps in order:
 
 1. **Explore context first.** Thoroughly read all inputs (raw.md, CLAUDE.md, related
    tickets, module docs) before forming any opinion on approach.
-2. **Ask one question at a time.** Use the `AskUserQuestion` tool — exactly one
-   question per call — and wait for the answer before asking the next. If context
-   already answers every material unknown, skip questioning and go straight to the
-   approaches step. Never batch questions.
+2. **Ask one question at a time.** Never batch questions. Stop at the single most
+   important unknown; wait for an answer; continue.
 3. **Present 2-3 approaches with explicit trade-offs.** For each candidate: name,
    one-line summary, pros, cons. Record the shortlist (brief labels) in `spec.md`;
    full pros/cons detail goes in `design/options.md`.
@@ -243,3 +250,22 @@ DISCOVERY_SPEC_WRITTEN <ticket-key>
 
 After which the script's `--continue` step validates meta.json and
 bumps the phase to `discovery-pending-ack`.
+
+---
+
+## Inputs you should read
+
+- [✓] `.klc/tickets/KLC-034/raw.md`
+
+---
+
+## Outputs the ack step will verify
+
+- `.klc/tickets/<key>/spec.md`
+
+## When done
+
+`klc ack KLC-034 --pick <N>`, where N is:
+
+  - `1` = approve
+  - `2` = needs-rework
