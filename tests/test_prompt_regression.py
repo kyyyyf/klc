@@ -261,3 +261,19 @@ def test_discovery_lite_prompt_has_impl_plan_self_review():
     assert "placeholder" in low, (
         "discovery-lite.md: S-track impl-plan self-review must cite placeholder tokens"
     )
+
+
+# ---------------------------------------------------------------------------
+# KLC-051 step-4: regression guard for end-to-end / negative test rule
+# ---------------------------------------------------------------------------
+
+def test_planning_prompts_endtoend_rule():
+    """AC-4 (KLC-051): all three planning prompts must carry the test-coverage discipline rule."""
+    from tests.prompt_harness import _FW_ROOT
+    AGENTS = _FW_ROOT / "core" / "agents"
+    for name in ("design.md", "discovery-lite.md", "test-planner.md"):
+        text = (AGENTS / name).read_text(encoding="utf-8")
+        assert "public entry point" in text, (
+            f"{name}: missing test-coverage discipline rule "
+            "(expected: 'public entry point' — AC-4 KLC-051)"
+        )
