@@ -21,7 +21,7 @@ for _p in (str(_PROJECT_ROOT_DIR), str(_SKILLS)):
 
 from build_ledger import Ledger  # noqa: E402
 from lifecycle import read_meta  # noqa: E402
-from model_guard import check_subagent_dispatch  # noqa: E402
+from model_guard import check_subagent_dispatch, require_subagent_model  # noqa: E402
 from models import load_models  # noqa: E402
 from task_brief import build_step_brief  # noqa: E402
 from per_step_review import should_review, route_findings  # noqa: E402
@@ -133,6 +133,7 @@ def run_build(ticket: str, *, dispatch=None) -> int:
         brief_path.write_text(brief, encoding="utf-8")
 
         resolved = mc.resolve("build", track=track)
+        require_subagent_model(resolved)
         note = check_subagent_dispatch(resolved)
         if note:
             print(note)
