@@ -34,6 +34,25 @@ def test_cli_exit_code(tmp_path):
     assert r.returncode == 1
 
 
+def test_lint_catches_paraphrases():
+    assert lint_text("don't flag this")             != []
+    assert lint_text("dont flag this")              != []
+    assert lint_text("ignore this issue")           != []
+    assert lint_text("ignore the finding")          != []
+    assert lint_text("treat as minor")              != []
+    assert lint_text("treat it as trivial")         != []
+    assert lint_text("downgrade it")                != []
+    assert lint_text("downgrade this")              != []
+    assert lint_text("downgrade the severity")      != []
+
+
+def test_lint_ignores_benign():
+    assert lint_text("should not ignore edge cases")             == []
+    assert lint_text("we must not flag performance issues late") == []
+    assert lint_text("consider downgrading the abstraction")     == []
+    assert lint_text("treat all findings as important")          == []
+
+
 def test_allowlist_reason_flagged(tmp_path):
     """_write_job_card must warn when allowlist reason contains pre-judgment text."""
     import subprocess, sys as s, json
