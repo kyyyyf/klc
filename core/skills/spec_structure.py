@@ -11,6 +11,7 @@ _PICK_LINE_RE = re.compile(r"(?im)^\s*Picked:\s*(.*?)\s*$")
 _DECISION_RE = re.compile(r"\bDECISION\s+D-\d+\b")
 _PLACEHOLDER_RE = re.compile(r"^(?:<[^>]*>|tbd)$", re.IGNORECASE)
 _DECOMPOSE_RE = re.compile(r"\bDISCOVERY_DECOMPOSE\b")
+_UPGRADE_M_RE = re.compile(r"\bDISCOVERY_LITE_UPGRADE_M\b")
 
 
 def has_min_approaches(text: str, n: int = 2) -> bool:
@@ -45,3 +46,8 @@ def recorded_pick(text: str) -> bool:
 def has_decompose_signal(text: str) -> bool:
     """True iff text contains a DISCOVERY_DECOMPOSE signal."""
     return bool(_DECOMPOSE_RE.search(text))
+
+
+def has_upgrade_m_signal(text: str) -> bool:
+    """True iff text contains a DISCOVERY_LITE_UPGRADE_M signal."""
+    return bool(_UPGRADE_M_RE.search(text))
