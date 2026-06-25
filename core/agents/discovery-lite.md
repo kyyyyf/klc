@@ -205,6 +205,10 @@ GREEN — they are the acceptance signal, not a formality.
 - **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`, `write tests`,
   `...` — none may appear outside fenced blocks.
 - **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+- **Unresolved API refs** (`plan_quality.unresolved_api_refs`): run the API-existence check
+  over the full impl-plan text. For each `module.attr(` call in a code sketch where `module`
+  is a real `core/skills` module and `attr` is not defined there, either correct the sketch
+  to use the real attribute name or add a `[!CONFLICT C-NNN]` noting the ref needs resolution.
 
 If a violation cannot be resolved inline, add a `[!CONFLICT C-NNN]` to the step
 so the reviewer can address it before ack. A plan with unresolved violations will
