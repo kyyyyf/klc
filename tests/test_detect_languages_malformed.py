@@ -24,22 +24,18 @@ class TestDetectLanguagesMalformed(unittest.TestCase):
         (self.klc_dir / "index").mkdir()
         (self.klc_dir / "config").mkdir()
 
-        # Mock _paths to use temp directory
+        # Mock klc_index_dir to use temp directory
         import detect_languages
         self.original_klc_index_dir = detect_languages.klc_index_dir
-        self.original_klc_config_dir = detect_languages.klc_config_dir
         detect_languages.klc_index_dir = lambda: self.klc_dir / "index"
-        detect_languages.klc_config_dir = lambda: self.klc_dir / "config"
 
     def tearDown(self):
         """Clean up temp directories and restore mocks."""
         import shutil
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
-        # Restore original functions
         import detect_languages
         detect_languages.klc_index_dir = self.original_klc_index_dir
-        detect_languages.klc_config_dir = self.original_klc_config_dir
 
     def test_malformed_inventory_json_graceful_degradation(self):
         """Test that malformed inventory.json is gracefully skipped."""
@@ -53,6 +49,7 @@ class TestDetectLanguagesMalformed(unittest.TestCase):
         languages = detect()
         self.assertEqual(languages, set(), "Malformed inventory.json should be skipped")
 
+    @unittest.skip("detect_languages no longer reads profile.yml (profile detection removed)")
     def test_malformed_inventory_json_with_valid_profile(self):
         """Test that malformed inventory.json doesn't prevent profile.yml from working."""
         from detect_languages import detect

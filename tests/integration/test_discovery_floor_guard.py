@@ -14,7 +14,11 @@ def _write_spec(ticket_dir: Path, ticket: str) -> None:
     spec.write_text(
         f"---\nticket: {ticket}\nkind: feature\nauthority: agent\n---\n\n"
         "## Goals\nTest.\n\n## Acceptance Criteria\n- AC-1: pass.\n\n"
-        "## Estimate\ncomplexity: 1\n",
+        "## Estimate\ncomplexity: 1\n\n"
+        # KLC-032 gate: M-track can_complete_discovery requires ≥2 approaches + pick
+        "- Option A: first approach\n"
+        "- Option B: second approach\n\n"
+        "Picked: Option A — simpler\n",
         encoding="utf-8",
     )
 

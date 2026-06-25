@@ -76,6 +76,19 @@ Test goal with substance.
 _DIRTY_PAYLOAD = "TODO fill in the details\n"
 
 
+_GATE_PASSING_IMPL_PLAN = """\
+## step-1 — do the thing
+
+- **Goal:** implement the feature
+- RED: not applicable
+- **Interfaces:** `def f() -> None`
+- **Expected:** f runs
+- **VERIFY:** pytest
+- **COMMIT:** KLC-X step-1: do the thing
+- **Affected:** src/x.py
+"""
+
+
 def _make_ticket_dir(tmp_path: Path, ticket: str = "KLC-T99") -> Path:
     ticket_dir = tmp_path / ".klc" / "tickets" / ticket
     ticket_dir.mkdir(parents=True)
@@ -89,6 +102,7 @@ def _make_ticket_dir(tmp_path: Path, ticket: str = "KLC-T99") -> Path:
         "layer": "code",
     }
     (ticket_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (ticket_dir / "impl-plan.md").write_text(_GATE_PASSING_IMPL_PLAN, encoding="utf-8")
     return ticket_dir
 
 
