@@ -51,6 +51,26 @@ result = my_helper(1)
 ```
 """
 
+_PLAN_PROSE_REF = """\
+## step-1 — something
+Use scan_sentinels.scan(ticket_dir) to analyse results (prose, not in a code fence).
+**Code sketch:**
+```python
+pass
+```
+"""
+
+_PLAN_ATTR_NAME_COLLISION = """\
+## step-1 — example
+**Code sketch:**
+```python
+def scan(x):
+    return x
+
+result = scan_sentinels.scan(ticket_dir)
+```
+"""
+
 
 def test_unresolved_api_refs_flags_missing():
     from plan_quality import unresolved_api_refs
@@ -66,6 +86,21 @@ def test_unresolved_api_refs_ignores_unknown_and_self():
     assert unresolved_api_refs(_PLAN_STDLIB_REF) == []
     # self-introduced symbol should not be flagged
     assert unresolved_api_refs(_PLAN_SELF_INTRODUCED) == []
+
+
+def test_prose_ref_not_flagged():
+    """module.attr( outside a code fence must not be flagged (fenced-only scoping)."""
+    from plan_quality import unresolved_api_refs
+    assert unresolved_api_refs(_PLAN_PROSE_REF) == []
+
+
+def test_attr_name_collision_still_flags():
+    """Plan-local def scan does not exempt scan_sentinels.scan (wrong module prefix)."""
+    from plan_quality import unresolved_api_refs
+    refs = unresolved_api_refs(_PLAN_ATTR_NAME_COLLISION)
+    assert any("scan_sentinels.scan" in r for r in refs), (
+        f"expected scan_sentinels.scan to be flagged despite local def scan; got {refs}"
+    )
 
 
 # ---------------------------------------------------------------------------
