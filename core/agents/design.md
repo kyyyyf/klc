@@ -241,6 +241,14 @@ After writing, run:
 python3 core/skills/items.py index --ticket <KEY>
 ```
 
+## Test-coverage discipline
+
+Every impl-plan step that describes a CLI, gate, or wired behaviour must map to a test at the
+**public entry point** (not a private helper). Every gate or validator AC must map to a
+**negative test** (the gate bites on bad input) plus a **fail-closed test** (unavailable or
+missing input is rejected, not silently passed). Write these tests before writing the step
+GREEN — they are the acceptance signal, not a formality.
+
 ## Hard rules
 
 - No signatures inside `options.md` or `impl-plan.md` on public_api —
