@@ -1,3 +1,12 @@
+# Agent prompt — KLC-051 · design:work
+
+You are working in phase **design**. Read the role prompt below,
+then produce the outputs listed at the bottom. When you claim the
+work is done, the human runs `klc ack KLC-051` (with `--pick N` if
+required) to confirm.
+
+## Role prompt
+
 # Design Agent
 
 > **Human context**: See [docs/phases/design.md](../../docs/phases/design.md) for design phase overview, options.md/adr.md structure, and ack options.
@@ -211,10 +220,6 @@ violations in-place:
 - **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`,
   `write tests`, `...` — none may appear outside fenced blocks.
 - **Empty fences**: a ` ``` ``` ` block with no content is a violation.
-- **Unresolved API refs** (`plan_quality.unresolved_api_refs`): run the API-existence check
-  over the full impl-plan text. For each `module.attr(` call in a code sketch where `module`
-  is a real `core/skills` module and `attr` is not defined there, either correct the sketch
-  to use the real attribute name or add a `[!CONFLICT C-NNN]` noting the ref needs resolution.
 
 If any step still has a violation after your fix attempt, add a
 `[!CONFLICT C-NNN]` to that step describing what is missing, so the
@@ -245,14 +250,6 @@ After writing, run:
 python3 core/skills/items.py index --ticket <KEY>
 ```
 
-## Test-coverage discipline
-
-Every impl-plan step that describes a CLI, gate, or wired behaviour must map to a test at the
-**public entry point** (not a private helper). Every gate or validator AC must map to a
-**negative test** (the gate bites on bad input) plus a **fail-closed test** (unavailable or
-missing input is rejected, not silently passed). Write these tests before writing the step
-GREEN — they are the acceptance signal, not a formality.
-
 ## Hard rules
 
 - No signatures inside `options.md` or `impl-plan.md` on public_api —
@@ -268,3 +265,27 @@ Stdout:
 ```
 DESIGN_DONE <ticket-key>
 ```
+
+---
+
+## Inputs you should read
+
+- [✓] `.klc/tickets/KLC-051/spec.md`
+- [✓] `.klc/tickets/KLC-051/test-plan.md`
+
+---
+
+## Outputs the ack step will verify
+
+- `.klc/tickets/<key>/design/options.md`
+- `.klc/tickets/<key>/impl-plan.md`
+
+## When done
+
+`klc ack KLC-051 --pick <N>`, where N is:
+
+  - `1` = option-A-minimal
+  - `2` = option-B-clean
+  - `3` = option-C-scalable
+  - `4` = needs-rework
+  - `5` = revise-impl-plan
