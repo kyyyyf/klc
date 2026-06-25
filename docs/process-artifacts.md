@@ -132,10 +132,11 @@ follows MADR via `core/templates/ADR.md.j2` (pre-existing).
 
 ### `impl-plan.md`
 
-Authored by the design agent (S-track: by discovery-lite) to match the
-shape in `impl-plan.md.j2` (full) / `impl-plan-short.md.j2`. These
-templates are a **contract sample**, not a runtime renderer — no code
-renders them today.
+Authored by the design agent (S-track: by discovery-lite). The enforced
+contract is `core/skills/impl_plan_check.py` (`REQUIRED_STEP_FIELDS`,
+`impl_plan_violations`); the stale template files `impl-plan.md.j2` /
+`impl-plan-short.md.j2` were removed in KLC-050 (they lacked gate-required
+fields and were unreferenced).
 
 #### Executable step contract (enforced by `tests/prompt_harness.py`)
 
