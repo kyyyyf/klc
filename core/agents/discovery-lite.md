@@ -188,6 +188,14 @@ Before writing the completion signal, scan `spec.md` for violations and fix them
 A spec carrying any of the above will fail the mechanical self-review gate
 (`spec_selfreview.scan_spec`) and block the discovery-lite ack.
 
+## Test-coverage discipline
+
+Every impl-plan step that describes a CLI, gate, or wired behaviour must map to a test at the
+**public entry point** (not a private helper). Every gate or validator AC must map to a
+**negative test** (the gate bites on bad input) plus a **fail-closed test** (unavailable or
+missing input is rejected, not silently passed). Write these tests before writing the step
+GREEN — they are the acceptance signal, not a formality.
+
 **S-track: also self-review `impl-plan.md` before emitting.** After writing
 `impl-plan.md`, scan every `## step-N` block and fix violations in-place:
 
@@ -197,6 +205,10 @@ A spec carrying any of the above will fail the mechanical self-review gate
 - **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`, `write tests`,
   `...` — none may appear outside fenced blocks.
 - **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+- **Unresolved API refs** (`plan_quality.unresolved_api_refs`): run the API-existence check
+  over the full impl-plan text. For each `module.attr(` call in a code sketch where `module`
+  is a real `core/skills` module and `attr` is not defined there, either correct the sketch
+  to use the real attribute name or add a `[!CONFLICT C-NNN]` noting the ref needs resolution.
 
 If a violation cannot be resolved inline, add a `[!CONFLICT C-NNN]` to the step
 so the reviewer can address it before ack. A plan with unresolved violations will

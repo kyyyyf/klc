@@ -1,3 +1,12 @@
+# Agent prompt — KLC-051 · acceptance-test-plan:work
+
+You are working in phase **acceptance-test-plan**. Read the role prompt below,
+then produce the outputs listed at the bottom. When you claim the
+work is done, the human runs `klc ack KLC-051` (with `--pick N` if
+required) to confirm.
+
+## Role prompt
+
 # Test Planner Agent
 
 > **Human context**: See [docs/phases/acceptance-test-plan.md](../../docs/phases/acceptance-test-plan.md) and [docs/phases/detailed-test-plan.md](../../docs/phases/detailed-test-plan.md) for phase overviews.
@@ -170,13 +179,6 @@ Rules for L (test-plan detailed section):
 - Detailed mode: use LSP `hover` or `goToDefinition` to verify a
   target symbol's signature when the test name embeds it.
 
-## Test-coverage discipline
-
-Every AC describing a CLI, gate, or wired behaviour must map to a test at the **public entry point**
-(not a private helper). Every gate or validator AC must map to a **negative test** (the gate bites
-on bad input) plus a **fail-closed test** (unavailable or missing input is rejected, not silently
-passed). These are acceptance signals, not formalities — write the RED test first.
-
 ## Self-review before emit (M-track detailed mode)
 
 After enriching `impl-plan.md` with `**Tests:**` blocks (M-track detailed
@@ -205,3 +207,22 @@ Detailed mode:
 ```
 TEST_PLAN_DETAILED_WRITTEN <ticket-key>
 ```
+
+---
+
+## Inputs you should read
+
+- [✓] `.klc/tickets/KLC-051/spec.md`
+
+---
+
+## Outputs the ack step will verify
+
+- `.klc/tickets/<key>/test-plan.md`
+
+## When done
+
+`klc ack KLC-051 --pick <N>`, where N is:
+
+  - `1` = approve
+  - `2` = needs-rework
