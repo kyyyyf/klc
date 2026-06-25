@@ -279,6 +279,106 @@ def test_planning_prompts_endtoend_rule():
         )
 
 
+# ---------------------------------------------------------------------------
+# KLC-034 step-3: regression guard for AskUserQuestion in discovery prompts
+# ---------------------------------------------------------------------------
+
+def test_discovery_prompts_use_askuserquestion():
+    """AC-4 (KLC-034): both discovery prompts must instruct the agent to use AskUserQuestion."""
+    from tests.prompt_harness import _FW_ROOT
+    AGENTS = _FW_ROOT / "core" / "agents"
+    for name in ("discovery.md", "discovery-lite.md"):
+        text = (AGENTS / name).read_text(encoding="utf-8")
+        assert "AskUserQuestion" in text, (
+            f"{name}: missing AskUserQuestion directive in Socratic step (AC-4 KLC-034)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# KLC-034 step-4: behavioural one-question-at-a-time judge fixture
+# ---------------------------------------------------------------------------
+
+_SOCRATIC_FIXTURE_PATH = H._FW_ROOT / "tests" / "fixtures" / "klc-034-socratic-input.md"
+
+_SIMULATE_FIRST_TURN = """\
+You are a discovery-lite agent following the Socratic sub-protocol below.
+Given the ticket description, produce ONLY your first conversational response.
+Follow the instructions exactly: use AskUserQuestion for exactly ONE question,
+or — if context already answers all unknowns — begin the approaches step.
+Do NOT write any artifact, do NOT ask multiple questions, do NOT batch.
+This is a single-turn simulation of your first reply.
+
+## Socratic sub-protocol (from discovery-lite.md)
+
+{excerpt}
+
+## Ticket input (raw.md)
+
+{fixture}
+
+Your first response (one question only, or approaches if all unknowns are resolved):
+"""
+
+_ONE_QUESTION_JUDGE_RUBRIC = """\
+Does the following first agent response ask exactly ONE question (not batching
+multiple questions in a single response)?
+
+PASS if: the response contains exactly one distinct question and defers the rest.
+FAIL if: it batches 2 or more questions, or asks none when genuine unknowns exist.
+
+Agent first response to score:
+"""
+
+
+def _run_first_turn(simulate_prompt: str) -> str:
+    """Run a simulated-agent prompt through the model and return the raw response."""
+    import tempfile
+    from pathlib import Path as _Path
+    from core.skills.runner import run_agent as _run_agent
+    with (
+        tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False, encoding="utf-8") as pf,
+        tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False, encoding="utf-8") as of,
+    ):
+        pf.write(simulate_prompt)
+        _prompt_path = _Path(pf.name)
+        _out_path = _Path(of.name)
+    try:
+        rc = _run_agent(phase_id="review", prompt_path=_prompt_path, out_path=_out_path, track="S")
+        if rc != 0:
+            return ""
+        return _out_path.read_text(encoding="utf-8").strip()
+    finally:
+        _prompt_path.unlink(missing_ok=True)
+        _out_path.unlink(missing_ok=True)
+
+
+def test_one_question_at_a_time_judge_fixture():
+    """AC-5 (KLC-034): judge scores an actual simulated agent first turn; skips without key."""
+    if not H.judge_available():
+        pytest.skip(f"judge API key ({H._judge_api_key_env()}) not set")
+
+    prompt_text = (H._FW_ROOT / "core/agents/discovery-lite.md").read_text(encoding="utf-8")
+    lines = prompt_text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "Socratic sub-protocol" in l), 0)
+    end = next(
+        (i for i, l in enumerate(lines[start + 1:], start + 1) if l.startswith("## ")),
+        len(lines),
+    )
+    excerpt = "\n".join(lines[start:end]).strip()
+
+    fixture = _SOCRATIC_FIXTURE_PATH.read_text(encoding="utf-8")
+    simulate_prompt = _SIMULATE_FIRST_TURN.format(excerpt=excerpt, fixture=fixture)
+
+    first_response = _run_first_turn(simulate_prompt)
+    assert first_response, "model did not produce a first response — check API key / runner config"
+
+    rubric = _ONE_QUESTION_JUDGE_RUBRIC + "\n" + first_response
+    result = H.judge(first_response, rubric)
+    assert result["pass"], (
+        f"agent's first turn batches questions: {result['reason']}\n\nFirst response:\n{first_response}"
+    )
+
+
 def test_planning_prompts_api_check_directive():
     """AC-5 (KLC-051): design.md and discovery-lite.md must instruct agent to run plan_quality.unresolved_api_refs."""
     from tests.prompt_harness import _FW_ROOT
