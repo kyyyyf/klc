@@ -65,3 +65,62 @@ def test_parse_steps_returns_list():
     steps = parse_impl_plan_steps(_FULL_STEP)
     assert len(steps) == 1
     assert steps[0]["id"] == "step-1"
+
+
+# ---------------------------------------------------------------------------
+# KLC-050 step-4: unified parser + template retirement
+# ---------------------------------------------------------------------------
+
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+_FW_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_FW_ROOT / "core" / "skills"))
+
+_SAMPLE_PLAN = (
+    "## step-1 — first\n"
+    "**Goal:** do first\n"
+    "**RED:** not applicable\n"
+    "**VERIFY:** pytest\n"
+    "**Expected:** 1 passed\n"
+    "**COMMIT:** KLC-000 step-1: first\n"
+    "**Affected:** a.py\n"
+    "**Interfaces:** none\n"
+    "**Depends-on:** none\n"
+    "**Code sketch:**\n```python\npass\n```\n"
+    "## step-2 — second\n"
+    "**Goal:** do second\n"
+    "**RED:** add test_second fails first\n"
+    "**VERIFY:** pytest\n"
+    "**Expected:** 1 passed\n"
+    "**COMMIT:** KLC-000 step-2: second\n"
+    "**Affected:** b.py\n"
+    "**Interfaces:** none\n"
+    "**Depends-on:** step-1\n"
+    "**Code sketch:**\n```python\npass\n```\n"
+)
+
+
+def test_single_step_parser_delegates(tmp_path):
+    """phase_completion._impl_plan_steps must delegate to parse_impl_plan_steps (unified parser)."""
+    from core.skills import phase_completion, impl_plan_check
+    (tmp_path / "impl-plan.md").write_text(_SAMPLE_PLAN)
+
+    with patch.object(impl_plan_check, "parse_impl_plan_steps",
+                      wraps=impl_plan_check.parse_impl_plan_steps) as spy:
+        result = phase_completion._impl_plan_steps(tmp_path)
+        spy.assert_called_once()
+
+    assert len(result) == 2
+    assert result[0] == {"step": 1, "red_not_applicable": True}
+    assert result[1] == {"step": 2, "red_not_applicable": False}
+
+
+def test_plan_template_renders_gate_passing():
+    """Any remaining impl-plan template must render a gate-passing skeleton."""
+    templates_dir = _FW_ROOT / "core" / "templates"
+    stale = list(templates_dir.glob("impl-plan*.j2"))
+    assert stale == [], (
+        f"Stale templates must be removed (AC-5): {[p.name for p in stale]}"
+    )
