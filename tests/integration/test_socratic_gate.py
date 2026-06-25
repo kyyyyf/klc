@@ -293,6 +293,7 @@ def test_upgrade_m_signal_recognized(tmp_path, monkeypatch):
     )
     ok, msg = can_complete_discovery_lite("KLC-U01")
     assert ok, f"DISCOVERY_LITE_UPGRADE_M must not block ack, got: {msg!r}"
+    assert "DISCOVERY_LITE_UPGRADE_M" in msg, f"expected signal token in msg, got: {msg!r}"
     assert "retrack" in msg, f"expected re-route advisory in msg, got: {msg!r}"
 
 
