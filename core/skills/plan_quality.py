@@ -44,24 +44,39 @@ def unresolved_api_refs(impl_plan_text: str) -> list[str]:
 
     Each message has the form:
         "unresolved API ref: <module>.<attr> (not defined in core/skills/<module>.py)"
+
+    Exemptions (AC-1 — same-plan-introduced symbols are not flagged):
+    - Modules listed in Affected as ``core/skills/<name>.py (new)`` — the module
+      does not exist yet so every call to it would be a false positive.
+    - ``def``/``class`` names from the plan's own fenced sketches — these may be
+      new functions being added to an existing skill (attr exemption) or locally
+      defined helpers used as a module prefix (mod exemption).
     """
     known = _known_modules()
+
+    # New modules introduced by this plan: "core/skills/foo.py (new)" in Affected lines
+    new_modules = set(re.findall(
+        r"core/skills/(\w+)\.py\s*\(new\)", impl_plan_text, re.IGNORECASE
+    ))
 
     # Extract only code inside fenced blocks (``` ... ```)
     fenced_blocks = re.findall(r"```[^\n]*\n([\s\S]*?)```", impl_plan_text)
     fenced = "\n".join(fenced_blocks)
 
-    # Module-level names introduced by the plan's own sketches (def/class at any indent).
-    # These exempt calls where the MODULE PREFIX itself was locally defined — e.g. an
-    # inline helper class. They do NOT exempt attr names, because a plan-local `def scan`
-    # cannot be an attribute of a real core/skills module like scan_sentinels.
+    # Symbols (def/class) introduced in the plan's own fenced sketches.
+    # Used to exempt both module prefixes (inline helper class) and attribute names
+    # (new functions being added to an existing skill in this plan).
     introduced = set(re.findall(r"(?m)^\s*(?:def|class)\s+(\w+)", fenced))
 
     out: set[str] = set()
     for mod, attr in re.findall(r"(?<![\w.])(\w+)\.(\w+)\s*\(", fenced):
         if mod not in known:
             continue
+        if mod in new_modules:
+            continue
         if mod in introduced:
+            continue
+        if attr in introduced:
             continue
         if attr not in _defined(mod):
             out.add(

@@ -71,6 +71,27 @@ result = scan_sentinels.scan(ticket_dir)
 ```
 """
 
+_PLAN_NEW_MODULE = """\
+## step-1 — add new skill
+**Affected:** core/skills/my_new_skill.py (new)
+**Code sketch:**
+```python
+result = my_new_skill.run(ticket_dir)
+```
+"""
+
+_PLAN_EXISTING_MODULE_NEW_FUNC = """\
+## step-1 — add helper to existing skill
+**Affected:** core/skills/scan_sentinels.py
+**Code sketch:**
+```python
+def analyse(ticket_dir):
+    return []
+
+result = scan_sentinels.analyse(ticket_dir)
+```
+"""
+
 
 def test_unresolved_api_refs_flags_missing():
     from plan_quality import unresolved_api_refs
@@ -94,13 +115,25 @@ def test_prose_ref_not_flagged():
     assert unresolved_api_refs(_PLAN_PROSE_REF) == []
 
 
-def test_attr_name_collision_still_flags():
-    """Plan-local def scan does not exempt scan_sentinels.scan (wrong module prefix)."""
+def test_attr_name_collision_does_not_flag():
+    """Plan-local def scan exempts scan_sentinels.scan — attr introduced by same plan."""
     from plan_quality import unresolved_api_refs
+    # Per AC-1: a symbol introduced by the same plan is not flagged.
+    # def scan in a sketch means the plan is introducing this function.
     refs = unresolved_api_refs(_PLAN_ATTR_NAME_COLLISION)
-    assert any("scan_sentinels.scan" in r for r in refs), (
-        f"expected scan_sentinels.scan to be flagged despite local def scan; got {refs}"
-    )
+    assert refs == [], f"plan-introduced attr should be exempt; got {refs}"
+
+
+def test_new_module_not_flagged():
+    """core/skills/foo.py (new) in Affected exempts foo.anything calls."""
+    from plan_quality import unresolved_api_refs
+    assert unresolved_api_refs(_PLAN_NEW_MODULE) == []
+
+
+def test_existing_module_new_func_not_flagged():
+    """New function introduced by same plan's sketch is not flagged."""
+    from plan_quality import unresolved_api_refs
+    assert unresolved_api_refs(_PLAN_EXISTING_MODULE_NEW_FUNC) == []
 
 
 # ---------------------------------------------------------------------------
