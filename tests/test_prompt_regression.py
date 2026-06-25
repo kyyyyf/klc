@@ -279,6 +279,21 @@ def test_planning_prompts_endtoend_rule():
         )
 
 
+# ---------------------------------------------------------------------------
+# KLC-034 step-3: regression guard for AskUserQuestion in discovery prompts
+# ---------------------------------------------------------------------------
+
+def test_discovery_prompts_use_askuserquestion():
+    """AC-4 (KLC-034): both discovery prompts must instruct the agent to use AskUserQuestion."""
+    from tests.prompt_harness import _FW_ROOT
+    AGENTS = _FW_ROOT / "core" / "agents"
+    for name in ("discovery.md", "discovery-lite.md"):
+        text = (AGENTS / name).read_text(encoding="utf-8")
+        assert "AskUserQuestion" in text, (
+            f"{name}: missing AskUserQuestion directive in Socratic step (AC-4 KLC-034)"
+        )
+
+
 def test_planning_prompts_api_check_directive():
     """AC-5 (KLC-051): design.md and discovery-lite.md must instruct agent to run plan_quality.unresolved_api_refs."""
     from tests.prompt_harness import _FW_ROOT
