@@ -188,6 +188,14 @@ Before writing the completion signal, scan `spec.md` for violations and fix them
 A spec carrying any of the above will fail the mechanical self-review gate
 (`spec_selfreview.scan_spec`) and block the discovery-lite ack.
 
+## Test-coverage discipline
+
+Every impl-plan step that describes a CLI, gate, or wired behaviour must map to a test at the
+**public entry point** (not a private helper). Every gate or validator AC must map to a
+**negative test** (the gate bites on bad input) plus a **fail-closed test** (unavailable or
+missing input is rejected, not silently passed). Write these tests before writing the step
+GREEN — they are the acceptance signal, not a formality.
+
 **S-track: also self-review `impl-plan.md` before emitting.** After writing
 `impl-plan.md`, scan every `## step-N` block and fix violations in-place:
 

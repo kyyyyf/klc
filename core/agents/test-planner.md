@@ -170,6 +170,13 @@ Rules for L (test-plan detailed section):
 - Detailed mode: use LSP `hover` or `goToDefinition` to verify a
   target symbol's signature when the test name embeds it.
 
+## Test-coverage discipline
+
+Every AC describing a CLI, gate, or wired behaviour must map to a test at the **public entry point**
+(not a private helper). Every gate or validator AC must map to a **negative test** (the gate bites
+on bad input) plus a **fail-closed test** (unavailable or missing input is rejected, not silently
+passed). These are acceptance signals, not formalities — write the RED test first.
+
 ## Self-review before emit (M-track detailed mode)
 
 After enriching `impl-plan.md` with `**Tests:**` blocks (M-track detailed
