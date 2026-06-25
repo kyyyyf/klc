@@ -65,12 +65,15 @@ phases:
         - id: 1
           label: "confirm-route"
           goto: "next"
+          gate: conditional
         - id: 2
           label: "force-full-discovery"
           goto: "discovery:work"
+          gate: decision
         - id: 3
           label: "force-xs-skip"
           goto: "xs-build:work"
+          gate: decision
     inputs: []
     outputs: ["raw.md", "meta.json"]
 
@@ -85,13 +88,16 @@ phases:
         - id: 1
           label: "approve"
           goto: "next"
+          gate: decision
         - id: 2
           label: "needs-rework"
           goto: "discovery-lite:work"
+          gate: decision
         - id: 3
           label: "upgrade-to-full"
           goto: "discovery:work"
           supersede: ["discovery-lite"]
+          gate: decision
     inputs: ["raw.md"]
     # S adds test-plan.md and impl-plan.md; XS outputs spec.md only.
     outputs: ["spec.md", "test-plan.md", "impl-plan.md"]
@@ -107,9 +113,11 @@ phases:
         - id: 1
           label: "approve"
           goto: "next"
+          gate: decision
         - id: 2
           label: "needs-rework"
           goto: "discovery:work"
+          gate: decision
     inputs: ["raw.md"]
     outputs: ["spec.md"]
 
@@ -125,9 +133,11 @@ phases:
         - id: 1
           label: "approve"
           goto: "next"
+          gate: conditional
         - id: 2
           label: "needs-rework"
           goto: "acceptance-test-plan:work"
+          gate: decision
     inputs: ["spec.md"]
     outputs: ["test-plan.md"]
 
@@ -143,15 +153,19 @@ phases:
         - id: 1
           label: "option-A-minimal"
           goto: "next"
+          gate: decision
         - id: 2
           label: "option-B-clean"
           goto: "next"
+          gate: decision
         - id: 3
           label: "option-C-scalable"
           goto: "next"
+          gate: decision
         - id: 4
           label: "needs-rework"
           goto: "design:work"
+          gate: decision
         - id: 5
           label: "revise-impl-plan"
           # Human reviewed the impl-plan draft and wants changes before
@@ -159,6 +173,7 @@ phases:
           # appended to design/options.md's manual block.
           goto: "design:work"
           supersede: ["design"]
+          gate: decision
     inputs: ["spec.md", "test-plan.md"]
     outputs: ["design/options.md", "impl-plan.md"]
 
@@ -174,9 +189,11 @@ phases:
         - id: 1
           label: "approve"
           goto: "next"
+          gate: conditional
         - id: 2
           label: "needs-rework"
           goto: "detailed-test-plan:work"
+          gate: decision
     inputs: ["spec.md", "test-plan.md", "design/options.md", "impl-plan.md"]
     outputs: ["test-plan.md"]
 
@@ -192,10 +209,12 @@ phases:
         - id: 1
           label: "approve"
           goto: "next"
+          gate: conditional
         - id: 2
           label: "upgrade-to-S"
           goto: "acceptance-test-plan:work"
           supersede: ["xs-build"]
+          gate: decision
     inputs: ["raw.md", "spec.md"]
     outputs: []
 
@@ -213,6 +232,7 @@ phases:
         - id: 1
           label: "approve"
           goto: "next"
+          gate: conditional
     inputs: ["spec.md", "impl-plan.md"]
     outputs: ["build-log.md"]
 
@@ -227,13 +247,16 @@ phases:
         - id: 1
           label: "approve"
           goto: "next"
+          gate: conditional
         - id: 2
           label: "request-changes"
           goto: "xs-build:work"
           supersede: ["review-lite"]
+          gate: decision
         - id: 3
           label: "override"
           goto: "next"
+          gate: decision
     inputs: ["raw.md"]
     outputs: ["review-lite-report.md"]
 
@@ -248,10 +271,12 @@ phases:
         - id: 1
           label: "approve"
           goto: "next"
+          gate: conditional
         - id: 2
           label: "request-changes"
           goto: "build:work"
           supersede: ["review"]
+          gate: decision
     inputs: ["spec.md"]
     outputs: ["review-report.md"]
 
@@ -266,10 +291,12 @@ phases:
         - id: 1
           label: "passed"
           goto: "next"
+          gate: decision
         - id: 2
           label: "failed"
           goto: "build:work"
           supersede: ["review", "manual"]
+          gate: decision
     inputs: ["spec.md"]
     outputs: ["manual-checklist.md"]
 
@@ -289,6 +316,7 @@ phases:
         - id: 1
           label: "merged"
           goto: "next"
+          gate: decision
     inputs: []
     outputs: []
 
@@ -305,14 +333,17 @@ phases:
         - id: 1
           label: "clean"
           goto: "next"
+          gate: conditional
         - id: 2
           label: "regression"
           goto: "build:work"
           supersede: ["review", "manual", "integrate", "observe"]
+          gate: decision
         - id: 3
           label: "rollback"
           goto: "learn:work"
           supersede: ["integrate", "observe"]
+          gate: decision
     inputs: []
     outputs: []
     auto_ack_after: null   # null = manual; overridable per track in the future
@@ -330,9 +361,11 @@ phases:
         - id: 1
           label: "archive"
           goto: "archived"
+          gate: conditional
         - id: 2
           label: "extract-to-claudemd"
           goto: "learn:work"
+          gate: decision
     inputs: []
     outputs: ["retrospective.md"]
     # M/L always run learn (design-heavy work produces learnings worth capturing).

@@ -45,12 +45,16 @@ TRACK_ORDER = ("XS", "S", "M", "L")
 
 # --- data classes -------------------------------------------------------------
 
+_GATES = {"auto", "conditional", "decision"}
+
+
 @dataclass
 class Pick:
     id:    int
     label: str
     goto:  str                 # "next" or "<phase>:work"
     supersede: list[str] = field(default_factory=list)
+    gate: str = "decision"
 
 
 @dataclass
@@ -254,7 +258,10 @@ def _build_pick(d: dict, phase_id: str) -> Pick:
     supersede = d.get("supersede") or []
     if not isinstance(supersede, list):
         raise ValueError(f"phase {phase_id!r} pick {pid}: supersede must be a list")
-    return Pick(id=pid, label=label, goto=goto, supersede=list(supersede))
+    gate = d.get("gate", "decision")
+    if gate not in _GATES:
+        raise ValueError(f"phase {phase_id!r} pick {pid}: bad gate {gate!r}")
+    return Pick(id=pid, label=label, goto=goto, supersede=list(supersede), gate=gate)
 
 
 def _build_phase(d: dict) -> Phase:
