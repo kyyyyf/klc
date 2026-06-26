@@ -2,7 +2,7 @@
   "ticket": "KLC-045",
   "kind": "feature",
   "kind_source": "user",
-  "phase": "build:work",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -83,7 +83,119 @@
       "phase": "build:work",
       "started_at": "2026-06-25T06:39:54Z",
       "event": "advance",
-      "note": "ack:option-A-minimal"
+      "note": "ack:option-A-minimal",
+      "finished_at": "2026-06-26T09:05:01Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-06-26T09:05:01Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-26T09:05:07Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-06-26T09:05:07Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-26T09:05:07Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-06-26T09:05:07Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-26T09:05:11Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-06-26T09:05:11Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-26T09:05:14Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-06-26T09:05:14Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-26T09:05:14Z"
+    },
+    {
+      "phase": "manual:work",
+      "started_at": "2026-06-26T09:05:14Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-26T09:05:40Z"
+    },
+    {
+      "phase": "manual:ack-needed",
+      "started_at": "2026-06-26T09:05:40Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-26T09:05:47Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-06-26T09:05:47Z",
+      "event": "ack",
+      "note": "pick=1:passed",
+      "finished_at": "2026-06-26T09:05:47Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-06-26T09:05:47Z",
+      "event": "advance",
+      "note": "ack:passed",
+      "finished_at": "2026-06-26T09:05:51Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-06-26T09:05:51Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-26T09:05:51Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-06-26T09:05:51Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-06-26T09:05:51Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-06-26T09:05:51Z",
+      "event": "skipped",
+      "note": "condition not met: meta.risk_tags in ['user-facing', 'data', 'security', 'migration']",
+      "finished_at": "2026-06-26T09:05:51Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-06-26T09:05:51Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-06-26T09:06:52Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-06-26T09:06:52Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-26T09:06:59Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-06-26T09:06:59Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-06-26T09:06:59Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-06-26T09:06:59Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": "M",
