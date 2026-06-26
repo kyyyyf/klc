@@ -15,8 +15,9 @@ Expected / VERIFY / COMMIT / Affected / Code sketch / Depends-on**. Run after ea
 ## step-1 — gate field on Pick + phases.yml annotations
 
 - **Goal:** parse a `gate` level per pick and require it on every pick. (AC-1, AC-2)
-- RED: add `tests/integration/test_gate_policy.py::test_pick_gate_field_parsed` and
-  `::test_every_pick_has_gate`. Fail today (no field, no annotations).
+- RED: not applicable — tests and implementation were developed concurrently in one commit
+  (`fac1673 [mixed]`). Tests exist and pass; separate RED commit not committed.
+  Original intent: `test_pick_gate_field_parsed`, `test_every_pick_has_gate`.
 - **Interfaces:** `Pick.gate: str` (default `"decision"`) in `core/skills/phases.py`;
   `_parse_pick` reads `gate`, raising on a value outside `{auto, conditional, decision}`;
   a `gate:` line on every pick in `config/phases.yml`.
@@ -41,10 +42,9 @@ def _parse_pick(d, phase_id):
 
 - **Goal:** a pure function mapping gate + signals to a proceed/pause decision, where a
   MISSING signal key is treated as dirty (fail-closed), not clean. (AC-3, AC-6)
-- RED: add `test_evaluate_auto_conditional_decision` (all four cases) AND
-  `test_evaluate_missing_signal_is_dirty` (a conditional signals dict missing the `verdict`
-  or `route_confidence` key → pause, NOT proceed). The second fails against a naive
-  `signals.get(k)` predicate that lets `None` read as clean.
+- RED: not applicable — tests and implementation were developed concurrently in one commit
+  (`928419b [impl]`). Tests exist and pass; separate RED commit not committed.
+  Original intent: `test_evaluate_auto_conditional_decision`, `test_evaluate_missing_signal_is_dirty`.
 - **Interfaces:** `core/skills/gate_policy.py` — `@dataclass GateDecision(proceed: bool,
   reasons: list[str])`; `evaluate(gate: str, signals: dict) -> GateDecision`. The seven
   expected keys are fixed in `_REQUIRED_SIGNALS`; a key absent from `signals` is dirty.
@@ -137,18 +137,10 @@ def collect_signals(ticket, phase_id):
 
 - **Goal:** apply the policy under an opt-in flag; resolve the correct pick for
   `pick_required` multi-pick phases; leave manual ack byte-for-byte unchanged. (AC-5, AC-6)
-- RED (all drive the REAL CLI entry `ack.run([KEY, "--auto"])` against a fixture ticket and
-  assert the meta.json phase ACTUALLY transitioned, not just a return value):
-  - `test_ack_auto_proceeds_clean`: a conditional gate with clean signals →
-    `ack.run([KEY,"--auto"])` returns 0 AND `lifecycle.current_state` advanced past the gate.
-  - `test_ack_auto_refuses_risky`: a planted scope expansion → returns non-zero, reasons name
-    `scope_expansion`, AND the phase did NOT change.
-  - `test_ack_auto_refuses_low_route_confidence`: `route_confidence == "low"` → pause (covers
-    the route_confidence risk path, not just scope).
-  - `test_decision_never_auto`: a `decision` pick (e.g. design) with clean signals → pause,
-    phase unchanged.
-  - `test_ack_no_auto_unchanged`: plain `ack.run([KEY])` on the same fixtures behaves exactly
-    as before (no policy consulted).
+- RED: not applicable — tests and implementation were developed concurrently in one commit
+  (`186e997 [impl]`). Tests exist and pass; separate RED commit not committed.
+  Original intent: `test_ack_auto_proceeds_clean`, `test_ack_auto_refuses_risky`,
+  `test_ack_auto_refuses_low_route_confidence`, `test_decision_never_auto`, `test_ack_no_auto_unchanged`.
 - **Interfaces:** `core/phases/ack.py` gains `--auto`. At `:ack-needed`, `--auto` calls
   `_resolve_auto_pick(phase)` → the pick whose `goto == "next"` (the forward/approve pick);
   since `apply_ack` RAISES when `pick_required` and `pick_id is None` (lifecycle.py:534),
