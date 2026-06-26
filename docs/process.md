@@ -783,6 +783,64 @@ judgment confirmed by the audit.
 
 ---
 
+## Gate-policy layer (KLC-045)
+
+Every pick in `phases.yml` carries an explicit `gate` level that classifies how
+much human judgment it needs.  The classification drives `klc ack --auto`.
+
+### Gate levels
+
+| Level | Meaning | Auto-proceed? |
+|-------|---------|---------------|
+| `auto` | Mechanical transition — no judgment needed | Always |
+| `conditional` | Proceed only when all safety signals are clean | When clean |
+| `decision` | Irreducibly human — spec approval, design pick, manual sign-off, merge | Never |
+
+**Decision gates** (always pause, even with clean signals):
+- `discovery-lite`: approve (spec sign-off)
+- `discovery`: approve (spec sign-off)
+- `design`: all three option picks + needs-rework + revise-impl-plan
+- `manual`: passed / failed (manual sign-off)
+- `integrate`: merged (merge is always human)
+
+All other picks are `conditional` (approve on build, review, observe, etc.).
+
+### `klc ack --auto`
+
+```
+klc ack <KEY> --auto
+```
+
+Applies the gate policy to the unambiguous forward pick (the pick with `goto:
+"next"`, or the sole pick when there is only one).
+
+Behaviour:
+- **`auto` pick** → always proceeds.
+- **`decision` pick** → always pauses; exits non-zero naming the gate.
+- **`conditional` pick** → proceeds only when all seven signals are clean;
+  exits non-zero listing each failing signal when any is dirty.
+
+Plain `klc ack <KEY> [--pick N]` is unchanged — no policy is consulted.
+
+### Seven signals (`gate_policy.collect_signals`)
+
+| Signal | Source | Clean when |
+|--------|--------|-----------|
+| `advisory` | `phase_completion.can_complete` | empty string |
+| `scope_expansion` | `scope_delta.compare` | no expansion, no skipped |
+| `sentinels` | `scan_sentinels.scan_diff(git diff main..HEAD)` | no hits |
+| `mutation` | `meta.budgets.mutation_fix_attempts` vs limit | counter below limit |
+| `budget_overrun` | all budget counters vs limits | all below limit |
+| `verdict` | `## Verdict` section of `review-report.md` | APPROVED / PASS, no changes-requested |
+| `route_confidence` | `meta.route_confidence` | "high" or "medium" |
+
+**Fail-closed**: any signal key absent from the signals dict is treated as dirty
+(not clean).  Any source failure (no git, no `modules.json`, no
+`review-report.md`) also yields a dirty value.  Only proven-clean signals allow
+`conditional` to auto-proceed.
+
+---
+
 <project>/
   .klc/
     config/                    # per-project overrides
