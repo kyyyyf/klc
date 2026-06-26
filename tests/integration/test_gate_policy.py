@@ -275,7 +275,7 @@ def test_collect_signals_dirty(tmp_path, monkeypatch):
 
 
 def test_collect_signals_no_review_report(tmp_path, monkeypatch):
-    """Missing review-report.md yields a dirty (non-clean) verdict."""
+    """Missing review-report.md yields a dirty (non-clean) verdict for review phase."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket = "KLC-NR01"
     td = _make_clean_ticket(tmp_path, ticket)
@@ -286,9 +286,39 @@ def test_collect_signals_no_review_report(tmp_path, monkeypatch):
 
     from core.skills import gate_policy
     sig = gate_policy.collect_signals(ticket, "review")
-    assert sig["verdict"] not in ("approve", "APPROVED", "PASS", "clean"), (
-        f"expected dirty verdict when review-report.md missing, got: {sig['verdict']}"
+    assert sig["verdict"] not in ("approve", "APPROVED", "PASS", "clean", "N/A"), (
+        f"expected dirty verdict when review-report.md missing at review phase, got: {sig['verdict']}"
     )
+
+
+def test_collect_signals_pre_review_verdict_na(tmp_path, monkeypatch):
+    """Pre-review phases (build) return N/A for verdict — no review-report exists yet.
+
+    This is the codex MEDIUM-1 fix: build:ack-needed must not require a future artifact.
+    """
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    ticket = "KLC-PV01"
+    td = tmp_path / ".klc" / "tickets" / ticket
+    td.mkdir(parents=True)
+    meta = {
+        "ticket": ticket, "kind": "feature", "phase": "build:ack-needed",
+        "track": "S", "route_confidence": "high",
+        "affected_modules": ["test_module"], "layer": "code",
+        "estimate": {"complexity": 1, "uncertainty": 1, "risk": 1, "manual": 0, "total": 3},
+        "budgets": {"mutation_fix_attempts": 0},
+    }
+    (td / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    # No review-report.md — review hasn't run yet at build time
+
+    from core.skills import gate_policy
+    sig = gate_policy.collect_signals(ticket, "build")
+    assert sig["verdict"] == "N/A", (
+        f"expected N/A for verdict at build phase (pre-review), got: {sig['verdict']!r}"
+    )
+    # N/A must be treated as clean by evaluate
+    from core.skills.gate_policy import evaluate
+    d = evaluate("conditional", {**_CLEAN_SIGNALS, "verdict": "N/A"})
+    assert d.proceed is True, f"N/A verdict must be clean in evaluate, got: {d.reasons}"
 
 
 # ---------------------------------------------------------------------------
@@ -340,11 +370,8 @@ def _make_build_ticket(tmp_path: Path, ticket: str, route_confidence: str = "hig
         "## Evidence\n\n```\n$ pytest\n1 passed\n```\n",
         encoding="utf-8",
     )
-    # review-report with APPROVED
-    (td / "review-report.md").write_text(
-        "# Review report\n\n## Verdict\n\nAPPROVED\n",
-        encoding="utf-8",
-    )
+    # No review-report.md — build precedes review; verdict must be N/A (clean) for
+    # pre-review phases per the phase-aware verdict fix (codex MEDIUM-1).
     return td
 
 
@@ -410,27 +437,6 @@ _LOW_RC_SIG = {
 }
 
 
-_CLEAN_SIG = {
-    "advisory": "",
-    "scope_expansion": False,
-    "sentinels": False,
-    "mutation": False,
-    "budget_overrun": False,
-    "verdict": "APPROVED",
-    "route_confidence": "high",
-}
-
-_SCOPE_DIRTY_SIG = {
-    **_CLEAN_SIG,
-    "scope_expansion": True,
-}
-
-_LOW_RC_SIG = {
-    **_CLEAN_SIG,
-    "route_confidence": "low",
-}
-
-
 def _patch_collect(monkeypatch, ack_mod, sig_dict: dict):
     """Patch gate_policy.collect_signals as seen by ack.py (via its _gp reference)."""
     monkeypatch.setattr(ack_mod._gp, "collect_signals", lambda t, p: dict(sig_dict))
@@ -451,8 +457,8 @@ def test_ack_auto_proceeds_clean(tmp_path, monkeypatch):
 
     from core.skills import lifecycle
     state = lifecycle.current_state(ticket)
-    assert state != "build:ack-needed", (
-        f"expected phase to advance past build:ack-needed, got: {state}"
+    assert state == "review:work", (
+        f"expected build:ack→review:work on S-track, got: {state}"
     )
 
 

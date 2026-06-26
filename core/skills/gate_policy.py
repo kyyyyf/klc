@@ -51,15 +51,24 @@ _REQUIRED_SIGNALS = (
 )
 
 # A signal is clean only when present AND its checker passes; absent => dirty.
+# "N/A" is a clean sentinel used when a signal is not applicable for the current
+# phase (e.g. verdict before review has run — the artifact cannot exist yet).
 _CHECK = {
     "advisory":        lambda v: not v,
     "scope_expansion": lambda v: v is False,
     "sentinels":       lambda v: v is False,
     "mutation":        lambda v: v is False,
     "budget_overrun":  lambda v: v is False,
-    "verdict":         lambda v: v in ("approve", "APPROVED", "PASS", "clean"),
+    "verdict":         lambda v: v in ("approve", "APPROVED", "PASS", "clean", "N/A"),
     "route_confidence": lambda v: v in ("high", "medium"),
 }
+
+# Phases that run before the review artifact exists. For these phases, verdict
+# is not yet applicable and is set to the clean sentinel "N/A".
+_PRE_REVIEW_PHASES = frozenset({
+    "intake", "discovery-lite", "discovery", "acceptance-test-plan",
+    "design", "detailed-test-plan", "xs-build", "build", "review-lite",
+})
 
 
 def evaluate(gate: str, signals: dict) -> GateDecision:
@@ -100,11 +109,13 @@ def _sentinel_hits(ticket: str) -> bool:
     """
     import scan_sentinels as _ss
     import subprocess
+    from core.shared.paths import project_root as _project_root
     try:
         config = _ss.load_sentinels_config()
         result = subprocess.run(
             ["git", "diff", "main..HEAD"],
             capture_output=True, text=True, timeout=30,
+            cwd=str(_project_root()),
         )
         if result.returncode != 0:
             return True  # can't get diff → dirty
@@ -204,8 +215,8 @@ def collect_signals(ticket: str, phase_id: str) -> dict:
     except Exception:
         budget_overrun = True
 
-    # verdict
-    verdict = _read_verdict(ticket)
+    # verdict: not applicable for pre-review phases (artifact cannot exist yet)
+    verdict = "N/A" if phase_id in _PRE_REVIEW_PHASES else _read_verdict(ticket)
 
     sig: dict = {
         "advisory":        advisory or "",
