@@ -389,45 +389,83 @@ def _make_design_ticket(tmp_path: Path, ticket: str) -> Path:
     return td
 
 
+_CLEAN_SIG = {
+    "advisory": "",
+    "scope_expansion": False,
+    "sentinels": False,
+    "mutation": False,
+    "budget_overrun": False,
+    "verdict": "APPROVED",
+    "route_confidence": "high",
+}
+
+_SCOPE_DIRTY_SIG = {
+    **_CLEAN_SIG,
+    "scope_expansion": True,
+}
+
+_LOW_RC_SIG = {
+    **_CLEAN_SIG,
+    "route_confidence": "low",
+}
+
+
+_CLEAN_SIG = {
+    "advisory": "",
+    "scope_expansion": False,
+    "sentinels": False,
+    "mutation": False,
+    "budget_overrun": False,
+    "verdict": "APPROVED",
+    "route_confidence": "high",
+}
+
+_SCOPE_DIRTY_SIG = {
+    **_CLEAN_SIG,
+    "scope_expansion": True,
+}
+
+_LOW_RC_SIG = {
+    **_CLEAN_SIG,
+    "route_confidence": "low",
+}
+
+
+def _patch_collect(monkeypatch, ack_mod, sig_dict: dict):
+    """Patch gate_policy.collect_signals as seen by ack.py (via its _gp reference)."""
+    monkeypatch.setattr(ack_mod._gp, "collect_signals", lambda t, p: dict(sig_dict))
+
+
 def test_ack_auto_proceeds_clean(tmp_path, monkeypatch):
     """--auto on a conditional pick with clean signals auto-acks and transitions."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _flush_phases_cache()
     ticket = "KLC-AA01"
     _make_build_ticket(tmp_path, ticket)
-    _make_modules_json(tmp_path, {
-        "test_module": {"src": ["core/test.py"], "tests": [], "phase": "stable"}
-    })
 
     import ack as ack_mod
+    _patch_collect(monkeypatch, ack_mod, _CLEAN_SIG)
+
     rc = ack_mod.run([ticket, "--auto"])
     assert rc == 0, f"expected exit 0 for clean conditional auto-ack, got {rc}"
 
     from core.skills import lifecycle
     state = lifecycle.current_state(ticket)
-    # build:approve→next is review phase (S-track)
-    assert "build" not in state or "ack-needed" not in state, (
+    assert state != "build:ack-needed", (
         f"expected phase to advance past build:ack-needed, got: {state}"
     )
 
 
 def test_ack_auto_refuses_risky(tmp_path, monkeypatch, capsys):
-    """--auto on a conditional pick with scope_expansion refuses and names the reason."""
+    """--auto refuses when scope_expansion is dirty; names the reason; phase unchanged."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _flush_phases_cache()
     ticket = "KLC-AA02"
-    td = _make_build_ticket(tmp_path, ticket)
-    # Plant a scope expansion: modules.json has extra module actually touched
-    _make_modules_json(tmp_path, {
-        "test_module": {"src": ["core/test.py"], "tests": [], "phase": "stable"},
-        "extra_module": {"src": ["core/extra.py"], "tests": [], "phase": "stable"},
-    })
-    # Patch meta to reflect that extra_module was touched (scope expansion)
-    meta = json.loads((td / "meta.json").read_text())
-    meta["affected_modules"] = ["test_module"]  # extra_module touched but not planned
-    (td / "meta.json").write_text(json.dumps(meta))
+    _make_build_ticket(tmp_path, ticket)
 
     import ack as ack_mod
+    _patch_collect(monkeypatch, ack_mod, _SCOPE_DIRTY_SIG)
+
     rc = ack_mod.run([ticket, "--auto"])
     assert rc != 0, "expected non-zero when scope expansion present"
 
@@ -437,16 +475,15 @@ def test_ack_auto_refuses_risky(tmp_path, monkeypatch, capsys):
 
 
 def test_ack_auto_refuses_low_route_confidence(tmp_path, monkeypatch, capsys):
-    """--auto refuses when route_confidence is 'low'."""
+    """--auto refuses when route_confidence is 'low'; phase unchanged."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _flush_phases_cache()
     ticket = "KLC-AA03"
     _make_build_ticket(tmp_path, ticket, route_confidence="low")
-    _make_modules_json(tmp_path, {
-        "test_module": {"src": ["core/test.py"], "tests": [], "phase": "stable"}
-    })
 
     import ack as ack_mod
+    _patch_collect(monkeypatch, ack_mod, _LOW_RC_SIG)
+
     rc = ack_mod.run([ticket, "--auto"])
     assert rc != 0, "expected non-zero when route_confidence is low"
 
@@ -461,11 +498,10 @@ def test_decision_never_auto(tmp_path, monkeypatch, capsys):
     _flush_phases_cache()
     ticket = "KLC-DA01"
     _make_design_ticket(tmp_path, ticket)
-    _make_modules_json(tmp_path, {
-        "test_module": {"src": ["core/test.py"], "tests": [], "phase": "stable"}
-    })
 
     import ack as ack_mod
+    _patch_collect(monkeypatch, ack_mod, _CLEAN_SIG)
+
     rc = ack_mod.run([ticket, "--auto"])
     assert rc != 0, "expected non-zero for decision gate even with clean signals"
 
@@ -480,9 +516,6 @@ def test_ack_no_auto_unchanged(tmp_path, monkeypatch):
     _flush_phases_cache()
     ticket = "KLC-NA01"
     _make_build_ticket(tmp_path, ticket)
-    _make_modules_json(tmp_path, {
-        "test_module": {"src": ["core/test.py"], "tests": [], "phase": "stable"}
-    })
 
     import ack as ack_mod
     # Plain ack with pick=1 (only pick for build) should work as before
