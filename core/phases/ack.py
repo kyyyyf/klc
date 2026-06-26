@@ -21,12 +21,21 @@ import phases as _ph  # noqa: E402
 from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
 import phase_completion  # noqa: E402
 import scope_delta as _sd  # noqa: E402
+import gate_policy as _gp  # noqa: E402
 
 # Phases where expansion (scope creep) blocks ack toward next.
 # integrate is a checklist with no irreversible agent work (merge is manual),
 # so skipped scope hard-fail applies to review only.
 _SCOPE_GUARD_PHASES = {"review", "integrate"}
 _SCOPE_HARD_FAIL_PHASES = {"review"}  # skipped scope = hard fail only here
+
+
+def _resolve_auto_pick(phase: "_ph.Phase") -> "_ph.Pick | None":
+    """Return the unambiguous forward pick for --auto, or None if ambiguous."""
+    fwd = [p for p in phase.picks if p.goto == "next"]
+    if fwd:
+        return fwd[0]
+    return phase.picks[0] if len(phase.picks) == 1 else None
 
 
 def _friendly_missing_ticket(ticket: str) -> int:
@@ -42,6 +51,8 @@ def run(argv: list[str]) -> int:
     ap.add_argument("ticket")
     ap.add_argument("--pick", type=int, default=None,
                     help="numeric pick id (see `klc status <ticket>` for options)")
+    ap.add_argument("--auto", action="store_true",
+                    help="apply gate-policy: auto-ack conditional picks when signals are clean")
     ap.add_argument("--json", action="store_true",
                     help="machine-readable JSON output")
     args = ap.parse_args(argv)
@@ -156,7 +167,28 @@ def run(argv: list[str]) -> int:
                         f"{delta['drift']}\n"
                     )
 
-            new_state = _lc.apply_ack(args.ticket, args.pick)
+            if args.auto:
+                ph = _ph.load_phases()
+                phase = ph.by_id(pid)
+                pick = _resolve_auto_pick(phase)
+                if pick is None:
+                    sys.stderr.write(
+                        "klc ack --auto: no unambiguous forward pick\n"
+                    )
+                    return 2
+                decision = _gp.evaluate(
+                    pick.gate,
+                    _gp.collect_signals(args.ticket, pid),
+                )
+                if not decision.proceed:
+                    sys.stderr.write(
+                        "klc ack --auto: paused — "
+                        + "; ".join(decision.reasons) + "\n"
+                    )
+                    return 2
+                new_state = _lc.apply_ack(args.ticket, pick.id)
+            else:
+                new_state = _lc.apply_ack(args.ticket, args.pick)
             meta = _lc.read_meta(args.ticket)
 
             if new_state == _ph.STATE_ARCHIVED:
