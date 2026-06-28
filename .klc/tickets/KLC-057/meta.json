@@ -1,0 +1,152 @@
+{
+  "ticket": "KLC-057",
+  "kind": "tech",
+  "kind_source": "discovery",
+  "phase": "build:work",
+  "phase_history": [
+    {
+      "phase": "intake:ack-needed",
+      "started_at": "2026-06-27T07:23:36Z",
+      "finished_at": "2026-06-27T08:03:52Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-06-27T08:03:52Z",
+      "event": "ack",
+      "note": "pick=2:force-full-discovery",
+      "finished_at": "2026-06-27T08:03:52Z"
+    },
+    {
+      "phase": "discovery:work",
+      "started_at": "2026-06-27T08:03:52Z",
+      "event": "ack-jump",
+      "note": "pick=force-full-discovery",
+      "finished_at": "2026-06-27T08:36:26Z"
+    },
+    {
+      "phase": "discovery:ack-needed",
+      "started_at": "2026-06-27T08:36:26Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-27T08:37:51Z"
+    },
+    {
+      "phase": "discovery:ack",
+      "started_at": "2026-06-27T08:37:51Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-27T08:37:51Z"
+    },
+    {
+      "phase": "acceptance-test-plan:work",
+      "started_at": "2026-06-27T08:37:51Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-27T08:47:45Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack-needed",
+      "started_at": "2026-06-27T08:47:45Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-27T08:47:51Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack",
+      "started_at": "2026-06-27T08:47:51Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-27T08:47:52Z"
+    },
+    {
+      "phase": "design:work",
+      "started_at": "2026-06-27T08:47:52Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-06-28T06:47:39Z"
+    },
+    {
+      "phase": "design:ack-needed",
+      "started_at": "2026-06-28T06:47:39Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-28T06:48:21Z"
+    },
+    {
+      "phase": "design:ack",
+      "started_at": "2026-06-28T06:48:21Z",
+      "event": "ack",
+      "note": "pick=2:option-B-clean",
+      "finished_at": "2026-06-28T06:48:21Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-06-28T06:48:21Z",
+      "event": "advance",
+      "note": "ack:option-B-clean"
+    }
+  ],
+  "track": "M",
+  "estimate": {
+    "complexity": 2,
+    "uncertainty": 2,
+    "risk": 2,
+    "manual": 1,
+    "total": 7
+  },
+  "layer": "code",
+  "affected_modules": [
+    "intake",
+    "ack",
+    "core/phases",
+    "core/skills"
+  ],
+  "created": "2026-06-27T07:23:36Z",
+  "owner": "e_konchikov@wargaming.net",
+  "jira_url": null,
+  "links": [],
+  "rework_count": {},
+  "route_hint": "S",
+  "route_signals": {
+    "kind": "XS",
+    "length": "S",
+    "keywords": "XS",
+    "modules": "S"
+  },
+  "route_confidence": "medium",
+  "route_decision": "triage",
+  "mentions": [
+    {
+      "kind": "module",
+      "value": "intake"
+    },
+    {
+      "kind": "module",
+      "value": "ack"
+    }
+  ],
+  "metrics": {
+    "intake_ms": 4,
+    "discovery_ms": 480000,
+    "discovery_tokens": 0
+  },
+  "track_source": "discovery",
+  "blast_radius": {
+    "available": false,
+    "reason": "modules.json has no dependency edges (depends_on/depended_by null for all modules); held route_hint floor (S), scored to M on integration breadth"
+  },
+  "related_tickets": [
+    "KLC-045",
+    "KLC-053",
+    "KLC-054",
+    "KLC-055",
+    "KLC-056",
+    "KLC-058",
+    "KLC-060"
+  ],
+  "risk_tags": [
+    "data",
+    "migration"
+  ],
+  "design_choice": "option-B-clean"
+}

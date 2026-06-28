@@ -1,0 +1,179 @@
+{
+  "ticket": "KLC-052",
+  "generated_at": "2026-06-26T15:22:21Z",
+  "items": {
+    "D-001": {
+      "type": "DECISION",
+      "file": "design.md",
+      "line": 15,
+      "attrs": {},
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "D-002": {
+      "type": "DECISION",
+      "file": "design.md",
+      "line": 92,
+      "attrs": {},
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "A-001": {
+      "type": "ASSUMPTION",
+      "file": "design.md",
+      "line": 130,
+      "attrs": {},
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "D-003": {
+      "type": "DECISION",
+      "file": "design.md",
+      "line": 176,
+      "attrs": {},
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "D-004": {
+      "type": "DECISION",
+      "file": "design.md",
+      "line": 236,
+      "attrs": {},
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "D-005": {
+      "type": "DECISION",
+      "file": "design.md",
+      "line": 264,
+      "attrs": {},
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "D-006": {
+      "type": "DECISION",
+      "file": "design.md",
+      "line": 294,
+      "attrs": {},
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "C-001": {
+      "type": "CONSTRAINT",
+      "file": "spec.md",
+      "line": 145,
+      "attrs": {
+        "source": "klc-plugin/README.md"
+      },
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "Q-001": {
+      "type": "QUESTION",
+      "file": "discovery/_prompt.md",
+      "line": 124,
+      "attrs": {
+        "blocks": "D-?"
+      },
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "C-002": {
+      "type": "CONSTRAINT",
+      "file": "spec.md",
+      "line": 150,
+      "attrs": {
+        "source": "core/skills/plugin_gen.py:90-112"
+      },
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "C-003": {
+      "type": "CONSTRAINT",
+      "file": "spec.md",
+      "line": 155,
+      "attrs": {
+        "source": "core/phases/ack.py:170-179"
+      },
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "C-004": {
+      "type": "CONSTRAINT",
+      "file": "spec.md",
+      "line": 159,
+      "attrs": {
+        "source": "docs/tracks.md"
+      },
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "C-005": {
+      "type": "CONSTRAINT",
+      "file": "spec.md",
+      "line": 165,
+      "attrs": {
+        "source": "core/skills/runner.py"
+      },
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    },
+    "C-006": {
+      "type": "CONSTRAINT",
+      "file": "spec.md",
+      "line": 173,
+      "attrs": {
+        "source": "this"
+      },
+      "refs": [],
+      "supersedes": null,
+      "status": "active",
+      "referenced_by": [],
+      "superseded_by": null
+    }
+  },
+  "dangling_refs": [],
+  "orphan_questions": [
+    "Q-001"
+  ],
+  "unresolved_conflicts": []
+}
