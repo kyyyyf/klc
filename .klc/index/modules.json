@@ -91,6 +91,18 @@
     {
       "name": "CLAUDE",
       "path": "CLAUDE.md"
+    },
+    {
+      "name": "core/templates",
+      "path": "core/templates"
+    },
+    {
+      "name": "klc-plugin/agents",
+      "path": "klc-plugin/agents"
+    },
+    {
+      "name": "core/phases",
+      "path": "core/phases"
     }
   ]
 }

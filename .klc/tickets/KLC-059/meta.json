@@ -1,0 +1,90 @@
+{
+  "ticket": "KLC-059",
+  "kind": "unknown",
+  "kind_source": "heuristic",
+  "phase": "build:work",
+  "phase_history": [
+    {
+      "phase": "intake:ack-needed",
+      "started_at": "2026-06-27T07:23:36Z",
+      "finished_at": "2026-06-27T08:03:52Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-06-27T08:03:52Z",
+      "event": "ack",
+      "note": "pick=1:confirm-route",
+      "finished_at": "2026-06-27T08:03:52Z"
+    },
+    {
+      "phase": "discovery-lite:work",
+      "started_at": "2026-06-27T08:03:52Z",
+      "event": "advance",
+      "note": "ack:confirm-route",
+      "finished_at": "2026-06-27T08:28:07Z"
+    },
+    {
+      "phase": "discovery-lite:ack-needed",
+      "started_at": "2026-06-27T08:28:07Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-06-27T08:29:35Z"
+    },
+    {
+      "phase": "discovery-lite:ack",
+      "started_at": "2026-06-27T08:29:35Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-06-27T08:29:35Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-06-27T08:29:35Z",
+      "event": "advance",
+      "note": "ack:approve"
+    }
+  ],
+  "track": "S",
+  "estimate": {
+    "complexity": 2,
+    "uncertainty": 1,
+    "risk": 0,
+    "manual": 0,
+    "total": 3
+  },
+  "layer": "plugin",
+  "affected_modules": [
+    "klc-plugin/hooks",
+    "core/phases"
+  ],
+  "created": "2026-06-27T07:23:36Z",
+  "owner": "developer@example.com",
+  "jira_url": null,
+  "links": [],
+  "rework_count": {},
+  "route_hint": "S",
+  "route_signals": {
+    "kind": "XS",
+    "length": "S",
+    "keywords": "XS",
+    "modules": "S"
+  },
+  "route_confidence": "medium",
+  "route_decision": "triage",
+  "mentions": [
+    {
+      "kind": "module",
+      "value": "ack"
+    },
+    {
+      "kind": "module",
+      "value": "CLAUDE"
+    }
+  ],
+  "metrics": {
+    "intake_ms": 4
+  },
+  "risk_tags": [
+    "user-facing"
+  ]
+}
