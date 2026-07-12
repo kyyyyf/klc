@@ -32,6 +32,21 @@ _GIT_ENV = {
     "GIT_TERMINAL_PROMPT": "0",
 }
 
+# Lower-cased stderr substrings that mark a genuine concurrent-write race on the
+# pushed ref (a CAS conflict to absorb via fetch/rebase/retry).  A push rejected
+# for any OTHER reason — protected branch, pre-receive/update hook decline, auth
+# — matches none of these and is surfaced directly instead of being retried.
+#   * "non-fast-forward" / "fetch first" — the remote already moved ahead.
+#   * "cannot lock ref" / "failed to update ref" / "stale info" — the remote
+#     advanced between ref advertisement and ref update (true simultaneous push).
+_CAS_RACE_MARKERS = (
+    "non-fast-forward",
+    "fetch first",
+    "cannot lock ref",
+    "failed to update ref",
+    "stale info",
+)
+
 
 class StateConflictError(Exception):
     """Same-ticket CAS violation — another writer touched this ticket's state."""
@@ -137,9 +152,12 @@ def commit_and_push_cas(
     upstream (via an explicit ``HEAD:<upstream-branch>`` refspec), so it always
     targets the tracked branch even when the local branch name differs.
 
-    On a non-fast-forward rejection the remote commits are inspected using the
-    three-dot merge-base diff (``HEAD...@{upstream}``) so that changes made
-    through merge commits are also surfaced:
+    Only a genuine non-fast-forward rejection enters the CAS loop; any other
+    push rejection (protected branch, pre-receive hook, …) is surfaced directly
+    as a :class:`RuntimeError`.  On a non-fast-forward the incoming commits are
+    inspected per-commit (``git log -m --name-only HEAD..@{upstream}``) so that
+    changes made through merge commits *and* same-ticket changes later reverted
+    by another incoming commit are both surfaced:
 
     * If any remote change touches ``tickets/<ticket>/`` the push is a
       single-writer violation and :class:`StateConflictError` is raised
@@ -224,9 +242,18 @@ def _push_with_cas(
         if push.returncode == 0:
             return
 
-        err = push.stderr or ""
-        if "non-fast-forward" not in err and "rejected" not in err:
-            raise RuntimeError(err.strip() or push.stdout.strip())
+        err = (push.stderr or "").lower()
+        # Only a genuine write-race rejection is a CAS conflict worth absorbing.
+        # A bare "rejected" for a NON-race reason (protected branch, pre-receive
+        # hook, …) is a server-side policy rejection: surface it directly rather
+        # than looping through fetch/rebase/retry and masking it as
+        # RetryExhaustedError.  The race markers below cover both the plain
+        # non-fast-forward case and the concurrent ref-lock contention that
+        # occurs when the remote advances mid-push.
+        if not any(m in err for m in _CAS_RACE_MARKERS):
+            raise RuntimeError(
+                (push.stderr or "").strip() or push.stdout.strip()
+            )
 
         # Absorb the remote tip.  A failed fetch means the upstream ref is
         # stale — classifying against it would silently mask a real network/
@@ -238,13 +265,17 @@ def _push_with_cas(
                 f"{ticket}: {fetch.stderr.strip() or fetch.stdout.strip()}"
             )
 
-        # Classify via the three-dot merge-base diff so changes introduced by
-        # merge commits are surfaced too.
+        # Classify by the UNION of paths touched across the incoming commits
+        # (per-commit, not the net tree).  ``git log -m --name-only`` diffs each
+        # merge commit against its parents, so merge-only changes are still
+        # surfaced (r1 win), while per-commit enumeration also catches a
+        # same-ticket change that a later commit reverts (net-zero tree).
         changed = _git(
-            ["diff", "--name-only", "HEAD...@{upstream}"], klc_dir
+            ["log", "-m", "--name-only", "--format=", "HEAD..@{upstream}"],
+            klc_dir,
         )
-        touched = [ln.strip() for ln in changed.stdout.splitlines() if ln.strip()]
-        same_ticket = [f for f in touched if f.startswith(prefix)]
+        touched = {ln.strip() for ln in changed.stdout.splitlines() if ln.strip()}
+        same_ticket = sorted(f for f in touched if f.startswith(prefix))
         if same_ticket:
             raise StateConflictError(
                 f"same-ticket single-writer violation on {ticket}: "
