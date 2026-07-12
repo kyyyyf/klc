@@ -2,7 +2,7 @@
   "ticket": "KLC-052",
   "kind": "tech",
   "kind_source": "discovery",
-  "phase": "learn:work",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -188,7 +188,28 @@
       "phase": "learn:work",
       "started_at": "2026-07-12T07:37:49Z",
       "event": "advance",
-      "note": "ack:clean"
+      "note": "ack:clean",
+      "finished_at": "2026-07-12T07:40:52Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-07-12T07:40:52Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T07:41:03Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-07-12T07:41:03Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-07-12T07:41:03Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-07-12T07:41:03Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": "M",
