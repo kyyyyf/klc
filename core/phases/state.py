@@ -77,16 +77,35 @@ def _is_git_repo(repo: Path) -> bool:
     return _git(["rev-parse", "--git-dir"], repo, check=False).returncode == 0
 
 
-def _is_klc_worktree(repo: Path) -> bool:
-    """True if `.klc` is already a registered git worktree of this repo."""
-    target = (repo / STATE_DIR).resolve()
+def _worktree_branches(repo: Path) -> dict:
+    """Map each registered worktree's resolved path -> its checked-out branch
+    short-name ('' when the worktree is in detached-HEAD state)."""
     out = _git(["worktree", "list", "--porcelain"], repo, check=False).stdout
+    info: dict = {}
+    cur = None
     for line in out.splitlines():
         if line.startswith("worktree "):
-            path = Path(line[len("worktree "):]).resolve()
-            if path == target:
-                return True
-    return False
+            cur = Path(line[len("worktree "):]).resolve()
+            info[cur] = ""  # unknown/detached until a branch line proves otherwise
+        elif cur is not None and line.startswith("branch "):
+            ref = line[len("branch "):].strip()
+            if ref.startswith("refs/heads/"):
+                ref = ref[len("refs/heads/"):]
+            info[cur] = ref
+        elif cur is not None and line.strip() == "detached":
+            info[cur] = ""
+    return info
+
+
+def _klc_worktree_branch(repo: Path) -> str | None:
+    """Return the branch checked out in the `.klc` worktree, or None if `.klc`
+    is not a registered worktree. '' means the worktree is detached."""
+    return _worktree_branches(repo).get((repo / STATE_DIR).resolve())
+
+
+def _is_klc_worktree(repo: Path) -> bool:
+    """True if `.klc` is already a registered git worktree of this repo."""
+    return (repo / STATE_DIR).resolve() in _worktree_branches(repo)
 
 
 def _stash_existing(klc: Path, repo: Path):
@@ -113,10 +132,40 @@ def _stash_existing(klc: Path, repo: Path):
     return backup
 
 
-def _remote_has_state(repo: Path, remote: str) -> bool:
-    """True if `<remote>` advertises a klc-state head."""
+def _remote_is_configured(repo: Path, remote: str) -> bool:
+    """True if `<remote>` is a configured git remote of this repo."""
+    r = _git(["config", "--get", f"remote.{remote}.url"], repo, check=False)
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def _remote_state_status(repo: Path, remote: str) -> str:
+    """Probe `<remote>` for a klc-state head, distinguishing a verified answer
+    from a lookup failure.
+
+    Returns one of:
+      * "present"     — remote advertises refs/heads/klc-state
+      * "absent"      — no such remote, or remote reachable and verifiably has
+                        no such branch (nothing to fork from → safe to orphan)
+      * "unreachable" — remote *is* configured but ls-remote failed (offline /
+                        auth / remote down); the branch's existence is *unknown*,
+                        NOT confirmed absent, so we must not orphan blindly.
+    """
+    if not _remote_is_configured(repo, remote):
+        return "absent"
     out = _git(["ls-remote", "--heads", remote, STATE_BRANCH], repo, check=False)
-    return out.returncode == 0 and bool(out.stdout.strip())
+    if out.returncode != 0:
+        return "unreachable"
+    return "present" if out.stdout.strip() else "absent"
+
+
+def _has_remote_tracking_ref(repo: Path, remote: str) -> bool:
+    """True if a local `refs/remotes/<remote>/klc-state` tracking ref resolves
+    (works offline; lets us materialize even when the remote is unreachable)."""
+    r = _git(
+        ["rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{STATE_BRANCH}"],
+        repo, check=False,
+    )
+    return r.returncode == 0
 
 
 def _local_has_state(repo: Path) -> bool:
@@ -131,33 +180,63 @@ def _add_worktree(repo: Path, klc: Path, remote: str) -> None:
     or a freshly created orphan branch."""
     if _local_has_state(repo):
         _git(["worktree", "add", str(klc), STATE_BRANCH], repo)
-    elif _remote_has_state(repo, remote):
+        return
+
+    status = _remote_state_status(repo, remote)
+    has_tracking = _has_remote_tracking_ref(repo, remote)
+
+    if status == "present":
+        # Remote confirmed the branch; refresh and track it.
         _git(["fetch", remote, STATE_BRANCH], repo, check=False)
         _git(
             ["worktree", "add", "--track", "-b", STATE_BRANCH,
              str(klc), f"{remote}/{STATE_BRANCH}"],
             repo,
         )
-    else:
-        # No klc-state anywhere → create it as an orphan with an empty root
-        # commit (so the ref exists and history is disjoint from main).
-        ver = _git_version(repo)
-        if ver < _MIN_GIT_FOR_ORPHAN:
-            need = ".".join(str(p) for p in _MIN_GIT_FOR_ORPHAN)
-            have = ".".join(str(p) for p in ver)
-            raise StateInitError(
-                f"git >= {need} is required to create the {STATE_BRANCH} orphan "
-                f"branch ('git worktree add --orphan'); found git {have}. "
-                f"Please upgrade git."
-            )
-        _git(["worktree", "add", "--orphan", "-b", STATE_BRANCH, str(klc)], repo)
-        # Pass identity inline so the root commit succeeds even on a repo with
-        # no configured user.name/user.email (fresh clone, CI, containers).
+        return
+
+    if has_tracking:
+        # We couldn't confirm via ls-remote (or it's momentarily gone), but a
+        # local remote-tracking ref exists — track it rather than fork a new
+        # orphan onto a disjoint branch.
         _git(
-            ["-c", "user.name=klc", "-c", "user.email=klc@localhost",
-             "commit", "--allow-empty", "-m", "klc-state: initialize orphan root"],
-            klc,
+            ["worktree", "add", "--track", "-b", STATE_BRANCH,
+             str(klc), f"{remote}/{STATE_BRANCH}"],
+            repo,
         )
+        return
+
+    if status == "unreachable":
+        # Existence is unknown and we have no local ref to fall back on. Do NOT
+        # silently create an orphan that could fork state away from the remote.
+        raise StateInitError(
+            f"cannot reach remote {remote!r} to check for the {STATE_BRANCH} "
+            f"branch (offline / expired credentials / remote unavailable), and no "
+            f"local {remote}/{STATE_BRANCH} tracking ref exists. Refusing to "
+            f"create a fresh orphan branch that could fork state. Restore "
+            f"connectivity (or fetch {remote}/{STATE_BRANCH}) and re-run."
+        )
+
+    # status == "absent" and no tracking ref → the branch is verifiably missing
+    # everywhere → create it as an orphan with an empty root commit (so the ref
+    # exists and history is disjoint from main).
+    ver = _git_version(repo)
+    if ver < _MIN_GIT_FOR_ORPHAN:
+        need = ".".join(str(p) for p in _MIN_GIT_FOR_ORPHAN)
+        have = ".".join(str(p) for p in ver)
+        raise StateInitError(
+            f"git >= {need} is required to create the {STATE_BRANCH} orphan "
+            f"branch ('git worktree add --orphan'); found git {have}. "
+            f"Please upgrade git."
+        )
+    _git(["worktree", "add", "--orphan", "-b", STATE_BRANCH, str(klc)], repo)
+    # Pass identity inline so the root commit succeeds even on a repo with
+    # no configured user.name/user.email (fresh clone, CI, containers).
+    _git(
+        ["-c", "user.name=klc", "-c", "user.email=klc@localhost",
+         "commit", "--allow-empty", "-m", "klc-state: initialize orphan root"],
+        klc,
+    )
 
 
 def _teardown_partial(repo: Path, klc: Path) -> None:
@@ -230,9 +309,19 @@ def run(argv: list[str]) -> int:
     backup_dir = repo / _BACKUP_DIR
 
     # Idempotency is gated on a *fully completed* prior init: a registered
-    # worktree AND no leftover backup. A stranded `.klc.init-bak` means the
-    # previous run was interrupted, so we must not report success.
-    if _is_klc_worktree(repo):
+    # worktree checked out on klc-state AND no leftover backup. A worktree on a
+    # different branch, or a stranded `.klc.init-bak`, means the prior init did
+    # not complete correctly, so we must not report success.
+    klc_branch = _klc_worktree_branch(repo)
+    if klc_branch is not None:
+        if klc_branch != STATE_BRANCH:
+            where = f"branch {klc_branch!r}" if klc_branch else "a detached HEAD"
+            sys.stderr.write(
+                f"klc state init: {STATE_DIR}/ is already a git worktree checked "
+                f"out on {where}, not {STATE_BRANCH!r}. Remove or re-point that "
+                f"worktree (git worktree remove {STATE_DIR}) before re-running.\n"
+            )
+            return 1
         if backup_dir.exists():
             sys.stderr.write(
                 f"klc state init: {STATE_DIR}/ worktree is present but "
