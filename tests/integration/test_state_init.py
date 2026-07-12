@@ -512,5 +512,75 @@ def test_state_init_rejects_klc_worktree_on_wrong_branch(tmp_path, capsys):
     assert "klc-state" in err and "other" in err, f"unclear message: {err!r}"
 
 
+# --- P2a (r3): a symlink-to-dir on the state branch must be replaced, not -----
+# ---           followed (local content wins, nothing written outside .klc/) ---
+
+
+def test_state_init_merge_back_symlink_to_dir_collision_local_wins(tmp_path):
+    # origin's klc-state carries `d` as a symlink that escapes .klc/ (`../escape`)
+    build = tmp_path / "build"
+    build.mkdir()
+    _init_repo(build)
+    _git(["checkout", "--orphan", "klc-state"], build)
+    _git(["rm", "-rf", "--cached", "."], build, check=False)
+    (build / "a.txt").unlink()
+    os.symlink("../escape", build / "d")
+    _git(["add", "-A"], build)
+    _git(["commit", "-m", "klc-state with escaping symlink"], build)
+    _git(["checkout", "main"], build)
+    bare = tmp_path / "origin.git"
+    _git(["clone", "--bare", str(build), str(bare)], tmp_path)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(bare)], root)
+    _git(["fetch", "origin"], root)
+
+    # local `.klc/d` is a REAL directory with a ticket — must win the collision
+    ldir = root / ".klc" / "d"
+    ldir.mkdir(parents=True)
+    (ldir / "inner.txt").write_text("LOCAL", encoding="utf-8")
+    # the symlink's escape target exists; it must stay empty (no leak outside .klc/)
+    escape = root / "escape"
+    escape.mkdir()
+
+    assert _run_in(root, ["init"]) == 0
+
+    d = root / ".klc" / "d"
+    assert d.is_dir() and not d.is_symlink(), "local dir must replace the escaping symlink"
+    assert (d / "inner.txt").read_text(encoding="utf-8") == "LOCAL"
+    # nothing was written through the symlink to outside .klc/
+    assert list(escape.iterdir()) == [], f"data leaked outside .klc/: {list(escape.iterdir())}"
+
+
+# --- P2b (r3): an OSError during merge-back must trigger teardown+restore -----
+
+
+def _inject_mergeback_oserror(state):
+    def boom(backup, klc):
+        raise OSError("injected merge-back failure")
+
+    state._merge_back = boom
+
+
+def test_state_init_merge_back_oserror_restores_backup(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "local.txt").write_text("PRECIOUS", encoding="utf-8")
+
+    rc = _run_in_patched(root, ["init"], _inject_mergeback_oserror)
+    assert rc == 1, "a filesystem error mid-merge-back must report failure (non-zero)"
+
+    # ticket data restored in place, not stranded in the backup dir
+    assert (root / ".klc" / "tickets" / "local.txt").read_text(encoding="utf-8") == "PRECIOUS"
+    assert not (root / ".klc.init-bak").exists(), "backup must not be left stranded"
+    assert str((root / ".klc").resolve()) not in _worktree_paths(root)
+
+
 if __name__ == "__main__":
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-q"]))
