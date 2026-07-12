@@ -409,5 +409,25 @@ def test_state_init_merge_back_dir_vs_file_clash_local_wins(tmp_path):
     assert (klc / "x").read_text(encoding="utf-8") == "LOCAL-FILE"
 
 
+# --- L5: git version guard for `worktree add --orphan` ----------------------
+
+
+def _fake_old_git(state):
+    state._git_version = lambda cwd: (2, 41, 0)
+
+
+def test_state_init_guards_old_git_for_orphan(tmp_path, capsys):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    rc = _run_in_patched(root, ["init"], _fake_old_git)
+    assert rc == 1, "old git must be rejected before touching the repo"
+    err = capsys.readouterr().err
+    assert "2.42" in err and "orphan" in err, f"unclear version message: {err!r}"
+    # nothing was materialized
+    assert str((root / ".klc").resolve()) not in _worktree_paths(root)
+
+
 if __name__ == "__main__":
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-q"]))
