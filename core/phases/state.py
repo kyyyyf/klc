@@ -239,14 +239,20 @@ def _add_worktree(repo: Path, klc: Path, remote: str) -> None:
     )
 
 
-def _teardown_partial(repo: Path, klc: Path) -> None:
+def _teardown_partial(repo: Path, klc: Path, *, stashed: bool) -> None:
     """Remove a half-created `.klc` worktree so the backup can be restored and
-    no stranded partial worktree is left behind."""
+    no stranded partial worktree is left behind.
+
+    `stashed` says whether the user's original `.klc` was moved aside to the
+    backup dir. The blind `rmtree` fallback (for the rare case `git worktree
+    remove` declines) only fires when `stashed` is true — otherwise whatever is
+    at `.klc` is the user's untouched original, which must never be deleted.
+    """
     if _is_klc_worktree(repo) or klc.exists():
         _git(["worktree", "remove", "--force", str(klc)], repo, check=False)
     _git(["worktree", "prune"], repo, check=False)
-    if klc.exists():
-        # `worktree remove` may have declined; the partial content is disposable
+    if stashed and klc.exists():
+        # `worktree remove` declined; the partial content is disposable
         # (the user's real data lives in the backup dir).
         shutil.rmtree(klc, ignore_errors=True)
 
@@ -266,10 +272,17 @@ def _merge_tree(src: Path, dst: Path) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.iterdir():
         target = dst / item.name
+        # Local (src) content always wins. A symlink at the destination must be
+        # removed outright, never followed: `is_dir()`/`exists()` dereference a
+        # symlink, so a symlink-to-directory would otherwise be recursed *into*
+        # — writing preserved tickets outside `.klc/`. Unlinking first also
+        # guarantees the subsequent type checks see the real entry, if any.
+        if target.is_symlink():
+            target.unlink()
         if item.is_symlink():
-            if target.is_dir() and not target.is_symlink():
-                shutil.rmtree(target)
-            elif target.exists() or target.is_symlink():
+            if target.is_dir():
+                shutil.rmtree(target)  # local symlink replaces a colliding dir
+            elif target.exists():
                 target.unlink()
             os.symlink(os.readlink(item), target)
         elif item.is_dir():
@@ -277,9 +290,9 @@ def _merge_tree(src: Path, dst: Path) -> None:
                 target.unlink()  # local dir replaces a colliding file
             _merge_tree(item, target)
         else:  # regular file
-            if target.is_dir() and not target.is_symlink():
+            if target.is_dir():
                 shutil.rmtree(target)  # local file replaces a colliding dir
-            elif target.is_symlink():
+            elif target.exists():
                 target.unlink()
             shutil.copy2(item, target, follow_symlinks=False)
 
@@ -347,10 +360,13 @@ def run(argv: list[str]) -> int:
         backup = _stash_existing(klc, repo)
         _add_worktree(repo, klc, remote)
         _merge_back(backup, klc)
-    except (subprocess.CalledProcessError, StateInitError) as e:
+    except (subprocess.CalledProcessError, StateInitError, OSError) as e:
         # Tear down any partial worktree first, THEN restore the backup, so
-        # ticket data is never stranded and the next run starts clean.
-        _teardown_partial(repo, klc)
+        # ticket data is never stranded and the next run starts clean. This
+        # covers git failures, our own StateInitError, AND filesystem errors
+        # (OSError) raised during add-worktree/merge-back — a merge-back that
+        # hits an unreadable file or a failed copy must still restore the backup.
+        _teardown_partial(repo, klc, stashed=backup is not None)
         _restore_backup(backup, klc)
         detail = e.stderr if isinstance(e, subprocess.CalledProcessError) else str(e)
         sys.stderr.write(f"klc state init: {detail or e}\n")
