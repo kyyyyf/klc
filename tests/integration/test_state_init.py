@@ -429,5 +429,88 @@ def test_state_init_guards_old_git_for_orphan(tmp_path, capsys):
     assert str((root / ".klc").resolve()) not in _worktree_paths(root)
 
 
+# --- P2a (r2): ls-remote failure must not be treated as branch-absence ------
+
+
+def _stub_ls_remote_failure(state):
+    """Simulate an unreachable remote: `git ls-remote` exits non-zero."""
+    real = state._git
+
+    def fake(args, cwd, *, check=True):
+        if args and args[0] == "ls-remote":
+            return subprocess.CompletedProcess(
+                ["git", "ls-remote"], 128, stdout="",
+                stderr="fatal: unable to access remote",
+            )
+        return real(args, cwd, check=check)
+
+    state._git = fake
+
+
+def test_state_init_offline_with_tracking_ref_tracks_not_orphans(tmp_path):
+    """ls-remote fails but a local origin/klc-state tracking ref exists →
+    materialize by tracking the existing branch, never fork a fresh orphan."""
+    origin = _make_origin_with_state(tmp_path)  # tickets/origin.txt
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+    _git(["fetch", "origin"], root)  # creates refs/remotes/origin/klc-state
+
+    origin_sha = _git(["rev-parse", "refs/remotes/origin/klc-state"], root).stdout.strip()
+
+    rc = _run_in_patched(root, ["init"], _stub_ls_remote_failure)
+    assert rc == 0, "should materialize by tracking the existing remote branch"
+
+    # tracks origin/klc-state and shares its history (NOT a disjoint new orphan)
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "klc-state@{upstream}"], root / ".klc", check=False
+    ).stdout.strip()
+    assert up == "origin/klc-state", f"must track origin, got upstream {up!r}"
+    head_sha = _git(["rev-parse", "klc-state"], root).stdout.strip()
+    assert head_sha == origin_sha, "must reuse existing branch history, not fork an orphan"
+    assert (root / ".klc" / "tickets" / "origin.txt").read_text(encoding="utf-8") == "ORIGIN-TICKET"
+
+
+def test_state_init_offline_without_tracking_ref_refuses(tmp_path, capsys):
+    """ls-remote fails and NO local tracking ref exists → refuse with a clear
+    error rather than silently creating a fresh orphan that forks state."""
+    origin = _make_origin_with_state(tmp_path)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)  # NOT fetched → no tracking ref
+
+    rc = _run_in_patched(root, ["init"], _stub_ls_remote_failure)
+    assert rc == 1, "must refuse when the remote is unreachable and no ref exists"
+
+    err = capsys.readouterr().err.lower()
+    assert "reach" in err or "unreachable" in err, f"unclear message: {err!r}"
+    # no orphan branch and no worktree were created
+    assert "klc-state" not in _git(["branch", "--list", "klc-state"], root).stdout
+    assert not (root / ".klc").exists(), ".klc must not be created on a failed lookup"
+
+
+# --- P2b (r2): idempotency must verify the worktree is on klc-state ----------
+
+
+def test_state_init_rejects_klc_worktree_on_wrong_branch(tmp_path, capsys):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    # register a .klc worktree checked out on a DIFFERENT branch
+    _git(["branch", "other"], root)
+    _git(["worktree", "add", str(root / ".klc"), "other"], root)
+
+    rc = _run_in(root, ["init"])
+    assert rc != 0, "a .klc worktree on the wrong branch must not be 'already initialized'"
+
+    err = capsys.readouterr().err
+    assert "klc-state" in err and "other" in err, f"unclear message: {err!r}"
+
+
 if __name__ == "__main__":
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-q"]))
