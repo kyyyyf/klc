@@ -168,7 +168,10 @@ total ≥ 7 forces L.
 
 Set:
 - `track`
+- `track_source: "discovery"` (when discovery sets the final track)
 - `estimate: {complexity, uncertainty, risk, manual, total}`
+- `blast_radius: {available: bool, external_dependents: [...]}` — or
+  `{available: false, reason: "..."}` when graph is unavailable
 - `layer: "code" | "content" | "config" | "mixed" | "unknown"`
 - `affected_modules: [...]` (names from `modules.json`, not paths)
 - `related_tickets: [...]` (keys from 40-related.md you actually
@@ -186,10 +189,54 @@ discovery.
 ## Hard rules
 
 - Every FACT requires `src=<file:line or stable ref>`. Use LSP to verify.
-- Downgrading the track is forbidden; the human may upgrade later
-  via `klc ack ... --upgrade-track L`.
+- Downgrading the track below `route_hint` (the intake floor) is
+  **only allowed when blast-radius evidence is present and low**:
+  every affected module's `depended_by` must be known AND the union
+  of external dependents (dependents outside the affected set) must
+  be empty. When this is satisfied, record in `meta.json`:
+  `track_source: "discovery"` and a `blast_radius` object
+  `{available: true, external_dependents: []}`.
+  When the condition is NOT met, hold the floor (`track >= route_hint`)
+  and note `blast_radius: {available: false, reason: "<why>"}`.
+  `can_complete_discovery` enforces this — an unjustified downgrade
+  will block the phase. Use `klc retrack` as the operator escape hatch.
+  The human may always upgrade later via `klc ack ... --upgrade-track L`.
 - `affected_modules` must be a subset of `modules.json` names;
   anything else goes into `unknown_module_refs` with a QUESTION.
+
+## Socratic sub-protocol (S and up)
+
+Before finalizing `spec.md`, work through these four steps in order:
+
+1. **Explore context first.** Thoroughly read all inputs (raw.md, CLAUDE.md, related
+   tickets, module docs) before forming any opinion on approach.
+2. **Ask one question at a time.** Use the `AskUserQuestion` tool — exactly one
+   question per call — and wait for the answer before asking the next. If context
+   already answers every material unknown, skip questioning and go straight to the
+   approaches step. Never batch questions.
+3. **Present 2-3 approaches with explicit trade-offs.** For each candidate: name,
+   one-line summary, pros, cons. Record the shortlist (brief labels) in `spec.md`;
+   full pros/cons detail goes in `design/options.md`.
+4. **Record the pick.** After operator selection, add a `Picked:` line in `spec.md`
+   (the approaches detail lives in `design/options.md`):
+   ```
+   Picked: <approach name> — <reason>
+   ```
+
+When the request spans multiple independent subsystems, emit `DISCOVERY_DECOMPOSE`
+in `spec.md` before the completion signal so the operator can decompose or upgrade
+the track.
+
+## Self-review before emitting
+
+Before writing the completion signal, scan `spec.md` for violations and fix them inline:
+
+- **Placeholder tokens** (`TODO`, `TBD`, `write tests`, `<...>`, `...`): replace with concrete content.
+- **Unresolved `[!CONFLICT]` markers**: resolve or escalate before acking.
+- **Stub AC items** — a `- [ ] AC-N` line with no body: expand with a testable condition.
+
+A spec carrying any of the above will fail the mechanical self-review gate
+(`spec_selfreview.scan_spec`) and block the discovery ack.
 
 ## Completion signal
 
@@ -201,3 +248,25 @@ DISCOVERY_SPEC_WRITTEN <ticket-key>
 
 After which the script's `--continue` step validates meta.json and
 bumps the phase to `discovery-pending-ack`.
+
+## Completion signal (orchestrator)
+
+In addition to any phase-specific signal above, end your final output
+with exactly one fenced JSON object, as the LAST block in your response:
+
+```json
+{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
+```
+
+- `phase` — the phase id you were dispatched for (your agent name after
+  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
+- `signal` — `"done"` | `"blocked"` | `"failed"`.
+- `artifacts` — paths you wrote, relative to the ticket directory.
+- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
+  entries are ignored by the orchestrator.
+- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
+- Optional: `"tokens":{"in":N,"out":N}`.
+
+This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
+next step without re-reading your artifacts. It does not replace any
+phase-specific signal line above — both are expected.

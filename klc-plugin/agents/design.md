@@ -58,6 +58,27 @@ in `options.md` / `adr.md` must be verified via LSP before citing it.
 
 ## Steps
 
+### Step 0 — deep-context scout (conditional, KLC-026)
+
+Before generating options, check whether the scout pre-analysis should run.
+
+**Trigger** — run the scout when EITHER:
+- `meta.estimate.uncertainty >= 2` (read from `.klc/tickets/<KEY>/meta.json`), OR
+- The spec describes a public-API change (look for "public API", "rename",
+  "signature change", or non-empty `affected public APIs:` in spec.md).
+
+**When triggered:**
+1. Read `core/agents/design-scout.md` and follow its instructions.
+2. The scout writes `design/scout.md` with four sections:
+   `confirmed_files`, `dependency_impact`, `open_questions`,
+   `recommended_option_shape` (advisory).
+3. After the scout completes, continue with step 1a below, consuming
+   `design/scout.md` as additional context. The scout deepens step 1a;
+   it does not replace it.
+
+**When neither trigger fires** — skip the scout; proceed as today with
+step 1a and the standard three-option flow unchanged.
+
 ### 1a. Dependency impact analysis
 
 Before generating options, compute the blast radius of the change so it
@@ -140,10 +161,14 @@ logical commit. Each step MUST contain, in this order:
   `RED: not applicable` + a one-sentence reason.
 - **GREEN**: the smallest code change expected to pass RED.
 - **VERIFY**: the exact targeted test command or suite/case name.
+- **Expected**: the expected output of the VERIFY command (e.g. `1 passed`).
 - **COMMIT**: proposed commit subject, prefixed `<ticket-key> step-N:`.
 - **Affected files**: concrete paths. Unknown paths require an
   `[!ASSUMPTION]` or `[!QUESTION]`, never a guess.
+- **Interfaces**: function/method signatures added or changed, or `none`.
 - **Depends on**: earlier `step-K` ids this step needs, or `none`.
+- **Code sketch**: a non-empty fenced block showing the key change.
+  Omit only when this is a prompt/doc/config step (`RED: not applicable`).
 - **Rollback note**: only if the step is risky.
 
 Track-specific shape (do not drop steps to hit a number — split or merge
@@ -180,6 +205,26 @@ and confirmed failing **before** its implementation code.
 If validation reveals scope that wasn't in the spec, add a
 `[!CONFLICT C-NNN]` to `design/options.md` before writing the plan.
 
+**Self-review before emit.** After drafting `impl-plan.md` and before
+emitting the draft signal, scan every `## step-N` block and fix any
+violations in-place:
+
+- **Required fields** (`REQUIRED_STEP_FIELDS`): Goal, VERIFY, COMMIT,
+  Affected, Interfaces, Expected, Code sketch — all must be present.
+  `Code sketch` may be omitted only when the step is marked
+  `RED: not applicable`.
+- **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`,
+  `write tests`, `...` — none may appear outside fenced blocks.
+- **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+- **Unresolved API refs** (`plan_quality.unresolved_api_refs`): run the API-existence check
+  over the full impl-plan text. For each `module.attr(` call in a code sketch where `module`
+  is a real `core/skills` module and `attr` is not defined there, either correct the sketch
+  to use the real attribute name or add a `[!CONFLICT C-NNN]` noting the ref needs resolution.
+
+If any step still has a violation after your fix attempt, add a
+`[!CONFLICT C-NNN]` to that step describing what is missing, so the
+human reviewer can resolve it rather than a broken plan entering build.
+
 **Draft signal.** After writing `impl-plan.md` (but before closing the
 phase), emit:
 
@@ -205,6 +250,14 @@ After writing, run:
 python3 core/skills/items.py index --ticket <KEY>
 ```
 
+## Test-coverage discipline
+
+Every impl-plan step that describes a CLI, gate, or wired behaviour must map to a test at the
+**public entry point** (not a private helper). Every gate or validator AC must map to a
+**negative test** (the gate bites on bad input) plus a **fail-closed test** (unavailable or
+missing input is rejected, not silently passed). Write these tests before writing the step
+GREEN — they are the acceptance signal, not a formality.
+
 ## Hard rules
 
 - No signatures inside `options.md` or `impl-plan.md` on public_api —
@@ -220,3 +273,25 @@ Stdout:
 ```
 DESIGN_DONE <ticket-key>
 ```
+
+## Completion signal (orchestrator)
+
+In addition to any phase-specific signal above, end your final output
+with exactly one fenced JSON object, as the LAST block in your response:
+
+```json
+{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
+```
+
+- `phase` — the phase id you were dispatched for (your agent name after
+  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
+- `signal` — `"done"` | `"blocked"` | `"failed"`.
+- `artifacts` — paths you wrote, relative to the ticket directory.
+- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
+  entries are ignored by the orchestrator.
+- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
+- Optional: `"tokens":{"in":N,"out":N}`.
+
+This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
+next step without re-reading your artifacts. It does not replace any
+phase-specific signal line above — both are expected.

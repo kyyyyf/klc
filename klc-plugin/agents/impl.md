@@ -135,6 +135,23 @@ and wait for the human — do not silently fix the plan.
 - [ ] The planned commit subject maps to **this step only**.
 - [ ] `Depends on` steps are all already green.
 
+## Red-before-green commit order (required for behaviour steps) {#red-before-green}
+
+For every step whose impl-plan marks `RED:` with a real test (not `not applicable`):
+
+1. **Commit the failing test first.** Write the test, confirm it fails, then
+   commit with the step subject (e.g. `KLC-NNN step-1: add failing test`).
+   Record `**RED:** <test path>::<test name> failing` in `build-log.md`.
+2. **Then commit the implementation.** Only after the test passes, commit the
+   source changes with the step subject.
+
+The `klc ack` gate verifies this ordering mechanically (`core/skills/tdd_order.py`):
+an implementation commit that precedes a test commit — or a step with no test
+commit at all — sanctions the step and blocks ack. Squashing or amending commits
+to collapse the red state also triggers the sanction.
+
+Steps marked `RED: not applicable — <reason>` (prompt/doc/config only) are exempt.
+
 ## Step bookkeeping
 
 For every step you complete:
@@ -216,6 +233,33 @@ Raise a `[!QUESTION]` or `[!CONFLICT]` inline (in `impl-plan.md` or
 In all three the correct answer is **stop writing code**. The
 TDD-loop isn't valid once the upstream assumption cracked.
 
+## Evidence block (required before IMPL_ALL_GREEN)
+
+Before emitting `IMPL_ALL_GREEN`, append an `## Evidence` section to
+`build-log.md`.  For each acceptance check run during the build, paste a
+fenced block containing the command and its actual output:
+
+````markdown
+## Evidence
+
+```
+$ python3 -m pytest tests/integration/test_build_evidence_gate.py -q
+5 passed in 0.04s
+```
+
+```
+$ grep -rn "Evidence" core/agents/impl.md
+<actual grep output here>
+```
+````
+
+Rules:
+- At least one non-empty fenced block must appear under `## Evidence`.
+- An empty fence (` ``` ``` `) does not satisfy the requirement.
+- Paste real output — do not fabricate or summarise.
+- The `klc ack <KEY>` gate reads this section and blocks if it is absent
+  or contains no non-empty fenced block.
+
 ## Completion signal
 
 After every green step:
@@ -232,3 +276,25 @@ IMPL_ALL_GREEN <ticket-key>
 
 At which point the operator runs `klc ack <KEY> --pick 1` to close
 the Build phase and advance to Review.
+
+## Completion signal (orchestrator)
+
+In addition to any phase-specific signal above, end your final output
+with exactly one fenced JSON object, as the LAST block in your response:
+
+```json
+{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
+```
+
+- `phase` — the phase id you were dispatched for (your agent name after
+  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
+- `signal` — `"done"` | `"blocked"` | `"failed"`.
+- `artifacts` — paths you wrote, relative to the ticket directory.
+- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
+  entries are ignored by the orchestrator.
+- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
+- Optional: `"tokens":{"in":N,"out":N}`.
+
+This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
+next step without re-reading your artifacts. It does not replace any
+phase-specific signal line above — both are expected.

@@ -49,41 +49,35 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from models import load_models, ResolvedModel  # noqa: E402
 from model_guard import check_subagent_dispatch, require_subagent_model  # noqa: E402
+from budget_guard import (  # noqa: E402
+    load_budget_limits as _load_budget_limits,
+    estimate_tokens as _estimate_tokens,
+    write_token_metrics as _write_token_metrics,
+)
+import phase_resolver as _phase_resolver  # noqa: E402
 
 
-# --- budget loading ----------------------------------------------------------
+# Distinct from the generic dispatch-failure rc (2): this rc means the
+# runner deliberately refused to dispatch — the phase is interactive
+# and headless runs must park, never guess (C-005).
+PARK_RC = 3
 
-def _load_budget_limits() -> tuple[dict[str, int], dict[str, int]]:
-    """Return (soft_limits, hard_limits) from config/budgets.yml.
 
-    Supports both the new soft_limits/hard_limits keys and the legacy
-    prompt_input_limits key (treated as hard limit only).
-    """
-    try:
-        import yaml
-        from _paths import framework_root
-        path = framework_root() / "config" / "budgets.yml"
-        if not path.exists():
-            return {}, {}
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        soft = {k: int(v) for k, v in (data.get("soft_limits") or {}).items()}
-        hard = {k: int(v) for k, v in (data.get("hard_limits") or {}).items()}
-        # legacy fallback
-        if not hard and not soft:
-            legacy = {k: int(v) for k, v in
-                      (data.get("prompt_input_limits") or {}).items()}
-            return {}, legacy
-        return soft, hard
-    except Exception:
-        return {}, {}
+def _write_park_marker(ticket: str, phase_id: str, reason: str, out_path: Path) -> None:
+    from _paths import klc_ticket_meta_file
+    meta_path = klc_ticket_meta_file(ticket)
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["parked"] = {"phase": phase_id, "reason": reason}
+        meta_path.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(f"[!PARKED] {reason}\n", encoding="utf-8")
 
 
 # --- token telemetry helpers -------------------------------------------------
-
-def _estimate_tokens(text: str) -> int:
-    """Rough token estimate: 1 token ≈ 4 chars."""
-    return max(1, len(text) // 4)
-
 
 def _parse_usage_from_output(text: str) -> dict[str, int]:
     """Extract token counts from claude CLI JSON output if present.
@@ -106,39 +100,6 @@ def _parse_usage_from_output(text: str) -> dict[str, int]:
         return result
     except Exception:
         return {}
-
-
-def _write_token_metrics(ticket: str | None, phase_id: str,
-                         tokens_in: int, tokens_out: int,
-                         cache_hit: int, source: str = "estimated") -> None:
-    """Persist token counts into meta.json:metrics.tokens.<phase_id>.
-
-    source: "provider" when parsed from real API usage block,
-            "estimated" when derived from len(text)//4.
-    cache_hit is always 0 for estimated source.
-    """
-    if not ticket:
-        return
-    try:
-        from _paths import klc_ticket_meta_file
-        meta_path = klc_ticket_meta_file(ticket)
-        if not meta_path.exists():
-            return
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        metrics = meta.setdefault("metrics", {})
-        tokens = metrics.setdefault("tokens", {})
-        tokens[phase_id] = {
-            "in":        tokens_in,
-            "out":       tokens_out,
-            "cache_hit": cache_hit if source == "provider" else 0,
-            "source":    source,
-        }
-        meta_path.write_text(
-            json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-    except Exception:
-        pass  # telemetry is non-fatal
 
 
 # --- prompt composition ------------------------------------------------------
@@ -307,7 +268,25 @@ def run_agent(phase_id: str,
 
     When `ticket` is provided, token usage is written to
     meta.json:metrics.tokens.<phase_id> after a successful run.
+
+    When `ticket` is provided and the phase resolves as interactive
+    (clarify gate / human ack-pick), this refuses to dispatch and
+    parks instead — headless runs never guess at interactive input
+    (C-005). Returns PARK_RC in that case.
     """
+    if ticket:
+        try:
+            resolved_phase = _phase_resolver.resolve_phase(ticket, phase_id)
+        except (FileNotFoundError, KeyError, ValueError):
+            resolved_phase = None
+        if resolved_phase and resolved_phase.interactive:
+            _write_park_marker(
+                ticket, phase_id,
+                "interactive phase — headless parks (C-005)",
+                out_path,
+            )
+            return PARK_RC
+
     try:
         models = load_models()
         resolved = models.resolve(phase_id, track=track)

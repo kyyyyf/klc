@@ -114,7 +114,10 @@ For M tickets, the impl-plan already exists from the Design phase. Do NOT write
 Rules for M (impl-plan enrichment):
 - Every step must get a `**Tests:**` block. Wiring-only steps use a single `—` row.
 - Verify target symbols exist via LSP `hover` / `goToDefinition`.
-- Do not modify any other field of the step (Goal, RED, GREEN, VERIFY, COMMIT, etc.).
+- Do not add, remove, or reorder steps. Do not alter the semantic intent of
+  Goal, RED, GREEN, or COMMIT fields. You may fix a field that violates the
+  impl-plan contract (missing value, placeholder token, empty fence) as part of
+  the self-review below — document the fix with a `[!FACT]` note on the same line.
 - Update `last_generated` in impl-plan.md frontmatter.
 
 **L-track: standalone `## Detailed coverage` in test-plan.md**
@@ -172,6 +175,30 @@ Rules for L (test-plan detailed section):
 - Detailed mode: use LSP `hover` or `goToDefinition` to verify a
   target symbol's signature when the test name embeds it.
 
+## Test-coverage discipline
+
+Every AC describing a CLI, gate, or wired behaviour must map to a test at the **public entry point**
+(not a private helper). Every gate or validator AC must map to a **negative test** (the gate bites
+on bad input) plus a **fail-closed test** (unavailable or missing input is rejected, not silently
+passed). These are acceptance signals, not formalities — write the RED test first.
+
+## Self-review before emit (M-track detailed mode)
+
+After enriching `impl-plan.md` with `**Tests:**` blocks (M-track detailed
+mode), scan every `## step-N` block and fix any violations in-place before
+emitting the completion signal:
+
+- **Required fields** (`REQUIRED_STEP_FIELDS`): Goal, VERIFY, COMMIT,
+  Affected, Interfaces, Expected, Code sketch — all must be present.
+  `Code sketch` may be omitted only when the step is marked
+  `RED: not applicable`.
+- **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`,
+  `write tests`, `...` — none may appear outside fenced blocks.
+- **Empty fences**: a ` ``` ``` ` block with no content is a violation.
+
+If a violation cannot be fixed inline (e.g. scope is unclear), add a
+`[!CONFLICT C-NNN]` to the affected step so the reviewer is alerted.
+
 ## Completion signals
 
 Acceptance mode:
@@ -183,3 +210,25 @@ Detailed mode:
 ```
 TEST_PLAN_DETAILED_WRITTEN <ticket-key>
 ```
+
+## Completion signal (orchestrator)
+
+In addition to any phase-specific signal above, end your final output
+with exactly one fenced JSON object, as the LAST block in your response:
+
+```json
+{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
+```
+
+- `phase` — the phase id you were dispatched for (your agent name after
+  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
+- `signal` — `"done"` | `"blocked"` | `"failed"`.
+- `artifacts` — paths you wrote, relative to the ticket directory.
+- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
+  entries are ignored by the orchestrator.
+- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
+- Optional: `"tokens":{"in":N,"out":N}`.
+
+This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
+next step without re-reading your artifacts. It does not replace any
+phase-specific signal line above — both are expected.

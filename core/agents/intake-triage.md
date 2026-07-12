@@ -65,9 +65,60 @@ Then a recommendation line:
   TRIAGE_OK <KEY> recommend=pick-1-confirm-route
   ```
 
+## Interactive clarify (main-loop only)
+
+Runs only inside the main-loop / Task-tool context (`/klc:run`, KLC-052)
+when `meta.json:clarify_required == true`. Headless runners (`runner.py`)
+never reach this path — they park on the interactive phase instead
+(C-005). Do not attempt this section outside an interactive session.
+
+1. Do steps 1-4 above (classify + enrichment) to produce `missing_info[]`.
+2. Load `core/skills/clarify_config.load_clarify_style()` to pick the
+   dialogue style:
+   - `batch` (default): ask ONE `AskUserQuestion` call carrying 2-4 of
+     the `missing_info[]` items as separate questions (batched, not
+     serial).
+   - `serial`: ask ONE question at a time, one exchange per
+     `missing_info[]` item, stopping as soon as the human says there is
+     nothing more to add.
+   "Nothing to add" is itself a valid, complete answer — it satisfies
+   the gate; the gate having fired does not mean the human must produce
+   content.
+3. Write the human's answers back into `raw.md` under the existing
+   `<!-- BEGIN: intake-notes -->` / `<!-- END: intake-notes -->` markers
+   (append, do not overwrite prior notes).
+4. Re-run `core/skills/route_heuristic.classify()` on the enriched
+   `raw.md` and update `meta.json:route_hint`/`route_confidence`/
+   `route_signals`/`mentions` accordingly.
+5. Clear the gate: set `meta.json:clarify_required = false`.
+6. Only after the gate is cleared does the `klc-discovery` **author**
+   subagent run on the enriched input (discovery split, KLC-052 AC-11).
+
 ## Hard rules
 
 - Never downgrade below `route_hint` (downgrades forbidden framework-wide).
 - Do not write `spec.md` or any discovery artefact.
 - Do not invent missing facts — list them as questions for the human/discovery.
 - Stay cheap: one pass, no deep source reading.
+
+## Completion signal (orchestrator)
+
+In addition to any phase-specific signal above, end your final output
+with exactly one fenced JSON object, as the LAST block in your response:
+
+```json
+{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
+```
+
+- `phase` — the phase id you were dispatched for (your agent name after
+  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
+- `signal` — `"done"` | `"blocked"` | `"failed"`.
+- `artifacts` — paths you wrote, relative to the ticket directory.
+- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
+  entries are ignored by the orchestrator.
+- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
+- Optional: `"tokens":{"in":N,"out":N}`.
+
+This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
+next step without re-reading your artifacts. It does not replace any
+phase-specific signal line above — both are expected.
