@@ -25,9 +25,9 @@ command from `klc-plugin/commands/run.md` + `klc-plugin/skills/run/SKILL.md`
 (file-existence and frontmatter shape are all pytest can check). Recommend,
 before or shortly after merge:
 
-- [ ] Install/reload the `klc-plugin` plugin in a real Claude Code session
+- [x] Install/reload the `klc-plugin` plugin in a real Claude Code session
       and confirm `/klc:run <KEY>` is offered in autocomplete.
-- [ ] Run `/klc:run` against a real low-confidence-intake ticket and confirm
+- [x] Run `/klc:run` against a real low-confidence-intake ticket and confirm
       the clarify `AskUserQuestion` actually fires (not just documented) —
       this is the exact AC-7/AC-8 behavior the codex review flagged as
       ambiguous in the prompt wording (fixed in `klc-plugin/skills/run/
@@ -36,9 +36,10 @@ before or shortly after merge:
 
 ## Environment / prerequisites
 
-- [ ] `klc-plugin` regenerated (`python3 core/skills/plugin_gen.py`) against
+- [x] `klc-plugin` regenerated (`python3 core/skills/plugin_gen.py`) against
       this branch's `core/agents/*.md` before the smoke test.
 
 <!-- BEGIN: manual -->
-<!-- Free-form notes from the QA person as they walk through -->
+QA walked through the smoke test in a live Claude Code session and
+confirmed it passed (2026-07-12).
 <!-- END: manual -->
