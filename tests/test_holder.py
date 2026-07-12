@@ -148,3 +148,87 @@ def test_ac8_missing_machine_raises_valueerror(store):
 def test_ac8_empty_machine_raises_valueerror(store):
     with pytest.raises(ValueError):
         holder.acquire_holder("KLC-056", {"id": "alice@host1", "machine": ""})
+
+
+# ---------------------------------------------------------------------------
+# AC-4 — release by the current holder clears it and returns True
+# ---------------------------------------------------------------------------
+
+def test_ac4_release_by_current_holder(store):
+    store.data["holder"] = {
+        "id": IDENT_A["id"], "machine": IDENT_A["machine"],
+        "since": "2026-07-10T00:00:00Z",
+    }
+    result = holder.release_holder("KLC-056", IDENT_A)
+    assert result is True
+    assert store.data["holder"] is None
+
+
+# ---------------------------------------------------------------------------
+# AC-5 — release by a DIFFERENT identity raises, holder unchanged
+# ---------------------------------------------------------------------------
+
+def test_ac5_release_by_different_identity_conflicts(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": "2026-07-10T00:00:00Z",
+    }
+    with pytest.raises(holder.HolderConflictError) as excinfo:
+        holder.release_holder("KLC-056", IDENT_A)
+    assert excinfo.value.holder["id"] == IDENT_B["id"]
+    # Holder left untouched.
+    assert store.data["holder"]["id"] == IDENT_B["id"]
+    assert store.data["holder"]["since"] == "2026-07-10T00:00:00Z"
+
+
+# ---------------------------------------------------------------------------
+# AC-6 — release when holder already null is a no-op returning False
+# ---------------------------------------------------------------------------
+
+def test_ac6_release_when_null_is_noop(store):
+    store.data["holder"] = None
+    assert holder.release_holder("KLC-056", IDENT_A) is False
+    assert store.data["holder"] is None
+
+
+def test_ac6_release_when_absent_is_noop(store):
+    assert "holder" not in store.data
+    assert holder.release_holder("KLC-056", IDENT_A) is False
+
+
+# ---------------------------------------------------------------------------
+# AC-7 — no direct filesystem I/O and no git/subprocess inside holder.py
+# ---------------------------------------------------------------------------
+
+def test_ac7_no_fs_or_git_io(store, monkeypatch):
+    import builtins
+    import subprocess
+
+    store.data["holder"] = None
+    real_open = builtins.open
+    calls = {"open": 0, "run": 0, "popen": 0}
+
+    def spy_open(*a, **k):
+        calls["open"] += 1
+        return real_open(*a, **k)
+
+    def spy_run(*a, **k):  # pragma: no cover - must never be called
+        calls["run"] += 1
+        raise AssertionError("holder.py must not call subprocess.run")
+
+    def spy_popen(*a, **k):  # pragma: no cover - must never be called
+        calls["popen"] += 1
+        raise AssertionError("holder.py must not call subprocess.Popen")
+
+    monkeypatch.setattr(builtins, "open", spy_open)
+    monkeypatch.setattr(subprocess, "run", spy_run)
+    monkeypatch.setattr(subprocess, "Popen", spy_popen)
+
+    acquired = holder.acquire_holder("KLC-056", IDENT_A)
+    assert acquired["id"] == IDENT_A["id"]
+    assert holder.release_holder("KLC-056", IDENT_A) is True
+
+    assert calls["open"] == 0, "holder.py performed direct filesystem I/O via open()"
+    assert calls["run"] == 0 and calls["popen"] == 0
+    # holder.py must not even import subprocess (no git ops possible).
+    assert not hasattr(holder, "subprocess")
