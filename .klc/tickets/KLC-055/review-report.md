@@ -66,3 +66,11 @@ entrypoint (satisfies AC-2). Documented here for awareness.
 → 7 passed. `_git_user` fully removed from `core/phases/intake.py`; single
 call site delegates to `identity.current()`; unused `import subprocess`
 dropped. Wave-integrate follow-up: `klc update` to refresh the callgraph index.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/skills/identity.py', 'core/phases/intake.py']
+  actual modules:  ['core/skills', 'intake', 'tests']
+  unplanned:       ['core/skills', 'intake', 'tests']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-055`.
