@@ -12,12 +12,25 @@ module provides:
   single-writer violation (:class:`StateConflictError`, no retry).
 
 All git operations use list-argument subprocess calls (never ``shell=True``) to
-guard against shell injection.
+guard against shell injection, and run under a fixed ``C`` locale so stderr
+parsing is stable regardless of the caller's environment.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
+
+# Force a stable, English/C locale for every git invocation so that stderr
+# classification (non-fast-forward detection, "nothing to commit", etc.) does
+# not depend on the caller's locale.  ``GIT_TERMINAL_PROMPT=0`` prevents git
+# from blocking on an interactive credential prompt.
+_GIT_ENV = {
+    **os.environ,
+    "LC_ALL": "C",
+    "LANG": "C",
+    "GIT_TERMINAL_PROMPT": "0",
+}
 
 
 class StateConflictError(Exception):
@@ -36,31 +49,78 @@ class ConfigError(Exception):
     """Required remote/upstream configuration is missing."""
 
 
-def pull_rebase(klc_dir: Path) -> None:
-    """Run ``git pull --rebase`` in *klc_dir*.
+class NothingToCommitError(RuntimeError):
+    """The supplied paths existed but had no staged changes to commit.
 
-    Returns ``None`` on a clean rebase.  On failure the in-progress rebase is
-    aborted and :class:`RebaseConflictError` is raised.
+    Subclasses :class:`RuntimeError` so existing callers that catch the broad
+    error continue to work, while new callers can distinguish the no-op case.
     """
-    r = subprocess.run(
-        ["git", "pull", "--rebase"],
-        cwd=str(klc_dir),
-        capture_output=True,
-        text=True,
-    )
-    if r.returncode != 0:
-        subprocess.run(
-            ["git", "rebase", "--abort"],
-            cwd=str(klc_dir),
-            capture_output=True,
-        )
-        raise RebaseConflictError(r.stderr.strip())
 
 
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True
+        ["git", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        env=_GIT_ENV,
     )
+
+
+def _rebase_in_progress(cwd: Path) -> bool:
+    """True if a rebase is currently in progress in *cwd*."""
+    for name in ("rebase-merge", "rebase-apply"):
+        gp = _git(["rev-parse", "--git-path", name], cwd)
+        rel = gp.stdout.strip()
+        if rel and (Path(cwd) / rel).exists():
+            return True
+    return False
+
+
+def pull_rebase(klc_dir: Path) -> None:
+    """Run ``git pull --rebase`` in *klc_dir*.
+
+    Returns ``None`` on a clean rebase.  If the failure is an actual rebase
+    conflict, the in-progress rebase is aborted and :class:`RebaseConflictError`
+    is raised.  Any other failure (no upstream, network/auth error, detached
+    HEAD, …) is surfaced as a plain :class:`RuntimeError` — it is *not*
+    mislabelled as a rebase conflict, and no spurious ``rebase --abort`` is run.
+    """
+    r = _git(["pull", "--rebase"], klc_dir)
+    if r.returncode == 0:
+        return
+
+    if _rebase_in_progress(klc_dir):
+        _git(["rebase", "--abort"], klc_dir)
+        raise RebaseConflictError(r.stderr.strip() or r.stdout.strip())
+
+    raise RuntimeError(
+        f"git pull --rebase failed in {klc_dir}: "
+        f"{r.stderr.strip() or r.stdout.strip()}"
+    )
+
+
+def _upstream_branch(klc_dir: Path) -> str:
+    """Return the *branch name* the current branch tracks (no remote prefix).
+
+    Resolves ``branch.<local>.merge`` (``refs/heads/<name>``) so that a local
+    branch whose name differs from its upstream still pushes to the tracked
+    branch, and branch names containing ``/`` are handled correctly.
+    """
+    cur = _git(["rev-parse", "--abbrev-ref", "HEAD"], klc_dir)
+    branch = cur.stdout.strip()
+    merge = _git(["config", "--get", f"branch.{branch}.merge"], klc_dir)
+    ref = merge.stdout.strip()
+    prefix = "refs/heads/"
+    if ref.startswith(prefix):
+        return ref[len(prefix):]
+    # Fall back to stripping the remote prefix from `<remote>/<branch>`.
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        klc_dir,
+    )
+    val = up.stdout.strip()
+    return val.split("/", 1)[1] if "/" in val else val
 
 
 def commit_and_push_cas(
@@ -71,19 +131,34 @@ def commit_and_push_cas(
     remote: str = "origin",
     max_retries: int = 3,
 ) -> None:
-    """Stage *paths*, commit *msg*, and push HEAD to *remote* with CAS semantics.
+    """Stage *paths*, commit *msg*, and push to *remote* with CAS semantics.
 
-    On a non-fast-forward rejection the remote commits are inspected:
+    The commit is pushed to the branch tracked by the current branch's
+    upstream (via an explicit ``HEAD:<upstream-branch>`` refspec), so it always
+    targets the tracked branch even when the local branch name differs.
 
-    * If any remote commit touches ``tickets/<ticket>/`` the push is a
+    On a non-fast-forward rejection the remote commits are inspected using the
+    three-dot merge-base diff (``HEAD...@{upstream}``) so that changes made
+    through merge commits are also surfaced:
+
+    * If any remote change touches ``tickets/<ticket>/`` the push is a
       single-writer violation and :class:`StateConflictError` is raised
       immediately (no retry).
     * Otherwise the remote change is absorbed via rebase and the push is
       retried, up to *max_retries* times, after which
       :class:`RetryExhaustedError` is raised.
 
-    Raises :class:`ValueError` (before any git operation) if a path does not
-    exist, and :class:`ConfigError` if *klc_dir* has no configured upstream.
+    On any terminal failure (:class:`StateConflictError`,
+    :class:`RetryExhaustedError`, :class:`RebaseConflictError`, or a
+    non-classifiable push/fetch error) the just-created local commit is
+    unwound with ``git reset --soft HEAD~1`` so it does not pollute the next
+    CAS cycle; the working-tree changes are preserved.
+
+    Raises:
+        ValueError: if a path does not exist, or ``git add`` refuses a path
+            (before any commit is made).
+        ConfigError: if *klc_dir* has no configured upstream.
+        NothingToCommitError: if the supplied paths have no staged changes.
     """
     klc_dir = Path(klc_dir)
 
@@ -101,17 +176,51 @@ def commit_and_push_cas(
         raise ConfigError(
             f"no upstream configured for current branch in {klc_dir}"
         )
+    upstream_branch = _upstream_branch(klc_dir)
 
-    # Stage + commit (list args only; msg is a single non-shell argument).
-    _git(["add", "--", *[str(p) for p in paths]], klc_dir)
-    commit = _git(["commit", "-m", msg], klc_dir)
+    str_paths = [str(p) for p in paths]
+
+    # Stage ONLY the supplied paths; fail loudly if git refuses any of them
+    # (ignored file, path outside the worktree, …) so we never fall through to
+    # committing unrelated already-staged content.
+    add = _git(["add", "--", *str_paths], klc_dir)
+    if add.returncode != 0:
+        raise ValueError(
+            f"git add refused a path: {add.stderr.strip() or add.stdout.strip()}"
+        )
+
+    # Commit ONLY the supplied paths (pathspec-limited) so pre-staged, unrelated
+    # content is never swept into this commit.
+    commit = _git(["commit", "-m", msg, "--", *str_paths], klc_dir)
     if commit.returncode != 0:
+        out = (commit.stdout + commit.stderr).lower()
+        if "nothing to commit" in out or "no changes added" in out:
+            raise NothingToCommitError(
+                commit.stdout.strip() or commit.stderr.strip()
+                or "nothing to commit"
+            )
         raise RuntimeError(commit.stderr.strip() or commit.stdout.strip())
 
+    try:
+        _push_with_cas(ticket, upstream_branch, klc_dir, remote, max_retries)
+    except Exception:
+        # Terminal failure: unwind the local commit (keep the changes staged)
+        # so the next CAS cycle starts clean.
+        _git(["reset", "--soft", "HEAD~1"], klc_dir)
+        raise
+
+
+def _push_with_cas(
+    ticket: str,
+    upstream_branch: str,
+    klc_dir: Path,
+    remote: str,
+    max_retries: int,
+) -> None:
     prefix = f"tickets/{ticket}/"
     attempt = 0
     while True:
-        push = _git(["push", remote, "HEAD"], klc_dir)
+        push = _git(["push", remote, f"HEAD:{upstream_branch}"], klc_dir)
         if push.returncode == 0:
             return
 
@@ -119,16 +228,27 @@ def commit_and_push_cas(
         if "non-fast-forward" not in err and "rejected" not in err:
             raise RuntimeError(err.strip() or push.stdout.strip())
 
-        # Absorb the remote tip and classify the conflict.
-        _git(["fetch", remote], klc_dir)
+        # Absorb the remote tip.  A failed fetch means the upstream ref is
+        # stale — classifying against it would silently mask a real network/
+        # auth error, so surface it instead.
+        fetch = _git(["fetch", remote], klc_dir)
+        if fetch.returncode != 0:
+            raise RuntimeError(
+                f"git fetch {remote} failed while resolving CAS conflict on "
+                f"{ticket}: {fetch.stderr.strip() or fetch.stdout.strip()}"
+            )
+
+        # Classify via the three-dot merge-base diff so changes introduced by
+        # merge commits are surfaced too.
         changed = _git(
-            ["log", "--name-only", "--format=", "HEAD..@{upstream}"], klc_dir
+            ["diff", "--name-only", "HEAD...@{upstream}"], klc_dir
         )
         touched = [ln.strip() for ln in changed.stdout.splitlines() if ln.strip()]
-        if any(f.startswith(prefix) for f in touched):
+        same_ticket = [f for f in touched if f.startswith(prefix)]
+        if same_ticket:
             raise StateConflictError(
                 f"same-ticket single-writer violation on {ticket}: "
-                f"remote touched {[f for f in touched if f.startswith(prefix)]}"
+                f"remote touched {same_ticket}"
             )
 
         if attempt >= max_retries:
