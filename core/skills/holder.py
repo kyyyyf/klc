@@ -90,5 +90,29 @@ def acquire_holder(ticket: str, identity: dict) -> dict:
     return acquired
 
 
+def release_holder(ticket: str, identity: dict) -> bool:
+    """Release the current phase's holder on behalf of `identity`.
+
+    - No holder (absent or null) → no-op, return False.
+    - Different id holds → raise HolderConflictError(holder=existing); the
+      holder is left unchanged.
+    - Caller is the current holder → set holder=None, return True.
+    """
+    ident_id, _machine = _validate_identity(identity)
+    meta = lifecycle.read_meta(ticket)
+    existing = meta.get("holder")
+    if not existing:
+        return False
+    if existing.get("id") != ident_id:
+        raise HolderConflictError(
+            f"ticket {ticket!r} held by {existing.get('id')!r}; "
+            f"cannot be released by {ident_id!r}",
+            holder=existing,
+        )
+    meta["holder"] = None
+    lifecycle.write_meta(ticket, meta)
+    return True
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit("holder.py is a library module; import it, don't run it")
