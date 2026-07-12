@@ -65,6 +65,29 @@ def _validate_identity(identity: dict) -> tuple[str, str]:
     return ident_id, machine
 
 
+def _existing_holder(meta: dict) -> dict | None:
+    """Read and fail-close on a MALFORMED stored holder.
+
+    A free phase is ONLY an absent or explicitly-null `holder`. Any other
+    value (empty dict, non-dict, or a dict missing/empty id/machine/since) is
+    a corrupt record: raise ValueError rather than silently overwriting it
+    (empty-dict was previously falsy → treated as free) or returning it as a
+    valid idempotent acquire (same-id record missing `machine`).
+    """
+    existing = meta.get("holder")
+    if existing is None:
+        return None
+    if not isinstance(existing, dict):
+        raise ValueError(f"meta.holder is malformed (not a dict): {existing!r}")
+    for key in ("id", "machine", "since"):
+        val = existing.get(key)
+        if not val or not isinstance(val, str):
+            raise ValueError(
+                f"meta.holder is malformed: {key!r} missing or not a non-empty str"
+            )
+    return existing
+
+
 def acquire_holder(ticket: str, identity: dict) -> dict:
     """Claim the current phase for `identity` (first-grab).
 
@@ -74,8 +97,8 @@ def acquire_holder(ticket: str, identity: dict) -> dict:
     """
     ident_id, machine = _validate_identity(identity)
     meta = lifecycle.read_meta(ticket)
-    existing = meta.get("holder")
-    if existing:
+    existing = _existing_holder(meta)
+    if existing is not None:
         if existing.get("id") == ident_id:
             # Idempotent re-acquire: preserve the original `since`.
             return existing
@@ -100,8 +123,8 @@ def release_holder(ticket: str, identity: dict) -> bool:
     """
     ident_id, _machine = _validate_identity(identity)
     meta = lifecycle.read_meta(ticket)
-    existing = meta.get("holder")
-    if not existing:
+    existing = _existing_holder(meta)
+    if existing is None:
         return False
     if existing.get("id") != ident_id:
         raise HolderConflictError(
