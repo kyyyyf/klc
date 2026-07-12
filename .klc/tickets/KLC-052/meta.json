@@ -2,7 +2,7 @@
   "ticket": "KLC-052",
   "kind": "tech",
   "kind_source": "discovery",
-  "phase": "build:work",
+  "phase": "manual:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -83,7 +83,49 @@
       "phase": "build:work",
       "started_at": "2026-06-27T05:40:00Z",
       "event": "advance",
-      "note": "ack:option-A-minimal"
+      "note": "ack:option-A-minimal",
+      "finished_at": "2026-07-11T13:47:24Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-07-11T13:47:24Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-11T13:48:10Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-07-11T13:48:10Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-11T13:48:10Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-07-11T13:48:10Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-12T07:25:28Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-07-12T07:25:28Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T07:28:55Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-07-12T07:28:55Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-12T07:28:55Z"
+    },
+    {
+      "phase": "manual:work",
+      "started_at": "2026-07-12T07:28:55Z",
+      "event": "advance",
+      "note": "ack:approve"
     }
   ],
   "track": "M",
@@ -101,12 +143,22 @@
   },
   "layer": "mixed",
   "affected_modules": [
-    "klc-plugin/agents",
-    "core/agents",
-    "core/skills",
-    "core/phases",
     "config",
-    "docs"
+    "core/agents",
+    "core/phases",
+    "core/skills",
+    "docs",
+    "intake",
+    "klc-plugin",
+    "klc-plugin/README.md",
+    "klc-plugin/agents",
+    "klc-plugin/commands",
+    "klc-plugin/commands/run.md",
+    "klc-plugin/skills",
+    "klc-plugin/skills/run/SKILL.md",
+    "review",
+    "runner",
+    "tests"
   ],
   "related_tickets": [],
   "created": "2026-06-26T10:34:33Z",

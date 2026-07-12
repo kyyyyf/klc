@@ -1,0 +1,14 @@
+# clarify.yml — dialogue style for interactive clarify gates.
+#
+# Consumed by core/skills/clarify_config.py. Project override:
+# .klc/config/clarify.yml shadows this framework copy when present.
+#
+# Global only — deliberately no per-track override. The clarify gate
+# is a human-facing interaction choice, not a per-track budget knob;
+# splitting it by track would let one track silently diverge in UX
+# with no gate to catch it.
+
+clarify:
+  # "batch"  — one AskUserQuestion call with 2-4 batched questions.
+  # "serial" — one question at a time in chat.
+  style: batch

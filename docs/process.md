@@ -841,6 +841,69 @@ Plain `klc ack <KEY> [--pick N]` is unchanged — no policy is consulted.
 
 ---
 
+## Orchestrator (`/klc:run`, KLC-052)
+
+`/klc:run <KEY>` runs a ticket through its lifecycle without a human
+re-reading every phase's artifacts. It is **prompt-driven main-loop
+instructions** (`klc-plugin/skills/run/SKILL.md`), not a hidden Python
+driver — interactive phases (clarify / human gates) can only be run
+from the CC main-loop or Task-tool; `runner.py` (headless) is
+forbidden from touching them.
+
+Each iteration:
+1. `klc status <KEY> --json` → `{phase_id, state, track}`.
+2. `phase_resolver.resolve_phase(<KEY>, phase_id)` → the single
+   phase→agent source of truth (prompt, model, `agent_type`,
+   `runs_inline`, `interactive`) — derived only from `phases.yml` +
+   `models.yml` + `meta.json:track`.
+3. If `resolved.interactive`: **stop** — hand control to the human
+   (clarify gate or an ambiguous pick).
+4. Otherwise dispatch: inline for an XS fast-track phase, or
+   `Task(subagent_type=resolved.agent_type, ...)` for S/M/L.
+5. Parse the subagent's structured completion signal (below). On a
+   clean `"done"` with no blocking questions: `klc ack --auto` +
+   `klc next` (KLC-045 gate-policy throttle).
+
+### Structured completion signal
+
+Every `klc-<phase>` subagent ends its output with one fenced JSON
+object as the last block (shared "Completion signal (orchestrator)"
+block appended to every `core/agents/*.md`, regenerated into
+`klc-plugin/agents/` by `plugin_gen.py`):
+
+```json
+{"phase":"design","signal":"done","artifacts":["design/options.md","impl-plan.md"],"blocking_questions":[],"next_action":"ack"}
+```
+
+`core/skills/run_signal.py` parses it (`parse_signal`) and applies the
+retry policy (`should_retry`): an unparseable/mismatched signal retries
+the same phase once; a second consecutive failure stops the loop.
+
+### Mandatory intake clarify gate
+
+`core/phases/intake.py` stamps `meta.json:clarify_required = true`
+whenever `route_confidence == "low"` — unconditional on `raw.md`
+content, since intake runs headless and cannot ask. The orchestrator
+loop is the only place with an interactive channel, so it owns firing
+the clarify pass (`core/agents/intake-triage.md`'s "Interactive
+clarify" section): one `AskUserQuestion` (batch, default) or one
+question at a time (serial), style from `config/clarify.yml` /
+`core/skills/clarify_config.py` (fail-closed; unknown values reject
+rather than silently falling back to batch). "Nothing to add" is a
+valid, complete answer — mandatory means the gate always *fires*, not
+that the human must produce content. Answers are written back into
+`raw.md`, the route is recomputed, and the stamp is cleared before
+discovery's **author** subagent (`klc-discovery`) runs on the enriched
+input — no new `phases.yml` phase id, just a loop-level split between
+the interactive clarify step and the background synthesis step.
+
+The clarify style is **global only** (no per-track override) and governs
+only the in-client interactive path — the headless runner (which parks
+on interactive phases instead) and the manual-CLI path (a human editing
+`raw.md` directly) never read it.
+
+---
+
 <project>/
   .klc/
     config/                    # per-project overrides

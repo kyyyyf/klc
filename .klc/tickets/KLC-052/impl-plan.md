@@ -218,4 +218,75 @@ the repo root. Use `python3 -m pytest <path> -q`.
   `route_heuristic.classify`, `lifecycle.read_meta` — all verified
   present (design.md §1 FACTs).
 
+## Build-time decisions
+
+[!DECISION D-001] owner=impl-agent date=2026-07-10 refs=step-1,step-3
+Step-1's `_is_interactive` originally special-cased a phase id
+`"intake-triage"`. That id does not exist in `config/phases.yml` —
+`intake-triage` is an agent invoked *from within* the `intake` phase
+when routing confidence is low (see step-4/step-6), not a distinct
+phases.yml phase. `phase_resolver.resolve_phase()` calls `ph.by_id
+(phase_id)` first, so passing `"intake-triage"` would raise `KeyError`
+before the interactive branch was ever reached — the check was dead
+code. Fixed during step-3 (the RED test for the park behaviour
+exposed it): `_is_interactive` now checks only
+`meta.clarify_required and phase.id == "intake"`. The dead
+`_INTERACTIVE_PHASES` set was removed.
+
+[!DECISION D-002] owner=impl-agent date=2026-07-11 refs=step-6,step-8
+step-6's "Interactive clarify (main-loop only)" section in
+`intake-triage.md` already wrote the batch/serial branch referencing
+`clarify_config.load_clarify_style()` — it was the natural place to
+describe the full clarify flow in one edit rather than half-describing
+it in step-6 and returning to patch it in step-8. step-8's tests for
+this wiring (`test_batch_style_uses_ask_user_question`,
+`test_serial_style_asks_one_question_at_a_time`) therefore pass
+immediately (no RED phase for that specific assertion) — they still
+serve as regression tests locking the content in, and step-8 adds the
+genuinely new coverage: C-006 (clarify_config never imported by
+runner.py/manual-CLI), the discovery-split behavior (AC-11), and the
+docs parity (README, process.md, tracks.md) that step-6 did not touch.
+
+[!DECISION D-003] owner=impl-agent date=2026-07-11 refs=step-7,review
+Codex external review (`.klc/tickets/KLC-052/codex_external_review.md`,
+verdict CHANGES REQUESTED) found two HIGH findings after build was
+believed complete:
+1. `/klc:run` had no `klc-plugin/commands/run.md` entry — the actual
+   plugin slash-command surface — even though `klc-plugin/skills/run/
+   SKILL.md` and the README documented it. `plugin_gen.py` now
+   generates `commands/run.md` pointing at `SKILL.md` as the single
+   source of truth; `test_plugin_manifest.py`'s `LIFECYCLE_CMDS` gained
+   `"run"` so this can't silently regress.
+2. `SKILL.md` step 4's "Interactive gate — STOP" wording made the
+   mandatory clarify pass (AC-7/AC-8) read as optional — a valid
+   reading let the loop park on a low-confidence ticket without ever
+   asking the clarify questions. Rewritten into two explicit branches:
+   clarify gate = run the pass now, then continue; any other
+   interactive gate = stop for real.
+A third, non-blocking finding (`runner.run_agent(ticket=...)` doesn't
+consume `phase_resolver`'s resolved model, only its interactive flag)
+was left as a follow-up per the review's own assessment — current call
+sites always pass a consistent `track`, so it's a latent contract gap,
+not a live bug.
+
+[!DECISION D-004] owner=impl-agent date=2026-07-11 refs=step-1,review
+An independent fresh-agent review (general-purpose, no prior
+conversation context — the mandatory pre-review-report check since
+this environment has no dedicated `code-reviewer` agent type) found a
+HIGH bug missed by both internal review and the codex external review:
+`phase_resolver.resolve_phase()`'s `agent_type` was derived from
+`phase_id` directly (`klc-plugin/agents/{phase_id}.md`), but 5 of 14
+real phases point at a differently-named shared agent file (`build`
+-> `impl.md`, `acceptance-test-plan`/`detailed-test-plan` ->
+`test-planner.md`, `manual` -> `manual-check.md`, `learn` ->
+`retrospective.md`). This silently returned `agent_type=None` for
+`build` — the single most-executed phase for every S/M/L ticket —
+breaking AC-2's Task-tool dispatch for the majority of real phase
+executions. No existing test caught it because every test up to this
+point only resolved phase ids where `phase_id == prompt stem` (design,
+discovery) or where the bug was masked by the always-inline path
+(xs-build). Fixed by deriving the agent filename from
+`phase.prompt`'s stem instead; added a parametrized regression test
+covering every phase in `phases.yml` against its real expected agent.
+
 IMPL_PLAN_DRAFT KLC-052

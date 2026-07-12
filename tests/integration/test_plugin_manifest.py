@@ -15,7 +15,7 @@ PLUGIN_DIR = FW_ROOT / "klc-plugin"
 sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 
 
-LIFECYCLE_CMDS = ("intake", "status", "next", "ack", "ship", "jump", "abort", "step")
+LIFECYCLE_CMDS = ("intake", "status", "next", "ack", "ship", "jump", "abort", "step", "run")
 
 
 def _has_frontmatter(path: Path) -> bool:

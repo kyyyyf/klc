@@ -30,6 +30,7 @@ verb:
 | `/klc:jump <KEY> <phase>` | Jump to a specific phase |
 | `/klc:abort <KEY>` | Cancel and return to previous ack |
 | `/klc:step <KEY> N` | Show / advance the build step |
+| `/klc:run <KEY>` | Run the ticket through its lifecycle: resolve each phase, dispatch inline (XS) or to a subagent (S/M/L), throttle `ack --auto` + `next`, stop at every human-interaction point (KLC-052) |
 
 ## Execution surface
 
@@ -37,6 +38,7 @@ verb:
 |---|---|---|
 | Heavy interactive (discovery, design, …) | CC main-loop | Set by user `/model`; guarded by MODEL_MISMATCH warning |
 | Mechanical fan-out (reviewers, triage, indexing) | Subagent | Pinned in `agents/*.md` frontmatter, resolved from `models.yml` |
+| `/klc:run` orchestrator loop | CC main-loop (Task-tool dispatch only — no Python driver, C-001) | `phase_resolver.resolve_phase` derives prompt/model/agent per step; parks at any interactive phase instead of guessing |
 
 ## MODEL_MISMATCH guard
 

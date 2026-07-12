@@ -69,6 +69,21 @@ Each dimension scores 0-5:
 **L**: intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn
 <!-- END GENERATED:tracks-phase-sequences -->
 
+## Artifact size proportional to track
+
+Spec/design artifact size MUST be proportional to the ticket's track —
+a bigger track earns a bigger spec, not the other way around:
+
+| Track | `spec.md` shape |
+|-------|-----------------|
+| XS | 1–2 ACs, no options block |
+| S | ~3 ACs, `options-lite.md` (2 options, one picked) |
+| M+ | Full options analysis (`design/options.md`, ADR when warranted) |
+
+An over-sized spec on a small track is scope creep in the artifact
+itself, even when the code change is genuinely small — retrack first
+(`klc retrack`), don't just write a bigger spec at the old track.
+
 ## Phase sequences
 
 ### XS track

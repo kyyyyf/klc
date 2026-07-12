@@ -223,6 +223,7 @@ def run(argv: list[str]) -> int:
         "route_confidence": route["confidence"],
         "route_decision":   route["decision"],
         "mentions":         route["mentions"],
+        "clarify_required": route["confidence"] == "low",
         "metrics":       {"intake_ms": int((_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds() * 1000)},
     }
     klc_ticket_meta_file(args.ticket).write_text(

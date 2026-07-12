@@ -38,8 +38,12 @@ _MODEL_TO_CC_ALIAS: dict[str, str] = {
 }
 
 
-def _cc_alias(model_id: str) -> str:
+def cc_alias(model_id: str) -> str:
     return _MODEL_TO_CC_ALIAS.get(model_id, model_id)
+
+
+# Back-compat: earlier callers used the private name.
+_cc_alias = cc_alias
 
 
 def generate_agents(
@@ -152,6 +156,24 @@ def _generate_commands(output_dir: Path) -> list[Path]:
         )
         dest.write_text(content, encoding="utf-8")
         generated.append(dest)
+
+    # `run` is not a CLI passthrough — it's the prompt-driven orchestrator
+    # loop (KLC-052, C-001: no Python driver). Point at the canonical
+    # instructions in klc-plugin/skills/run/SKILL.md instead of duplicating
+    # them here (single source of truth for the loop).
+    run_dest = output_dir / "run.md"
+    if not run_dest.exists():
+        run_content = (
+            "---\n"
+            "description: Run a ticket through its lifecycle (orchestrator loop)\n"
+            "argument-hint: <TICKET-ID>\n"
+            "allowed-tools: [Bash, Task, AskUserQuestion]\n"
+            "---\n\n"
+            "Read `klc-plugin/skills/run/SKILL.md` and follow its orchestrator "
+            "loop instructions for ticket `$ARGUMENTS`.\n"
+        )
+        run_dest.write_text(run_content, encoding="utf-8")
+    generated.append(run_dest)
 
     return generated
 
