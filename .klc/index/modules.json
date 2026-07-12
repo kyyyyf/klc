@@ -140,6 +140,7 @@
       "depends_on": [],
       "depended_by": [
         "core/phases",
+        "klc-plugin",
         "scripts",
         "tests"
       ]
@@ -187,7 +188,9 @@
     {
       "name": "klc-plugin",
       "path": "klc-plugin",
-      "depends_on": [],
+      "depends_on": [
+        "core/skills"
+      ],
       "depended_by": []
     }
   ]
