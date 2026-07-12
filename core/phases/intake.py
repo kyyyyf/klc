@@ -18,11 +18,11 @@ import datetime as _dt
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills"))
+import identity  # noqa: E402
 from _paths import (  # noqa: E402
     klc_config_dir,
     klc_global_tickets_index,
@@ -72,19 +72,6 @@ def _load_jira_url(ticket: str) -> str | None:
             tmpl = line.split(":", 1)[1].strip().strip('"').strip("'")
             return tmpl.replace("{key}", ticket)
     return None
-
-
-def _git_user() -> str:
-    for key in ("user.email", "user.name"):
-        try:
-            r = subprocess.run(["git", "config", "--get", key],
-                               capture_output=True, text=True, timeout=5)
-            out = r.stdout.strip()
-            if out:
-                return out
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-    return os.environ.get("USER", "unknown")
 
 
 def _now() -> str:
@@ -214,7 +201,7 @@ def run(argv: list[str]) -> int:
         "layer":         None,
         "affected_modules": [],
         "created":       _now(),
-        "owner":         _git_user(),
+        "owner":         identity.current(),
         "jira_url":      jira_url,
         "links":         [],
         "rework_count":  {},
