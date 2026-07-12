@@ -416,6 +416,63 @@ class TestReviewFixes:
         assert "KLC-054: mine" in log
         assert "race 1" in log and "race 2" in log
 
+    def test_non_ff_marker_required_non_cas_rejection_raises_clear_error(
+        self, tmp_path
+    ):
+        """P2a(r2): a non-CAS 'rejected' (protected branch / pre-receive hook)
+        must raise a clear error, NOT be sent through the CAS retry loop."""
+        origin = _seed_origin(tmp_path)
+        # Server rejects EVERY push for a non-CAS reason (bare 'rejected',
+        # no 'non-fast-forward' / 'fetch first' marker).
+        hook = origin / "hooks" / "pre-receive"
+        hook.write_text(
+            "#!/bin/sh\necho 'policy: branch is protected' >&2\nexit 1\n",
+            encoding="utf-8",
+        )
+        hook.chmod(0o755)
+
+        klc = _clone(origin, tmp_path / "klc")
+        (klc / "tickets" / TICKET).mkdir(parents=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+        head_before = _run(["git", "rev-parse", "HEAD"], klc).stdout.strip()
+
+        with pytest.raises(RuntimeError) as ei:
+            commit_and_push_cas([rel], "KLC-054: mine", TICKET, klc)
+        assert not isinstance(ei.value, (RetryExhaustedError, StateConflictError))
+        # terminal failure still rolls the local commit back
+        assert _run(["git", "rev-parse", "HEAD"], klc).stdout.strip() == head_before
+
+    def test_self_reverting_same_ticket_commit_raises_conflict(self, tmp_path):
+        """P2b(r2): a remote that touches our ticket then reverts it (net-zero
+        tree) must still raise StateConflictError — per-commit classification,
+        not the net three-dot diff."""
+        origin = _seed_origin(tmp_path)
+        klc = _clone(origin, tmp_path / "klc")
+        other = _clone(origin, tmp_path / "other")
+
+        # Commit 1: touch OUR ticket.
+        (other / f"tickets/{TICKET}").mkdir(parents=True)
+        (other / f"tickets/{TICKET}/theirs.json").write_text("x\n", encoding="utf-8")
+        _run(["git", "add", "-A"], other)
+        _run(["git", "commit", "-q", "-m", "add same-ticket"], other)
+        # Commit 2: revert that change (net-zero for our ticket) but keep an
+        # unrelated file so the branch is genuinely ahead.
+        _run(["git", "rm", "-q", "--", f"tickets/{TICKET}/theirs.json"], other)
+        (other / "tickets/KLC-099").mkdir(parents=True)
+        (other / "tickets/KLC-099/keep.json").write_text("k\n", encoding="utf-8")
+        _run(["git", "add", "-A"], other)
+        _run(["git", "commit", "-q", "-m", "revert same-ticket, keep other"], other)
+        push = _run(["git", "push", "origin", "HEAD:main"], other)
+        assert push.returncode == 0, push.stderr
+
+        (klc / "tickets" / TICKET).mkdir(parents=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+
+        with pytest.raises(StateConflictError):
+            commit_and_push_cas([rel], "KLC-054: mine", TICKET, klc)
+
 
 class TestPullRebaseErrors:
     def test_no_upstream_not_labeled_rebase_conflict(self, tmp_path):
