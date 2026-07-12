@@ -2,7 +2,7 @@
   "ticket": "KLC-053",
   "kind": "unknown",
   "kind_source": "heuristic",
-  "phase": "xs-build:work",
+  "phase": "integrate:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -40,6 +40,48 @@
     {
       "phase": "xs-build:work",
       "started_at": "2026-06-27T08:29:35Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-12T09:40:12Z"
+    },
+    {
+      "phase": "xs-build:ack-needed",
+      "started_at": "2026-07-12T09:40:12Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T09:40:20Z"
+    },
+    {
+      "phase": "xs-build:ack",
+      "started_at": "2026-07-12T09:40:20Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-12T09:40:20Z"
+    },
+    {
+      "phase": "review-lite:work",
+      "started_at": "2026-07-12T09:40:20Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-12T12:54:22Z"
+    },
+    {
+      "phase": "review-lite:ack-needed",
+      "started_at": "2026-07-12T12:54:22Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T12:54:40Z"
+    },
+    {
+      "phase": "review-lite:ack",
+      "started_at": "2026-07-12T12:54:40Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-12T12:54:40Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-07-12T12:54:40Z",
       "event": "advance",
       "note": "ack:approve"
     }
