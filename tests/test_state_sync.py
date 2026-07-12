@@ -499,7 +499,7 @@ class TestReviewFixes:
         push = _run(["git", "push", "origin", "HEAD:main"], other)
         assert push.returncode == 0, push.stderr
 
-        (klc / f"tickets/{TICKET}").mkdir(parents=True)
+        (klc / f"tickets/{TICKET}").mkdir(parents=True, exist_ok=True)
         rel = f"tickets/{TICKET}/state.json"
         (klc / rel).write_text("{}\n", encoding="utf-8")
 

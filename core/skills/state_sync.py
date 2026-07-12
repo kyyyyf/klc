@@ -138,6 +138,30 @@ def _upstream_branch(klc_dir: Path) -> str:
     return val.split("/", 1)[1] if "/" in val else val
 
 
+def _incoming_same_ticket_paths(prefix: str, klc_dir: Path) -> list[str]:
+    """Return sorted ``tickets/<ticket>/`` paths touched by incoming commits.
+
+    Enumerates every ``HEAD..@{upstream}`` commit and diffs each against its own
+    first parent with rename detection, unioning both the source and destination
+    of every changed/renamed path.
+    """
+    rev = _git(["rev-list", "HEAD..@{upstream}"], klc_dir)
+    touched: set[str] = set()
+    for sha in rev.stdout.split():
+        show = _git(
+            ["show", "--first-parent", "-M", "--name-status", "--format=", sha],
+            klc_dir,
+        )
+        for line in show.stdout.splitlines():
+            fields = [f.strip() for f in line.split("\t") if f.strip()]
+            if len(fields) < 2:
+                continue  # skip the status-only / blank header lines
+            # fields[0] is the status (M/A/D/R<score>/C<score>); the remaining
+            # fields are path(s) — for renames/copies both old AND new.
+            touched.update(fields[1:])
+    return sorted(f for f in touched if f.startswith(prefix))
+
+
 def commit_and_push_cas(
     paths,
     msg: str,
@@ -155,9 +179,12 @@ def commit_and_push_cas(
     Only a genuine non-fast-forward rejection enters the CAS loop; any other
     push rejection (protected branch, pre-receive hook, …) is surfaced directly
     as a :class:`RuntimeError`.  On a non-fast-forward the incoming commits are
-    inspected per-commit (``git log -m --name-only HEAD..@{upstream}``) so that
-    changes made through merge commits *and* same-ticket changes later reverted
-    by another incoming commit are both surfaced:
+    inspected per-commit, each diffed against its own first parent with rename
+    detection (see :func:`_incoming_same_ticket_paths`), so that changes made
+    through merge commits, rename sources moving a file *out* of the ticket, and
+    same-ticket changes later reverted by another incoming commit are all
+    surfaced — without falsely flagging paths a merge's second parent merely
+    reintroduces from already-local history:
 
     * If any remote change touches ``tickets/<ticket>/`` the push is a
       single-writer violation and :class:`StateConflictError` is raised
@@ -179,6 +206,13 @@ def commit_and_push_cas(
         NothingToCommitError: if the supplied paths have no staged changes.
     """
     klc_dir = Path(klc_dir)
+
+    # Materialise once (paths may be a generator) and require at least one:
+    # an empty pathspec would make `git add`/`git commit` operate on the whole
+    # index and commit unrelated already-staged content.
+    paths = list(paths)
+    if not paths:
+        raise ValueError("commit_and_push_cas requires at least one path")
 
     # Validate all paths BEFORE touching git.
     for p in paths:
@@ -265,17 +299,17 @@ def _push_with_cas(
                 f"{ticket}: {fetch.stderr.strip() or fetch.stdout.strip()}"
             )
 
-        # Classify by the UNION of paths touched across the incoming commits
-        # (per-commit, not the net tree).  ``git log -m --name-only`` diffs each
-        # merge commit against its parents, so merge-only changes are still
-        # surfaced (r1 win), while per-commit enumeration also catches a
-        # same-ticket change that a later commit reverts (net-zero tree).
-        changed = _git(
-            ["log", "-m", "--name-only", "--format=", "HEAD..@{upstream}"],
-            klc_dir,
-        )
-        touched = {ln.strip() for ln in changed.stdout.splitlines() if ln.strip()}
-        same_ticket = sorted(f for f in touched if f.startswith(prefix))
+        # Classify by the UNION of paths touched across the incoming commits.
+        # `git rev-list HEAD..@{upstream}` enumerates every upstream-only commit
+        # (including those reachable only via a merge's second parent, so merge
+        # visibility is preserved), and each commit is diffed against its own
+        # FIRST parent.  First-parent-per-commit avoids re-counting paths that a
+        # merge's second parent merely reintroduces from already-local history
+        # (no false other-ticket conflict); `-M --name-status` surfaces rename
+        # SOURCE paths (so moving a file out of our ticket still counts); and
+        # enumerating each commit catches a same-ticket change a later commit
+        # reverts (net-zero tree).
+        same_ticket = _incoming_same_ticket_paths(prefix, klc_dir)
         if same_ticket:
             raise StateConflictError(
                 f"same-ticket single-writer violation on {ticket}: "
