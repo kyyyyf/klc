@@ -70,3 +70,11 @@ same RED commit `b97cf85`.
 `python3 -m pytest tests/test_holder.py -q` → 20 passed. holder.py performs no
 filesystem or git I/O (delegates to `lifecycle.read_meta`/`write_meta`); import
 convention copied from `gate_policy.py`.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/skills/holder.py']
+  actual modules:  ['core/skills', 'tests']
+  unplanned:       ['core/skills', 'tests']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-056`.
