@@ -43,14 +43,38 @@ def _init_repo(root: Path) -> None:
 
 
 def _run_in(root: Path, argv):
-    """Call state.run(argv) with cwd chdir-ed into `root` (restored after)."""
+    """Call state.run(argv) with cwd chdir-ed into `root` (restored after).
+
+    PROJECT_ROOT is popped for the duration so the in-process run resolves the
+    repo from cwd (`git rev-parse --show-toplevel`) and can never target an
+    ambient real repo pointed at by an inherited PROJECT_ROOT.
+    """
     state = _load_state()
     old = os.getcwd()
+    old_pr = os.environ.pop("PROJECT_ROOT", None)
     try:
         os.chdir(root)
         return state.run(argv)
     finally:
         os.chdir(old)
+        if old_pr is not None:
+            os.environ["PROJECT_ROOT"] = old_pr
+
+
+def _run_in_patched(root: Path, argv, patch):
+    """Like `_run_in` but applies `patch(state_module)` before running so tests
+    can inject failures into the *same* module instance that executes run()."""
+    state = _load_state()
+    patch(state)
+    old = os.getcwd()
+    old_pr = os.environ.pop("PROJECT_ROOT", None)
+    try:
+        os.chdir(root)
+        return state.run(argv)
+    finally:
+        os.chdir(old)
+        if old_pr is not None:
+            os.environ["PROJECT_ROOT"] = old_pr
 
 
 def _worktree_paths(root: Path):
@@ -122,20 +146,25 @@ def test_state_init_preserves_existing_tickets_orphan(tmp_path):
 # --- AC-1: origin already has a klc-state branch ----------------------------
 
 
-def _make_origin_with_state(tmp_path: Path) -> Path:
-    """Build a bare 'origin' repo that already carries a klc-state branch
-    containing tickets/origin.txt.  Returns the bare repo path."""
+def _make_origin_with_state(tmp_path: Path, files: dict | None = None) -> Path:
+    """Build a bare 'origin' repo that already carries a klc-state branch.
+
+    `files` maps repo-relative paths to contents (default: tickets/origin.txt).
+    Returns the bare repo path."""
+    if files is None:
+        files = {"tickets/origin.txt": "ORIGIN-TICKET"}
     build = tmp_path / "build"
     build.mkdir()
     _init_repo(build)
-    # orphan klc-state branch with a ticket file
+    # orphan klc-state branch with ticket file(s)
     _git(["checkout", "--orphan", "klc-state"], build)
     _git(["rm", "-rf", "--cached", "."], build, check=False)
     (build / "a.txt").unlink()
-    tdir = build / "tickets"
-    tdir.mkdir()
-    (tdir / "origin.txt").write_text("ORIGIN-TICKET", encoding="utf-8")
-    _git(["add", "tickets/origin.txt"], build)
+    for rel, content in files.items():
+        p = build / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    _git(["add", "-A"], build)
     _git(["commit", "-m", "klc-state root"], build)
     _git(["checkout", "main"], build)
 
@@ -190,6 +219,194 @@ def test_klc_state_init_dispatched(tmp_path):
     )
     assert result.returncode == 0, f"dispatch failed: {result.stderr}"
     assert str((root / ".klc").resolve()) in _worktree_paths(root)
+
+
+# --- M3: repo root honored from a subdirectory ------------------------------
+
+
+def test_state_init_from_subdirectory_targets_repo_root(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    sub = root / "a" / "b"
+    sub.mkdir(parents=True)
+
+    rc = _run_in(sub, ["init"])
+    assert rc == 0, "state init should exit 0 when run from a subdirectory"
+
+    # .klc must be created at the REPO ROOT, never inside the subdirectory
+    assert (root / ".klc").is_dir(), ".klc must be materialized at the repo root"
+    assert not (sub / ".klc").exists(), ".klc must NOT be created in the subdirectory"
+    assert str((root / ".klc").resolve()) in _worktree_paths(root)
+
+
+# --- M4(a): collision — local content wins over origin's klc-state ----------
+
+
+def test_state_init_collision_local_wins(tmp_path):
+    # origin's klc-state carries tickets/dup.txt with ORIGIN content
+    origin = _make_origin_with_state(tmp_path, {"tickets/dup.txt": "ORIGIN-CONTENT"})
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+    _git(["fetch", "origin"], root)
+
+    # local pre-existing tickets/dup.txt with DIFFERENT content
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "dup.txt").write_text("LOCAL-CONTENT", encoding="utf-8")
+
+    assert _run_in(root, ["init"]) == 0
+
+    # local content must survive the collision
+    assert (root / ".klc" / "tickets" / "dup.txt").read_text(encoding="utf-8") == "LOCAL-CONTENT"
+
+
+# --- M4(b) + H1: failure-restore, teardown, no false idempotent success -----
+
+
+def _inject_commit_failure(state):
+    """Monkeypatch _git so the orphan root `commit` fails (simulates e.g. a
+    commit hook / gpg failure) after the .klc worktree already exists."""
+    real = state._git
+
+    def fake(args, cwd, *, check=True):
+        if "commit" in args:
+            raise subprocess.CalledProcessError(
+                1, ["git", *args], stderr="injected commit failure"
+            )
+        return real(args, cwd, check=check)
+
+    state._git = fake
+
+
+def test_state_init_failure_restores_local_and_reports_error(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    # local ticket content that must not be lost on failure
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "local.txt").write_text("PRECIOUS", encoding="utf-8")
+
+    rc = _run_in_patched(root, ["init"], _inject_commit_failure)
+    assert rc == 1, "a mid-init failure must report failure (non-zero)"
+
+    # original content is restored in place, NOT stranded in the backup dir
+    assert (root / ".klc" / "tickets" / "local.txt").read_text(encoding="utf-8") == "PRECIOUS"
+    assert not (root / ".klc.init-bak").exists(), "backup must not be left stranded"
+    # the partial worktree must have been torn down (not a registered worktree)
+    assert str((root / ".klc").resolve()) not in _worktree_paths(root)
+
+
+def test_state_init_no_false_idempotent_success_after_partial(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "local.txt").write_text("PRECIOUS", encoding="utf-8")
+
+    # first run fails mid-init
+    assert _run_in_patched(root, ["init"], _inject_commit_failure) == 1
+
+    # a subsequent CLEAN run must actually complete, not falsely report success
+    rc = _run_in(root, ["init"])
+    assert rc == 0, "recovery run should complete init"
+    assert str((root / ".klc").resolve()) in _worktree_paths(root)
+    assert (root / ".klc" / "tickets" / "local.txt").read_text(encoding="utf-8") == "PRECIOUS"
+    # branch really exists with the orphan root commit
+    assert "klc-state" in _git(["branch", "--list", "klc-state"], root).stdout
+
+
+def test_state_init_refuses_when_worktree_present_but_backup_stranded(tmp_path):
+    """Defense-in-depth: a registered .klc worktree AND a leftover .klc.init-bak
+    means a prior init did not complete — must not report success."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    assert _run_in(root, ["init"]) == 0  # real worktree now present
+
+    # simulate a stranded backup from an interrupted earlier run
+    bak = root / ".klc.init-bak"
+    (bak / "tickets").mkdir(parents=True)
+    (bak / "tickets" / "old.txt").write_text("STRANDED", encoding="utf-8")
+
+    rc = _run_in(root, ["init"])
+    assert rc != 0, "must not report idempotent success while a backup is stranded"
+    # the stranded backup is preserved, not silently discarded
+    assert (bak / "tickets" / "old.txt").read_text(encoding="utf-8") == "STRANDED"
+
+
+# --- L6: pre-existing backup is never destroyed -----------------------------
+
+
+def test_state_init_refuses_to_clobber_existing_backup(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    # a stranded backup from a prior interrupted run (the only copy of old data)
+    bak = root / ".klc.init-bak"
+    (bak / "tickets").mkdir(parents=True)
+    (bak / "tickets" / "old.txt").write_text("ONLY-COPY", encoding="utf-8")
+
+    # plus fresh local content in .klc
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "new.txt").write_text("NEW", encoding="utf-8")
+
+    rc = _run_in(root, ["init"])
+    assert rc != 0, "must refuse rather than overwrite an existing backup"
+    # the pre-existing backup is intact
+    assert (bak / "tickets" / "old.txt").read_text(encoding="utf-8") == "ONLY-COPY"
+
+
+# --- L7: merge-back tolerates symlinks and dir/file type clashes -------------
+
+
+def test_state_init_merge_back_preserves_dangling_symlink(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "real.txt").write_text("REAL", encoding="utf-8")
+    # a dangling symlink — copytree(symlinks=False) would raise on this
+    os.symlink("does-not-exist", tdir / "dangling")
+
+    assert _run_in(root, ["init"]) == 0
+
+    link = root / ".klc" / "tickets" / "dangling"
+    assert link.is_symlink(), "symlink must be preserved as a symlink"
+    assert os.readlink(link) == "does-not-exist"
+    assert (root / ".klc" / "tickets" / "real.txt").read_text(encoding="utf-8") == "REAL"
+
+
+def test_state_init_merge_back_dir_vs_file_clash_local_wins(tmp_path):
+    # origin's klc-state has `x` as a DIRECTORY (x/inner.txt)
+    origin = _make_origin_with_state(tmp_path, {"x/inner.txt": "ORIGIN-DIR"})
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+    _git(["fetch", "origin"], root)
+
+    # locally, `x` is a FILE (type clash with origin's directory)
+    klc = root / ".klc"
+    klc.mkdir()
+    (klc / "x").write_text("LOCAL-FILE", encoding="utf-8")
+
+    assert _run_in(root, ["init"]) == 0
+
+    # local file must win the type clash
+    assert (klc / "x").is_file(), "local file must replace origin's directory"
+    assert (klc / "x").read_text(encoding="utf-8") == "LOCAL-FILE"
 
 
 if __name__ == "__main__":
