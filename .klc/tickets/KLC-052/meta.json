@@ -2,7 +2,7 @@
   "ticket": "KLC-052",
   "kind": "tech",
   "kind_source": "discovery",
-  "phase": "integrate:work",
+  "phase": "learn:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -146,7 +146,49 @@
       "phase": "integrate:work",
       "started_at": "2026-07-12T07:34:45Z",
       "event": "advance",
-      "note": "ack:passed"
+      "note": "ack:passed",
+      "finished_at": "2026-07-12T07:37:35Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-07-12T07:37:35Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T07:37:35Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-07-12T07:37:35Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-07-12T07:37:35Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-07-12T07:37:35Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-07-12T07:37:49Z"
+    },
+    {
+      "phase": "observe:ack-needed",
+      "started_at": "2026-07-12T07:37:49Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T07:37:49Z"
+    },
+    {
+      "phase": "observe:ack",
+      "started_at": "2026-07-12T07:37:49Z",
+      "event": "ack",
+      "note": "pick=1:clean",
+      "finished_at": "2026-07-12T07:37:49Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-07-12T07:37:49Z",
+      "event": "advance",
+      "note": "ack:clean"
     }
   ],
   "track": "M",
