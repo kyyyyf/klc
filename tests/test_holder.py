@@ -232,3 +232,61 @@ def test_ac7_no_fs_or_git_io(store, monkeypatch):
     assert calls["run"] == 0 and calls["popen"] == 0
     # holder.py must not even import subprocess (no git ops possible).
     assert not hasattr(holder, "subprocess")
+
+
+# ---------------------------------------------------------------------------
+# review-fix — fail closed on a MALFORMED existing holder (codex P2 / fresh L2)
+#
+# `if existing:` treated an empty-dict holder as "free" (silently overwritten)
+# and a same-id holder missing `machine` as a valid idempotent acquire. A
+# corrupt holder record must fail closed with ValueError, not be accepted.
+# ---------------------------------------------------------------------------
+
+def test_acquire_empty_dict_holder_raises(store):
+    store.data["holder"] = {}
+    with pytest.raises(ValueError):
+        holder.acquire_holder("KLC-056", IDENT_A)
+    # Must NOT have silently overwritten the malformed record.
+    assert store.data["holder"] == {}
+
+
+def test_acquire_same_id_missing_machine_raises(store):
+    store.data["holder"] = {"id": IDENT_A["id"], "since": "2026-07-10T00:00:00Z"}
+    with pytest.raises(ValueError):
+        holder.acquire_holder("KLC-056", IDENT_A)
+
+
+def test_acquire_holder_missing_since_raises(store):
+    store.data["holder"] = {"id": IDENT_B["id"], "machine": IDENT_B["machine"]}
+    with pytest.raises(ValueError):
+        holder.acquire_holder("KLC-056", IDENT_A)
+
+
+def test_release_malformed_holder_raises(store):
+    store.data["holder"] = {}
+    with pytest.raises(ValueError):
+        holder.release_holder("KLC-056", IDENT_A)
+
+
+def test_acquire_non_dict_holder_raises(store):
+    store.data["holder"] = "corrupt"
+    with pytest.raises(ValueError):
+        holder.acquire_holder("KLC-056", IDENT_A)
+
+
+# ---------------------------------------------------------------------------
+# review-fix — non-clobber: sibling meta keys survive acquire/release
+# (fresh L1: no explicit assertion existed)
+# ---------------------------------------------------------------------------
+
+def test_acquire_release_preserve_sibling_meta_keys(store):
+    store.data = {"ticket": "KLC-056", "phase": "review:work",
+                  "phase_history": [{"phase": "build:work"}]}
+    holder.acquire_holder("KLC-056", IDENT_A)
+    assert store.data["ticket"] == "KLC-056"
+    assert store.data["phase"] == "review:work"
+    assert store.data["phase_history"] == [{"phase": "build:work"}]
+    holder.release_holder("KLC-056", IDENT_A)
+    assert store.data["ticket"] == "KLC-056"
+    assert store.data["phase"] == "review:work"
+    assert store.data["phase_history"] == [{"phase": "build:work"}]
