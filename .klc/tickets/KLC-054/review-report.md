@@ -96,3 +96,11 @@ arg is affected.
 `tests/test_jira_sync.py` → 18 passed (no regression). 12 commits on the branch
 (build ×4, build-log, ack, r1 ×2, r2 ×2, r3 ×2). All git subprocess calls are
 list-arg, C-locale, never `shell=True`.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/skills/state_sync.py', 'tests/integration']
+  actual modules:  ['core/skills', 'tests']
+  unplanned:       ['core/skills', 'tests']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-054`.
