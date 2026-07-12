@@ -71,6 +71,38 @@ def _stash_existing(klc: Path, repo: Path):
     return backup
 
 
+def _remote_has_state(repo: Path, remote: str) -> bool:
+    """True if `<remote>` advertises a klc-state head."""
+    out = _git(["ls-remote", "--heads", remote, STATE_BRANCH], repo, check=False)
+    return out.returncode == 0 and bool(out.stdout.strip())
+
+
+def _local_has_state(repo: Path) -> bool:
+    """True if a local klc-state branch ref already exists."""
+    r = _git(["show-ref", "--verify", "--quiet", f"refs/heads/{STATE_BRANCH}"], repo, check=False)
+    return r.returncode == 0
+
+
+def _add_worktree(repo: Path, klc: Path, remote: str) -> None:
+    """Materialize the `.klc` worktree, selecting the right source for
+    klc-state: an existing local branch, an existing remote branch (tracked),
+    or a freshly created orphan branch."""
+    if _local_has_state(repo):
+        _git(["worktree", "add", str(klc), STATE_BRANCH], repo)
+    elif _remote_has_state(repo, remote):
+        _git(["fetch", remote, STATE_BRANCH], repo, check=False)
+        _git(
+            ["worktree", "add", "--track", "-b", STATE_BRANCH,
+             str(klc), f"{remote}/{STATE_BRANCH}"],
+            repo,
+        )
+    else:
+        # No klc-state anywhere → create it as an orphan with an empty root
+        # commit (so the ref exists and history is disjoint from main).
+        _git(["worktree", "add", "--orphan", "-b", STATE_BRANCH, str(klc)], repo)
+        _git(["commit", "--allow-empty", "-m", "klc-state: initialize orphan root"], klc)
+
+
 def _restore_on_failure(backup, klc: Path) -> None:
     if backup is not None and not klc.exists():
         backup.rename(klc)
@@ -95,6 +127,8 @@ def run(argv: list[str]) -> int:
         sys.stderr.write("usage: klc state init [<remote>]\n")
         return 2
 
+    remote = args[1] if len(args) > 1 else DEFAULT_REMOTE
+
     repo = Path.cwd()
     if not _is_git_repo(repo):
         sys.stderr.write("klc state init: not inside a git repository\n")
@@ -109,10 +143,7 @@ def run(argv: list[str]) -> int:
 
     backup = _stash_existing(klc, repo)
     try:
-        # No klc-state branch anywhere → create it as an orphan with an empty
-        # root commit (so the ref actually exists and history is disjoint).
-        _git(["worktree", "add", "--orphan", "-b", STATE_BRANCH, str(klc)], repo)
-        _git(["commit", "--allow-empty", "-m", "klc-state: initialize orphan root"], klc)
+        _add_worktree(repo, klc, remote)
     except subprocess.CalledProcessError as e:
         _restore_on_failure(backup, klc)
         sys.stderr.write(f"klc state init: git error: {e.stderr or e}\n")

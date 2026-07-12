@@ -20,6 +20,7 @@ Plus a few operational commands:
     metrics    — per-ticket or rollup metrics
     reindex    — rebuild a ticket's .index.json
     jira-sync  — flush the Jira status push queue
+    state      — materialize the klc-state branch as a .klc/ worktree
 
 And install-time:
 
@@ -93,6 +94,7 @@ LIFECYCLE_CMDS = (
 )
 OPERATIONAL_CMDS = (
     "board", "doctor", "metrics", "reindex", "install", "jira-sync", "jira", "setup",
+    "state",
 )
 
 
