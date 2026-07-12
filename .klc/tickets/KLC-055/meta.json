@@ -2,7 +2,7 @@
   "ticket": "KLC-055",
   "kind": "unknown",
   "kind_source": "heuristic",
-  "phase": "build:work",
+  "phase": "review:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -40,6 +40,27 @@
     {
       "phase": "build:work",
       "started_at": "2026-06-27T08:29:35Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-12T08:50:02Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-07-12T08:50:02Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T08:50:52Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-07-12T08:50:52Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-12T08:50:52Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-07-12T08:50:52Z",
       "event": "advance",
       "note": "ack:approve"
     }
