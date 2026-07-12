@@ -2,7 +2,7 @@
   "ticket": "KLC-056",
   "kind": "unknown",
   "kind_source": "heuristic",
-  "phase": "build:work",
+  "phase": "integrate:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -41,6 +41,48 @@
       "phase": "build:work",
       "started_at": "2026-06-27T08:29:35Z",
       "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-12T09:08:23Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-07-12T09:08:23Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T09:08:23Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-07-12T09:08:23Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-12T09:08:23Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-07-12T09:08:23Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-12T12:53:58Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-07-12T12:53:58Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-12T12:53:58Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-07-12T12:53:58Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-12T12:53:58Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-07-12T12:53:58Z",
+      "event": "advance",
       "note": "ack:approve"
     }
   ],
@@ -54,7 +96,8 @@
   },
   "layer": null,
   "affected_modules": [
-    "core/skills/holder.py"
+    "core/skills",
+    "tests"
   ],
   "created": "2026-06-27T07:22:34Z",
   "owner": "developer@example.com",
