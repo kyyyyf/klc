@@ -473,6 +473,91 @@ class TestReviewFixes:
         with pytest.raises(StateConflictError):
             commit_and_push_cas([rel], "KLC-054: mine", TICKET, klc)
 
+    def test_other_ticket_merge_second_parent_not_false_conflict(self, tmp_path):
+        """P2a(r3): a normal OTHER-ticket merge whose 2nd parent predates an
+        already-local same-ticket file must NOT be misreported as a conflict
+        (per-commit first-parent classification, no 2nd-parent double-count)."""
+        origin = _seed_origin(tmp_path)  # S0 seed on main
+        seed_clone = _clone(origin, tmp_path / "seedc")
+        # S1: add a same-ticket file into the shared history.
+        (seed_clone / f"tickets/{TICKET}").mkdir(parents=True)
+        (seed_clone / f"tickets/{TICKET}/base.json").write_text("b\n", encoding="utf-8")
+        _run(["git", "add", "-A"], seed_clone)
+        _run(["git", "commit", "-q", "-m", "add base"], seed_clone)
+        _run(["git", "push", "origin", "HEAD:main"], seed_clone)
+
+        klc = _clone(origin, tmp_path / "klc")     # at S1 (HEAD has base.json)
+        other = _clone(origin, tmp_path / "other")  # at S1
+        # feature branches from S0 (before base.json) and does OTHER-ticket work.
+        _run(["git", "checkout", "-q", "-b", "feature", "HEAD~1"], other)
+        (other / "tickets/KLC-099").mkdir(parents=True)
+        (other / "tickets/KLC-099/f.json").write_text("f\n", encoding="utf-8")
+        _run(["git", "add", "-A"], other)
+        _run(["git", "commit", "-q", "-m", "feat KLC-099"], other)
+        _run(["git", "checkout", "-q", "main"], other)
+        _run(["git", "merge", "--no-edit", "feature"], other)
+        push = _run(["git", "push", "origin", "HEAD:main"], other)
+        assert push.returncode == 0, push.stderr
+
+        (klc / f"tickets/{TICKET}").mkdir(parents=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+
+        # OTHER-ticket race -> rebase + retry succeeds (no false StateConflictError).
+        assert commit_and_push_cas(
+            [rel], "KLC-054: mine", TICKET, klc,
+        ) is None
+        _run(["git", "fetch", "origin"], klc)
+        assert "KLC-054: mine" in _run(
+            ["git", "log", "--format=%s", "origin/main"], klc
+        ).stdout
+
+    def test_rename_out_of_ticket_raises_conflict(self, tmp_path):
+        """P2b(r3): a rename moving a file OUT of our ticket dir touches our
+        ticket via the SOURCE path and must raise StateConflictError."""
+        origin = _seed_origin(tmp_path)
+        seed_clone = _clone(origin, tmp_path / "seedc")
+        (seed_clone / f"tickets/{TICKET}").mkdir(parents=True)
+        (seed_clone / f"tickets/{TICKET}/a.json").write_text("aaa\n", encoding="utf-8")
+        _run(["git", "add", "-A"], seed_clone)
+        _run(["git", "commit", "-q", "-m", "add a"], seed_clone)
+        _run(["git", "push", "origin", "HEAD:main"], seed_clone)
+
+        klc = _clone(origin, tmp_path / "klc")     # has tickets/KLC-054/a.json
+        other = _clone(origin, tmp_path / "other")
+        (other / "tickets/KLC-099").mkdir(parents=True)
+        _run(["git", "mv", f"tickets/{TICKET}/a.json",
+              "tickets/KLC-099/a.json"], other)
+        _run(["git", "commit", "-q", "-m", "rename out of ticket"], other)
+        push = _run(["git", "push", "origin", "HEAD:main"], other)
+        assert push.returncode == 0, push.stderr
+
+        (klc / f"tickets/{TICKET}").mkdir(parents=True, exist_ok=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+
+        with pytest.raises(StateConflictError):
+            commit_and_push_cas([rel], "KLC-054: mine", TICKET, klc)
+
+    def test_empty_paths_raises_without_committing(self, tmp_path):
+        """P2c(r3): empty paths must raise before any git op and never commit
+        pre-staged, unrelated content."""
+        origin = _seed_origin(tmp_path)
+        klc = _clone(origin, tmp_path / "klc")
+        # Pre-stage unrelated content that must NOT be committed.
+        (klc / "README.md").write_text("tampered\n", encoding="utf-8")
+        _run(["git", "add", "README.md"], klc)
+        head_before = _run(["git", "rev-parse", "HEAD"], klc).stdout.strip()
+
+        with pytest.raises(ValueError):
+            commit_and_push_cas([], "KLC-054: x", TICKET, klc)
+
+        assert _run(["git", "rev-parse", "HEAD"], klc).stdout.strip() == head_before
+        _run(["git", "fetch", "origin"], klc)
+        assert "KLC-054: x" not in _run(
+            ["git", "log", "--format=%s", "origin/main"], klc
+        ).stdout
+
 
 class TestPullRebaseErrors:
     def test_no_upstream_not_labeled_rebase_conflict(self, tmp_path):
