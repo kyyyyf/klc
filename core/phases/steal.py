@@ -61,6 +61,16 @@ def run(argv: list[str]) -> int:
     if not klc_ticket_meta_file(args.ticket).exists():
         return _friendly_missing_ticket(args.ticket)
 
+    # A TTL must be strictly positive. ttl<=0 would make the staleness gate
+    # (age < ttl_seconds) reject nothing — every holder, however fresh, would
+    # be stealable — defeating the "refuse while alive" data-safety contract.
+    if args.ttl_minutes is not None and args.ttl_minutes <= 0:
+        sys.stderr.write(
+            f"klc steal: --ttl-minutes must be positive (got {args.ttl_minutes}); "
+            f"a zero or negative TTL would steal a live holder\n"
+        )
+        return 1
+
     ttl_seconds = (args.ttl_minutes * 60 if args.ttl_minutes is not None
                    else holder.HOLDER_TTL_SECONDS)
 
@@ -69,7 +79,7 @@ def run(argv: list[str]) -> int:
     def _warn_before_takeover(prev: dict, age: float) -> None:
         sys.stderr.write(
             f"WARNING: {args.ticket} holder {prev.get('id')!r} is stale "
-            f"(idle {int(age)}s ≥ TTL {int(ttl_seconds)}s); taking over.\n"
+            f"(idle {int(age)}s >= TTL {int(ttl_seconds)}s); taking over.\n"
         )
 
     try:
@@ -92,7 +102,7 @@ def run(argv: list[str]) -> int:
     prev = result["previous"]
     new = result["holder"]
     print(
-        f"STOLEN {args.ticket} → {new['id']} "
+        f"STOLEN {args.ticket} -> {new['id']} "
         f"(was {prev.get('id')}, idle {int(result['age_seconds'])}s)"
     )
     return 0
