@@ -59,9 +59,7 @@ def _git_user() -> str:
 
 def run(argv: list[str]) -> int:
     """Emit reminders for completable-held tickets. Always returns 0."""
-    # --statusline is accepted but does not change behaviour (same output).
-    _ = "--statusline" in (argv or [])
-
+    # --statusline accepted; output is identical (AC-5), so it is a no-op.
     identity = _git_user()
 
     tickets_dir = klc_tickets_dir()
@@ -79,7 +77,9 @@ def run(argv: list[str]) -> int:
         except Exception:
             continue
 
-        holder = meta.get("holder") or {}
+        holder = meta.get("holder")
+        if not isinstance(holder, dict):
+            continue  # unheld or corrupt (non-dict) holder → skip robustly
         if holder.get("id") != identity:
             continue  # AC-3: held by someone else (or unheld) → skip
 

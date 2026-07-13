@@ -182,3 +182,85 @@ def test_statusline_flag_emits_same_line(tmp_path):
     assert statusline.stdout == expected, (
         f"statusline stdout={statusline.stdout!r}"
     )
+
+
+# --- review-fix: robustness (P2a, P2b) ---------------------------------------
+
+
+def _write_meta_raw(root: Path, ticket: str, meta: dict) -> None:
+    """Write an arbitrary meta.json (used to fabricate corrupt tickets)."""
+    tdir = root / ".klc" / "tickets" / ticket
+    tdir.mkdir(parents=True)
+    (tdir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def test_remind_skips_non_dict_holder(tmp_path, monkeypatch, capsys):
+    """P2a: a ticket with a non-dict `holder` must not abort the scan.
+
+    One malformed ticket (holder is a string) plus one legitimately
+    completable held ticket → remind prints the good one and exits 0
+    with no traceback.
+    """
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    # Malformed: holder is a bare string, not a dict.
+    _write_meta_raw(tmp_path, "KLC-800", {
+        "ticket": "KLC-800",
+        "kind": "feature",
+        "phase": "integrate:work",
+        "phase_history": [],
+        "track": "M",
+        "affected_modules": [],
+        "estimate": None,
+        "created": "2026-01-01T00:00:00Z",
+        "holder": "corrupt-not-a-dict",
+    })
+    # Legit completable held ticket (sorts after KLC-800).
+    _fabricate_ticket(tmp_path, "KLC-901", phase="integrate:work", holder_id=ID)
+    remind = _load_remind()
+    monkeypatch.setattr(remind, "_git_user", lambda: ID)
+
+    rc = remind.run([])
+
+    assert rc == 0
+    assert capsys.readouterr().out == "KLC-901 integrate is done — run klc ack\n"
+
+
+def test_hook_swallows_child_failure_stderr(tmp_path):
+    """P2b: when `klc remind` exits non-zero with stderr, the hook stays silent."""
+    fake = tmp_path / "fake_klc.py"
+    fake.write_text(
+        "import sys\n"
+        "sys.stderr.write('BOOM traceback leak\\n')\n"
+        "sys.stdout.write('SHOULD-NOT-LEAK\\n')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    env = {**os.environ, "PROJECT_ROOT": str(tmp_path)}
+    env["KLC_BIN"] = f"{sys.executable} {fake}"
+    result = subprocess.run(
+        [sys.executable, str(HOOK_REMIND)],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0
+    assert result.stderr == "", f"child stderr leaked: {result.stderr!r}"
+    assert result.stdout == "", f"child stdout leaked on failure: {result.stdout!r}"
+
+
+def test_hook_forwards_child_stdout_on_success(tmp_path):
+    """P2b: when `klc remind` exits 0 with a reminder line, it reaches stdout."""
+    fake = tmp_path / "fake_klc.py"
+    fake.write_text(
+        "import sys\n"
+        "sys.stdout.write('KLC-777 integrate is done — run klc ack\\n')\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    env = {**os.environ, "PROJECT_ROOT": str(tmp_path)}
+    env["KLC_BIN"] = f"{sys.executable} {fake}"
+    result = subprocess.run(
+        [sys.executable, str(HOOK_REMIND)],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0
+    assert result.stdout == "KLC-777 integrate is done — run klc ack\n"
+    assert result.stderr == ""
