@@ -222,18 +222,20 @@ def run(argv: list[str]) -> int:
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    # KLC-057: multi-user uniqueness. The CAS push of this ticket's own files
-    # *is* the uniqueness guarantee — a key a peer already created rejects as
-    # StateConflictError. Feature-off (single-user), state_tx is a pure no-op,
-    # so behaviour is byte-for-byte identical (AC-8a). Holder acquire is wired
-    # in step-5.
+    # KLC-057: multi-user uniqueness + holder. The CAS push of this ticket's own
+    # files *is* the uniqueness guarantee — a key a peer already created rejects
+    # as StateConflictError. The first phase records the current holder in the
+    # SAME push (AC-3). Feature-off (single-user), state_tx is a pure no-op and
+    # the holder write is skipped, so behaviour is byte-for-byte identical (AC-8a).
     meta_rel = f"tickets/{args.ticket}/meta.json"
     raw_rel = f"tickets/{args.ticket}/raw.md"
     try:
         with state_tx.state_tx(
             args.ticket, [meta_rel, raw_rel], f"intake {args.ticket}"
         ) as tx:
-            pass
+            if tx is not None:
+                ident = {"id": identity.current(), "machine": socket.gethostname()}
+                holder.acquire_holder(args.ticket, ident)
     except state_sync.StateConflictError:
         shutil.rmtree(tdir, ignore_errors=True)
         sys.stderr.write(
