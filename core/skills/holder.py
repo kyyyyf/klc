@@ -182,8 +182,15 @@ def heartbeat_holder(ticket: str) -> dict:
     return existing
 
 
-def _parse_iso_z(ts: str) -> _dt.datetime:
-    """Parse an ISO-8601 UTC 'Z' timestamp into an aware datetime."""
+def _parse_iso_z(ts) -> _dt.datetime:
+    """Parse an ISO-8601 UTC 'Z' timestamp into an aware datetime.
+
+    Raises ValueError on any non-string or malformed value (never an
+    AttributeError from calling .replace on a non-str), so callers can treat a
+    single `except ValueError` as "this stamp is unusable".
+    """
+    if not isinstance(ts, str):
+        raise ValueError(f"timestamp must be a str, got {type(ts).__name__}: {ts!r}")
     parsed = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=_dt.timezone.utc)
@@ -193,11 +200,22 @@ def _parse_iso_z(ts: str) -> _dt.datetime:
 def _holder_age_seconds(existing: dict) -> float:
     """Seconds since the holder was last known alive.
 
-    Liveness is `heartbeat_at` when present, else the acquire time `since`.
+    Liveness is `heartbeat_at` when it is a parseable ISO-Z string, else the
+    acquire time `since`. A missing / non-string / malformed heartbeat_at must
+    NOT crash and must NOT make a genuinely-stale holder un-stealable: it falls
+    back to `since`. If `since` is also unusable, raise a clear ValueError so
+    the CLI maps it to a clean non-zero exit rather than a traceback.
     """
-    ref = existing.get("heartbeat_at") or existing.get("since")
-    delta = _dt.datetime.now(_dt.timezone.utc) - _parse_iso_z(ref)
-    return delta.total_seconds()
+    now = _dt.datetime.now(_dt.timezone.utc)
+    for ref in (existing.get("heartbeat_at"), existing.get("since")):
+        try:
+            return (now - _parse_iso_z(ref)).total_seconds()
+        except ValueError:
+            continue
+    raise ValueError(
+        "holder liveness is unusable: neither 'heartbeat_at' nor 'since' is a "
+        "parseable ISO-8601 UTC timestamp"
+    )
 
 
 def steal_holder(ticket: str, identity: dict,
