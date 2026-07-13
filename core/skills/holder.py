@@ -47,6 +47,27 @@ class HolderConflictError(RuntimeError):
         self.holder = holder
 
 
+class HolderActiveError(HolderConflictError):
+    """Raised by steal_holder when the current holder is still ACTIVE.
+
+    "Active" means its liveness timestamp (heartbeat_at, else since) is within
+    the configured TTL, so a takeover is refused. Carries `.holder` (the live
+    owner) and `.age_seconds` (measured staleness) for the caller's message.
+    """
+
+    def __init__(self, message: str, holder: dict | None = None,
+                 age_seconds: float | None = None):
+        super().__init__(message, holder=holder)
+        self.age_seconds = age_seconds
+
+
+# Default staleness window: a holder whose heartbeat_at (else since) is older
+# than this is considered abandoned and may be stolen. 30 minutes. There is no
+# natural config home for this (config/*.yml carry no lifecycle-lock knobs), so
+# it lives as a module constant; the CLI exposes --ttl-minutes to override.
+HOLDER_TTL_SECONDS = 30 * 60
+
+
 def _now() -> str:
     """ISO-8601 UTC timestamp ending in 'Z' (mirrors lifecycle._now)."""
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -159,6 +180,63 @@ def heartbeat_holder(ticket: str) -> dict:
     meta["holder"] = existing
     lifecycle.write_meta(ticket, meta)
     return existing
+
+
+def _parse_iso_z(ts: str) -> _dt.datetime:
+    """Parse an ISO-8601 UTC 'Z' timestamp into an aware datetime."""
+    parsed = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+    return parsed
+
+
+def _holder_age_seconds(existing: dict) -> float:
+    """Seconds since the holder was last known alive.
+
+    Liveness is `heartbeat_at` when present, else the acquire time `since`.
+    """
+    ref = existing.get("heartbeat_at") or existing.get("since")
+    delta = _dt.datetime.now(_dt.timezone.utc) - _parse_iso_z(ref)
+    return delta.total_seconds()
+
+
+def steal_holder(ticket: str, identity: dict,
+                 ttl_seconds: float = HOLDER_TTL_SECONDS,
+                 on_takeover=None) -> dict:
+    """Take over the holder slot for `identity` — ONLY if the current holder
+    is stale (KLC-058).
+
+    - No holder (absent or null) → ValueError (nothing to steal; use acquire).
+    - Current holder age (from heartbeat_at, else since) < ttl_seconds →
+      HolderActiveError; the holder is left unchanged.
+    - Current holder age >= ttl_seconds → overwrite with a fresh
+      {id, machine, since} holder. If `on_takeover` is given it is called with
+      (previous_holder, age_seconds) BEFORE the write, so a caller can warn
+      before the takeover happens.
+
+    Returns {"holder": <new>, "previous": <old>, "age_seconds": <float>}.
+    """
+    ident_id, machine = _validate_identity(identity)
+    meta = lifecycle.read_meta(ticket)
+    existing = _existing_holder(meta)
+    if existing is None:
+        raise ValueError(
+            f"ticket {ticket!r} has no holder to steal; use acquire_holder"
+        )
+    age = _holder_age_seconds(existing)
+    if age < ttl_seconds:
+        raise HolderActiveError(
+            f"ticket {ticket!r} still actively held by {existing.get('id')!r} "
+            f"(idle {int(age)}s < TTL {int(ttl_seconds)}s); refusing to steal",
+            holder=existing,
+            age_seconds=age,
+        )
+    if on_takeover is not None:
+        on_takeover(existing, age)
+    stolen = {"id": ident_id, "machine": machine, "since": _now()}
+    meta["holder"] = stolen
+    lifecycle.write_meta(ticket, meta)
+    return {"holder": stolen, "previous": existing, "age_seconds": age}
 
 
 if __name__ == "__main__":  # pragma: no cover
