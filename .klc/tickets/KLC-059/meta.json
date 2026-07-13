@@ -2,7 +2,7 @@
   "ticket": "KLC-059",
   "kind": "unknown",
   "kind_source": "heuristic",
-  "phase": "review:ack-needed",
+  "phase": "integrate:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -69,7 +69,21 @@
       "phase": "review:ack-needed",
       "started_at": "2026-07-13T09:31:00Z",
       "event": "manual-completion",
-      "note": "artifacts detected by phase_completion.py"
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T09:32:10Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-07-13T09:32:10Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-13T09:32:10Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-07-13T09:32:10Z",
+      "event": "advance",
+      "note": "ack:approve"
     }
   ],
   "track": "S",
@@ -83,7 +97,7 @@
   "layer": "plugin",
   "affected_modules": [
     "core/phases",
-    "klc-plugin/hooks",
+    "klc-plugin",
     "scripts",
     "tests"
   ],
