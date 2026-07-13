@@ -158,5 +158,76 @@ def test_feature_off_intake_behavior_identical(tmp_path, monkeypatch, capsys):
     assert "holder" not in meta, "feature-off intake must NOT write a holder field"
 
 
+# ---------------------------------------------------------------------------
+# step-6: ack — release holder after advance, before push
+# ---------------------------------------------------------------------------
+
+def _bootstrap_ticket(root: Path, ticket: str, *, phase: str, track: str,
+                      holder=None) -> Path:
+    td = root / ".klc" / "tickets" / ticket
+    td.mkdir(parents=True)
+    meta = {
+        "ticket": ticket, "kind": "feature", "kind_source": "user",
+        "phase": phase, "phase_history": [], "track": track,
+        "route_hint": track, "route_confidence": "high",
+        "affected_modules": [], "estimate": None, "layer": "code",
+        "budgets": {"mutation_fix_attempts": 0},
+        "jira_url": None, "created": "2026-01-01T00:00:00Z",
+    }
+    if holder is not None:
+        meta["holder"] = holder
+    (td / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    return td / "meta.json"
+
+
+_HELD_BY_ALICE = {"id": ALICE, "machine": "box", "since": "2026-01-01T00:00:00Z"}
+
+
+def test_ack_releases_holder_on_forward_transition(tmp_path, monkeypatch):
+    """AC-4/AC-5: a forward ack advances the phase and clears meta.holder in the
+    SAME (single) CAS push."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _bootstrap_ticket(tmp_path, "KLC-601", phase="build:ack-needed", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+
+    seen = {}
+
+    def _capture_push(paths, msg, ticket, *a, **k):
+        seen["meta_at_push"] = json.loads(
+            _meta_path(tmp_path, ticket).read_text(encoding="utf-8"))
+    _feature_on(monkeypatch, push=_capture_push)
+
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-601", "--pick", "1"])
+    assert rc == 0, "forward ack must succeed"
+
+    meta = json.loads(_meta_path(tmp_path, "KLC-601").read_text(encoding="utf-8"))
+    assert meta.get("holder") is None, "holder must be released on forward ack"
+    assert seen["meta_at_push"].get("holder") is None, \
+        "the released (null) holder must ride the same CAS push"
+
+
+def test_ack_cas_rejected_does_not_advance_remote_phase(tmp_path, monkeypatch, capsys):
+    """A rejected CAS push → ack exits non-zero with a concurrent-update message
+    and the in-tx holder release is rolled back (remote phase untouched)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _bootstrap_ticket(tmp_path, "KLC-602", phase="build:ack-needed", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+
+    def _reject(*a, **k):
+        raise state_sync.StateConflictError("same-ticket race")
+    _feature_on(monkeypatch, push=_reject)
+
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-602", "--pick", "1"])
+    assert rc != 0, "a rejected push must fail the ack"
+    err = capsys.readouterr().err.lower()
+    assert "concurrent" in err or "retry" in err, f"unclear message: {err!r}"
+
+    meta = json.loads(_meta_path(tmp_path, "KLC-602").read_text(encoding="utf-8"))
+    assert meta.get("holder", {}).get("id") == ALICE, \
+        "the holder release must be rolled back on a rejected push"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
