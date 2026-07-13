@@ -305,3 +305,66 @@ def test_remind_uses_project_root_not_cwd(tmp_path):
     assert result.stdout == "KLC-950 integrate is done — run klc ack\n", (
         f"stdout={result.stdout!r} stderr={result.stderr!r}"
     )
+
+
+# --- review-fix3: no Jira side effect + non-string phase (P2a, P2b) ----------
+
+
+def test_remind_does_not_drain_jira_queue(tmp_path):
+    """P2a: `klc remind` is advisory-only — it must not drain the Jira queue.
+
+    Jira sync is enabled so that if the dispatcher's opportunistic drain ran,
+    `flush_queue` would rewrite the queue (push fails without a token →
+    canonical json.dumps reformat) and change its bytes. The queue line is
+    written in a non-canonical form (no spaces) so any drain-rewrite is
+    detectable. Post-fix `remind` skips the drain → the file is byte-identical.
+    """
+    (tmp_path / ".klc" / "tickets").mkdir(parents=True)
+    cfg_dir = tmp_path / ".klc" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "jira.yml").write_text(
+        "sync:\n  enabled: true\n  transport: rest\n", encoding="utf-8"
+    )
+    queue = tmp_path / ".klc" / "jira-queue.jsonl"
+    # Non-canonical (no spaces): a drain-rewrite via json.dumps would reformat.
+    payload = '{"ticket":"KLC-999","status":"In Progress","phase":"build:work"}\n'
+    queue.write_text(payload, encoding="utf-8")
+
+    env = {**os.environ, "PROJECT_ROOT": str(tmp_path)}
+    env.pop("JIRA_TOKEN", None)  # ensure push would fail (no drain expected anyway)
+    result = subprocess.run(
+        [sys.executable, str(KLC), "remind"],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    assert queue.exists(), "remind deleted the Jira queue"
+    assert queue.read_text(encoding="utf-8") == payload, (
+        "remind mutated the Jira queue (unexpected drain side effect)"
+    )
+
+
+def test_remind_skips_non_string_phase(tmp_path, monkeypatch, capsys):
+    """P2b: a ticket with a non-string `phase` must not abort the scan."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    # Malformed: phase is an int, not a string.
+    _write_meta_raw(tmp_path, "KLC-810", {
+        "ticket": "KLC-810",
+        "kind": "feature",
+        "phase": 123,
+        "phase_history": [],
+        "track": "M",
+        "affected_modules": [],
+        "estimate": None,
+        "created": "2026-01-01T00:00:00Z",
+        "holder": {"id": ID, "machine": "m", "since": "2026-01-01T00:00:00Z"},
+    })
+    # Legit completable held ticket (sorts after KLC-810).
+    _fabricate_ticket(tmp_path, "KLC-901", phase="integrate:work", holder_id=ID)
+    remind = _load_remind()
+    monkeypatch.setattr(remind, "_git_user", lambda: ID)
+
+    rc = remind.run([])
+
+    assert rc == 0
+    assert capsys.readouterr().out == "KLC-901 integrate is done — run klc ack\n"

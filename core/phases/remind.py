@@ -108,7 +108,9 @@ def _scan() -> int:
         if holder.get("id") != identity:
             continue  # AC-3: held by someone else (or unheld) → skip
 
-        phase_val = meta.get("phase", "") or ""
+        phase_val = meta.get("phase", "")
+        if not isinstance(phase_val, str):
+            continue  # corrupt (non-string) phase → skip robustly
         if not phase_val.endswith(":work"):
             continue
         phase_id = phase_val.split(":", 1)[0]
