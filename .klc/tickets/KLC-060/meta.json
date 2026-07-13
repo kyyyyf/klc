@@ -2,7 +2,7 @@
   "ticket": "KLC-060",
   "kind": "feature",
   "kind_source": "discovery",
-  "phase": "manual:work",
+  "phase": "integrate:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -133,7 +133,28 @@
       "phase": "manual:work",
       "started_at": "2026-07-13T09:30:09Z",
       "event": "advance",
-      "note": "ack:approve"
+      "note": "ack:approve",
+      "finished_at": "2026-07-13T09:32:58Z"
+    },
+    {
+      "phase": "manual:ack-needed",
+      "started_at": "2026-07-13T09:32:58Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T09:33:21Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-07-13T09:33:21Z",
+      "event": "ack",
+      "note": "pick=1:passed",
+      "finished_at": "2026-07-13T09:33:21Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-07-13T09:33:21Z",
+      "event": "advance",
+      "note": "ack:passed"
     }
   ],
   "track": "M",
