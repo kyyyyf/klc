@@ -227,6 +227,10 @@ def test_ack_cas_rejected_does_not_advance_remote_phase(tmp_path, monkeypatch, c
     meta = json.loads(_meta_path(tmp_path, "KLC-602").read_text(encoding="utf-8"))
     assert meta.get("holder", {}).get("id") == ALICE, \
         "the holder release must be rolled back on a rejected push"
+    # HIGH-1: the advance itself (now INSIDE the tx) must also roll back — the
+    # local phase must not stay ahead of the untouched remote.
+    assert meta["phase"] == "build:ack-needed", \
+        "a rejected push must roll the phase back to its pre-ack value"
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +251,36 @@ def test_next_first_grabs_free_phase(tmp_path, monkeypatch):
     meta = json.loads(_meta_path(tmp_path, "KLC-701").read_text(encoding="utf-8"))
     assert meta["phase"].endswith(":work"), f"must advance to :work, got {meta['phase']}"
     assert meta["holder"]["id"] == ALICE, "current user must first-grab the entered phase"
+
+
+def test_next_archive_syncs_and_releases_holder(tmp_path, monkeypatch):
+    """MED-1: `next` that archives must still run the tx (pull/push) so the
+    archived phase reaches the remote and the stale holder is released — with
+    NO acquire (there is no phase to hold)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _bootstrap_ticket(tmp_path, "KLC-710", phase="learn:ack", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+
+    seen = {}
+
+    def _capture_push(paths, msg, ticket, *a, **k):
+        seen["meta_at_push"] = json.loads(
+            _meta_path(tmp_path, ticket).read_text(encoding="utf-8"))
+    _feature_on(monkeypatch, push=_capture_push)
+
+    import next as next_mod
+    rc = next_mod.run(["KLC-710"])
+    assert rc == 0, "next into archived must succeed"
+
+    assert "meta_at_push" in seen, "archiving via next must still push the tx"
+    assert seen["meta_at_push"]["phase"] == "archived", \
+        "the archived phase must ride the CAS push"
+    assert seen["meta_at_push"].get("holder") is None, \
+        "the holder must be released (cleared) in the archive push"
+
+    meta = json.loads(_meta_path(tmp_path, "KLC-710").read_text(encoding="utf-8"))
+    assert meta["phase"] == "archived"
+    assert meta.get("holder") is None, "no holder must remain after archive"
 
 
 def test_next_refuses_to_steal_held_phase(tmp_path, monkeypatch, capsys):
@@ -342,6 +376,58 @@ def test_sync_runs_inside_per_ticket_lock(tmp_path, monkeypatch):
     assert next_mod.run(["KLC-821"]) == 0
     assert lock_seen.get("held") is True, \
         "commit_and_push_cas must run inside the acquire_lock critical section"
+
+
+def test_intake_sync_runs_inside_per_ticket_lock(tmp_path, monkeypatch):
+    """MED-2 (AC-9): intake's CAS push must happen INSIDE the per-ticket lock —
+    the `.lock` file exists on disk at the moment commit_and_push_cas runs."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+
+    import artefacts
+    lock_seen = {}
+
+    def _check_lock(*a, **k):
+        lp = artefacts._lock_path("KLC-841")
+        lock_seen["held"] = lp.exists()
+    _feature_on(monkeypatch, push=_check_lock)
+
+    import intake as intake_mod
+    assert intake_mod.run(["KLC-841", "lock scope"]) == 0
+    assert lock_seen.get("held") is True, \
+        "intake's commit_and_push_cas must run inside the acquire_lock section"
+
+
+def test_terminal_runtime_error_surfaces_clean_message(tmp_path, monkeypatch, capsys):
+    """HIGH-2: a plain RuntimeError (network/auth/protected-branch/
+    non-classifiable rejection) from the sync must be caught by all three verbs
+    → clean non-zero exit, NO git internals, and intake leaves no ticket dir."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+
+    def _runtime(*a, **k):
+        raise RuntimeError("fatal: remote rejected: pre-receive hook declined")
+    _feature_on(monkeypatch, push=_runtime)
+
+    import intake as intake_mod
+    rc = intake_mod.run(["KLC-851", "runtime boom"])
+    assert rc != 0, "intake must fail cleanly on a RuntimeError sync failure"
+    _assert_no_git_internals(capsys.readouterr().err)
+    assert not (tmp_path / ".klc" / "tickets" / "KLC-851").exists(), \
+        "a RuntimeError sync failure must leave no half-created ticket"
+
+    _bootstrap_ticket(tmp_path, "KLC-852", phase="build:ack-needed", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-852", "--pick", "1"])
+    assert rc != 0, "ack must fail cleanly on a RuntimeError sync failure"
+    _assert_no_git_internals(capsys.readouterr().err)
+
+    _bootstrap_ticket(tmp_path, "KLC-853", phase="build:ack", track="S")
+    import next as next_mod
+    rc = next_mod.run(["KLC-853"])
+    assert rc != 0, "next must fail cleanly on a RuntimeError sync failure"
+    _assert_no_git_internals(capsys.readouterr().err)
 
 
 def test_terminal_sync_error_surfaces_clean_message(tmp_path, monkeypatch, capsys):

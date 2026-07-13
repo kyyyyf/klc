@@ -115,5 +115,50 @@ def test_cas_conflict_rolls_back_local_state(tmp_path, monkeypatch):
         "modified file must be restored to prior bytes"
 
 
+# ---------------------------------------------------------------------------
+# LOW-3: the dead ``remote`` param is removed from the public signature
+# ---------------------------------------------------------------------------
+
+def test_state_tx_signature_has_no_remote_param():
+    """LOW-3: ``remote`` was never forwarded to state_sync, so it must not
+    linger in the public signature as a misleading dead knob."""
+    import inspect
+    params = inspect.signature(state_tx.state_tx).parameters
+    assert "remote" not in params, \
+        "state_tx must not expose a dead `remote` parameter"
+    assert list(params) == ["ticket", "paths", "msg"], \
+        f"unexpected state_tx signature: {list(params)}"
+
+
+def test_body_mutation_rolls_back_on_any_terminal_error(tmp_path, monkeypatch):
+    """HIGH-1/HIGH-2: a file the body created/modified is rolled back not only on
+    StateConflictError but on ANY terminal error from the push (e.g. a plain
+    RuntimeError) — the envelope guarantees local == post-pull baseline on
+    failure, never a half-applied divergence."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    kd = _klc(tmp_path)
+    monkeypatch.setattr(state_feature, "enabled", lambda: True)
+    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: None)
+
+    def _boom(*a, **k):
+        raise RuntimeError("network is down")
+    monkeypatch.setattr(state_sync, "commit_and_push_cas", _boom)
+
+    td = kd / "tickets" / "KLC-T3"
+    td.mkdir(parents=True)
+    (td / "meta.json").write_text("ORIGINAL", encoding="utf-8")
+    created_rel = "tickets/KLC-T3/raw.md"
+    modified_rel = "tickets/KLC-T3/meta.json"
+
+    with pytest.raises(RuntimeError):
+        with state_tx.state_tx("KLC-T3", [created_rel, modified_rel], "msg"):
+            (kd / created_rel).write_text("NEW", encoding="utf-8")
+            (kd / modified_rel).write_text("CHANGED", encoding="utf-8")
+
+    assert not (kd / created_rel).exists(), "created file must be rolled back"
+    assert (td / "meta.json").read_text(encoding="utf-8") == "ORIGINAL", \
+        "modified file must be restored on a non-CAS terminal error too"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
