@@ -482,3 +482,64 @@ def test_steal_cli_takeover_output_is_ascii(steal_env, capsys):
     out = capsys.readouterr()
     # Warning (was '≥') + success line (was '→') must encode under ascii.
     (out.out + out.err).encode("ascii")
+
+
+# ===========================================================================
+# review-fix2 — P2: AC-2's documented interface lives on lifecycle.py too.
+# `lifecycle.heartbeat_holder` / `lifecycle.steal_holder` must delegate to the
+# real implementations in holder.py (no duplicated logic, no import cycle).
+# ===========================================================================
+
+def test_lifecycle_heartbeat_holder_is_callable():
+    assert callable(lifecycle.heartbeat_holder)
+
+
+def test_lifecycle_steal_holder_is_callable():
+    assert callable(lifecycle.steal_holder)
+
+
+def test_lifecycle_heartbeat_delegates_to_holder(store):
+    store.data["holder"] = {
+        "id": IDENT_A["id"], "machine": IDENT_A["machine"],
+        "since": "2026-07-10T00:00:00Z",
+    }
+    result = lifecycle.heartbeat_holder("KLC-058")
+    # Behaves identically to holder.heartbeat_holder: adds heartbeat_at,
+    # preserves the other fields.
+    assert store.data["holder"]["id"] == IDENT_A["id"]
+    assert store.data["holder"]["since"] == "2026-07-10T00:00:00Z"
+    _assert_iso_utc_z(store.data["holder"]["heartbeat_at"])
+    assert result["heartbeat_at"] == store.data["holder"]["heartbeat_at"]
+
+
+def test_lifecycle_heartbeat_no_holder_raises_valueerror(store):
+    assert "holder" not in store.data
+    with pytest.raises(ValueError):
+        lifecycle.heartbeat_holder("KLC-058")
+
+
+def test_lifecycle_steal_delegates_to_holder(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60 * 60),
+    }
+    result = lifecycle.steal_holder("KLC-058", IDENT_A)
+    assert result["holder"]["id"] == IDENT_A["id"]
+    assert store.data["holder"]["id"] == IDENT_A["id"]
+
+
+def test_lifecycle_steal_within_ttl_raises_holder_active(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60),
+    }
+    with pytest.raises(holder.HolderActiveError):
+        lifecycle.steal_holder("KLC-058", IDENT_A)
+    assert store.data["holder"]["id"] == IDENT_B["id"]
+
+
+def test_lifecycle_steal_forwards_ttl_kwarg(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(120),
+    }
+    # kwargs (ttl_seconds) must be forwarded to holder.steal_holder.
+    result = lifecycle.steal_holder("KLC-058", IDENT_A, ttl_seconds=60)
+    assert result["holder"]["id"] == IDENT_A["id"]
