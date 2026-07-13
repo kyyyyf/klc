@@ -140,3 +140,228 @@ def test_heartbeat_when_null_holder_raises_valueerror(store):
     store.data["holder"] = None
     with pytest.raises(ValueError):
         holder.heartbeat_holder("KLC-058")
+
+
+# ===========================================================================
+# step-2 — steal_holder skill logic (AC-1)
+# ===========================================================================
+
+def test_steal_within_ttl_raises_and_leaves_holder(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60),  # 1 min ago, well within the 30-min TTL
+    }
+    with pytest.raises(holder.HolderActiveError) as excinfo:
+        holder.steal_holder("KLC-058", IDENT_A)
+    err = excinfo.value
+    # Typed error carries the current holder + measured age; message names id.
+    assert err.holder["id"] == IDENT_B["id"]
+    assert err.age_seconds is not None and err.age_seconds >= 0
+    assert IDENT_B["id"] in str(err)
+    # Holder untouched — no takeover.
+    assert store.data["holder"]["id"] == IDENT_B["id"]
+
+
+def test_steal_when_expired_overwrites_holder(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60 * 60),  # 1 hour ago — past the 30-min TTL
+    }
+    result = holder.steal_holder("KLC-058", IDENT_A)
+    # New holder is the stealer, written to the store.
+    assert result["holder"]["id"] == IDENT_A["id"]
+    assert result["holder"]["machine"] == IDENT_A["machine"]
+    assert store.data["holder"]["id"] == IDENT_A["id"]
+    # Result reports who was displaced and how stale they were.
+    assert result["previous"]["id"] == IDENT_B["id"]
+    assert result["age_seconds"] >= 60 * 60
+    # New holder has a fresh ISO-8601 UTC `since`.
+    _assert_iso_utc_z(store.data["holder"]["since"])
+
+
+def test_steal_prefers_heartbeat_at_over_since(store):
+    # `since` is ancient, but a recent heartbeat proves the holder is alive.
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60 * 60),
+        "heartbeat_at": _ago(30),
+    }
+    with pytest.raises(holder.HolderActiveError):
+        holder.steal_holder("KLC-058", IDENT_A)
+    assert store.data["holder"]["id"] == IDENT_B["id"]
+
+
+def test_steal_uses_since_when_heartbeat_absent(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60 * 60),  # no heartbeat_at → fall back to since
+    }
+    result = holder.steal_holder("KLC-058", IDENT_A)
+    assert result["holder"]["id"] == IDENT_A["id"]
+
+
+def test_steal_expired_via_stale_heartbeat(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(10),  # recently acquired ...
+        "heartbeat_at": _ago(60 * 60),  # ... but heartbeat went stale
+    }
+    result = holder.steal_holder("KLC-058", IDENT_A)
+    assert result["holder"]["id"] == IDENT_A["id"]
+
+
+def test_steal_no_holder_raises_valueerror(store):
+    assert "holder" not in store.data
+    with pytest.raises(ValueError):
+        holder.steal_holder("KLC-058", IDENT_A)
+
+
+def test_steal_null_holder_raises_valueerror(store):
+    store.data["holder"] = None
+    with pytest.raises(ValueError):
+        holder.steal_holder("KLC-058", IDENT_A)
+
+
+def test_steal_invalid_identity_raises_valueerror(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60 * 60),
+    }
+    with pytest.raises(ValueError):
+        holder.steal_holder("KLC-058", {"id": "no-machine"})
+
+
+def test_steal_custom_ttl_override(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(120),  # 2 min ago
+    }
+    # Within the default 30-min TTL → active.
+    with pytest.raises(holder.HolderActiveError):
+        holder.steal_holder("KLC-058", IDENT_A)
+    # With a 60-second TTL, 2 min is stale → stealable.
+    result = holder.steal_holder("KLC-058", IDENT_A, ttl_seconds=60)
+    assert result["holder"]["id"] == IDENT_A["id"]
+
+
+def test_steal_calls_on_takeover_before_write(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60 * 60),
+    }
+    seen = {}
+
+    def _cb(prev, age):
+        # Warning fires BEFORE the store is overwritten (AC-1: warn before takeover).
+        seen["prev_id"] = prev["id"]
+        seen["age"] = age
+        seen["holder_at_callback"] = store.data["holder"]["id"]
+
+    holder.steal_holder("KLC-058", IDENT_A, on_takeover=_cb)
+    assert seen["prev_id"] == IDENT_B["id"]
+    assert seen["age"] >= 60 * 60
+    # At callback time the old holder was still in place.
+    assert seen["holder_at_callback"] == IDENT_B["id"]
+    # After the call the takeover is committed.
+    assert store.data["holder"]["id"] == IDENT_A["id"]
+
+
+def test_steal_active_holder_does_not_call_on_takeover(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60),
+    }
+    calls = []
+    with pytest.raises(holder.HolderActiveError):
+        holder.steal_holder("KLC-058", IDENT_A, on_takeover=lambda p, a: calls.append(1))
+    assert calls == []
+
+
+def test_steal_ttl_default_is_30_minutes():
+    assert holder.HOLDER_TTL_SECONDS == 30 * 60
+
+
+# ===========================================================================
+# step-2 — `klc steal <KEY>` CLI + dispatcher wiring (AC-1)
+# ===========================================================================
+
+import importlib.util  # noqa: E402
+import json  # noqa: E402
+
+STEAL_PY = FW_ROOT / "core" / "phases" / "steal.py"
+KLC_SCRIPT = FW_ROOT / "scripts" / "klc"
+
+
+def _load_steal():
+    spec = importlib.util.spec_from_file_location("klc_phase_steal", STEAL_PY)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _write_meta(root: Path, ticket: str, holder_rec: dict | None) -> Path:
+    tdir = root / ".klc" / "tickets" / ticket
+    tdir.mkdir(parents=True, exist_ok=True)
+    meta = {"ticket": ticket, "phase": "build:work"}
+    if holder_rec is not None:
+        meta["holder"] = holder_rec
+    p = tdir / "meta.json"
+    p.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    return p
+
+
+def _read_holder(meta_path: Path) -> dict | None:
+    return json.loads(meta_path.read_text(encoding="utf-8")).get("holder")
+
+
+@pytest.fixture
+def steal_env(tmp_path, monkeypatch):
+    """Load steal.py against a temp PROJECT_ROOT with a fixed stealer identity."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    mod = _load_steal()
+    monkeypatch.setattr(mod._identity, "current", lambda: "carol@stealbox")
+    monkeypatch.setattr(mod.socket, "gethostname", lambda: "stealbox")
+    return mod, tmp_path
+
+
+def test_steal_cli_within_ttl_fails_and_preserves_holder(steal_env, capsys):
+    mod, root = steal_env
+    meta_path = _write_meta(root, "KLC-058", {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60),
+    })
+    rc = mod.run(["KLC-058"])
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert IDENT_B["id"] in err  # names the current holder
+    # Holder untouched.
+    assert _read_holder(meta_path)["id"] == IDENT_B["id"]
+
+
+def test_steal_cli_expired_succeeds_warns_and_overwrites(steal_env, capsys):
+    mod, root = steal_env
+    meta_path = _write_meta(root, "KLC-058", {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60 * 60),
+    })
+    rc = mod.run(["KLC-058"])
+    assert rc == 0
+    out = capsys.readouterr()
+    # A warning was printed (before takeover); the old holder id is mentioned.
+    combined = out.out + out.err
+    assert "WARN" in combined.upper()
+    assert IDENT_B["id"] in combined
+    # Holder overwritten with the stealer's identity.
+    assert _read_holder(meta_path)["id"] == "carol@stealbox"
+    assert _read_holder(meta_path)["machine"] == "stealbox"
+
+
+def test_steal_cli_unknown_ticket_fails(steal_env, capsys):
+    mod, _root = steal_env
+    rc = mod.run(["KLC-999"])
+    assert rc != 0
+
+
+def test_steal_dispatch_registered_in_klc(steal_env):
+    """`klc steal` routes to core/phases/steal.py via the dispatcher."""
+    text = KLC_SCRIPT.read_text(encoding="utf-8")
+    assert '"steal"' in text or "'steal'" in text
+    # And the phase entry point exists with a run() function.
+    mod, _root = steal_env
+    assert hasattr(mod, "run")
