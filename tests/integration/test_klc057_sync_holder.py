@@ -86,5 +86,77 @@ def test_intake_taken_key_rejected_no_artifacts(tmp_path, monkeypatch, capsys):
             "a rejected push must leave no global-index entry"
 
 
+# ---------------------------------------------------------------------------
+# step-5: intake happy path + holder-in-push + feature-off parity
+# ---------------------------------------------------------------------------
+
+def test_intake_happy_path_cas_push_succeeds(tmp_path, monkeypatch, capsys):
+    """Feature ON, key free, push accepted → INTAKE_OK + exit 0, and the
+    envelope ran (pull once, push once)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+
+    pulls, pushes = [], []
+    monkeypatch.setattr(state_feature, "enabled", lambda: True)
+    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: pulls.append(1))
+    monkeypatch.setattr(state_sync, "commit_and_push_cas",
+                        lambda *a, **k: pushes.append(1))
+    monkeypatch.setattr(identity, "current", lambda: ALICE)
+
+    import intake as intake_mod
+    rc = intake_mod.run(["KLC-501", "a free key"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "INTAKE_OK KLC-501" in out
+    assert pulls == [1], "pull_rebase must run once on enter"
+    assert pushes == [1], "commit_and_push_cas must run once on clean exit"
+
+
+def test_intake_acquires_holder_in_same_cas_push(tmp_path, monkeypatch):
+    """AC-3: the holder is recorded in meta.json and is present at the moment
+    of the CAS push (holder rides the SAME push as meta)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+
+    seen = {}
+
+    def _capture_push(paths, msg, ticket, *a, **k):
+        # Read meta.json bytes AT push time to prove holder rode this push.
+        mp = _meta_path(tmp_path, ticket)
+        seen["paths"] = list(paths)
+        seen["meta_at_push"] = json.loads(mp.read_text(encoding="utf-8"))
+
+    _feature_on(monkeypatch, push=_capture_push)
+
+    import intake as intake_mod
+    rc = intake_mod.run(["KLC-502", "holder in push"])
+    assert rc == 0
+
+    meta = json.loads(_meta_path(tmp_path, "KLC-502").read_text(encoding="utf-8"))
+    assert meta["holder"]["id"] == ALICE, "holder must be recorded on the first phase"
+    assert meta["holder"]["machine"], "holder must carry a non-empty machine"
+
+    assert "tickets/KLC-502/meta.json" in seen["paths"]
+    assert seen["meta_at_push"]["holder"]["id"] == ALICE, \
+        "holder field must be present in the meta pushed by the CAS push"
+
+
+def test_feature_off_intake_behavior_identical(tmp_path, monkeypatch, capsys):
+    """AC-8a: feature OFF → no holder field written, and INTAKE_OK still emitted
+    (single-user behaviour unchanged)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+    _feature_off(monkeypatch)
+
+    import intake as intake_mod
+    rc = intake_mod.run(["KLC-503", "single user"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "INTAKE_OK KLC-503" in out
+
+    meta = json.loads(_meta_path(tmp_path, "KLC-503").read_text(encoding="utf-8"))
+    assert "holder" not in meta, "feature-off intake must NOT write a holder field"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
