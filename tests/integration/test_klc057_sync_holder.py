@@ -229,5 +229,46 @@ def test_ack_cas_rejected_does_not_advance_remote_phase(tmp_path, monkeypatch, c
         "the holder release must be rolled back on a rejected push"
 
 
+# ---------------------------------------------------------------------------
+# step-7: next — first-grab a free phase, refuse to steal a held phase
+# ---------------------------------------------------------------------------
+
+def test_next_first_grabs_free_phase(tmp_path, monkeypatch):
+    """AC-6a: entering a free phase first-grabs it — the current user becomes
+    the holder and it rides the CAS push."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _bootstrap_ticket(tmp_path, "KLC-701", phase="build:ack", track="S")
+    _feature_on(monkeypatch)
+
+    import next as next_mod
+    rc = next_mod.run(["KLC-701"])
+    assert rc == 0, "next into a free phase must succeed"
+
+    meta = json.loads(_meta_path(tmp_path, "KLC-701").read_text(encoding="utf-8"))
+    assert meta["phase"].endswith(":work"), f"must advance to :work, got {meta['phase']}"
+    assert meta["holder"]["id"] == ALICE, "current user must first-grab the entered phase"
+
+
+def test_next_refuses_to_steal_held_phase(tmp_path, monkeypatch, capsys):
+    """AC-6b: a phase already held by ANOTHER user is reported as taken without
+    stealing — next exits non-zero naming the holder, and the holder is unchanged
+    (stealing is KLC-058, not next)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    other = {"id": "bob@example.com", "machine": "box2",
+             "since": "2026-01-01T00:00:00Z"}
+    _bootstrap_ticket(tmp_path, "KLC-702", phase="build:ack", track="S",
+                      holder=dict(other))
+    _feature_on(monkeypatch)
+
+    import next as next_mod
+    rc = next_mod.run(["KLC-702"])
+    assert rc != 0, "next must refuse a phase held by another user"
+    err = capsys.readouterr().err.lower()
+    assert "held by" in err and "bob@example.com" in err, f"unclear message: {err!r}"
+
+    meta = json.loads(_meta_path(tmp_path, "KLC-702").read_text(encoding="utf-8"))
+    assert meta["holder"]["id"] == "bob@example.com", "the holder must be unchanged (no steal)"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
