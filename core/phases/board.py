@@ -15,6 +15,7 @@ from pathlib import Path
 SKILLS = Path(__file__).resolve().parent.parent / "skills"
 sys.path.insert(0, str(SKILLS))
 from _paths import klc_tickets_dir  # noqa: E402
+import holder_display  # noqa: E402
 
 
 def run(argv: list[str]) -> int:
@@ -30,11 +31,15 @@ def run(argv: list[str]) -> int:
                 m = json.loads(meta_file.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 continue
-            by_phase[m.get("phase", "?")].append({
+            rec = {
                 "key":   m.get("ticket"),
                 "track": m.get("track"),
                 "kind":  m.get("kind"),
-            })
+            }
+            label = holder_display.holder_label(m)
+            if label:  # omit the key entirely when absent/degraded (fail-closed)
+                rec["holder_id"] = label
+            by_phase[m.get("phase", "?")].append(rec)
 
     if args.json:
         print(json.dumps(by_phase, indent=2, ensure_ascii=False))
@@ -48,7 +53,8 @@ def run(argv: list[str]) -> int:
         entries = by_phase[phase]
         print(f"== {phase} ({len(entries)}) ==")
         for e in entries:
-            print(f"  {e['key']}  track={e['track'] or '?':<2}  kind={e['kind'] or '?'}")
+            held = f"  held by {e['holder_id']}" if e.get("holder_id") else ""
+            print(f"  {e['key']}  track={e['track'] or '?':<2}  kind={e['kind'] or '?'}{held}")
     return 0
 
 
