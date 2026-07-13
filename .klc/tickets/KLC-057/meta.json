@@ -2,7 +2,7 @@
   "ticket": "KLC-057",
   "kind": "tech",
   "kind_source": "discovery",
-  "phase": "build:work",
+  "phase": "review:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -83,7 +83,28 @@
       "phase": "build:work",
       "started_at": "2026-06-28T06:48:21Z",
       "event": "advance",
-      "note": "ack:option-B-clean"
+      "note": "ack:option-B-clean",
+      "finished_at": "2026-07-13T14:34:33Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-07-13T14:34:33Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T14:34:55Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-07-13T14:34:55Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-13T14:34:55Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-07-13T14:34:55Z",
+      "event": "advance",
+      "note": "ack:approve"
     }
   ],
   "track": "M",
