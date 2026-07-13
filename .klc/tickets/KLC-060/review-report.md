@@ -44,3 +44,11 @@ machine-written). 25 tests pass.
 ## Final state
 
 `python3 -m pytest tests/integration/test_holder_display.py tests/integration/test_board_holder.py tests/integration/test_status_holder.py -q` → 25 passed. No writes, no git, no forge.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/phases']
+  actual modules:  ['core/phases', 'core/skills', 'tests']
+  unplanned:       ['core/skills', 'tests']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-060`.
