@@ -23,12 +23,17 @@ def main() -> int:
     # KLC_BIN may be "python3 /path/to/klc" — split it into a list.
     klc_cmd = shlex.split(klc_bin) if " " in klc_bin else [klc_bin]
     try:
-        subprocess.run(
+        proc = subprocess.run(
             [*klc_cmd, "remind"],
-            capture_output=False, timeout=10,
+            capture_output=True, text=True, timeout=10,
         )
     except Exception:
         return 0  # non-blocking: any error is silently swallowed
+    # Advisory only: forward the child's stdout ONLY on a clean exit; on any
+    # non-zero exit the child's stderr (import errors, tracebacks) is dropped
+    # so it never leaks into the CC prompt.
+    if proc.returncode == 0 and proc.stdout:
+        sys.stdout.write(proc.stdout)
     return 0
 
 
