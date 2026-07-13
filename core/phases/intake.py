@@ -18,11 +18,16 @@ import datetime as _dt
 import json
 import os
 import re
+import shutil
+import socket
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills"))
 import identity  # noqa: E402
+import holder  # noqa: E402
+import state_sync  # noqa: E402
+import state_tx  # noqa: E402
 from _paths import (  # noqa: E402
     klc_config_dir,
     klc_global_tickets_index,
@@ -217,7 +222,28 @@ def run(argv: list[str]) -> int:
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    # append to global index (append-only)
+    # KLC-057: multi-user uniqueness. The CAS push of this ticket's own files
+    # *is* the uniqueness guarantee — a key a peer already created rejects as
+    # StateConflictError. Feature-off (single-user), state_tx is a pure no-op,
+    # so behaviour is byte-for-byte identical (AC-8a). Holder acquire is wired
+    # in step-5.
+    meta_rel = f"tickets/{args.ticket}/meta.json"
+    raw_rel = f"tickets/{args.ticket}/raw.md"
+    try:
+        with state_tx.state_tx(
+            args.ticket, [meta_rel, raw_rel], f"intake {args.ticket}"
+        ) as tx:
+            pass
+    except state_sync.StateConflictError:
+        shutil.rmtree(tdir, ignore_errors=True)
+        sys.stderr.write(
+            f"klc intake: key {args.ticket} already taken "
+            f"(created by another user); nothing was written.\n"
+        )
+        return 1
+
+    # append to global index (append-only) — deferred until AFTER a clean CAS
+    # push (D-005), so a rejected push leaves zero index pollution.
     idx = klc_global_tickets_index()
     idx.parent.mkdir(parents=True, exist_ok=True)
     with idx.open("a", encoding="utf-8") as f:
