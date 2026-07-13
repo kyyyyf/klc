@@ -10,6 +10,15 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/remind.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }
