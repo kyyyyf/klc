@@ -20,6 +20,7 @@ from core.skills.state_sync import (  # noqa: E402
     RebaseConflictError,
     RetryExhaustedError,
     StateConflictError,
+    _incoming_same_ticket_paths,
     commit_and_push_cas,
     pull_rebase,
 )
@@ -83,6 +84,32 @@ class TestPullRebase:
         # klc has no local commits; pull_rebase should fast-forward cleanly.
         assert pull_rebase(klc) is None
         assert (klc / "b.txt").exists()
+
+    def test_conflicting_pull_rebase_aborts_clean(self, tmp_path):
+        """A genuinely conflicting incoming change -> pull_rebase raises
+        RebaseConflictError and leaves no rebase in progress."""
+        origin = _seed_origin(tmp_path)  # README.md == "seed\n"
+        klc = _clone(origin, tmp_path / "klc")
+
+        # Local, unpushed commit editing the shared file.
+        (klc / "README.md").write_text("mine\n", encoding="utf-8")
+        _run(["git", "add", "README.md"], klc)
+        _run(["git", "commit", "-q", "-m", "local: mine"], klc)
+
+        # Competing conflicting change lands on the remote.
+        other = _clone(origin, tmp_path / "other")
+        (other / "README.md").write_text("competing\n", encoding="utf-8")
+        _run(["git", "add", "README.md"], other)
+        _run(["git", "commit", "-q", "-m", "other: README"], other)
+        push = _run(["git", "push", "origin", "HEAD:main"], other)
+        assert push.returncode == 0, push.stderr
+
+        with pytest.raises(RebaseConflictError):
+            pull_rebase(klc)
+
+        # The aborted rebase left nothing in progress.
+        assert not (klc / ".git" / "rebase-merge").exists()
+        assert not (klc / ".git" / "rebase-apply").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +284,39 @@ class TestReviewFixes:
         head_after = _run(["git", "rev-parse", "HEAD"], klc).stdout.strip()
         assert head_after == head_before  # local commit rolled back
         assert (klc / rel).exists()       # soft reset preserves the change
+
+    def test_rebase_conflict_aborts_and_rolls_back(self, tmp_path):
+        """MED: a genuinely conflicting in-loop rebase must raise
+        RebaseConflictError, roll the local commit back to the pre-commit tip,
+        and leave no rebase in progress.
+
+        The conflict is on a SHARED file (``README.md``) OUTSIDE the ticket dir,
+        so it is not classified as a same-ticket StateConflictError — the code
+        proceeds to rebase, which genuinely fails and must abort + rollback.
+        """
+        origin = _seed_origin(tmp_path)  # README.md == "seed\n"
+        klc = _clone(origin, tmp_path / "klc")
+        head_before = _run(["git", "rev-parse", "HEAD"], klc).stdout.strip()
+
+        # Competing writer edits the SAME shared file/line (outside our ticket).
+        other = _clone(origin, tmp_path / "other")
+        (other / "README.md").write_text("competing\n", encoding="utf-8")
+        _run(["git", "add", "README.md"], other)
+        _run(["git", "commit", "-q", "-m", "other: README"], other)
+        push = _run(["git", "push", "origin", "HEAD:main"], other)
+        assert push.returncode == 0, push.stderr
+
+        # Our conflicting local change to the same file/line.
+        (klc / "README.md").write_text("mine\n", encoding="utf-8")
+
+        with pytest.raises(RebaseConflictError):
+            commit_and_push_cas(["README.md"], "KLC-054: mine", TICKET, klc)
+
+        # Local commit rolled back to the pre-commit tip.
+        assert _run(["git", "rev-parse", "HEAD"], klc).stdout.strip() == head_before
+        # No rebase left in progress -> worktree clean of rebase state.
+        assert not (klc / ".git" / "rebase-merge").exists()
+        assert not (klc / ".git" / "rebase-apply").exists()
 
     def test_fetch_failure_raises_clear_error_not_retry_exhausted(self, tmp_path):
         """MED: a failed fetch after non-ff must raise, not loop to exhaustion.
@@ -573,3 +633,192 @@ class TestPullRebaseErrors:
         with pytest.raises(RuntimeError) as ei:
             pull_rebase(repo)
         assert not isinstance(ei.value, RebaseConflictError)
+
+
+class TestNonDefaultRemote:
+    """R4-1: a `remote` param that differs from the branch's upstream remote."""
+
+    def _second_remote_seeded_from(self, origin, klc, tmp_path):
+        """Add an 'otherremote' bare repo seeded with klc's current history."""
+        other_remote = _init_bare(tmp_path / "other.git")
+        _run(["git", "remote", "add", "otherremote", str(other_remote)], klc)
+        push = _run(["git", "push", "otherremote", "HEAD:main"], klc)
+        assert push.returncode == 0, push.stderr
+        _run(["git", "fetch", "otherremote"], klc)
+        return other_remote
+
+    def test_other_ticket_race_on_non_default_remote_rebases_and_wins(
+        self, tmp_path
+    ):
+        """Classification/rebase must target the pushed remote, not @{upstream}.
+
+        With an other-ticket commit already on the non-default remote, the CAS
+        must absorb it and succeed — not loop to RetryExhaustedError because it
+        classified/rebased against the (stale) configured upstream.
+        """
+        origin = _seed_origin(tmp_path)          # the configured upstream remote
+        klc = _clone(origin, tmp_path / "klc")   # branch tracks origin/main (S0)
+        other_remote = self._second_remote_seeded_from(origin, klc, tmp_path)
+
+        # Competing writer lands an OTHER-ticket commit on the SECOND remote only.
+        racer = _clone(other_remote, tmp_path / "racer")
+        _commit_file(racer, "tickets/KLC-099/o.json", "x\n", "other: o")
+        rpush = _run(["git", "push", "origin", "HEAD:main"], racer)  # racer origin == other.git
+        assert rpush.returncode == 0, rpush.stderr
+
+        (klc / "tickets" / TICKET).mkdir(parents=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+
+        assert commit_and_push_cas(
+            [rel], "KLC-054: mine", TICKET, klc, remote="otherremote",
+        ) is None
+
+        _run(["git", "fetch", "otherremote"], klc)
+        log = _run(["git", "log", "--format=%s", "otherremote/main"], klc).stdout
+        assert "KLC-054: mine" in log      # our commit landed on the pushed remote
+        assert "other: o" in log           # the other-ticket race was absorbed
+        # The configured upstream (origin) was NOT written to.
+        _run(["git", "fetch", "origin"], klc)
+        assert "KLC-054: mine" not in _run(
+            ["git", "log", "--format=%s", "origin/main"], klc
+        ).stdout
+
+    def test_same_ticket_race_on_non_default_remote_raises_conflict(
+        self, tmp_path
+    ):
+        """A same-ticket commit already on the non-default remote must be
+        classified as a StateConflictError, not masked as RetryExhaustedError."""
+        origin = _seed_origin(tmp_path)
+        klc = _clone(origin, tmp_path / "klc")
+        other_remote = self._second_remote_seeded_from(origin, klc, tmp_path)
+
+        racer = _clone(other_remote, tmp_path / "racer")
+        _commit_file(racer, f"tickets/{TICKET}/theirs.json", "x\n", "other: same-ticket")
+        rpush = _run(["git", "push", "origin", "HEAD:main"], racer)
+        assert rpush.returncode == 0, rpush.stderr
+
+        (klc / "tickets" / TICKET).mkdir(parents=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+
+        with pytest.raises(StateConflictError):
+            commit_and_push_cas(
+                [rel], "KLC-054: mine", TICKET, klc, remote="otherremote",
+            )
+
+    def test_multi_race_retries_on_non_default_remote(self, tmp_path):
+        """FETCH_HEAD path across >1 iteration: a pre-push hook injects a fresh
+        other-ticket race on each attempt to the NON-default remote, forcing the
+        CAS to fetch->FETCH_HEAD->rebase->retry twice before winning.  Verifies
+        FETCH_HEAD is refreshed correctly each iteration on this path."""
+        origin = _seed_origin(tmp_path)
+        klc = _clone(origin, tmp_path / "klc")
+        other_remote = self._second_remote_seeded_from(origin, klc, tmp_path)
+        racer = _clone(other_remote, tmp_path / "racer")
+        count_file = tmp_path / "race_count"
+
+        # The hook races the SECOND remote (racer's origin == other.git).
+        hook = klc / ".git" / "hooks" / "pre-push"
+        hook.write_text(
+            "#!/bin/sh\n"
+            f'CF="{count_file}"\n'
+            f'RACER="{racer}"\n'
+            'c=$(cat "$CF" 2>/dev/null || echo 0)\n'
+            'if [ "$c" -lt 2 ]; then\n'
+            '  c=$((c+1)); echo "$c" > "$CF"\n'
+            '  cd "$RACER" || exit 0\n'
+            '  git fetch -q origin\n'
+            '  git reset -q --hard origin/main\n'
+            '  mkdir -p tickets/KLC-099\n'
+            '  echo x > "tickets/KLC-099/r$c.json"\n'
+            '  git add -A\n'
+            '  git commit -q -m "race $c"\n'
+            '  git push -q origin HEAD:main\n'
+            'fi\n',
+            encoding="utf-8",
+        )
+        hook.chmod(0o755)
+
+        (klc / "tickets" / TICKET).mkdir(parents=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+
+        assert commit_and_push_cas(
+            [rel], "KLC-054: mine", TICKET, klc, remote="otherremote",
+            max_retries=5,
+        ) is None
+
+        assert count_file.read_text().strip() == "2"  # two races injected
+        _run(["git", "fetch", "otherremote"], klc)
+        log = _run(["git", "log", "--format=%s", "otherremote/main"], klc).stdout
+        assert "KLC-054: mine" in log
+        assert "race 1" in log and "race 2" in log
+        # the configured upstream (origin) was NOT written to.
+        _run(["git", "fetch", "origin"], klc)
+        assert "KLC-054: mine" not in _run(
+            ["git", "log", "--format=%s", "origin/main"], klc
+        ).stdout
+
+
+class TestCustomFetchRefspec:
+    """R4-review #1: the tracking ref is not always ``<remote>/<branch>``."""
+
+    def _klc_with_custom_refspec(self, tmp_path):
+        """Clone with a fetch refspec that maps heads to refs/remotes/upstream/*
+        (NOT origin/*), so ``@{upstream}`` resolves to ``upstream/main`` and no
+        ``origin/main`` tracking ref exists."""
+        origin = _seed_origin(tmp_path)
+        klc = _clone(origin, tmp_path / "klc")
+        _run(["git", "config", "remote.origin.fetch",
+              "+refs/heads/*:refs/remotes/upstream/*"], klc)
+        _run(["git", "update-ref", "-d", "refs/remotes/origin/main"], klc)
+        _run(["git", "fetch", "origin"], klc)
+        assert _run(
+            ["git", "rev-parse", "--abbrev-ref", "@{upstream}"], klc
+        ).stdout.strip() == "upstream/main"
+        return origin, klc
+
+    def test_custom_refspec_other_ticket_rebases_and_wins(self, tmp_path):
+        """Default remote with a custom fetch refspec: an other-ticket race must
+        rebase+retry+succeed, NOT fail with 'invalid upstream'/RetryExhausted."""
+        origin, klc = self._klc_with_custom_refspec(tmp_path)
+        _competing_push(origin, tmp_path, "racer",
+                        "tickets/KLC-099/o.json", "x\n")
+
+        (klc / "tickets" / TICKET).mkdir(parents=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+
+        assert commit_and_push_cas(
+            [rel], "KLC-054: mine", TICKET, klc,
+        ) is None
+
+        _run(["git", "fetch", "origin"], klc)
+        log = _run(["git", "log", "--format=%s", "upstream/main"], klc).stdout
+        assert "KLC-054: mine" in log
+        assert "other: tickets/KLC-099/o.json" in log
+
+    def test_custom_refspec_same_ticket_raises_conflict(self, tmp_path):
+        """Default remote with a custom fetch refspec: a same-ticket race must
+        raise StateConflictError (not an 'invalid upstream' RuntimeError)."""
+        origin, klc = self._klc_with_custom_refspec(tmp_path)
+        _competing_push(origin, tmp_path, "racer",
+                        f"tickets/{TICKET}/theirs.json", "x\n")
+
+        (klc / "tickets" / TICKET).mkdir(parents=True)
+        rel = f"tickets/{TICKET}/state.json"
+        (klc / rel).write_text("{}\n", encoding="utf-8")
+
+        with pytest.raises(StateConflictError):
+            commit_and_push_cas([rel], "KLC-054: mine", TICKET, klc)
+
+    def test_incoming_same_ticket_paths_raises_on_unresolvable_ref(self, tmp_path):
+        """R4-review #2: an unresolvable ref must raise, not be treated as
+        'no incoming paths' (which would silently miss a same-ticket conflict)."""
+        origin = _seed_origin(tmp_path)
+        klc = _clone(origin, tmp_path / "klc")
+        with pytest.raises(RuntimeError):
+            _incoming_same_ticket_paths(
+                f"tickets/{TICKET}/", klc, "definitely-no-such-ref-xyz"
+            )
