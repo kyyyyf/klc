@@ -91,12 +91,20 @@ def _project_root() -> str:
 
 LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
-    "retrack", "task-brief", "build-run", "steal",
+    "retrack", "task-brief", "build-run", "steal", "remind",
 )
 OPERATIONAL_CMDS = (
     "board", "doctor", "metrics", "reindex", "install", "jira-sync", "jira", "setup",
     "state",
 )
+
+
+# Commands that must NOT trigger the opportunistic Jira-queue drain:
+#   jira-sync — drains explicitly itself.
+#   remind    — a pure read-only advisory verb run on every UserPromptSubmit
+#               via the hook; draining here would spend the Jira transport
+#               timeout / perform writes on every prompt submit.
+NO_DRAIN_CMDS = ("jira-sync", "remind")
 
 
 def _drain_jira_queue() -> None:
@@ -116,8 +124,8 @@ def _dispatch(argv: list[str]) -> int:
         return 0
     cmd, rest = argv[0], argv[1:]
 
-    # drain Jira queue opportunistically on every command except jira-sync itself
-    if cmd != "jira-sync":
+    # drain Jira queue opportunistically, except for advisory/self-draining verbs
+    if cmd not in NO_DRAIN_CMDS:
         _drain_jira_queue()
 
     if cmd in ("--version", "-V"):
