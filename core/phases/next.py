@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 from pathlib import Path
 
@@ -22,6 +23,10 @@ from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
+import identity  # noqa: E402
+import holder  # noqa: E402
+import state_sync  # noqa: E402
+import state_tx  # noqa: E402
 
 
 def _friendly_missing_ticket(ticket: str) -> int:
@@ -76,6 +81,33 @@ def run(argv: list[str]) -> int:
 
             # state == :ack — advance.
             new_state = _lc.advance_to_next(args.ticket, note="klc next")
+
+            # KLC-057: first-grab the entered phase, INSIDE the per-ticket lock,
+            # AFTER the advance and BEFORE the push (AC-6a). A phase already held
+            # by ANOTHER user raises HolderConflictError — report it, do NOT
+            # steal (stealing is KLC-058). Feature-off, state_tx is a no-op and
+            # no holder is written (AC-8b). Archived is terminal — nothing to hold.
+            if new_state != _ph.STATE_ARCHIVED:
+                meta_rel = f"tickets/{args.ticket}/meta.json"
+                try:
+                    with state_tx.state_tx(
+                        args.ticket, [meta_rel], f"next {args.ticket}"
+                    ) as tx:
+                        if tx is not None:
+                            ident = {"id": identity.current(),
+                                     "machine": socket.gethostname()}
+                            holder.acquire_holder(args.ticket, ident)
+                except holder.HolderConflictError as e:
+                    hid = e.holder.get("id") if e.holder else "?"
+                    sys.stderr.write(f"klc next: phase held by {hid}\n")
+                    return 1
+                except state_sync.StateConflictError:
+                    sys.stderr.write(
+                        "klc next: concurrent update — another writer moved this "
+                        "ticket; retry.\n"
+                    )
+                    return 1
+
             meta = _lc.read_meta(args.ticket)
             if new_state == _ph.STATE_ARCHIVED:
                 if args.json:
