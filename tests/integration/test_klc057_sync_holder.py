@@ -465,5 +465,98 @@ def test_terminal_sync_error_surfaces_clean_message(tmp_path, monkeypatch, capsy
     _assert_no_git_internals(capsys.readouterr().err)
 
 
+# ---------------------------------------------------------------------------
+# round-2: conflict-path hardening (P1b stale pick, holder-conflict wording,
+# identity disambiguation)
+# ---------------------------------------------------------------------------
+
+def test_ack_aborts_on_stale_phase_after_pull(tmp_path, monkeypatch, capsys):
+    """P1b: if pull_rebase brings a remote phase that differs from the phase the
+    pick was validated against, ack must REFUSE rather than apply a stale pick to
+    the newly-pulled phase — and must not push."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _bootstrap_ticket(tmp_path, "KLC-611", phase="build:ack-needed", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+
+    def _advance_remote(*a, **k):
+        # Simulate the pull bringing a peer's advance: the phase moved on.
+        mp = _meta_path(tmp_path, "KLC-611")
+        m = json.loads(mp.read_text(encoding="utf-8"))
+        m["phase"] = "review:ack-needed"
+        mp.write_text(json.dumps(m), encoding="utf-8")
+
+    monkeypatch.setattr(state_feature, "enabled", lambda: True)
+    monkeypatch.setattr(state_sync, "pull_rebase", _advance_remote)
+    pushes = []
+    monkeypatch.setattr(state_sync, "commit_and_push_cas",
+                        lambda *a, **k: pushes.append(1))
+    monkeypatch.setattr(identity, "current", lambda: ALICE)
+
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-611", "--pick", "1"])
+    assert rc != 0, "a stale pick must not be applied"
+    err = capsys.readouterr().err.lower()
+    assert "advanced" in err or "re-run" in err, f"unclear message: {err!r}"
+    assert pushes == [], "no push may happen when the state is stale"
+    m = json.loads(_meta_path(tmp_path, "KLC-611").read_text(encoding="utf-8"))
+    assert m["phase"] == "review:ack-needed", \
+        "phase must be left at the pulled remote value, not a stale-applied advance"
+
+
+def test_ack_reports_holder_conflict_distinctly(tmp_path, monkeypatch, capsys):
+    """LOW-1: an ack whose holder-release hits a DIFFERENT holder must say
+    'phase held by <id>', not the generic 'state sync failed'."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    other = {"id": "bob@example.com", "machine": "box2",
+             "since": "2026-01-01T00:00:00Z"}
+    _bootstrap_ticket(tmp_path, "KLC-612", phase="build:ack-needed", track="S",
+                      holder=dict(other))
+    _feature_on(monkeypatch)  # identity=alice, tries to release bob's hold
+
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-612", "--pick", "1"])
+    assert rc != 0
+    err = capsys.readouterr().err.lower()
+    assert "held by" in err and "bob@example.com" in err, f"unclear: {err!r}"
+    assert "state sync failed" not in err, "must not be masked as a sync error"
+
+
+def test_next_archive_release_conflict_wording(tmp_path, monkeypatch, capsys):
+    """LOW-2: when archiving via next, a holder-release conflict must be worded
+    for a release/archive, not with the acquire ('phase held by') phrasing."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    other = {"id": "bob@example.com", "machine": "box2",
+             "since": "2026-01-01T00:00:00Z"}
+    _bootstrap_ticket(tmp_path, "KLC-711", phase="learn:ack", track="S",
+                      holder=dict(other))
+    _feature_on(monkeypatch)
+
+    import next as next_mod
+    rc = next_mod.run(["KLC-711"])
+    assert rc != 0
+    err = capsys.readouterr().err.lower()
+    assert "archive" in err and "bob@example.com" in err, f"unclear: {err!r}"
+
+
+def test_intake_bad_identity_message_distinct(tmp_path, monkeypatch, capsys):
+    """LOW-3: a real identity error (empty identity.current()) must not be masked
+    as 'state sync failed' — and must leave no half-created ticket."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+    monkeypatch.setattr(state_feature, "enabled", lambda: True)
+    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: None)
+    monkeypatch.setattr(state_sync, "commit_and_push_cas", lambda *a, **k: None)
+    monkeypatch.setattr(identity, "current", lambda: "")
+
+    import intake as intake_mod
+    rc = intake_mod.run(["KLC-861", "no identity"])
+    assert rc != 0
+    err = capsys.readouterr().err.lower()
+    assert "identity" in err, f"unclear: {err!r}"
+    assert "state sync failed" not in err, "identity error must not read as sync failure"
+    assert not (tmp_path / ".klc" / "tickets" / "KLC-861").exists(), \
+        "a bad-identity failure must leave no half-created ticket"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
