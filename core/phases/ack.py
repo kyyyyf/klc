@@ -28,6 +28,11 @@ import holder  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
 
+class _StaleStateError(Exception):
+    """Raised inside the tx when the pull advanced the remote phase past the one
+    the pick was validated against (P1b TOCTOU) — refuse the stale pick."""
+
+
 # Phases where expansion (scope creep) blocks ack toward next.
 # integrate is a checklist with no irreversible agent work (merge is manual),
 # so skipped scope hard-fail applies to review only.
@@ -209,11 +214,31 @@ def run(argv: list[str]) -> int:
                 with state_tx.state_tx(
                     args.ticket, [meta_rel], f"ack {args.ticket}"
                 ) as tx:
+                    # P1b (TOCTOU): the phase/pick/gate checks above ran against
+                    # `cur`, read BEFORE state_tx pulled. If the pull advanced the
+                    # remote phase, refuse rather than apply a pick validated for
+                    # the old phase to the new one. Re-validating an arbitrary
+                    # pick is out of scope — detecting divergence and refusing is
+                    # correct and bounded.
+                    if _lc.current_state(args.ticket) != cur:
+                        raise _StaleStateError()
                     acked["new_state"] = _lc.apply_ack(args.ticket, pick_id)
                     if tx is not None:
                         ident = {"id": identity.current(),
                                  "machine": socket.gethostname()}
                         holder.release_holder(args.ticket, ident)
+            except _StaleStateError:
+                sys.stderr.write(
+                    "klc ack: remote state advanced since you started — "
+                    f"re-run `klc ack {args.ticket}`.\n"
+                )
+                return 1
+            except holder.HolderConflictError as e:
+                # LOW-1: a release against a DIFFERENT holder is reported as such,
+                # not masked by the generic sync-failure message below.
+                hid = e.holder.get("id") if e.holder else "?"
+                sys.stderr.write(f"klc ack: phase held by {hid}\n")
+                return 1
             except state_sync.StateConflictError:
                 sys.stderr.write(
                     "klc ack: concurrent update — another writer moved this "

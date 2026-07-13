@@ -42,6 +42,17 @@ from _paths import (  # noqa: E402
 DEFAULT_KEY_RE = r"^[A-Z][A-Z0-9]+-\d+$"
 
 
+class _KeyTakenError(Exception):
+    """Raised inside the tx when `pull_rebase` reveals a peer already created this
+    key on the shared state (HIGH-B) — abort WITHOUT overwriting their files."""
+
+
+class _IdentityError(Exception):
+    """Raised inside the tx when the holder write fails because the caller's
+    identity is unusable (empty git user.email, …) — surfaced distinctly from a
+    sync failure (LOW-3)."""
+
+
 def _load_key_pattern() -> re.Pattern:
     r"""Read the regex from .klc/config/ticket-id.yml.
 
@@ -236,6 +247,14 @@ def run(argv: list[str]) -> int:
                 with state_tx.state_tx(
                     args.ticket, [meta_rel, raw_rel], f"intake {args.ticket}"
                 ) as tx:
+                    # HIGH-B: state_tx has now pulled. A peer may have committed
+                    # this key since our pre-tx check — writing would fast-forward
+                    # over (silently clobber) their meta/holder. Re-check AFTER
+                    # the pull and BEFORE writing; abort if the key appeared.
+                    # (`existing` guards the legitimate --force overwrite of our
+                    # OWN pre-existing local ticket.)
+                    if not existing and klc_ticket_meta_file(args.ticket).exists():
+                        raise _KeyTakenError()
                     tdir.mkdir(parents=True, exist_ok=True)
                     klc_ticket_raw_file(args.ticket).write_text(
                         raw_body, encoding="utf-8")
@@ -244,7 +263,26 @@ def run(argv: list[str]) -> int:
                     if tx is not None:
                         ident = {"id": identity.current(),
                                  "machine": socket.gethostname()}
-                        holder.acquire_holder(args.ticket, ident)
+                        try:
+                            holder.acquire_holder(args.ticket, ident)
+                        except ValueError as ie:
+                            # LOW-3: a bad identity is NOT a sync failure.
+                            raise _IdentityError(str(ie))
+            except _KeyTakenError:
+                # HIGH-B: the peer's tracked ticket was pulled into our worktree —
+                # leave it intact (do NOT rmtree) and do not push.
+                sys.stderr.write(
+                    f"klc intake: key {args.ticket} already taken "
+                    f"(exists on the shared state); nothing was written.\n"
+                )
+                return 1
+            except _IdentityError as e:
+                shutil.rmtree(tdir, ignore_errors=True)
+                sys.stderr.write(
+                    f"klc intake: cannot determine your identity ({e}); "
+                    f"set your git user.email, then retry. Nothing was written.\n"
+                )
+                return 1
             except state_sync.StateConflictError:
                 shutil.rmtree(tdir, ignore_errors=True)
                 sys.stderr.write(

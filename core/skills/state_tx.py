@@ -85,4 +85,10 @@ def state_tx(ticket, paths, msg):
         # baseline) so the local tree never diverges ahead of the untouched
         # remote. The exception then propagates to the verb for a clean message.
         _restore(snap, kdir)
+        # HIGH-A: commit_and_push_cas leaves its aborted commit's changes STAGED
+        # (it unwinds with `git reset --soft HEAD~1`); _restore only fixes the
+        # WORKING TREE. Unstage the touched paths too — otherwise the NEXT
+        # feature-on `pull_rebase` hits a dirty index ("cannot pull with rebase:
+        # ... uncommitted changes") and every subsequent op deadlocks.
+        state_sync._git(["reset", "-q", "--", *rel_paths], kdir)
         raise

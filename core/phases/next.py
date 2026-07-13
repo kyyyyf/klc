@@ -105,7 +105,16 @@ def run(argv: list[str]) -> int:
                             holder.acquire_holder(args.ticket, ident)
             except holder.HolderConflictError as e:
                 hid = e.holder.get("id") if e.holder else "?"
-                sys.stderr.write(f"klc next: phase held by {hid}\n")
+                if advanced.get("new_state") == _ph.STATE_ARCHIVED:
+                    # LOW-2: the archive branch RELEASES the holder — a conflict
+                    # here means someone else still holds it, so word it for a
+                    # release/archive rather than the acquire phrasing below.
+                    sys.stderr.write(
+                        f"klc next: cannot archive — phase still held by {hid}; "
+                        f"they must release it first.\n"
+                    )
+                else:
+                    sys.stderr.write(f"klc next: phase held by {hid}\n")
                 return 1
             except state_sync.StateConflictError:
                 sys.stderr.write(
