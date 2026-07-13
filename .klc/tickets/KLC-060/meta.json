@@ -2,7 +2,7 @@
   "ticket": "KLC-060",
   "kind": "feature",
   "kind_source": "discovery",
-  "phase": "integrate:work",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -154,7 +154,70 @@
       "phase": "integrate:work",
       "started_at": "2026-07-13T09:33:21Z",
       "event": "advance",
-      "note": "ack:passed"
+      "note": "ack:passed",
+      "finished_at": "2026-07-13T09:44:08Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-07-13T09:44:08Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T09:44:08Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-07-13T09:44:08Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-07-13T09:44:08Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-07-13T09:44:08Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-07-13T09:44:08Z"
+    },
+    {
+      "phase": "observe:ack-needed",
+      "started_at": "2026-07-13T09:44:08Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T09:44:08Z"
+    },
+    {
+      "phase": "observe:ack",
+      "started_at": "2026-07-13T09:44:08Z",
+      "event": "ack",
+      "note": "pick=1:clean",
+      "finished_at": "2026-07-13T09:44:08Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-07-13T09:44:08Z",
+      "event": "advance",
+      "note": "ack:clean",
+      "finished_at": "2026-07-13T09:44:31Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-07-13T09:44:31Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T09:44:40Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-07-13T09:44:40Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-07-13T09:44:40Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-07-13T09:44:40Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": "M",

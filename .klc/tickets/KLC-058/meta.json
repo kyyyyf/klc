@@ -2,7 +2,7 @@
   "ticket": "KLC-058",
   "kind": "unknown",
   "kind_source": "heuristic",
-  "phase": "integrate:work",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -83,7 +83,35 @@
       "phase": "integrate:work",
       "started_at": "2026-07-13T09:32:23Z",
       "event": "advance",
-      "note": "ack:approve"
+      "note": "ack:approve",
+      "finished_at": "2026-07-13T09:43:52Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-07-13T09:43:52Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T09:43:52Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-07-13T09:43:52Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-07-13T09:43:52Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-07-13T09:43:52Z",
+      "event": "skipped",
+      "note": "condition not met: meta.track in ['M','L'] OR meta.rework_count any_overrun OR meta.regression_observed == 1 OR meta.budgets any_overrun",
+      "finished_at": "2026-07-13T09:43:52Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-07-13T09:43:52Z",
+      "event": "advance",
+      "note": "ack:merged"
     }
   ],
   "track": "XS",
