@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 from pathlib import Path
 
@@ -22,6 +23,10 @@ from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
 import phase_completion  # noqa: E402
 import scope_delta as _sd  # noqa: E402
 import gate_policy as _gp  # noqa: E402
+import identity  # noqa: E402
+import holder  # noqa: E402
+import state_sync  # noqa: E402
+import state_tx  # noqa: E402
 
 # Phases where expansion (scope creep) blocks ack toward next.
 # integrate is a checklist with no irreversible agent work (merge is manual),
@@ -189,6 +194,27 @@ def run(argv: list[str]) -> int:
                 new_state = _lc.apply_ack(args.ticket, pick.id)
             else:
                 new_state = _lc.apply_ack(args.ticket, args.pick)
+
+            # KLC-057: release the holder of the phase just left, INSIDE the
+            # per-ticket lock, AFTER the advance and BEFORE the push, so one CAS
+            # push carries both the advance and the cleared holder (AC-4/AC-5).
+            # Feature-off, state_tx is a no-op and no holder is written (AC-8b).
+            meta_rel = f"tickets/{args.ticket}/meta.json"
+            try:
+                with state_tx.state_tx(
+                    args.ticket, [meta_rel], f"ack {args.ticket}"
+                ) as tx:
+                    if tx is not None:
+                        ident = {"id": identity.current(),
+                                 "machine": socket.gethostname()}
+                        holder.release_holder(args.ticket, ident)
+            except state_sync.StateConflictError:
+                sys.stderr.write(
+                    "klc ack: concurrent update — another writer moved this "
+                    "ticket; retry.\n"
+                )
+                return 1
+
             meta = _lc.read_meta(args.ticket)
 
             if new_state == _ph.STATE_ARCHIVED:
