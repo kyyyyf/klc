@@ -79,43 +79,60 @@ def run(argv: list[str]) -> int:
                     )
                 return 1
 
-            # state == :ack — advance.
-            new_state = _lc.advance_to_next(args.ticket, note="klc next")
-
-            # KLC-057: first-grab the entered phase, INSIDE the per-ticket lock,
-            # AFTER the advance and BEFORE the push (AC-6a). A phase already held
-            # by ANOTHER user raises HolderConflictError — report it, do NOT
-            # steal (stealing is KLC-058). Feature-off, state_tx is a no-op and
-            # no holder is written (AC-8b). Archived is terminal — nothing to hold.
-            if new_state != _ph.STATE_ARCHIVED:
-                meta_rel = f"tickets/{args.ticket}/meta.json"
-                try:
-                    with state_tx.state_tx(
-                        args.ticket, [meta_rel], f"next {args.ticket}"
-                    ) as tx:
-                        if tx is not None:
-                            ident = {"id": identity.current(),
-                                     "machine": socket.gethostname()}
+            # state == :ack — advance INSIDE state_tx, AFTER the pull, so
+            # `pull_rebase` sees a clean tree and the advance is captured in the
+            # rollback snapshot. The entered phase is first-grabbed in the SAME
+            # body so one CAS push carries both (AC-6a); a phase already held by
+            # ANOTHER user raises HolderConflictError — report it, do NOT steal
+            # (stealing is KLC-058) — and the tx rolls the advance back.
+            # MED-1: archiving also runs the tx (so the archived phase + released
+            # holder reach the remote), it just SKIPS acquire (no phase to hold).
+            # Feature-off, state_tx is a no-op and no holder is written (AC-8b).
+            meta_rel = f"tickets/{args.ticket}/meta.json"
+            advanced: dict = {}
+            try:
+                with state_tx.state_tx(
+                    args.ticket, [meta_rel], f"next {args.ticket}"
+                ) as tx:
+                    new_state = _lc.advance_to_next(args.ticket, note="klc next")
+                    advanced["new_state"] = new_state
+                    if tx is not None:
+                        ident = {"id": identity.current(),
+                                 "machine": socket.gethostname()}
+                        if new_state == _ph.STATE_ARCHIVED:
+                            holder.release_holder(args.ticket, ident)
+                        else:
                             holder.acquire_holder(args.ticket, ident)
-                except holder.HolderConflictError as e:
-                    hid = e.holder.get("id") if e.holder else "?"
-                    sys.stderr.write(f"klc next: phase held by {hid}\n")
-                    return 1
-                except state_sync.StateConflictError:
-                    sys.stderr.write(
-                        "klc next: concurrent update — another writer moved this "
-                        "ticket; retry.\n"
-                    )
-                    return 1
-                except (state_sync.RetryExhaustedError,
-                        state_sync.RebaseConflictError,
-                        state_sync.ConfigError):
-                    # Terminal, non-CAS sync failure: clean message, no git
-                    # internals (AC-7). The push did not land.
-                    sys.stderr.write(
-                        "klc next: state sync failed — retry.\n"
-                    )
-                    return 1
+            except holder.HolderConflictError as e:
+                hid = e.holder.get("id") if e.holder else "?"
+                sys.stderr.write(f"klc next: phase held by {hid}\n")
+                return 1
+            except state_sync.StateConflictError:
+                sys.stderr.write(
+                    "klc next: concurrent update — another writer moved this "
+                    "ticket; retry.\n"
+                )
+                return 1
+            except (state_sync.RetryExhaustedError,
+                    state_sync.RebaseConflictError,
+                    state_sync.ConfigError,
+                    RuntimeError):
+                # Terminal, non-CAS sync failure (RRC set above, plus a plain
+                # RuntimeError — network/auth/protected-branch/NothingToCommit).
+                # Clean message, no git internals (AC-7). The push did not land.
+                sys.stderr.write(
+                    "klc next: state sync failed — retry.\n"
+                )
+                return 1
+            except ValueError:
+                # advance_to_next raises ValueError for an illegal transition (a
+                # user error) — surface it via the outer handler. A ValueError
+                # AFTER the advance came from the push (bad path) → sync error.
+                if "new_state" not in advanced:
+                    raise
+                sys.stderr.write("klc next: state sync failed — retry.\n")
+                return 1
+            new_state = advanced["new_state"]
 
             meta = _lc.read_meta(args.ticket)
             if new_state == _ph.STATE_ARCHIVED:

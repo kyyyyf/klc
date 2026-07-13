@@ -55,7 +55,7 @@ def _restore(snapshot: dict, kdir: Path) -> None:
 
 
 @contextmanager
-def state_tx(ticket, paths, msg, remote=None):
+def state_tx(ticket, paths, msg):
     if not state_feature.enabled():
         # AC-8 no-op: run the body, touch no git, write no holder.
         yield None
@@ -64,21 +64,25 @@ def state_tx(ticket, paths, msg, remote=None):
     kdir = klc_dir()
     rel_paths = [_rel(p, kdir) for p in paths]
 
-    # Pull first so the body mutates the latest remote state; snapshot AFTER the
-    # pull so a rollback restores to the post-pull baseline (not stale bytes).
+    # Pull FIRST, on a clean tree, so the body's lifecycle write + holder op
+    # mutate the latest remote state (the verbs run their write INSIDE the body,
+    # never before this pull — otherwise `git pull --rebase` hits a dirty tree
+    # and crashes). Snapshot AFTER the pull and BEFORE yielding so files the body
+    # CREATES are captured (→ deleted on rollback) and files it MODIFIES restore
+    # to their post-pull baseline bytes.
     state_sync.pull_rebase(kdir)
     snap = _snapshot(rel_paths, kdir)
     try:
-        # The body (verb + holder mutation) runs here. If it raises anything
-        # other than a CAS conflict (e.g. HolderConflictError from a first-grab
-        # refusal) the exception propagates WITHOUT a push — the remote is left
-        # untouched, which is the desired "no steal / no advance" outcome.
+        # The body (lifecycle write + holder mutation) runs here.
         yield _TxHandle()
         # Clean exit → the single CAS push carries only this ticket's paths.
         state_sync.commit_and_push_cas(rel_paths, msg, ticket, kdir)
-    except state_sync.StateConflictError:
-        # Same-ticket single-writer violation: unwind every local mutation the
-        # body made (created files deleted, modified files restored) and surface
-        # the conflict to the caller.
+    except Exception:
+        # ANY terminal failure — a same-ticket StateConflictError, a first-grab
+        # HolderConflictError, or a non-CAS sync error (RuntimeError/ValueError/
+        # NothingToCommitError) — must unwind every local mutation the body made
+        # (created files deleted, modified files restored to the post-pull
+        # baseline) so the local tree never diverges ahead of the untouched
+        # remote. The exception then propagates to the verb for a clean message.
         _restore(snap, kdir)
         raise

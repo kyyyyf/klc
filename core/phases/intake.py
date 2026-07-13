@@ -28,6 +28,7 @@ import identity  # noqa: E402
 import holder  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
+from artefacts import acquire_lock, LockedError  # noqa: E402
 from _paths import (  # noqa: E402
     klc_config_dir,
     klc_global_tickets_index,
@@ -172,8 +173,11 @@ def run(argv: list[str]) -> int:
         return 1
 
     t0 = _dt.datetime.now(_dt.timezone.utc)
-    tdir.mkdir(parents=True, exist_ok=True)
 
+    # Build raw.md + meta.json contents up front (pure computation — no fs writes
+    # yet). The actual create happens INSIDE the state_tx body so it lands AFTER
+    # `pull_rebase` on a clean tree (HIGH-1) and is captured by the rollback
+    # snapshot (a rejected/failed push unwinds it).
     jira_url = _load_jira_url(args.ticket)
     raw_header = [
         "---",
@@ -187,9 +191,7 @@ def run(argv: list[str]) -> int:
         "---",
         "",
     ]
-    klc_ticket_raw_file(args.ticket).write_text(
-        "\n".join(raw_header) + desc + "\n", encoding="utf-8"
-    )
+    raw_body = "\n".join(raw_header) + desc + "\n"
 
     # Deterministic route classification (no LLM)
     route = _classify_route(desc, args.kind or "unknown")
@@ -218,70 +220,83 @@ def run(argv: list[str]) -> int:
         "clarify_required": route["confidence"] == "low",
         "metrics":       {"intake_ms": int((_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds() * 1000)},
     }
-    klc_ticket_meta_file(args.ticket).write_text(
-        json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    meta_body = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
 
-    # KLC-057: multi-user uniqueness + holder. The CAS push of this ticket's own
-    # files *is* the uniqueness guarantee — a key a peer already created rejects
-    # as StateConflictError. The first phase records the current holder in the
-    # SAME push (AC-3). Feature-off (single-user), state_tx is a pure no-op and
-    # the holder write is skipped, so behaviour is byte-for-byte identical (AC-8a).
+    # KLC-057: multi-user uniqueness + holder, INSIDE the same per-ticket lock
+    # ack/next use (AC-9). The CAS push of this ticket's own files *is* the
+    # uniqueness guarantee — a key a peer already created rejects as
+    # StateConflictError. The first phase records the current holder in the SAME
+    # push (AC-3). Feature-off (single-user), state_tx is a pure no-op and the
+    # holder write is skipped, so behaviour is byte-for-byte identical (AC-8a).
     meta_rel = f"tickets/{args.ticket}/meta.json"
     raw_rel = f"tickets/{args.ticket}/raw.md"
     try:
-        with state_tx.state_tx(
-            args.ticket, [meta_rel, raw_rel], f"intake {args.ticket}"
-        ) as tx:
-            if tx is not None:
-                ident = {"id": identity.current(), "machine": socket.gethostname()}
-                holder.acquire_holder(args.ticket, ident)
-    except state_sync.StateConflictError:
-        shutil.rmtree(tdir, ignore_errors=True)
-        sys.stderr.write(
-            f"klc intake: key {args.ticket} already taken "
-            f"(created by another user); nothing was written.\n"
-        )
-        return 1
-    except (state_sync.RetryExhaustedError,
-            state_sync.RebaseConflictError,
-            state_sync.ConfigError):
-        # Terminal, non-CAS sync failure: keep the shared state consistent by
-        # leaving no local-only ticket, and surface a clean message (AC-7) —
-        # never a raw traceback dumping git internals to the user.
-        shutil.rmtree(tdir, ignore_errors=True)
-        sys.stderr.write(
-            f"klc intake: state sync failed for {args.ticket}; "
-            f"nothing was written — retry.\n"
-        )
-        return 1
+        with acquire_lock(args.ticket):
+            try:
+                with state_tx.state_tx(
+                    args.ticket, [meta_rel, raw_rel], f"intake {args.ticket}"
+                ) as tx:
+                    tdir.mkdir(parents=True, exist_ok=True)
+                    klc_ticket_raw_file(args.ticket).write_text(
+                        raw_body, encoding="utf-8")
+                    klc_ticket_meta_file(args.ticket).write_text(
+                        meta_body, encoding="utf-8")
+                    if tx is not None:
+                        ident = {"id": identity.current(),
+                                 "machine": socket.gethostname()}
+                        holder.acquire_holder(args.ticket, ident)
+            except state_sync.StateConflictError:
+                shutil.rmtree(tdir, ignore_errors=True)
+                sys.stderr.write(
+                    f"klc intake: key {args.ticket} already taken "
+                    f"(created by another user); nothing was written.\n"
+                )
+                return 1
+            except (state_sync.RetryExhaustedError,
+                    state_sync.RebaseConflictError,
+                    state_sync.ConfigError,
+                    RuntimeError, ValueError):
+                # Terminal, non-CAS sync failure (RRC set above, plus a plain
+                # RuntimeError/ValueError/NothingToCommitError from pull/push).
+                # Keep the shared state consistent by leaving no local-only
+                # ticket, and surface a clean message (AC-7) — never a raw
+                # traceback dumping git internals to the user.
+                shutil.rmtree(tdir, ignore_errors=True)
+                sys.stderr.write(
+                    f"klc intake: state sync failed for {args.ticket}; "
+                    f"nothing was written — retry.\n"
+                )
+                return 1
 
-    # append to global index (append-only) — deferred until AFTER a clean CAS
-    # push (D-005), so a rejected push leaves zero index pollution.
-    idx = klc_global_tickets_index()
-    idx.parent.mkdir(parents=True, exist_ok=True)
-    with idx.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({
-            "key":        args.ticket,
-            "kind":       meta["kind"],
-            "phase":      "intake",
-            "created":    meta["created"],
-        }, ensure_ascii=False) + "\n")
+            # append to global index (append-only) — deferred until AFTER a clean
+            # CAS push (D-005), so a rejected push leaves zero index pollution.
+            idx = klc_global_tickets_index()
+            idx.parent.mkdir(parents=True, exist_ok=True)
+            with idx.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "key":        args.ticket,
+                    "kind":       meta["kind"],
+                    "phase":      "intake",
+                    "created":    meta["created"],
+                }, ensure_ascii=False) + "\n")
 
-    print(f"INTAKE_OK {args.ticket}")
-    print(f"  dir:    {tdir}")
-    print(f"  kind:   {meta['kind']}")
-    print(f"  route:  {route_hint}  confidence={route['confidence']}  (signals: {route['signals']})")
-    print(f"  → intake:ack-needed")
-    decision = route["decision"]
-    if decision == "triage":
-        print(f"  ⚠ {route['confidence']}-confidence routing — the hint may under-size the ticket.")
-        print(f"     Recommended: run the cheap intake triage (core/agents/intake-triage.md)")
-        print(f"     to disambiguate scope, or `klc ack {args.ticket} --pick 2` to force full discovery.")
-    elif decision == "full-discovery":
-        print(f"  ⚠ low-confidence routing, triage disabled.")
-        print(f"     Recommended: `klc ack {args.ticket} --pick 2` (force-full-discovery).")
-    print(f"  picks:  klc ack {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
+            print(f"INTAKE_OK {args.ticket}")
+            print(f"  dir:    {tdir}")
+            print(f"  kind:   {meta['kind']}")
+            print(f"  route:  {route_hint}  confidence={route['confidence']}  (signals: {route['signals']})")
+            print(f"  → intake:ack-needed")
+            decision = route["decision"]
+            if decision == "triage":
+                print(f"  ⚠ {route['confidence']}-confidence routing — the hint may under-size the ticket.")
+                print(f"     Recommended: run the cheap intake triage (core/agents/intake-triage.md)")
+                print(f"     to disambiguate scope, or `klc ack {args.ticket} --pick 2` to force full discovery.")
+            elif decision == "full-discovery":
+                print(f"  ⚠ low-confidence routing, triage disabled.")
+                print(f"     Recommended: `klc ack {args.ticket} --pick 2` (force-full-discovery).")
+            print(f"  picks:  klc ack {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
+    except LockedError as e:
+        sys.stderr.write(f"klc intake: {e}\n")
+        return 1
 
     _jira_intake_enrich(args.ticket, args.jira_description)
     _warn_stale_modules()

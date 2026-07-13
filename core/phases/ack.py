@@ -191,19 +191,25 @@ def run(argv: list[str]) -> int:
                         + "; ".join(decision.reasons) + "\n"
                     )
                     return 2
-                new_state = _lc.apply_ack(args.ticket, pick.id)
+                pick_id = pick.id
             else:
-                new_state = _lc.apply_ack(args.ticket, args.pick)
+                pick_id = args.pick
 
-            # KLC-057: release the holder of the phase just left, INSIDE the
-            # per-ticket lock, AFTER the advance and BEFORE the push, so one CAS
-            # push carries both the advance and the cleared holder (AC-4/AC-5).
-            # Feature-off, state_tx is a no-op and no holder is written (AC-8b).
+            # KLC-057: the lifecycle advance now runs INSIDE state_tx, AFTER the
+            # pull — so `pull_rebase` sees a clean tree and the advance is
+            # captured in the rollback snapshot (a rejected push unwinds it, not
+            # just the holder). The holder of the phase just left is released in
+            # the SAME body, so one CAS push carries both the advance and the
+            # cleared holder (AC-4/AC-5). Feature-off, state_tx is a no-op: the
+            # body still runs apply_ack (AC-8 byte-identical) but writes no holder
+            # and touches no git (AC-8b).
             meta_rel = f"tickets/{args.ticket}/meta.json"
+            acked: dict = {}
             try:
                 with state_tx.state_tx(
                     args.ticket, [meta_rel], f"ack {args.ticket}"
                 ) as tx:
+                    acked["new_state"] = _lc.apply_ack(args.ticket, pick_id)
                     if tx is not None:
                         ident = {"id": identity.current(),
                                  "machine": socket.gethostname()}
@@ -216,13 +222,25 @@ def run(argv: list[str]) -> int:
                 return 1
             except (state_sync.RetryExhaustedError,
                     state_sync.RebaseConflictError,
-                    state_sync.ConfigError):
-                # Terminal, non-CAS sync failure: clean message, no git internals
-                # (AC-7). The push did not land, so the remote is unchanged.
+                    state_sync.ConfigError,
+                    RuntimeError):
+                # Terminal, non-CAS sync failure (RRC set above, plus a plain
+                # RuntimeError — network/auth/protected-branch/NothingToCommit).
+                # Clean message, no git internals (AC-7). The push did not land,
+                # so the remote is unchanged and the advance was rolled back.
                 sys.stderr.write(
                     "klc ack: state sync failed — retry.\n"
                 )
                 return 1
+            except ValueError:
+                # apply_ack raises ValueError for a bad/ambiguous pick (a user
+                # error) — surface it via the outer handler. A ValueError AFTER
+                # apply_ack succeeded came from the push (bad path) → sync error.
+                if "new_state" not in acked:
+                    raise
+                sys.stderr.write("klc ack: state sync failed — retry.\n")
+                return 1
+            new_state = acked["new_state"]
 
             meta = _lc.read_meta(args.ticket)
 
