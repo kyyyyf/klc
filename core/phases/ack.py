@@ -214,6 +214,15 @@ def run(argv: list[str]) -> int:
                     "ticket; retry.\n"
                 )
                 return 1
+            except (state_sync.RetryExhaustedError,
+                    state_sync.RebaseConflictError,
+                    state_sync.ConfigError):
+                # Terminal, non-CAS sync failure: clean message, no git internals
+                # (AC-7). The push did not land, so the remote is unchanged.
+                sys.stderr.write(
+                    "klc ack: state sync failed — retry.\n"
+                )
+                return 1
 
             meta = _lc.read_meta(args.ticket)
 

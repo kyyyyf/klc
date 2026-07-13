@@ -243,6 +243,18 @@ def run(argv: list[str]) -> int:
             f"(created by another user); nothing was written.\n"
         )
         return 1
+    except (state_sync.RetryExhaustedError,
+            state_sync.RebaseConflictError,
+            state_sync.ConfigError):
+        # Terminal, non-CAS sync failure: keep the shared state consistent by
+        # leaving no local-only ticket, and surface a clean message (AC-7) —
+        # never a raw traceback dumping git internals to the user.
+        shutil.rmtree(tdir, ignore_errors=True)
+        sys.stderr.write(
+            f"klc intake: state sync failed for {args.ticket}; "
+            f"nothing was written — retry.\n"
+        )
+        return 1
 
     # append to global index (append-only) — deferred until AFTER a clean CAS
     # push (D-005), so a rejected push leaves zero index pollution.
