@@ -138,14 +138,25 @@ def _upstream_branch(klc_dir: Path) -> str:
     return val.split("/", 1)[1] if "/" in val else val
 
 
-def _incoming_same_ticket_paths(prefix: str, klc_dir: Path) -> list[str]:
+def _incoming_same_ticket_paths(
+    prefix: str, klc_dir: Path, upstream_ref: str = "@{upstream}"
+) -> list[str]:
     """Return sorted ``tickets/<ticket>/`` paths touched by incoming commits.
 
-    Enumerates every ``HEAD..@{upstream}`` commit and diffs each against its own
-    first parent with rename detection, unioning both the source and destination
-    of every changed/renamed path.
+    Enumerates every ``HEAD..<upstream_ref>`` commit and diffs each against its
+    own first parent with rename detection, unioning both the source and
+    destination of every changed/renamed path.  *upstream_ref* is the tracking
+    ref of the remote actually being pushed to (which may differ from
+    ``@{upstream}`` when a non-default *remote* is used).
     """
-    rev = _git(["rev-list", "HEAD..@{upstream}"], klc_dir)
+    rev = _git(["rev-list", f"HEAD..{upstream_ref}"], klc_dir)
+    if rev.returncode != 0:
+        # An unresolvable ref must not be silently read as "no incoming paths"
+        # (which would miss a same-ticket conflict) — surface it clearly.
+        raise RuntimeError(
+            f"git rev-list HEAD..{upstream_ref} failed: "
+            f"{rev.stderr.strip() or rev.stdout.strip()}"
+        )
     touched: set[str] = set()
     for sha in rev.stdout.split():
         show = _git(
@@ -172,9 +183,23 @@ def commit_and_push_cas(
 ) -> None:
     """Stage *paths*, commit *msg*, and push to *remote* with CAS semantics.
 
-    The commit is pushed to the branch tracked by the current branch's
-    upstream (via an explicit ``HEAD:<upstream-branch>`` refspec), so it always
-    targets the tracked branch even when the local branch name differs.
+    The commit is always pushed with an explicit ``HEAD:<upstream_branch>``
+    refspec, where ``<upstream_branch>`` is the branch name the current branch
+    tracks (borrowed from its configured upstream).  This targets the intended
+    branch even when the local branch name differs from it, and — for a
+    non-default *remote* — pushes to that branch on *remote* rather than to a
+    branch named after the local branch.
+
+    Conflict classification and rebase read the tip actually fetched from
+    *remote*:
+
+    * When *remote* is the current branch's configured upstream remote (the
+      default ``origin`` case), ``@{upstream}`` is used — it resolves custom
+      fetch refspecs correctly (the tracking ref is not always
+      ``<remote>/<branch>``).
+    * For any other *remote*, ``<upstream_branch>`` is fetched from it
+      explicitly and ``FETCH_HEAD`` is used, without assuming any
+      tracking-ref naming.
 
     Only a genuine non-fast-forward rejection enters the CAS loop; any other
     push rejection (protected branch, pre-receive hook, …) is surfaced directly
@@ -253,8 +278,22 @@ def commit_and_push_cas(
             )
         raise RuntimeError(commit.stderr.strip() or commit.stdout.strip())
 
+    # Classification and rebase must read the tip that was actually fetched from
+    # the remote we are pushing to.  When that remote IS the branch's configured
+    # upstream, reuse @{upstream} — it already resolves custom fetch refspecs
+    # (the tracking ref is not always ``<remote>/<branch>``) and is the AC-2
+    # path.  For any OTHER remote, the branch is fetched explicitly and we work
+    # off FETCH_HEAD, never assuming a ``<remote>/<branch>`` tracking ref.
+    cur_branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], klc_dir).stdout.strip()
+    upstream_remote = _git(
+        ["config", "--get", f"branch.{cur_branch}.remote"], klc_dir
+    ).stdout.strip()
+    use_upstream = remote == upstream_remote
+
     try:
-        _push_with_cas(ticket, upstream_branch, klc_dir, remote, max_retries)
+        _push_with_cas(
+            ticket, upstream_branch, use_upstream, klc_dir, remote, max_retries
+        )
     except Exception:
         # Terminal failure: unwind the local commit (keep the changes staged)
         # so the next CAS cycle starts clean.
@@ -265,6 +304,7 @@ def commit_and_push_cas(
 def _push_with_cas(
     ticket: str,
     upstream_branch: str,
+    use_upstream: bool,
     klc_dir: Path,
     remote: str,
     max_retries: int,
@@ -289,10 +329,18 @@ def _push_with_cas(
                 (push.stderr or "").strip() or push.stdout.strip()
             )
 
-        # Absorb the remote tip.  A failed fetch means the upstream ref is
-        # stale — classifying against it would silently mask a real network/
-        # auth error, so surface it instead.
-        fetch = _git(["fetch", remote], klc_dir)
+        # Absorb the tip of the ref we push to.  For the branch's own upstream
+        # remote, a plain fetch updates @{upstream}; for any other remote we
+        # fetch the branch explicitly and use FETCH_HEAD (no tracking-ref-naming
+        # assumption).  A failed fetch means the ref is stale — classifying
+        # against it would silently mask a real network/auth error, so surface
+        # it instead.
+        if use_upstream:
+            fetch = _git(["fetch", remote], klc_dir)
+            classify_ref = "@{upstream}"
+        else:
+            fetch = _git(["fetch", remote, upstream_branch], klc_dir)
+            classify_ref = "FETCH_HEAD"
         if fetch.returncode != 0:
             raise RuntimeError(
                 f"git fetch {remote} failed while resolving CAS conflict on "
@@ -300,16 +348,16 @@ def _push_with_cas(
             )
 
         # Classify by the UNION of paths touched across the incoming commits.
-        # `git rev-list HEAD..@{upstream}` enumerates every upstream-only commit
-        # (including those reachable only via a merge's second parent, so merge
-        # visibility is preserved), and each commit is diffed against its own
-        # FIRST parent.  First-parent-per-commit avoids re-counting paths that a
-        # merge's second parent merely reintroduces from already-local history
-        # (no false other-ticket conflict); `-M --name-status` surfaces rename
-        # SOURCE paths (so moving a file out of our ticket still counts); and
-        # enumerating each commit catches a same-ticket change a later commit
-        # reverts (net-zero tree).
-        same_ticket = _incoming_same_ticket_paths(prefix, klc_dir)
+        # `git rev-list HEAD..<classify_ref>` enumerates every commit only on the
+        # pushed remote (including those reachable only via a merge's second
+        # parent, so merge visibility is preserved), and each commit is diffed
+        # against its own FIRST parent.  First-parent-per-commit avoids
+        # re-counting paths that a merge's second parent merely reintroduces from
+        # already-local history (no false other-ticket conflict); `-M
+        # --name-status` surfaces rename SOURCE paths (so moving a file out of
+        # our ticket still counts); and enumerating each commit catches a
+        # same-ticket change a later commit reverts (net-zero tree).
+        same_ticket = _incoming_same_ticket_paths(prefix, klc_dir, classify_ref)
         if same_ticket:
             raise StateConflictError(
                 f"same-ticket single-writer violation on {ticket}: "
@@ -322,7 +370,7 @@ def _push_with_cas(
                 f"{'y' if max_retries == 1 else 'ies'} on {ticket}"
             )
 
-        rebase = _git(["rebase", "@{upstream}"], klc_dir)
+        rebase = _git(["rebase", classify_ref], klc_dir)
         if rebase.returncode != 0:
             _git(["rebase", "--abort"], klc_dir)
             raise RebaseConflictError(rebase.stderr.strip())
