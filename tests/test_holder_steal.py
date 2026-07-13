@@ -543,3 +543,40 @@ def test_lifecycle_steal_forwards_ttl_kwarg(store):
     # kwargs (ttl_seconds) must be forwarded to holder.steal_holder.
     result = lifecycle.steal_holder("KLC-058", IDENT_A, ttl_seconds=60)
     assert result["holder"]["id"] == IDENT_A["id"]
+
+
+# ===========================================================================
+# review-fix3 — P2: steal_holder library API must enforce a positive finite TTL
+# (defense-in-depth, independent of the CLI's --ttl-minutes guard).
+# ===========================================================================
+
+@pytest.mark.parametrize("bad_ttl", [0, -1, -60 * 60,
+                                     float("nan"), float("inf"), float("-inf")])
+def test_steal_nonpositive_or_nonfinite_ttl_raises_and_preserves(store, bad_ttl):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60),  # fresh, live holder
+    }
+    with pytest.raises(ValueError):
+        holder.steal_holder("KLC-058", IDENT_A, ttl_seconds=bad_ttl)
+    # The live holder must NOT be overwritten by a bad TTL.
+    assert store.data["holder"]["id"] == IDENT_B["id"]
+
+
+def test_steal_bad_ttl_rejected_before_identity_or_holder_read(store):
+    # No holder at all: a bad ttl still raises ValueError (message about TTL),
+    # proving the guard runs before the staleness path.
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60),
+    }
+    with pytest.raises(ValueError, match="(?i)ttl"):
+        holder.steal_holder("KLC-058", IDENT_A, ttl_seconds=0)
+
+
+def test_lifecycle_steal_bad_ttl_raises(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60),
+    }
+    with pytest.raises(ValueError):
+        lifecycle.steal_holder("KLC-058", IDENT_A, ttl_seconds=0)
+    assert store.data["holder"]["id"] == IDENT_B["id"]

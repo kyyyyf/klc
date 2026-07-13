@@ -21,6 +21,7 @@ lifecycle.write_meta — NO direct filesystem I/O and NO git operations here:
 from __future__ import annotations
 
 import datetime as _dt
+import math as _math
 import sys
 from pathlib import Path
 
@@ -234,6 +235,16 @@ def steal_holder(ticket: str, identity: dict,
 
     Returns {"holder": <new>, "previous": <old>, "age_seconds": <float>}.
     """
+    # Defense-in-depth (independent of the CLI's --ttl-minutes guard): a TTL
+    # that is not a positive finite number would make the staleness gate
+    # (age < ttl_seconds) misbehave — <=0 or NaN never holds, so a FRESH holder
+    # would be overwritten; inf would make nothing ever stealable. Reject up
+    # front, before reading identity/holder, so a bad TTL can never mutate state.
+    if (not isinstance(ttl_seconds, (int, float)) or isinstance(ttl_seconds, bool)
+            or not _math.isfinite(ttl_seconds) or ttl_seconds <= 0):
+        raise ValueError(
+            f"ttl_seconds must be a positive finite number, got {ttl_seconds!r}"
+        )
     ident_id, machine = _validate_identity(identity)
     meta = lifecycle.read_meta(ticket)
     existing = _existing_holder(meta)
