@@ -52,3 +52,27 @@ AC-1..5 hold. 12 tests.
 `PROJECT_ROOT=<tmp> python3 -m pytest tests/integration/test_remind.py -v` →
 12 passed. `klc remind` is read-only, silent-by-default, always exit 0, no Jira
 side effect, robust to malformed tickets, and operates against `PROJECT_ROOT`.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['klc-plugin/hooks', 'core/phases']
+  actual modules:  ['core/phases', 'klc-plugin', 'scripts', 'tests']
+  unplanned:       ['klc-plugin', 'scripts', 'tests']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-059`.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/phases', 'klc-plugin/hooks', 'scripts', 'tests']
+  actual modules:  ['core/phases', 'klc-plugin', 'scripts', 'tests']
+  unplanned:       ['klc-plugin']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-059`.
+
+
+---
+[!CONFLICT] scope-expansion detected at review:ack-needed
+  planned modules: ['core/phases', 'klc-plugin/hooks', 'scripts', 'tests']
+  actual modules:  ['core/phases', 'klc-plugin', 'scripts', 'tests']
+  unplanned:       ['klc-plugin']
+Resolve: update meta.json:affected_modules to include all touched modules, then re-run `klc ack KLC-059`.
