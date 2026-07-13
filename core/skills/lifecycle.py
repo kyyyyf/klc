@@ -115,6 +115,25 @@ def current_state(ticket: str) -> str:
     return read_meta(ticket).get("phase", "intake:ack-needed")
 
 
+# Holder liveness (KLC-058). AC-2 documents these on the `lifecycle` interface,
+# but the real implementations live in holder.py (which layers on read_meta /
+# write_meta). These are thin delegating wrappers so both
+# `lifecycle.heartbeat_holder(...)` and `holder.heartbeat_holder(...)` work with
+# NO duplicated logic. The `from holder import ...` is FUNCTION-LEVEL on purpose:
+# holder.py imports this module at module load, so a top-level import here would
+# be a cycle.
+def heartbeat_holder(ticket: str):
+    """Delegate to holder.heartbeat_holder (see holder.py)."""
+    from holder import heartbeat_holder as _impl
+    return _impl(ticket)
+
+
+def steal_holder(ticket: str, identity: dict, *args, **kwargs):
+    """Delegate to holder.steal_holder (see holder.py)."""
+    from holder import steal_holder as _impl
+    return _impl(ticket, identity, *args, **kwargs)
+
+
 # --- low-level state write ----------------------------------------------------
 
 def _jira_push_after_state(ticket: str, phase: str, *, source: str) -> None:

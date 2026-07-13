@@ -10,6 +10,7 @@ The ticket lifecycle is driven by seven verbs:
     ship     — ack + next in one step (shortcut for no-pick or known pick)
     jump     — cross-cut from `<X>:ack` to any `<phase>:work`
     abort    — cancel `<X>:work`, return to the previous `:ack`
+    steal    — take over a stale holder slot (TTL-gated, warns first)
     step     — generate minimal build step card (step N context only)
     retrack  — operator-only: change a ticket's track (both directions), audited
 
@@ -90,7 +91,7 @@ def _project_root() -> str:
 
 LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
-    "retrack", "task-brief", "build-run",
+    "retrack", "task-brief", "build-run", "steal",
 )
 OPERATIONAL_CMDS = (
     "board", "doctor", "metrics", "reindex", "install", "jira-sync", "jira", "setup",
