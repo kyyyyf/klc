@@ -365,3 +365,120 @@ def test_steal_dispatch_registered_in_klc(steal_env):
     # And the phase entry point exists with a run() function.
     mod, _root = steal_env
     assert hasattr(mod, "run")
+
+
+# ===========================================================================
+# review-fix — L1: --ttl-minutes <= 0 must NOT steal a live holder
+# ===========================================================================
+
+def test_steal_cli_zero_ttl_rejected_holder_unchanged(steal_env, capsys):
+    mod, root = steal_env
+    meta_path = _write_meta(root, "KLC-058", {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60),
+    })
+    rc = mod.run(["KLC-058", "--ttl-minutes", "0"])
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ttl" in err.lower() and "positive" in err.lower()
+    # A ttl of 0 must not bypass the "refuse while alive" contract.
+    assert _read_holder(meta_path)["id"] == IDENT_B["id"]
+
+
+def test_steal_cli_negative_ttl_rejected_holder_unchanged(steal_env, capsys):
+    mod, root = steal_env
+    meta_path = _write_meta(root, "KLC-058", {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60),
+    })
+    rc = mod.run(["KLC-058", "--ttl-minutes", "-5"])
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ttl" in err.lower() and "positive" in err.lower()
+    assert _read_holder(meta_path)["id"] == IDENT_B["id"]
+
+
+# ===========================================================================
+# review-fix — L2/L5: malformed / non-string / future liveness timestamps
+# ===========================================================================
+
+def test_steal_nonstring_heartbeat_falls_back_to_since(store):
+    # A non-string heartbeat_at must NOT crash; fall back to the stale `since`.
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60 * 60),   # stale
+        "heartbeat_at": 12345,     # garbage (int)
+    }
+    result = holder.steal_holder("KLC-058", IDENT_A)
+    assert result["holder"]["id"] == IDENT_A["id"]
+
+
+def test_steal_bool_heartbeat_falls_back_to_since(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60 * 60),
+        "heartbeat_at": True,      # garbage (bool)
+    }
+    result = holder.steal_holder("KLC-058", IDENT_A)
+    assert result["holder"]["id"] == IDENT_A["id"]
+
+
+def test_steal_malformed_string_heartbeat_falls_back_to_since(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60 * 60),
+        "heartbeat_at": "not-an-iso-timestamp",
+    }
+    result = holder.steal_holder("KLC-058", IDENT_A)
+    assert result["holder"]["id"] == IDENT_A["id"]
+
+
+def test_steal_both_timestamps_corrupt_raises_valueerror(store):
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": "not-a-timestamp",
+        "heartbeat_at": 99,
+    }
+    with pytest.raises(ValueError):
+        holder.steal_holder("KLC-058", IDENT_A)
+
+
+def test_steal_future_heartbeat_treated_as_active(store):
+    # A future heartbeat proves (nominally) liveness → refuse to steal; safe.
+    future = _iso(_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(minutes=10))
+    store.data["holder"] = {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": _ago(60 * 60),
+        "heartbeat_at": future,
+    }
+    with pytest.raises(holder.HolderActiveError):
+        holder.steal_holder("KLC-058", IDENT_A)
+    assert store.data["holder"]["id"] == IDENT_B["id"]
+
+
+def test_steal_cli_corrupt_timestamps_clean_error_not_traceback(steal_env, capsys):
+    # Both liveness stamps corrupt → clean non-zero exit + message, no traceback.
+    mod, root = steal_env
+    meta_path = _write_meta(root, "KLC-058", {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"],
+        "since": "not-iso", "heartbeat_at": 99,
+    })
+    rc = mod.run(["KLC-058"])
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "klc steal" in err  # a friendly message, not a bare traceback
+    assert _read_holder(meta_path)["id"] == IDENT_B["id"]
+
+
+# ===========================================================================
+# review-fix — L4: printed output must be ASCII (C/ascii-locale safe)
+# ===========================================================================
+
+def test_steal_cli_takeover_output_is_ascii(steal_env, capsys):
+    mod, root = steal_env
+    _write_meta(root, "KLC-058", {
+        "id": IDENT_B["id"], "machine": IDENT_B["machine"], "since": _ago(60 * 60),
+    })
+    rc = mod.run(["KLC-058"])
+    assert rc == 0
+    out = capsys.readouterr()
+    # Warning (was '≥') + success line (was '→') must encode under ascii.
+    (out.out + out.err).encode("ascii")
