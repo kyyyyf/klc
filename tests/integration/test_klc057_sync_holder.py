@@ -270,5 +270,114 @@ def test_next_refuses_to_steal_held_phase(tmp_path, monkeypatch, capsys):
     assert meta["holder"]["id"] == "bob@example.com", "the holder must be unchanged (no steal)"
 
 
+# ---------------------------------------------------------------------------
+# step-8: output hygiene, feature-off holder, lock scope
+# ---------------------------------------------------------------------------
+
+_FORBIDDEN = ("state-branch", "worktree", "push", "pull_rebase",
+              "commit_and_push", "klc-state", "@{upstream}")
+
+
+def _assert_no_git_internals(text: str) -> None:
+    low = text.lower()
+    for bad in _FORBIDDEN:
+        assert bad not in low, f"success stdout leaked git internal {bad!r}: {text!r}"
+
+
+def test_success_path_output_contains_no_git_internals(tmp_path, monkeypatch, capsys):
+    """AC-7: intake/ack/next success stdout must not leak any sync internals."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+    _feature_on(monkeypatch)
+
+    import intake as intake_mod
+    assert intake_mod.run(["KLC-801", "hygiene check"]) == 0
+    _assert_no_git_internals(capsys.readouterr().out)
+
+    _bootstrap_ticket(tmp_path, "KLC-802", phase="build:ack-needed", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+    import ack as ack_mod
+    assert ack_mod.run(["KLC-802", "--pick", "1"]) == 0
+    _assert_no_git_internals(capsys.readouterr().out)
+
+    _bootstrap_ticket(tmp_path, "KLC-803", phase="build:ack", track="S")
+    import next as next_mod
+    assert next_mod.run(["KLC-803"]) == 0
+    _assert_no_git_internals(capsys.readouterr().out)
+
+
+def test_feature_off_ack_next_no_holder_fields(tmp_path, monkeypatch):
+    """AC-8b: with the feature OFF, ack and next write NO holder field."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _feature_off(monkeypatch)
+
+    _bootstrap_ticket(tmp_path, "KLC-811", phase="build:ack-needed", track="S")
+    import ack as ack_mod
+    assert ack_mod.run(["KLC-811", "--pick", "1"]) == 0
+    meta = json.loads(_meta_path(tmp_path, "KLC-811").read_text(encoding="utf-8"))
+    assert "holder" not in meta, "feature-off ack must not write a holder field"
+
+    _bootstrap_ticket(tmp_path, "KLC-812", phase="build:ack", track="S")
+    import next as next_mod
+    assert next_mod.run(["KLC-812"]) == 0
+    meta = json.loads(_meta_path(tmp_path, "KLC-812").read_text(encoding="utf-8"))
+    assert "holder" not in meta, "feature-off next must not write a holder field"
+
+
+def test_sync_runs_inside_per_ticket_lock(tmp_path, monkeypatch):
+    """AC-9: the CAS push happens INSIDE the per-ticket lock — the `.lock` file
+    exists on disk at the moment commit_and_push_cas is invoked."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _bootstrap_ticket(tmp_path, "KLC-821", phase="build:ack", track="S")
+
+    import artefacts
+    lock_seen = {}
+
+    def _check_lock(*a, **k):
+        lp = artefacts._lock_path("KLC-821")
+        lock_seen["held"] = lp.exists()
+    _feature_on(monkeypatch, push=_check_lock)
+
+    import next as next_mod
+    assert next_mod.run(["KLC-821"]) == 0
+    assert lock_seen.get("held") is True, \
+        "commit_and_push_cas must run inside the acquire_lock critical section"
+
+
+def test_terminal_sync_error_surfaces_clean_message(tmp_path, monkeypatch, capsys):
+    """AC-7 (failure-path hygiene): a terminal non-CAS sync error (e.g.
+    RetryExhaustedError) must be surfaced as a clean non-zero exit with NO git
+    internals — never a raw traceback dumping git stderr to the user."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+
+    def _exhausted(*a, **k):
+        raise state_sync.RetryExhaustedError("push rejected after 3 retries")
+    _feature_on(monkeypatch, push=_exhausted)
+
+    # intake
+    import intake as intake_mod
+    rc = intake_mod.run(["KLC-831", "sync fails"])
+    assert rc != 0, "intake must fail cleanly on a terminal sync error"
+    _assert_no_git_internals(capsys.readouterr().err)
+    assert not (tmp_path / ".klc" / "tickets" / "KLC-831").exists(), \
+        "a terminal sync failure must leave no half-created ticket"
+
+    # ack
+    _bootstrap_ticket(tmp_path, "KLC-832", phase="build:ack-needed", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-832", "--pick", "1"])
+    assert rc != 0, "ack must fail cleanly on a terminal sync error"
+    _assert_no_git_internals(capsys.readouterr().err)
+
+    # next
+    _bootstrap_ticket(tmp_path, "KLC-833", phase="build:ack", track="S")
+    import next as next_mod
+    rc = next_mod.run(["KLC-833"])
+    assert rc != 0, "next must fail cleanly on a terminal sync error"
+    _assert_no_git_internals(capsys.readouterr().err)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
