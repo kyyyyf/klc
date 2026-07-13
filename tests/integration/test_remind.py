@@ -107,3 +107,78 @@ def test_remind_silent_for_other_holder(tmp_path, monkeypatch, capsys):
 
     assert rc == 0
     assert capsys.readouterr().out == ""
+
+
+# --- step-2: hook delivery + statusline (AC-4, AC-5) -------------------------
+
+HOOK_REMIND = PLUGIN_DIR / "hooks" / "remind.py"
+
+
+def _klc_bin_env(project_root: Path) -> dict[str, str]:
+    env = {**os.environ, "PROJECT_ROOT": str(project_root)}
+    env["KLC_BIN"] = f"{sys.executable} {KLC}"
+    return env
+
+
+def test_hooks_json_has_remind_entry():
+    """AC-4: hooks.json registers a UserPromptSubmit hook invoking remind.py."""
+    hooks_json = PLUGIN_DIR / "hooks" / "hooks.json"
+    data = json.loads(hooks_json.read_text(encoding="utf-8"))
+    entries = data["hooks"]["UserPromptSubmit"]
+    commands = [
+        h["command"]
+        for group in entries
+        for h in group.get("hooks", [])
+    ]
+    assert any("remind.py" in c for c in commands), (
+        f"no UserPromptSubmit hook invokes remind.py; commands={commands!r}"
+    )
+
+
+def test_hook_always_exits_zero(tmp_path):
+    """AC-4: the hook exits 0 even when klc cannot locate a ticket."""
+    # Empty PROJECT_ROOT with no .klc — remind finds nothing.
+    env = _klc_bin_env(tmp_path)
+    result = subprocess.run(
+        [sys.executable, str(HOOK_REMIND)],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0, (
+        f"hook must exit 0 (non-blocking); stderr={result.stderr!r}"
+    )
+
+    # Even with a broken KLC_BIN (klc not found) the hook swallows the error.
+    env_broken = {**os.environ, "PROJECT_ROOT": str(tmp_path)}
+    env_broken["KLC_BIN"] = "/nonexistent/klc-binary-xyz"
+    result2 = subprocess.run(
+        [sys.executable, str(HOOK_REMIND)],
+        capture_output=True, text=True, env=env_broken,
+    )
+    assert result2.returncode == 0, (
+        f"hook must exit 0 even when klc is missing; stderr={result2.stderr!r}"
+    )
+
+
+def test_statusline_flag_emits_same_line(tmp_path):
+    """AC-5: `klc remind --statusline` emits the same line as `klc remind`."""
+    remind = _load_remind()
+    identity = remind._git_user()
+    _fabricate_ticket(tmp_path, "KLC-903", phase="integrate:work",
+                      holder_id=identity)
+    env = {**os.environ, "PROJECT_ROOT": str(tmp_path)}
+
+    plain = subprocess.run(
+        [sys.executable, str(KLC), "remind"],
+        capture_output=True, text=True, env=env,
+    )
+    statusline = subprocess.run(
+        [sys.executable, str(KLC), "remind", "--statusline"],
+        capture_output=True, text=True, env=env,
+    )
+
+    assert plain.returncode == 0 and statusline.returncode == 0
+    expected = "KLC-903 integrate is done — run klc ack\n"
+    assert plain.stdout == expected, f"plain stdout={plain.stdout!r}"
+    assert statusline.stdout == expected, (
+        f"statusline stdout={statusline.stdout!r}"
+    )
