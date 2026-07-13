@@ -25,6 +25,7 @@ sys.path.insert(0, str(SKILLS))
 from _paths import klc_ticket_dir, klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
+import holder_display  # noqa: E402
 
 
 BOX_DONE    = "[✓]"  # ✓
@@ -127,6 +128,17 @@ def run(argv: list[str]) -> int:
 
 
 def _annotate_current(phase: _ph.Phase, state: str, meta: dict) -> str:
+    base = _annotate_state(phase, state, meta)
+    wait = holder_display.waiting_hint(meta, state)
+    if wait:
+        return f"{base} · {wait}"
+    label = holder_display.holder_label(meta)
+    if label:
+        return f"{base} · held by {label}"
+    return base
+
+
+def _annotate_state(phase: _ph.Phase, state: str, meta: dict) -> str:
     if state == _ph.STATE_WORK:
         # Build-specific: show step progress if meta tracks it.
         step = meta.get("impl_step")
