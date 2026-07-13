@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -580,6 +581,450 @@ def test_state_init_merge_back_oserror_restores_backup(tmp_path):
     assert (root / ".klc" / "tickets" / "local.txt").read_text(encoding="utf-8") == "PRECIOUS"
     assert not (root / ".klc.init-bak").exists(), "backup must not be left stranded"
     assert str((root / ".klc").resolve()) not in _worktree_paths(root)
+
+
+# --- R4-1: single-branch clone must track the current remote tip -------------
+
+
+def test_state_init_single_branch_clone_tracks_current_tip(tmp_path):
+    """In a single-branch clone the fetch refspec covers only `main`, so a bare
+    `git fetch origin klc-state` updates FETCH_HEAD but NOT
+    refs/remotes/origin/klc-state. init must still materialize the current tip
+    (never fail through to orphan / a stale commit)."""
+    build = tmp_path / "build"
+    build.mkdir()
+    _init_repo(build)
+    _git(["checkout", "--orphan", "klc-state"], build)
+    _git(["rm", "-rf", "--cached", "."], build, check=False)
+    (build / "a.txt").unlink()
+    (build / "tickets").mkdir()
+    (build / "tickets" / "o.txt").write_text("TIP", encoding="utf-8")
+    _git(["add", "-A"], build)
+    _git(["commit", "-m", "klc-state tip"], build)
+    _git(["checkout", "main"], build)
+    origin = tmp_path / "origin.git"
+    _git(["clone", "--bare", str(build), str(origin)], tmp_path)
+
+    proj = tmp_path / "proj"
+    _git(["clone", "--single-branch", "--branch", "main", str(origin), str(proj)], tmp_path)
+    _git(["config", "user.name", "t"], proj)
+    _git(["config", "user.email", "t@t"], proj)
+    # sanity: this clone tracks only main
+    assert _git(["config", "--get-all", "remote.origin.fetch"], proj).stdout.strip() == \
+        "+refs/heads/main:refs/remotes/origin/main"
+
+    rc = _run_in(proj, ["init"])
+    assert rc == 0, "single-branch clone must materialize klc-state, not fail/orphan"
+
+    # materialized the CURRENT remote tip and tracks origin (not a fresh orphan)
+    assert (proj / ".klc" / "tickets" / "o.txt").read_text(encoding="utf-8") == "TIP"
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "klc-state@{upstream}"], proj / ".klc", check=False
+    ).stdout.strip()
+    assert up == "origin/klc-state", f"must track origin, got {up!r}"
+    origin_tip = _git(["ls-remote", str(origin), "klc-state"], proj).stdout.split()[0]
+    head = _git(["rev-parse", "klc-state"], proj).stdout.strip()
+    assert head == origin_tip, "must track the origin tip, not fork a disjoint orphan"
+
+
+# --- R4-2: a nested `.git` in preserved `.klc/` must not clobber worktree meta -
+
+
+def test_state_init_preserved_nested_git_does_not_clobber_worktree(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    # pre-existing `.klc/` that is ITSELF a git repo (has a `.git` directory)
+    klc = root / ".klc"
+    (klc / "tickets").mkdir(parents=True)
+    (klc / "tickets" / "t.txt").write_text("LOCAL", encoding="utf-8")
+    _git(["init", "-b", "nested"], klc)
+    _git(["config", "user.name", "n"], klc)
+    _git(["config", "user.email", "n@n"], klc)
+    _git(["add", "-A"], klc)
+    _git(["commit", "-m", "nested repo"], klc)
+    assert (klc / ".git").is_dir()  # nested repo before init
+
+    rc = _run_in(root, ["init"])
+    assert rc == 0
+
+    # `.klc/.git` must be the worktree pointer FILE, not the nested repo dir
+    assert (klc / ".git").is_file(), ".klc/.git must be the worktree pointer, not a nested repo"
+    # git inside `.klc/` resolves to THIS repo's klc-state worktree
+    assert _git(["rev-parse", "--abbrev-ref", "HEAD"], klc).stdout.strip() == "klc-state"
+    # local ticket content was still preserved
+    assert (klc / "tickets" / "t.txt").read_text(encoding="utf-8") == "LOCAL"
+
+
+# --- R4-3: a removed-but-unpruned worktree must re-materialize ----------------
+
+
+def test_state_init_rematerializes_after_worktree_dir_removed(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    assert _run_in(root, ["init"]) == 0
+    assert (root / ".klc").is_dir()
+
+    # remove the worktree directory on disk but leave it registered (unpruned)
+    shutil.rmtree(root / ".klc")
+    assert not (root / ".klc").exists()
+    # git still lists it (as a prunable/stale registration)
+    assert str((root / ".klc").resolve()) in _worktree_paths(root)
+
+    # init must RE-materialize, not report a false idempotent success
+    rc = _run_in(root, ["init"])
+    assert rc == 0
+    assert (root / ".klc").is_dir(), ".klc must be re-created on disk, not a no-op"
+    assert _git(["rev-parse", "--abbrev-ref", "HEAD"], root / ".klc").stdout.strip() == "klc-state"
+
+
+# --- r4-review #1: a LOCKED removed worktree must still re-materialize --------
+
+
+def test_state_init_rematerializes_after_locked_worktree_dir_removed(tmp_path):
+    """A locked worktree survives `git worktree prune`, so the stale-worktree
+    fallback must force-remove it (`-f -f`) — a single `--force` is refused for a
+    locked tree, leaving a false idempotent success while `.klc/` is gone."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    assert _run_in(root, ["init"]) == 0
+    assert (root / ".klc").is_dir()
+
+    # lock the worktree, then remove its directory on disk
+    _git(["worktree", "lock", str(root / ".klc")], root)
+    shutil.rmtree(root / ".klc")
+    assert not (root / ".klc").exists()
+    # prune cannot drop a locked worktree → it stays registered
+    assert str((root / ".klc").resolve()) in _worktree_paths(root)
+
+    rc = _run_in(root, ["init"])
+    assert rc == 0
+    assert (root / ".klc").is_dir(), "locked+removed worktree must be re-materialized"
+    assert _git(["rev-parse", "--abbrev-ref", "HEAD"], root / ".klc").stdout.strip() == "klc-state"
+
+
+# --- r4-review #2: a force-pushed/recreated remote tip must win (forced fetch) -
+
+
+def test_state_init_force_fetches_recreated_remote_tip(tmp_path):
+    """If `klc-state` was recreated with rewritten (non-fast-forward) history, a
+    non-forced fetch is rejected and the stale tracking ref would be checked out.
+    init must force-update the tracking ref so it materializes the NEW tip."""
+    build = tmp_path / "build"
+    build.mkdir()
+    _init_repo(build)
+    _git(["checkout", "--orphan", "klc-state"], build)
+    _git(["rm", "-rf", "--cached", "."], build, check=False)
+    (build / "a.txt").unlink()
+    (build / "tickets").mkdir()
+    (build / "tickets" / "o.txt").write_text("OLD", encoding="utf-8")
+    _git(["add", "-A"], build)
+    _git(["commit", "-m", "old klc-state"], build)
+    _git(["checkout", "main"], build)
+
+    origin = tmp_path / "origin.git"
+    _git(["clone", "--bare", str(build), str(origin)], tmp_path)
+
+    proj = tmp_path / "proj"
+    _git(["clone", str(origin), str(proj)], tmp_path)
+    _git(["config", "user.name", "t"], proj)
+    _git(["config", "user.email", "t@t"], proj)
+    # full clone seeded the (soon-to-be-stale) remote-tracking ref at OLD
+    old_ref = _git(["rev-parse", "refs/remotes/origin/klc-state"], proj).stdout.strip()
+
+    # recreate klc-state with rewritten (non-ff) history → NEW, then force-push
+    _git(["checkout", "klc-state"], build)
+    (build / "tickets" / "o.txt").write_text("NEW", encoding="utf-8")
+    _git(["add", "-A"], build)
+    _git(["commit", "--amend", "-m", "new klc-state"], build)
+    _git(["checkout", "main"], build)
+    _git(["push", "--force", str(origin), "klc-state"], build)
+    new_tip = _git(["ls-remote", str(origin), "klc-state"], proj).stdout.split()[0]
+    assert new_tip != old_ref, "test setup: remote tip must have been rewritten"
+
+    rc = _run_in(proj, ["init"])
+    assert rc == 0, "init should materialize the recreated remote tip"
+    assert (proj / ".klc" / "tickets" / "o.txt").read_text(encoding="utf-8") == "NEW", \
+        "must materialize the recreated remote tip, not the stale tracking ref"
+    head = _git(["rev-parse", "klc-state"], proj).stdout.strip()
+    assert head == new_tip, "local klc-state must point at the new remote tip"
+
+
+# --- r4-review2 #1: fetch the BRANCH klc-state, never a same-named tag --------
+
+
+def test_state_init_fetches_branch_not_same_named_tag(tmp_path):
+    """If the remote has BOTH a branch and a tag named klc-state, an unqualified
+    fetch source resolves the TAG (DWIM prefers refs/tags/). init must fetch the
+    verified BRANCH via a fully-qualified `refs/heads/klc-state` source."""
+    build = tmp_path / "build"
+    build.mkdir()
+    _init_repo(build)
+
+    # branch klc-state at commit A
+    _git(["checkout", "--orphan", "klc-state"], build)
+    _git(["rm", "-rf", "--cached", "."], build, check=False)
+    (build / "a.txt").unlink()
+    (build / "tickets").mkdir()
+    (build / "tickets" / "o.txt").write_text("BRANCH_A", encoding="utf-8")
+    _git(["add", "-A"], build)
+    _git(["commit", "-m", "branch A"], build)
+    _git(["checkout", "main"], build)
+
+    # tag klc-state at a DIFFERENT, disjoint commit B
+    _git(["checkout", "--orphan", "tagbase"], build)
+    _git(["rm", "-rf", "--cached", "."], build, check=False)
+    (build / "a.txt").unlink()
+    (build / "tickets").mkdir()
+    (build / "tickets" / "o.txt").write_text("TAG_B", encoding="utf-8")
+    _git(["add", "-A"], build)
+    _git(["commit", "-m", "tag B"], build)
+    tag_sha = _git(["rev-parse", "HEAD"], build).stdout.strip()
+    _git(["checkout", "main"], build)
+    _git(["branch", "-D", "tagbase"], build)
+    _git(["tag", "klc-state", tag_sha], build)
+
+    origin = tmp_path / "origin.git"
+    _git(["clone", "--bare", str(build), str(origin)], tmp_path)
+    # sanity: origin carries both a branch and a tag named klc-state
+    refs = _git(["for-each-ref"], origin).stdout
+    assert "refs/heads/klc-state" in refs and "refs/tags/klc-state" in refs
+
+    proj = tmp_path / "proj"
+    _git(["clone", str(origin), str(proj)], tmp_path)
+    _git(["config", "user.name", "t"], proj)
+    _git(["config", "user.email", "t@t"], proj)
+
+    rc = _run_in(proj, ["init"])
+    assert rc == 0
+    assert (proj / ".klc" / "tickets" / "o.txt").read_text(encoding="utf-8") == "BRANCH_A", \
+        "must materialize the BRANCH klc-state, not the same-named tag"
+
+
+# --- r4-review2 #2: a failed fetch in the present path restores the backup ----
+
+
+def _inject_fetch_failure(state):
+    """Make the `git fetch` in the present path exit non-zero."""
+    real = state._git
+
+    def fake(args, cwd, *, check=True):
+        if args and args[0] == "fetch":
+            return subprocess.CompletedProcess(
+                ["git", "fetch"], 1, stdout="", stderr="injected fetch failure"
+            )
+        return real(args, cwd, check=check)
+
+    state._git = fake
+
+
+def test_state_init_fetch_failure_restores_backup(tmp_path):
+    origin = _make_origin_with_state(tmp_path)  # origin klc-state with tickets/origin.txt
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+    _git(["fetch", "origin"], root)  # status becomes "present"
+
+    # local pre-existing ticket content that must survive a failed fetch
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "local.txt").write_text("PRECIOUS", encoding="utf-8")
+
+    rc = _run_in_patched(root, ["init"], _inject_fetch_failure)
+    assert rc == 1, "a failed fetch in the present path must report failure"
+
+    # backup restored in place, nothing stranded, no partial worktree
+    assert (root / ".klc" / "tickets" / "local.txt").read_text(encoding="utf-8") == "PRECIOUS"
+    assert not (root / ".klc.init-bak").exists(), "backup must not be left stranded"
+    assert str((root / ".klc").resolve()) not in _worktree_paths(root)
+
+
+# --- ws-fix #1: orphan bootstrap publishes klc-state so state_sync can drive it
+
+
+def test_state_init_orphan_bootstrap_pushes_and_sets_upstream(tmp_path):
+    """Bootstrapping state against a reachable remote must push klc-state and
+    set its upstream, so state_sync (054) — which requires @{upstream} — can
+    operate on a fresh project."""
+    origin = tmp_path / "origin.git"
+    _git(["init", "--bare", str(origin)], tmp_path)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+
+    rc = _run_in(root, ["init"])
+    assert rc == 0
+
+    # klc-state now exists on origin
+    assert _git(["ls-remote", str(origin), "klc-state"], root).stdout.strip(), \
+        "klc-state must be pushed to origin"
+    # and .klc's upstream resolves to origin/klc-state
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "klc-state@{upstream}"], root / ".klc", check=False
+    ).stdout.strip()
+    assert up == "origin/klc-state", f"upstream not set to origin/klc-state: {up!r}"
+
+
+def test_state_init_orphan_bootstrap_no_remote_ok(tmp_path):
+    """No remote configured → pure local bootstrap is valid: exit 0, no upstream,
+    no crash."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)  # no remote
+
+    rc = _run_in(root, ["init"])
+    assert rc == 0
+    assert (root / ".klc").is_dir()
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "klc-state@{upstream}"], root / ".klc", check=False
+    )
+    assert up.returncode != 0, "no remote → klc-state should have no upstream"
+
+
+def _inject_push_failure(state):
+    real = state._git
+
+    def fake(args, cwd, *, check=True):
+        if args and args[0] == "push":
+            return subprocess.CompletedProcess(
+                ["git", "push"], 1, stdout="", stderr="injected push failure"
+            )
+        return real(args, cwd, check=check)
+
+    state._git = fake
+
+
+def test_state_init_orphan_bootstrap_push_failure_warns_but_succeeds(tmp_path, capsys):
+    """Remote configured but push fails (offline/auth) → warn and still exit 0;
+    local init succeeded, don't strand the user."""
+    origin = tmp_path / "origin.git"
+    _git(["init", "--bare", str(origin)], tmp_path)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+
+    rc = _run_in_patched(root, ["init"], _inject_push_failure)
+    assert rc == 0, "local init must succeed even if the push fails"
+    assert (root / ".klc").is_dir()
+    err = capsys.readouterr().err
+    assert "not pushed" in err and "push -u" in err, f"missing/incomplete warning: {err!r}"
+
+
+# --- ws-fix #2: a sub-namespace fetch refspec must not break klc-state tracking
+
+
+def test_state_init_subnamespace_refspec_tracks_state(tmp_path):
+    """A custom fetch refspec that writes to refs/remotes/origin/* from only a
+    SUB-namespace (refs/heads/release/*) must not fool the 'covered' check:
+    klc-state is not actually fetched by it, so init must still bind tracking to
+    refs/heads/klc-state and a later `git pull` in .klc must work."""
+    origin = _make_origin_with_state(tmp_path)  # origin klc-state with tickets/origin.txt
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+    _git(["config", "--unset-all", "remote.origin.fetch"], root, check=False)
+    _git(["config", "--add", "remote.origin.fetch",
+          "+refs/heads/release/*:refs/remotes/origin/*"], root)
+
+    rc = _run_in(root, ["init"])
+    assert rc == 0
+
+    merge = _git(["config", "branch.klc-state.merge"], root / ".klc", check=False).stdout.strip()
+    assert merge == "refs/heads/klc-state", f"merge ref bound wrong: {merge!r}"
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "klc-state@{upstream}"], root / ".klc", check=False
+    ).stdout.strip()
+    assert up == "origin/klc-state", f"upstream wrong: {up!r}"
+    # a real pull in the worktree must succeed
+    pull = _git(["pull"], root / ".klc", check=False)
+    assert pull.returncode == 0, f"git pull in .klc failed: {pull.stderr!r}"
+
+
+# --- ws-fix2: orphan bootstrap must set a resolvable upstream on single-branch
+# ---          clones too (converge with the present path's tail) -------------
+
+
+def test_state_init_orphan_bootstrap_single_branch_clone_sets_upstream(tmp_path):
+    """Bootstrapping state (orphan path) in a SINGLE-BRANCH clone must still
+    leave a resolvable @{upstream}: push -u alone writes branch.*.merge but the
+    single-branch fetch refspec never materializes refs/remotes/<remote>/
+    klc-state, so state_sync (which hard-requires @{upstream}) would fail."""
+    origin = tmp_path / "origin.git"
+    _git(["init", "--bare", str(origin)], tmp_path)
+    # seed origin with a main branch so --single-branch --branch main works
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    _init_repo(seed)
+    _git(["push", str(origin), "main"], seed)
+
+    proj = tmp_path / "proj"
+    _git(["clone", "--single-branch", "--branch", "main", str(origin), str(proj)], tmp_path)
+    _git(["config", "user.name", "t"], proj)
+    _git(["config", "user.email", "t@t"], proj)
+    # sanity: this clone's fetch refspec covers only main
+    assert _git(["config", "--get-all", "remote.origin.fetch"], proj).stdout.strip() == \
+        "+refs/heads/main:refs/remotes/origin/main"
+
+    rc = _run_in(proj, ["init"])
+    assert rc == 0
+
+    # klc-state pushed to origin
+    assert _git(["ls-remote", str(origin), "klc-state"], proj).stdout.strip(), \
+        "klc-state must be pushed to origin"
+    # the remote-tracking ref is materialized AND @{upstream} resolves
+    assert _git(
+        ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/klc-state"], proj, check=False
+    ).returncode == 0, "refs/remotes/origin/klc-state must exist"
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "klc-state@{upstream}"], proj / ".klc", check=False
+    ).stdout.strip()
+    assert up == "origin/klc-state", f"upstream must resolve on single-branch clone, got {up!r}"
+
+
+# --- ws-fix3: orphan bootstrap must push a BRANCH even when a same-named tag --
+# ---          exists (unqualified push source is ambiguous) ------------------
+
+
+def test_state_init_orphan_bootstrap_with_same_named_tag_pushes_branch(tmp_path):
+    """If a tag `klc-state` also exists, an unqualified `git push -u origin
+    klc-state` is rejected ('src refspec ... matches more than one'), leaving no
+    remote branch and no upstream even though the remote was reachable. The push
+    must be branch-qualified so it publishes refs/heads/klc-state and @{upstream}
+    resolves."""
+    origin = tmp_path / "origin.git"
+    _git(["init", "--bare", str(origin)], tmp_path)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+    # a TAG named klc-state exists (no branch yet) → unqualified push is ambiguous
+    _git(["tag", "klc-state", "HEAD"], root)
+
+    rc = _run_in(root, ["init"])
+    assert rc == 0
+
+    # a real BRANCH refs/heads/klc-state was pushed to origin (not rejected)
+    heads = _git(["ls-remote", "--heads", str(origin), "klc-state"], root).stdout.strip()
+    assert heads, "orphan bootstrap must push a refs/heads/klc-state branch to origin"
+    # and @{upstream} resolves so state_sync can operate
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "klc-state@{upstream}"], root / ".klc", check=False
+    ).stdout.strip()
+    assert up == "origin/klc-state", f"upstream must resolve, got {up!r}"
 
 
 if __name__ == "__main__":

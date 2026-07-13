@@ -168,6 +168,57 @@ def _has_remote_tracking_ref(repo: Path, remote: str) -> bool:
     return r.returncode == 0
 
 
+def _ensure_remote_tracks_state(repo: Path, remote: str) -> None:
+    """Ensure `remote.<remote>.fetch` maps klc-state into a remote-tracking ref.
+
+    A single-branch clone's fetch refspec covers only its one branch, so git
+    refuses to set up tracking against `<remote>/klc-state` ("not a branch")
+    even once the ref exists. Adding the branch to the remote's fetch config
+    makes `<remote>/klc-state` a first-class remote-tracking branch so
+    `worktree add --track` works. Idempotent: a no-op when already covered
+    (e.g. the default `+refs/heads/*:refs/remotes/<remote>/*` wildcard)."""
+    fetch_cfg = _git(
+        ["config", "--get-all", f"remote.{remote}.fetch"], repo, check=False
+    ).stdout
+    src_full = "refs/heads/*"
+    src_exact = f"refs/heads/{STATE_BRANCH}"
+    dst_full = f"refs/remotes/{remote}/*"
+    dst_exact = f"refs/remotes/{remote}/{STATE_BRANCH}"
+    covered = False
+    for line in fetch_cfg.splitlines():
+        spec = line.strip()
+        if not spec:
+            continue
+        if spec.startswith("+"):
+            spec = spec[1:]
+        src, _, dst = spec.partition(":")
+        # Only genuinely covered when the SOURCE side actually includes
+        # refs/heads/klc-state (the full heads namespace or the exact branch)
+        # AND the destination lands at refs/remotes/<remote>/klc-state. A
+        # sub-namespace source like `refs/heads/release/*` writing to
+        # `refs/remotes/<remote>/*` does NOT fetch klc-state, so it must not
+        # count as covered.
+        if src in (src_full, src_exact) and dst in (dst_full, dst_exact):
+            covered = True
+            break
+    if not covered:
+        _git(["remote", "set-branches", "--add", remote, STATE_BRANCH], repo, check=False)
+
+
+def _set_state_upstream(repo: Path, remote: str) -> None:
+    """Bind klc-state's upstream explicitly to `<remote>/klc-state`.
+
+    `worktree add --track` derives `branch.klc-state.merge` by reverse-mapping
+    the remote-tracking ref through the fetch refspecs and picks the first match
+    — so a pre-existing sub-namespace wildcard (e.g.
+    `+refs/heads/release/*:refs/remotes/<remote>/*`) can bind it to the wrong
+    ref (`refs/heads/release/klc-state`), breaking `git pull` in `.klc/`. Set
+    the config directly so the upstream is always correct."""
+    _git(["config", f"branch.{STATE_BRANCH}.remote", remote], repo, check=False)
+    _git(["config", f"branch.{STATE_BRANCH}.merge", f"refs/heads/{STATE_BRANCH}"],
+         repo, check=False)
+
+
 def _local_has_state(repo: Path) -> bool:
     """True if a local klc-state branch ref already exists."""
     r = _git(["show-ref", "--verify", "--quiet", f"refs/heads/{STATE_BRANCH}"], repo, check=False)
@@ -186,24 +237,55 @@ def _add_worktree(repo: Path, klc: Path, remote: str) -> None:
     has_tracking = _has_remote_tracking_ref(repo, remote)
 
     if status == "present":
-        # Remote confirmed the branch; refresh and track it.
-        _git(["fetch", remote, STATE_BRANCH], repo, check=False)
+        # Remote confirmed the branch; refresh and track it. Make the remote
+        # track klc-state, then fetch with an explicit refspec so
+        # refs/remotes/<remote>/klc-state is updated to the freshly-fetched tip.
+        # A bare `git fetch <remote> klc-state` only writes FETCH_HEAD, so in a
+        # single-branch clone (whose configured refspec covers only its one
+        # branch) the remote-tracking ref would be missing or stale — making the
+        # following `worktree add` fail or bind to an old commit while reporting
+        # success.
+        _ensure_remote_tracks_state(repo, remote)
+        # Force (`+`) so the tracking ref is overwritten to the current tip: if
+        # klc-state was force-pushed / deleted+recreated (history rewritten), a
+        # non-forced update is rejected as non-fast-forward and we'd otherwise
+        # bind the worktree to the STALE ref. Check the result too — never
+        # initialize from a possibly-stale ref after a failed fetch. The source
+        # is fully qualified as `refs/heads/klc-state`: an unqualified source
+        # would DWIM to a same-named *tag* (refs/tags/ is preferred), letting a
+        # tag hijack the tracking ref that `_remote_state_status` verified as a
+        # branch.
+        fetched = _git(
+            ["fetch", remote,
+             f"+refs/heads/{STATE_BRANCH}:refs/remotes/{remote}/{STATE_BRANCH}"],
+            repo, check=False,
+        )
+        if fetched.returncode != 0:
+            raise StateInitError(
+                f"failed to fetch {STATE_BRANCH} from {remote!r} "
+                f"(git fetch exited {fetched.returncode}): "
+                f"{fetched.stderr.strip() or '<no output>'}. Refusing to "
+                f"initialize from a possibly-stale {remote}/{STATE_BRANCH}."
+            )
         _git(
             ["worktree", "add", "--track", "-b", STATE_BRANCH,
              str(klc), f"{remote}/{STATE_BRANCH}"],
             repo,
         )
+        _set_state_upstream(repo, remote)
         return
 
     if has_tracking:
         # We couldn't confirm via ls-remote (or it's momentarily gone), but a
         # local remote-tracking ref exists — track it rather than fork a new
         # orphan onto a disjoint branch.
+        _ensure_remote_tracks_state(repo, remote)
         _git(
             ["worktree", "add", "--track", "-b", STATE_BRANCH,
              str(klc), f"{remote}/{STATE_BRANCH}"],
             repo,
         )
+        _set_state_upstream(repo, remote)
         return
 
     if status == "unreachable":
@@ -237,6 +319,41 @@ def _add_worktree(repo: Path, klc: Path, remote: str) -> None:
          "commit", "--allow-empty", "-m", "klc-state: initialize orphan root"],
         klc,
     )
+    # Publish the freshly-created branch so state_sync (054) — which requires
+    # @{upstream} — can drive it. Only if a remote is configured; pure local /
+    # single-user use is valid with no upstream.
+    if _remote_is_configured(repo, remote):
+        # Branch-qualify BOTH sides of the push refspec: a bare `klc-state`
+        # source is rejected ("src refspec klc-state matches more than one")
+        # when a same-named tag exists, which would otherwise leave no remote
+        # branch and no upstream on a reachable remote.
+        push_refspec = f"refs/heads/{STATE_BRANCH}:refs/heads/{STATE_BRANCH}"
+        pushed = _git(["push", "-u", remote, push_refspec], klc, check=False)
+        if pushed.returncode != 0:
+            # Local init succeeded; don't strand the user on a push failure
+            # (offline / auth / permission). Warn and continue (exit 0).
+            detail = pushed.stderr.strip() or "push failed"
+            sys.stderr.write(
+                f"klc state: warning: {STATE_BRANCH} created locally but not "
+                f"pushed to {remote!r} ({detail}); run "
+                f"`git -C {STATE_DIR} push -u {remote} {push_refspec}` when online "
+                f"to enable multi-user sync.\n"
+            )
+        else:
+            # Converge with the `present` path's tail: `push -u` writes
+            # branch.*.{remote,merge}, but on a single-branch (or custom-refspec)
+            # clone the fetch refspec still covers only the cloned branch, so
+            # refs/remotes/<remote>/klc-state is never materialized and
+            # `@{upstream}` fails ("not stored as a remote-tracking branch").
+            # Add the fetch refspec, materialize the tracking ref, and bind the
+            # upstream explicitly so state_sync can operate everywhere.
+            _ensure_remote_tracks_state(repo, remote)
+            _git(
+                ["fetch", remote,
+                 f"+refs/heads/{STATE_BRANCH}:refs/remotes/{remote}/{STATE_BRANCH}"],
+                repo, check=False,
+            )
+            _set_state_upstream(repo, remote)
 
 
 def _teardown_partial(repo: Path, klc: Path, *, stashed: bool) -> None:
@@ -262,15 +379,22 @@ def _restore_backup(backup, klc: Path) -> None:
         backup.rename(klc)
 
 
-def _merge_tree(src: Path, dst: Path) -> None:
+def _merge_tree(src: Path, dst: Path, *, skip: frozenset = frozenset()) -> None:
     """Recursively copy `src` into `dst`, local (src) content winning.
 
     Preserves symlinks as symlinks (never dereferences, tolerates dangling
     links) and resolves dir-vs-file type clashes in favor of the local tree so
     the merge can never abort after the worktree already exists.
+
+    `skip` names entries to ignore *at this level only* (not recursively) — used
+    to skip a top-level `.git` in preserved content, which is either the old
+    nested repo's metadata or a checkout's gitdir pointer and must never
+    overwrite the `.git` file that `git worktree add` created for `.klc/`.
     """
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.iterdir():
+        if item.name in skip:
+            continue
         target = dst / item.name
         # Local (src) content always wins. A symlink at the destination must be
         # removed outright, never followed: `is_dir()`/`exists()` dereference a
@@ -298,10 +422,15 @@ def _merge_tree(src: Path, dst: Path) -> None:
 
 
 def _merge_back(backup, klc: Path) -> None:
-    """Copy preserved content back into the worktree (local files win)."""
+    """Copy preserved content back into the worktree (local files win).
+
+    The top-level `.git` in the preserved content is skipped so it can never
+    clobber the worktree's `.git` pointer (which would make git inside `.klc/`
+    talk to the old nested repo instead of this repo's klc-state worktree).
+    """
     if backup is None:
         return
-    _merge_tree(backup, klc)
+    _merge_tree(backup, klc, skip=frozenset({".git"}))
     shutil.rmtree(backup)
 
 
@@ -321,11 +450,27 @@ def run(argv: list[str]) -> int:
     klc = repo / STATE_DIR
     backup_dir = repo / _BACKUP_DIR
 
+    # Drop stale worktree registrations whose directory no longer exists, so a
+    # removed-but-unpruned `.klc/` cannot masquerade as an initialized worktree
+    # and yield a false idempotent success (it stays in `worktree list` until
+    # pruned).
+    _git(["worktree", "prune"], repo, check=False)
+
     # Idempotency is gated on a *fully completed* prior init: a registered
     # worktree checked out on klc-state AND no leftover backup. A worktree on a
     # different branch, or a stranded `.klc.init-bak`, means the prior init did
     # not complete correctly, so we must not report success.
     klc_branch = _klc_worktree_branch(repo)
+    if klc_branch is not None and not klc.exists():
+        # Still registered but the directory is gone. The only worktree that
+        # survives the earlier `prune` is a *locked* one, and git refuses to
+        # remove a locked worktree with a single `--force` — it requires a
+        # double force (`-f -f`). Use it so the stale registration is actually
+        # dropped and we fall through to re-materialize rather than report a
+        # false success.
+        _git(["worktree", "remove", "--force", "--force", str(klc)], repo, check=False)
+        _git(["worktree", "prune"], repo, check=False)
+        klc_branch = _klc_worktree_branch(repo)
     if klc_branch is not None:
         if klc_branch != STATE_BRANCH:
             where = f"branch {klc_branch!r}" if klc_branch else "a detached HEAD"
