@@ -72,6 +72,7 @@ def test_happy_push_commits_touched_paths(tmp_path, monkeypatch):
                         pushes.append((list(paths), msg, ticket, Path(klc_dir))))
 
     rel = "tickets/KLC-T1/meta.json"
+    (kd / "tickets" / "KLC-T1").mkdir(parents=True)
     with state_tx.state_tx("KLC-T1", [rel], "intake KLC-T1") as tx:
         assert tx is not None, "feature-on must yield a truthy handle"
         (kd / rel).write_text('{"holder": {"id": "alice"}}', encoding="utf-8")
