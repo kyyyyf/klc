@@ -2,7 +2,7 @@
   "ticket": "KLC-060",
   "kind": "feature",
   "kind_source": "discovery",
-  "phase": "build:work",
+  "phase": "integrate:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -91,7 +91,70 @@
       "phase": "build:work",
       "started_at": "2026-06-27T09:50:40Z",
       "event": "advance",
-      "note": "ack:option-A-minimal"
+      "note": "ack:option-A-minimal",
+      "finished_at": "2026-07-13T07:42:26Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-07-13T07:42:26Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T07:42:36Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-07-13T07:42:36Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-13T07:42:36Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-07-13T07:42:36Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-13T09:29:47Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-07-13T09:29:47Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T09:30:09Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-07-13T09:30:09Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-13T09:30:09Z"
+    },
+    {
+      "phase": "manual:work",
+      "started_at": "2026-07-13T09:30:09Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-13T09:32:58Z"
+    },
+    {
+      "phase": "manual:ack-needed",
+      "started_at": "2026-07-13T09:32:58Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T09:33:21Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-07-13T09:33:21Z",
+      "event": "ack",
+      "note": "pick=1:passed",
+      "finished_at": "2026-07-13T09:33:21Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-07-13T09:33:21Z",
+      "event": "advance",
+      "note": "ack:passed"
     }
   ],
   "track": "M",
@@ -109,7 +172,9 @@
   },
   "layer": "code",
   "affected_modules": [
-    "core/phases"
+    "core/phases",
+    "core/skills",
+    "tests"
   ],
   "related_tickets": [
     "KLC-056"
