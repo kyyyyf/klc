@@ -137,5 +137,29 @@ def release_holder(ticket: str, identity: dict) -> bool:
     return True
 
 
+def heartbeat_holder(ticket: str) -> dict:
+    """Refresh the active holder's liveness timestamp (KLC-058).
+
+    Sets `holder.heartbeat_at` to the current UTC timestamp and leaves every
+    other field (id, machine, since, ...) untouched. Returns the updated
+    holder dict.
+
+    Raises ValueError when there is no holder to heartbeat (absent or null).
+    A malformed holder record still fails closed via _existing_holder.
+    """
+    meta = lifecycle.read_meta(ticket)
+    existing = _existing_holder(meta)
+    if existing is None:
+        raise ValueError(
+            f"ticket {ticket!r} has no holder to heartbeat; "
+            f"acquire the holder first"
+        )
+    # Mutate in place: id/machine/since and any sibling fields are preserved.
+    existing["heartbeat_at"] = _now()
+    meta["holder"] = existing
+    lifecycle.write_meta(ticket, meta)
+    return existing
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit("holder.py is a library module; import it, don't run it")
