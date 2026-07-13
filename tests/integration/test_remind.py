@@ -264,3 +264,44 @@ def test_hook_forwards_child_stdout_on_success(tmp_path):
     assert result.returncode == 0
     assert result.stdout == "KLC-777 integrate is done — run klc ack\n"
     assert result.stderr == ""
+
+
+# --- review-fix2: operate relative to PROJECT_ROOT, not cwd (P2a, P2b) -------
+
+
+def _git_init(path: Path, email: str) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", email], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
+
+
+def test_remind_uses_project_root_not_cwd(tmp_path):
+    """P2a/P2b: hook runs from an arbitrary cwd with PROJECT_ROOT set.
+
+    Identity and the completion check must target the PROJECT repo, not the
+    caller's cwd. The project's local git identity differs from the cwd's, and
+    the held ticket is recorded with the project identity → reminder must fire.
+    """
+    project = tmp_path / "project"
+    other = tmp_path / "elsewhere"
+    _git_init(project, "project@example.com")
+    _git_init(other, "caller@example.com")
+
+    _fabricate_ticket(project, "KLC-950", phase="integrate:work",
+                      holder_id="project@example.com")
+
+    env = {**os.environ, "PROJECT_ROOT": str(project)}
+    # Ensure no ambient identity masks the bug.
+    env.pop("GIT_AUTHOR_EMAIL", None)
+    env.pop("GIT_COMMITTER_EMAIL", None)
+
+    result = subprocess.run(
+        [sys.executable, str(KLC), "remind"],
+        capture_output=True, text=True, env=env, cwd=str(other),
+    )
+
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    assert result.stdout == "KLC-950 integrate is done — run klc ack\n", (
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )

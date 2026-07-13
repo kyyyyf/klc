@@ -33,7 +33,7 @@ if str(SKILLS) not in sys.path:
 
 import phase_completion as _pc  # noqa: E402
 import lifecycle as _lc  # noqa: E402
-from _paths import klc_tickets_dir  # noqa: E402
+from _paths import klc_tickets_dir, project_root  # noqa: E402
 
 
 def _git_user() -> str:
@@ -58,8 +58,33 @@ def _git_user() -> str:
 
 
 def run(argv: list[str]) -> int:
-    """Emit reminders for completable-held tickets. Always returns 0."""
+    """Emit reminders for completable-held tickets. Always returns 0.
+
+    The hook/statusline invokes this from an arbitrary cwd with PROJECT_ROOT
+    set, so we chdir into the resolved project root for the duration of the
+    scan (restored in `finally`). This ensures BOTH the git-identity read
+    (`_git_user`) and the git-log-based completion checks (`can_complete`)
+    target the project repo, not the caller's cwd — otherwise a held ticket
+    recorded with the project's local identity would be silently missed.
+    """
     # --statusline accepted; output is identical (AC-5), so it is a no-op.
+    prev_cwd = os.getcwd()
+    try:
+        os.chdir(project_root())
+    except Exception:
+        # Cannot enter the project root → degrade to silence (advisory only).
+        return 0
+    try:
+        return _scan()
+    finally:
+        try:
+            os.chdir(prev_cwd)
+        except Exception:
+            pass
+
+
+def _scan() -> int:
+    """Scan tickets from the (already-chdir'd) project root. Returns 0."""
     identity = _git_user()
 
     tickets_dir = klc_tickets_dir()
