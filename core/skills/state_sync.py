@@ -64,6 +64,12 @@ class ConfigError(Exception):
     """Required remote/upstream configuration is missing."""
 
 
+class StashConflictError(Exception):
+    """Restoring stashed uncommitted local artifacts after the pull conflicted
+    with the incoming remote state — surfaced so the caller aborts WITHOUT data
+    loss (the stash is left intact and recoverable)."""
+
+
 class NothingToCommitError(RuntimeError):
     """The supplied paths existed but had no staged changes to commit.
 
@@ -128,23 +134,68 @@ _DERIVED_IGNORES = (
     ".index.json",                    # per-ticket derived inline-items index
     "_prompt.md",                     # derived phase prompt card
     "_prompt_step_*.md",              # derived build step cards
+    "scratch/",                       # per-session local agent memory
 )
 
 
-def ensure_clean(klc_dir: Path) -> None:
-    """Force the TRACKED worktree back to a pristine ``HEAD`` before a pull.
+def _has_tracked_changes(klc_dir: Path) -> bool:
+    """True if the worktree has uncommitted changes to TRACKED files.
 
-    Every successful feature-on op commits+pushes, so the tree is clean between
-    ops; any dirty *tracked* state on enter is a never-pushed crash/leftover
-    artifact and the remote (restored by the subsequent pull) is the source of
-    truth.  Unstage everything, then discard working-tree modifications to
-    tracked files.  Untracked / git-ignored files (e.g. the derived index cache
-    and prompt cards) are intentionally preserved — they neither block a rebase
-    nor ride a commit.  Never raises: a non-repo / detached dir is a silent
-    no-op (the caller's pull will surface any real problem).
+    Untracked and git-ignored files are excluded: untracked new artifacts don't
+    block a rebase and are captured by the glob-commit; ignored/derived files
+    are never our concern.  Only tracked modifications/staged/deletions need to
+    be stashed around the pull.
     """
-    _git(["reset", "-q"], klc_dir)             # index → HEAD (unstage all)
-    _git(["checkout", "-q", "--", "."], klc_dir)  # worktree tracked → HEAD
+    r = _git(["status", "--porcelain", "--untracked-files=no"], klc_dir)
+    return bool(r.stdout.strip())
+
+
+def pull_rebase_preserving(klc_dir: Path) -> None:
+    """``git pull --rebase`` that PRESERVES uncommitted tracked artifacts.
+
+    In-progress TRACKED ticket artifacts (an agent's ``design.md`` /
+    ``build-log.md`` edit, a ``meta.json`` flag, …) are uncommitted until the
+    next verb's subtree glob-commit; they must NEVER be discarded.  A plain
+    ``git pull --rebase`` refuses a dirty tree, so tracked changes are stashed
+    around the rebase and then restored — the body then mutates and the
+    glob-commit captures artifacts + mutation into one push.  Untracked new
+    files are left in place (they don't block the rebase); ignored/derived files
+    are never touched.
+
+    On a restore (stash-pop) conflict — rare, since a ticket is single-writer —
+    the stash is left intact and :class:`StashConflictError` is raised so the
+    caller can abort WITHOUT losing the user's work.
+    """
+    stashed = _has_tracked_changes(klc_dir)
+    if stashed:
+        sp = _git(["stash", "push", "-q", "-m", "klc-state_tx autostash"], klc_dir)
+        if sp.returncode != 0:
+            raise RuntimeError(
+                f"could not preserve local changes in {klc_dir} before pull: "
+                f"{sp.stderr.strip() or sp.stdout.strip()}"
+            )
+    try:
+        pull_rebase(klc_dir)
+    except Exception:
+        # The pull failed (rebase conflict / network / …). Restore the stashed
+        # work so nothing is lost, then surface the original error.
+        if stashed:
+            _git(["stash", "pop"], klc_dir)
+        raise
+    if stashed:
+        pop = _git(["stash", "pop"], klc_dir)
+        if pop.returncode != 0:
+            # Incoming remote state conflicts with our uncommitted local edits.
+            # A conflicted pop keeps the stash entry (never dropped on failure);
+            # discard only the half-applied working-tree/index state so the tree
+            # is clean (no wedge) while the user's work stays fully recoverable
+            # in the stash, then surface a clear, non-destructive error.
+            _git(["reset", "--hard", "-q"], klc_dir)
+            raise StashConflictError(
+                f"local uncommitted changes in {klc_dir} conflict with the "
+                f"incoming remote state; resolve manually — your work is saved "
+                f"(see `git -C {klc_dir} stash list`)."
+            )
 
 
 def ensure_derived_ignored(klc_dir: Path) -> None:

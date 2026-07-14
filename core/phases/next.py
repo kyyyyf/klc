@@ -118,6 +118,12 @@ def run(argv: list[str]) -> int:
                     f"re-run `klc next {args.ticket}`.\n"
                 )
                 return 1
+            except state_sync.StashConflictError:
+                sys.stderr.write(
+                    "klc next: local changes conflict with the remote — resolve "
+                    "manually; your work is saved in the git stash.\n"
+                )
+                return 1
             except holder.HolderConflictError as e:
                 hid = e.holder.get("id") if e.holder else "?"
                 if advanced.get("new_state") == _ph.STATE_ARCHIVED:

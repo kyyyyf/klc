@@ -296,6 +296,15 @@ def run(argv: list[str]) -> int:
                     # dirties the tracked tree post-push (which would wedge the
                     # next op's pull). Never raises (best-effort by contract).
                     _jira_intake_enrich(args.ticket, args.jira_description)
+            except state_sync.StashConflictError:
+                # Pull-time restore of pre-existing local edits conflicted with
+                # the remote. Nothing was written for this intake; the user's
+                # work is preserved in the stash. Do NOT rmtree.
+                sys.stderr.write(
+                    f"klc intake: local changes conflict with the remote — "
+                    f"resolve manually; your work is saved in the git stash.\n"
+                )
+                return 1
             except _KeyTakenError:
                 # HIGH-B: the peer's tracked ticket was pulled into our worktree —
                 # leave it intact (do NOT rmtree) and do not push.

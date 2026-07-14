@@ -26,6 +26,7 @@ import gate_policy as _gp  # noqa: E402
 import identity  # noqa: E402
 import holder  # noqa: E402
 import state_sync  # noqa: E402
+import state_feature  # noqa: E402
 import state_tx  # noqa: E402
 
 class _StaleStateError(Exception):
@@ -114,6 +115,13 @@ def run(argv: list[str]) -> int:
                         sys.stderr.write(
                             "klc ack: remote state advanced since you started — "
                             f"re-run `klc ack {args.ticket}`.\n"
+                        )
+                        return 1
+                    except state_sync.StashConflictError:
+                        sys.stderr.write(
+                            "klc ack: local changes conflict with the remote — "
+                            "resolve manually; your work is saved in the git "
+                            "stash.\n"
                         )
                         return 1
                     except state_sync.StateConflictError:
@@ -259,6 +267,12 @@ def run(argv: list[str]) -> int:
                     f"re-run `klc ack {args.ticket}`.\n"
                 )
                 return 1
+            except state_sync.StashConflictError:
+                sys.stderr.write(
+                    "klc ack: local changes conflict with the remote — resolve "
+                    "manually; your work is saved in the git stash.\n"
+                )
+                return 1
             except holder.HolderConflictError as e:
                 # LOW-1: a release against a DIFFERENT holder is reported as such,
                 # not masked by the generic sync-failure message below.
@@ -332,7 +346,16 @@ def run(argv: list[str]) -> int:
 
 
 def _write_scope_conflict(ticket: str, phase_id: str, delta: dict) -> None:
-    """Append a [!CONFLICT] entry to the review report when scope expands."""
+    """Append a [!CONFLICT] entry to the review report when scope expands.
+
+    Feature-ON this is a no-op: the scope-expansion check is a pre-decision ABORT
+    (no state_tx runs, nothing is pushed), so persisting a tracked annotation
+    out-of-band would be a dead write — self-heal/stash strips it and it never
+    reaches the shared state. The stderr message the caller emits already informs
+    the user. Feature-OFF (single-user) keeps the on-disk annotation as before.
+    """
+    if state_feature.enabled():
+        return
     from _paths import klc_ticket_dir
     report_name = "review-report.md" if phase_id == "review" else f"{phase_id}.md"
     report = klc_ticket_dir(ticket) / report_name

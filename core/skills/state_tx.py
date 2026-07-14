@@ -6,11 +6,11 @@ exactly once. It is the ONLY component that touches git when the multi-user
 feature is ON, and it is designed so no individual mutation site needs to know
 it is inside a transaction:
 
-1. **Self-heal on enter.** Before pulling, force the tracked worktree back to a
-   pristine ``HEAD`` (``state_sync.ensure_clean``). Every successful op
-   commits+pushes, so any dirty tracked state on enter is a never-pushed
-   crash/leftover artifact; the remote (restored by the pull) is truth. This
-   makes the envelope robust to ANY stray write and kills the deadlock class.
+1. **Preserve-and-pull on enter.** Before pulling, uncommitted TRACKED artifacts
+   (in-progress work products an agent wrote under the ticket) are stashed around
+   the rebase and restored (``state_sync.pull_rebase_preserving``) — never
+   discarded. They are then captured by the exit glob-commit, so a normal op
+   never loses phase work. Only truly derived/ignored files are excluded.
 2. **Glob-commit the ticket subtree on exit.** Instead of a hand-listed set of
    paths, everything under ``tickets/<ticket>/`` is committed and CAS-pushed, so
    any file the body writes there is captured automatically — no forgotten site.
@@ -83,12 +83,12 @@ def state_tx(ticket, msg):
     kdir = klc_dir()
     subtree = f"tickets/{ticket}/"
 
-    # 1. Self-heal the tracked tree to clean HEAD, and make sure the derived
-    #    caches are git-ignored, BEFORE pulling (both never raise).
-    state_sync.ensure_clean(kdir)
+    # 1. Make sure the derived/runtime-local caches are git-ignored so they never
+    #    dirty the tree, block the pull, or ride the glob-commit.
     state_sync.ensure_derived_ignored(kdir)
-    # 2. Pull the latest remote state onto the now-clean tree.
-    state_sync.pull_rebase(kdir)
+    # 2. Pull the latest remote state, PRESERVING any uncommitted tracked
+    #    artifacts (in-progress work) across the rebase — never discard them.
+    state_sync.pull_rebase_preserving(kdir)
     # 3. Snapshot the ticket subtree so any body mutation can be rolled back.
     snap = _snapshot_subtree(ticket, kdir)
     try:
