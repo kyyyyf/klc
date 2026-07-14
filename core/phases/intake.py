@@ -53,6 +53,11 @@ class _IdentityError(Exception):
     sync failure (LOW-3)."""
 
 
+class _ForcePeerNewerError(Exception):
+    """Raised inside the tx when a --force overwrite target was changed on the
+    shared state by a peer since the local copy (P2) — refuse to clobber."""
+
+
 def _load_key_pattern() -> re.Pattern:
     r"""Read the regex from .klc/config/ticket-id.yml.
 
@@ -239,13 +244,21 @@ def run(argv: list[str]) -> int:
     # StateConflictError. The first phase records the current holder in the SAME
     # push (AC-3). Feature-off (single-user), state_tx is a pure no-op and the
     # holder write is skipped, so behaviour is byte-for-byte identical (AC-8a).
-    meta_rel = f"tickets/{args.ticket}/meta.json"
-    raw_rel = f"tickets/{args.ticket}/raw.md"
+    # P2: for a --force overwrite of an existing LOCAL ticket, remember its exact
+    # bytes so that, if the pull reveals the shared state has since moved (a peer
+    # took or advanced the key), we refuse rather than clobber their work.
+    force_prev_meta = None
+    if existing and args.force:
+        try:
+            force_prev_meta = klc_ticket_meta_file(args.ticket).read_bytes()
+        except OSError:
+            pass
+
     try:
         with acquire_lock(args.ticket):
             try:
                 with state_tx.state_tx(
-                    args.ticket, [meta_rel, raw_rel], f"intake {args.ticket}"
+                    args.ticket, f"intake {args.ticket}"
                 ) as tx:
                     # HIGH-B: state_tx has now pulled. A peer may have committed
                     # this key since our pre-tx check — writing would fast-forward
@@ -255,6 +268,16 @@ def run(argv: list[str]) -> int:
                     # OWN pre-existing local ticket.)
                     if not existing and klc_ticket_meta_file(args.ticket).exists():
                         raise _KeyTakenError()
+                    # P2: --force may only overwrite if the pulled state is still
+                    # the exact local record it intended to replace; if the pull
+                    # changed it, a peer moved the shared state → refuse.
+                    if existing and args.force and force_prev_meta is not None:
+                        cur_bytes = (
+                            klc_ticket_meta_file(args.ticket).read_bytes()
+                            if klc_ticket_meta_file(args.ticket).exists() else None
+                        )
+                        if cur_bytes != force_prev_meta:
+                            raise _ForcePeerNewerError()
                     tdir.mkdir(parents=True, exist_ok=True)
                     klc_ticket_raw_file(args.ticket).write_text(
                         raw_body, encoding="utf-8")
@@ -268,12 +291,27 @@ def run(argv: list[str]) -> int:
                         except ValueError as ie:
                             # LOW-3: a bad identity is NOT a sync failure.
                             raise _IdentityError(str(ie))
+                    # step-6: fold the jira raw.md enrichment INTO the tx body so
+                    # its merge is captured by the ticket-subtree push and never
+                    # dirties the tracked tree post-push (which would wedge the
+                    # next op's pull). Never raises (best-effort by contract).
+                    _jira_intake_enrich(args.ticket, args.jira_description)
             except _KeyTakenError:
                 # HIGH-B: the peer's tracked ticket was pulled into our worktree —
                 # leave it intact (do NOT rmtree) and do not push.
                 sys.stderr.write(
                     f"klc intake: key {args.ticket} already taken "
                     f"(exists on the shared state); nothing was written.\n"
+                )
+                return 1
+            except _ForcePeerNewerError:
+                # P2: the pulled state differs from the local record --force meant
+                # to replace — a peer took/advanced the key. Their tracked files
+                # are now in our worktree; leave them intact and refuse.
+                sys.stderr.write(
+                    f"klc intake: {args.ticket} was updated by another user since "
+                    f"your local copy — refusing --force overwrite. Run "
+                    f"`klc status {args.ticket}` and retry if still needed.\n"
                 )
                 return 1
             except _IdentityError as e:
@@ -336,7 +374,8 @@ def run(argv: list[str]) -> int:
         sys.stderr.write(f"klc intake: {e}\n")
         return 1
 
-    _jira_intake_enrich(args.ticket, args.jira_description)
+    # jira raw.md enrichment already ran INSIDE the tx (step-6) so its merge rode
+    # the ticket-subtree push; only the read-only stale-module warning is left.
     _warn_stale_modules()
     return 0
 

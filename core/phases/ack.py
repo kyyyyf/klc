@@ -94,13 +94,40 @@ def run(argv: list[str]) -> int:
                     if advisory:
                         note = f"{note}; {advisory}"
                     new_state = _ph.STATE_ACK_NEEDED
-                    _lc.set_state(
-                        args.ticket,
-                        pid,
-                        new_state,
-                        event="manual-completion",
-                        note=note
-                    )
+                    # KLC-057: the WORK→ack-needed advance is a state mutation, so
+                    # it must ride its own state_tx (self-heal → pull → set_state
+                    # → push) — never a pre-tx write that would dirty the tree and
+                    # deadlock the recursion's pull. Feature-off, this is a no-op
+                    # wrapper and set_state behaves exactly as before (AC-8).
+                    try:
+                        with state_tx.state_tx(
+                            args.ticket,
+                            f"ack {args.ticket} manual-completion"
+                        ) as tx:
+                            if tx is not None and _lc.current_state(args.ticket) != cur:
+                                raise _StaleStateError()
+                            _lc.set_state(
+                                args.ticket, pid, new_state,
+                                event="manual-completion", note=note,
+                            )
+                    except _StaleStateError:
+                        sys.stderr.write(
+                            "klc ack: remote state advanced since you started — "
+                            f"re-run `klc ack {args.ticket}`.\n"
+                        )
+                        return 1
+                    except state_sync.StateConflictError:
+                        sys.stderr.write(
+                            "klc ack: concurrent update — another writer moved "
+                            "this ticket; retry.\n"
+                        )
+                        return 1
+                    except (state_sync.RetryExhaustedError,
+                            state_sync.RebaseConflictError,
+                            state_sync.ConfigError,
+                            RuntimeError):
+                        sys.stderr.write("klc ack: state sync failed — retry.\n")
+                        return 1
                     sys.stderr.write(f"→ {pid}:{new_state} (manual completion)\n")
                     # Recurse: now in ack-needed, apply normal ack logic
                     return run(argv)
@@ -208,11 +235,10 @@ def run(argv: list[str]) -> int:
             # cleared holder (AC-4/AC-5). Feature-off, state_tx is a no-op: the
             # body still runs apply_ack (AC-8 byte-identical) but writes no holder
             # and touches no git (AC-8b).
-            meta_rel = f"tickets/{args.ticket}/meta.json"
             acked: dict = {}
             try:
                 with state_tx.state_tx(
-                    args.ticket, [meta_rel], f"ack {args.ticket}"
+                    args.ticket, f"ack {args.ticket}"
                 ) as tx:
                     # P1b (TOCTOU): the phase/pick/gate checks above ran against
                     # `cur`, read BEFORE state_tx pulled. If the pull advanced the

@@ -29,6 +29,11 @@ import state_sync  # noqa: E402
 import state_tx  # noqa: E402
 
 
+class _StaleStateError(Exception):
+    """Raised inside the tx when the pull advanced the remote phase past the one
+    validated pre-tx — refuse to advance from stale state."""
+
+
 def _friendly_missing_ticket(ticket: str) -> int:
     sys.stderr.write(
         f"klc: unknown ticket {ticket!r}; run `klc intake {ticket}` "
@@ -88,12 +93,16 @@ def run(argv: list[str]) -> int:
             # MED-1: archiving also runs the tx (so the archived phase + released
             # holder reach the remote), it just SKIPS acquire (no phase to hold).
             # Feature-off, state_tx is a no-op and no holder is written (AC-8b).
-            meta_rel = f"tickets/{args.ticket}/meta.json"
             advanced: dict = {}
             try:
                 with state_tx.state_tx(
-                    args.ticket, [meta_rel], f"next {args.ticket}"
+                    args.ticket, f"next {args.ticket}"
                 ) as tx:
+                    # Uniform post-pull revalidation (mirrors ack): if the pull
+                    # advanced the remote phase past the `:ack` we validated
+                    # pre-tx, refuse rather than advance from stale state.
+                    if tx is not None and _lc.current_state(args.ticket) != cur:
+                        raise _StaleStateError()
                     new_state = _lc.advance_to_next(args.ticket, note="klc next")
                     advanced["new_state"] = new_state
                     if tx is not None:
@@ -103,6 +112,12 @@ def run(argv: list[str]) -> int:
                             holder.release_holder(args.ticket, ident)
                         else:
                             holder.acquire_holder(args.ticket, ident)
+            except _StaleStateError:
+                sys.stderr.write(
+                    "klc next: remote state advanced since you started — "
+                    f"re-run `klc next {args.ticket}`.\n"
+                )
+                return 1
             except holder.HolderConflictError as e:
                 hid = e.holder.get("id") if e.holder else "?"
                 if advanced.get("new_state") == _ph.STATE_ARCHIVED:
