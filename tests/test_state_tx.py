@@ -33,11 +33,9 @@ def _klc(tmp_path: Path) -> Path:
 def _stub_sync(monkeypatch, *, push=None):
     """Stub every git-touching state_sync entry point and record calls."""
     calls: list[str] = []
-    monkeypatch.setattr(state_sync, "ensure_clean",
-                        lambda *a, **k: calls.append("clean"))
     monkeypatch.setattr(state_sync, "ensure_derived_ignored",
                         lambda *a, **k: calls.append("ignore"))
-    monkeypatch.setattr(state_sync, "pull_rebase",
+    monkeypatch.setattr(state_sync, "pull_rebase_preserving",
                         lambda *a, **k: calls.append("pull"))
     if push is None:
         push = lambda *a, **k: calls.append("push")  # noqa: E731
@@ -93,8 +91,8 @@ def test_happy_path_self_heals_pulls_and_pushes_subtree(tmp_path, monkeypatch):
         (kd / "tickets" / "KLC-T1" / "meta.json").write_text(
             '{"holder": {"id": "alice"}}', encoding="utf-8")
 
-    assert calls[:3] == ["clean", "ignore", "pull"], \
-        f"enter order must be self-heal → ignore → pull, got {calls}"
+    assert calls[:2] == ["ignore", "pull"], \
+        f"enter order must be ignore → preserving-pull, got {calls}"
     assert len(pushes) == 1, "subtree push must run once on clean exit"
     ticket, msg, klc_arg = pushes[0]
     assert ticket == "KLC-T1" and msg == "intake KLC-T1" and klc_arg == kd

@@ -133,9 +133,10 @@ def _alice(monkeypatch):
 # step-1: self-heal + subtree commit
 # --------------------------------------------------------------------------- #
 
-def test_self_heal_recovers_a_pre_dirtied_tracked_tree(tmp_path, monkeypatch):
-    """A stray, never-pushed tracked modification present on enter must be
-    self-healed away so the op still succeeds (no pull deadlock)."""
+def test_pre_dirtied_tracked_tree_does_not_wedge_and_is_preserved(tmp_path, monkeypatch):
+    """A pre-dirtied tracked file present on enter must NOT block the op (the
+    preserving stash-around-pull lets the rebase run) AND must be preserved —
+    never discarded (that was the P1 data-loss bug)."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     klc = _init_repo(tmp_path, {
         "KLC-3001": _meta("KLC-3001", phase="build:ack-needed", track="S",
@@ -144,16 +145,15 @@ def test_self_heal_recovers_a_pre_dirtied_tracked_tree(tmp_path, monkeypatch):
     })
     assert state_feature.enabled() is True
 
-    # Dirty an UNRELATED tracked file (crash/leftover artifact).
+    # An unrelated tracked file with an uncommitted (unpushed) edit.
     (klc / ".seed").write_text("DIRTY-UNPUSHED\n", encoding="utf-8")
 
     import ack as ack_mod
     rc = ack_mod.run(["KLC-3001", "--pick", "1"])
-    assert rc == 0, "self-heal must let the op proceed past a dirty tree"
+    assert rc == 0, "a dirty tree must not wedge the op"
     assert _remote_meta(klc, "KLC-3001")["phase"] != "build:ack-needed"
-    assert _status(klc) == "", "tree must be clean after a healed op"
-    assert (klc / ".seed").read_text(encoding="utf-8") == "seed\n", \
-        "the stray unpushed edit must be discarded (remote is truth)"
+    assert (klc / ".seed").read_text(encoding="utf-8") == "DIRTY-UNPUSHED\n", \
+        "the uncommitted edit must be PRESERVED, never discarded"
 
 
 def test_supersede_moves_are_captured_by_the_subtree_commit(tmp_path, monkeypatch):
@@ -408,6 +408,127 @@ def test_soak_ten_mixed_ops_never_wedge_the_tree(tmp_path, monkeypatch):
         rc = op()
         assert rc == 0, f"soak op #{i} failed (rc={rc})"
         assert _status(klc) == "", f"tree wedged after soak op #{i}: {_status(klc)!r}"
+
+
+# --------------------------------------------------------------------------- #
+# harden2 — P1: preserve (never discard) uncommitted tracked artifacts
+# --------------------------------------------------------------------------- #
+
+def test_uncommitted_tracked_artifact_is_preserved_and_pushed(tmp_path, monkeypatch):
+    """P1 (data-loss): an in-progress TRACKED artifact edit that is uncommitted
+    on enter must be PRESERVED across the pull and PUSHED by the subtree commit —
+    never silently reverted to HEAD by a destructive self-heal."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-4001": _meta("KLC-4001", phase="build:ack-needed", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    # An artefact committed in a prior phase, then EDITED (uncommitted) during
+    # this phase — the classic in-progress work product.
+    _commit_file(klc, "tickets/KLC-4001/design.md", "v1 committed\n")
+    (klc / "tickets" / "KLC-4001" / "design.md").write_text(
+        "v2 in-progress EDIT\n", encoding="utf-8")
+    assert state_feature.enabled() is True
+
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-4001", "--pick", "1"])
+    assert rc == 0, "ack must succeed"
+
+    _git(klc, "fetch", "origin")
+    pushed = _git(klc, "show", "origin/klc-state:tickets/KLC-4001/design.md")
+    assert pushed == "v2 in-progress EDIT\n", \
+        "the uncommitted artifact edit must be preserved AND pushed, not reverted"
+    assert _remote_meta(klc, "KLC-4001")["phase"] != "build:ack-needed", \
+        "the advance must ride the same push"
+    assert _status(klc) == ""
+
+
+def test_other_ticket_dirty_edit_is_not_destroyed(tmp_path, monkeypatch):
+    """P1: an op on one ticket must NOT destroy another ticket's uncommitted
+    tracked edits (the old blanket `git checkout -- .` wiped everything)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-4002": _meta("KLC-4002", phase="build:ack-needed", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+        "KLC-4003": _meta("KLC-4003", phase="design:work", track="M"),
+    })
+    _commit_file(klc, "tickets/KLC-4003/notes.md", "committed notes\n")
+    # KLC-4003 has an uncommitted in-progress edit while we operate on KLC-4002.
+    (klc / "tickets" / "KLC-4003" / "notes.md").write_text(
+        "UNSAVED work on the other ticket\n", encoding="utf-8")
+    assert state_feature.enabled() is True
+
+    import ack as ack_mod
+    assert ack_mod.run(["KLC-4002", "--pick", "1"]) == 0
+
+    assert (klc / "tickets" / "KLC-4003" / "notes.md").read_text(encoding="utf-8") \
+        == "UNSAVED work on the other ticket\n", \
+        "another ticket's uncommitted edit must survive this ticket's op"
+    # It is (correctly) NOT pushed by KLC-4002's ticket-scoped commit.
+    assert not _remote_has(klc, "tickets/KLC-4003/notes.md") or \
+        _git(klc, "show", "origin/klc-state:tickets/KLC-4003/notes.md") \
+        == "committed notes\n", "the other ticket's edit must not ride this push"
+
+
+# --------------------------------------------------------------------------- #
+# harden2 — MEDIUM: scope-conflict annotation is stderr-only when feature ON
+# --------------------------------------------------------------------------- #
+
+def test_scope_conflict_feature_on_is_stderr_only(tmp_path, monkeypatch, capsys):
+    """MEDIUM: feature-ON, a scope-expansion abort must NOT write the persistent
+    [!CONFLICT] note into the tracked review-report.md (a pre-decision abort has
+    no tx to push it and it would dirty the tree). The stderr message still
+    reaches the user; the tree stays clean."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-4004": _meta("KLC-4004", phase="review:ack-needed", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    _commit_file(klc, "tickets/KLC-4004/review-report.md", "# review\nok\n")
+    assert state_feature.enabled() is True
+
+    import ack as ack_mod
+    monkeypatch.setattr(ack_mod._sd, "compare", lambda ticket: {
+        "expansion": ["mod-x"], "planned": ["mod-a"],
+        "actual": ["mod-a", "mod-x"], "unknown_files": [], "drift": [],
+        "skipped": "",
+    })
+    rc = ack_mod.run(["KLC-4004", "--pick", "1"])
+    assert rc != 0, "scope expansion must abort the ack"
+    err = capsys.readouterr().err.lower()
+    assert "scope expansion" in err, f"stderr message missing: {err!r}"
+    assert "[!conflict]" not in \
+        (klc / "tickets" / "KLC-4004" / "review-report.md").read_text(encoding="utf-8").lower(), \
+        "feature-on must NOT persist the conflict note into the tracked report"
+    assert _status(klc) == "", "the aborted scope check must leave a clean tree"
+
+
+# --------------------------------------------------------------------------- #
+# harden2 — LOW: scratch/ is never swept into the shared push
+# --------------------------------------------------------------------------- #
+
+def test_scratch_dir_is_not_pushed(tmp_path, monkeypatch):
+    """LOW: per-session local agent memory under tickets/<KEY>/scratch/ must be
+    git-ignored so the subtree glob-commit never sweeps it into shared state."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-4005": _meta("KLC-4005", phase="build:ack-needed", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    scratch = klc / "tickets" / "KLC-4005" / "scratch"
+    scratch.mkdir(parents=True)
+    (scratch / "note.md").write_text("local agent memory\n", encoding="utf-8")
+    assert state_feature.enabled() is True
+
+    import ack as ack_mod
+    assert ack_mod.run(["KLC-4005", "--pick", "1"]) == 0
+    assert not _remote_has(klc, "tickets/KLC-4005/scratch/note.md"), \
+        "scratch/ must never be pushed to the shared state"
+    assert _status(klc) == "", "scratch/ must be ignored (clean tree)"
 
 
 if __name__ == "__main__":

@@ -37,9 +37,8 @@ def _feature_on(monkeypatch, *, push=None):
     commit_and_push_cas_subtree; default is a no-op accept. The self-heal /
     ignore / pull entry points are stubbed to no-ops (no real git here)."""
     monkeypatch.setattr(state_feature, "enabled", lambda: True)
-    monkeypatch.setattr(state_sync, "ensure_clean", lambda *a, **k: None)
     monkeypatch.setattr(state_sync, "ensure_derived_ignored", lambda *a, **k: None)
-    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: None)
+    monkeypatch.setattr(state_sync, "pull_rebase_preserving", lambda *a, **k: None)
     if push is None:
         push = lambda *a, **k: None  # noqa: E731
     monkeypatch.setattr(state_sync, "commit_and_push_cas_subtree", push)
@@ -103,7 +102,8 @@ def test_intake_happy_path_cas_push_succeeds(tmp_path, monkeypatch, capsys):
 
     pulls, pushes = [], []
     _feature_on(monkeypatch)
-    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: pulls.append(1))
+    monkeypatch.setattr(state_sync, "pull_rebase_preserving",
+                        lambda *a, **k: pulls.append(1))
     monkeypatch.setattr(state_sync, "commit_and_push_cas_subtree",
                         lambda *a, **k: pushes.append(1))
 
@@ -489,7 +489,7 @@ def test_ack_aborts_on_stale_phase_after_pull(tmp_path, monkeypatch, capsys):
 
     pushes = []
     _feature_on(monkeypatch, push=lambda *a, **k: pushes.append(1))
-    monkeypatch.setattr(state_sync, "pull_rebase", _advance_remote)
+    monkeypatch.setattr(state_sync, "pull_rebase_preserving", _advance_remote)
 
     import ack as ack_mod
     rc = ack_mod.run(["KLC-611", "--pick", "1"])
