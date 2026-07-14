@@ -16,7 +16,7 @@ from pathlib import Path
 
 SKILLS = Path(__file__).resolve().parent.parent / "skills"
 sys.path.insert(0, str(SKILLS))
-from _paths import klc_ticket_meta_file  # noqa: E402
+from _paths import klc_ticket_meta_file, klc_dir  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
@@ -243,6 +243,11 @@ def run(argv: list[str]) -> int:
             # cleared holder (AC-4/AC-5). Feature-off, state_tx is a no-op: the
             # body still runs apply_ack (AC-8 byte-identical) but writes no holder
             # and touches no git (AC-8b).
+            # P1 (stale validation): capture this ticket's committed tree hash
+            # BEFORE state_tx pulls. The scope / gate-policy / pick checks above
+            # ran against the pre-pull artifacts; if the pull brings ANY committed
+            # change to this ticket (even same-phase), that validation is stale.
+            ticket_hash_pre = state_sync.ticket_tree_hash(klc_dir(), args.ticket)
             acked: dict = {}
             try:
                 with state_tx.state_tx(
@@ -255,6 +260,13 @@ def run(argv: list[str]) -> int:
                     # pick is out of scope — detecting divergence and refusing is
                     # correct and bounded.
                     if _lc.current_state(args.ticket) != cur:
+                        raise _StaleStateError()
+                    # P1: broaden the guard beyond phase — abort if the pull
+                    # changed this ticket's committed state at all (a same-phase
+                    # artifact/gate-input change would otherwise slip through and
+                    # be acted on with stale scope/gate/pick validation).
+                    if tx is not None and \
+                            state_sync.ticket_tree_hash(klc_dir(), args.ticket) != ticket_hash_pre:
                         raise _StaleStateError()
                     acked["new_state"] = _lc.apply_ack(args.ticket, pick_id)
                     if tx is not None:

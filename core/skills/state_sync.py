@@ -198,6 +198,19 @@ def pull_rebase_preserving(klc_dir: Path) -> None:
             )
 
 
+def ticket_tree_hash(klc_dir: Path, ticket: str) -> str | None:
+    """The committed tree-object hash of ``tickets/<ticket>/`` at ``HEAD``.
+
+    Returns ``None`` if the subtree is absent from ``HEAD`` (or this is not a
+    git worktree). Comparing the value captured BEFORE ``pull_rebase_preserving``
+    with the value AFTER it tells a verb whether the pull brought ANY committed
+    change to this ticket — so a pre-pull scope/gate/pick validation is never
+    applied to pulled-changed state. Never raises.
+    """
+    r = _git(["rev-parse", "-q", "--verify", f"HEAD:tickets/{ticket}"], klc_dir)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
 def ensure_derived_ignored(klc_dir: Path) -> None:
     """Ensure the derived local caches are git-ignored in this worktree.
 

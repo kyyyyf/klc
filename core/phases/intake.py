@@ -254,6 +254,12 @@ def run(argv: list[str]) -> int:
         except OSError:
             pass
 
+    # P2: only a ticket NEWLY created by THIS intake may be rmtree'd on failure.
+    # For a --force over an EXISTING ticket, a terminal failure leaves state_tx's
+    # RESTORED original subtree in place — deleting it would lose the user's
+    # pre-existing local state. (`existing` is only True via --force here.)
+    created_new = not existing
+
     try:
         with acquire_lock(args.ticket):
             try:
@@ -324,14 +330,16 @@ def run(argv: list[str]) -> int:
                 )
                 return 1
             except _IdentityError as e:
-                shutil.rmtree(tdir, ignore_errors=True)
+                if created_new:
+                    shutil.rmtree(tdir, ignore_errors=True)
                 sys.stderr.write(
                     f"klc intake: cannot determine your identity ({e}); "
                     f"set your git user.email, then retry. Nothing was written.\n"
                 )
                 return 1
             except state_sync.StateConflictError:
-                shutil.rmtree(tdir, ignore_errors=True)
+                if created_new:
+                    shutil.rmtree(tdir, ignore_errors=True)
                 sys.stderr.write(
                     f"klc intake: key {args.ticket} already taken "
                     f"(created by another user); nothing was written.\n"
@@ -344,9 +352,11 @@ def run(argv: list[str]) -> int:
                 # Terminal, non-CAS sync failure (RRC set above, plus a plain
                 # RuntimeError/ValueError/NothingToCommitError from pull/push).
                 # Keep the shared state consistent by leaving no local-only
-                # ticket, and surface a clean message (AC-7) — never a raw
-                # traceback dumping git internals to the user.
-                shutil.rmtree(tdir, ignore_errors=True)
+                # ticket (only if THIS intake created it — P2: never delete a
+                # --force-over-existing ticket state_tx already restored), and
+                # surface a clean message (AC-7) — never a raw traceback.
+                if created_new:
+                    shutil.rmtree(tdir, ignore_errors=True)
                 sys.stderr.write(
                     f"klc intake: state sync failed for {args.ticket}; "
                     f"nothing was written — retry.\n"
