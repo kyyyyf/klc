@@ -34,12 +34,17 @@ ALICE = "alice@example.com"
 
 def _feature_on(monkeypatch, *, push=None):
     """Force the feature ON with state_sync stubbed. `push` (if given) replaces
-    commit_and_push_cas; default is a no-op accept."""
+    commit_and_push_cas_subtree; default is a no-op accept. The self-heal /
+    ignore / pull entry points are stubbed to no-ops (no real git here)."""
     monkeypatch.setattr(state_feature, "enabled", lambda: True)
+    monkeypatch.setattr(state_sync, "ensure_clean", lambda *a, **k: None)
+    monkeypatch.setattr(state_sync, "ensure_derived_ignored", lambda *a, **k: None)
     monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: None)
     if push is None:
         push = lambda *a, **k: None  # noqa: E731
-    monkeypatch.setattr(state_sync, "commit_and_push_cas", push)
+    monkeypatch.setattr(state_sync, "commit_and_push_cas_subtree", push)
+    # Rollback's index reset must be a harmless no-op on the fake repo.
+    monkeypatch.setattr(state_sync, "_git", lambda *a, **k: None)
     monkeypatch.setattr(identity, "current", lambda: ALICE)
 
 
@@ -97,11 +102,10 @@ def test_intake_happy_path_cas_push_succeeds(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
 
     pulls, pushes = [], []
-    monkeypatch.setattr(state_feature, "enabled", lambda: True)
+    _feature_on(monkeypatch)
     monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: pulls.append(1))
-    monkeypatch.setattr(state_sync, "commit_and_push_cas",
+    monkeypatch.setattr(state_sync, "commit_and_push_cas_subtree",
                         lambda *a, **k: pushes.append(1))
-    monkeypatch.setattr(identity, "current", lambda: ALICE)
 
     import intake as intake_mod
     rc = intake_mod.run(["KLC-501", "a free key"])
@@ -109,7 +113,7 @@ def test_intake_happy_path_cas_push_succeeds(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "INTAKE_OK KLC-501" in out
     assert pulls == [1], "pull_rebase must run once on enter"
-    assert pushes == [1], "commit_and_push_cas must run once on clean exit"
+    assert pushes == [1], "the subtree CAS push must run once on clean exit"
 
 
 def test_intake_acquires_holder_in_same_cas_push(tmp_path, monkeypatch):
@@ -120,10 +124,9 @@ def test_intake_acquires_holder_in_same_cas_push(tmp_path, monkeypatch):
 
     seen = {}
 
-    def _capture_push(paths, msg, ticket, *a, **k):
+    def _capture_push(ticket, msg, klc_dir, *a, **k):
         # Read meta.json bytes AT push time to prove holder rode this push.
         mp = _meta_path(tmp_path, ticket)
-        seen["paths"] = list(paths)
         seen["meta_at_push"] = json.loads(mp.read_text(encoding="utf-8"))
 
     _feature_on(monkeypatch, push=_capture_push)
@@ -136,7 +139,6 @@ def test_intake_acquires_holder_in_same_cas_push(tmp_path, monkeypatch):
     assert meta["holder"]["id"] == ALICE, "holder must be recorded on the first phase"
     assert meta["holder"]["machine"], "holder must carry a non-empty machine"
 
-    assert "tickets/KLC-502/meta.json" in seen["paths"]
     assert seen["meta_at_push"]["holder"]["id"] == ALICE, \
         "holder field must be present in the meta pushed by the CAS push"
 
@@ -192,7 +194,7 @@ def test_ack_releases_holder_on_forward_transition(tmp_path, monkeypatch):
 
     seen = {}
 
-    def _capture_push(paths, msg, ticket, *a, **k):
+    def _capture_push(ticket, msg, klc_dir, *a, **k):
         seen["meta_at_push"] = json.loads(
             _meta_path(tmp_path, ticket).read_text(encoding="utf-8"))
     _feature_on(monkeypatch, push=_capture_push)
@@ -263,7 +265,7 @@ def test_next_archive_syncs_and_releases_holder(tmp_path, monkeypatch):
 
     seen = {}
 
-    def _capture_push(paths, msg, ticket, *a, **k):
+    def _capture_push(ticket, msg, klc_dir, *a, **k):
         seen["meta_at_push"] = json.loads(
             _meta_path(tmp_path, ticket).read_text(encoding="utf-8"))
     _feature_on(monkeypatch, push=_capture_push)
@@ -485,12 +487,9 @@ def test_ack_aborts_on_stale_phase_after_pull(tmp_path, monkeypatch, capsys):
         m["phase"] = "review:ack-needed"
         mp.write_text(json.dumps(m), encoding="utf-8")
 
-    monkeypatch.setattr(state_feature, "enabled", lambda: True)
-    monkeypatch.setattr(state_sync, "pull_rebase", _advance_remote)
     pushes = []
-    monkeypatch.setattr(state_sync, "commit_and_push_cas",
-                        lambda *a, **k: pushes.append(1))
-    monkeypatch.setattr(identity, "current", lambda: ALICE)
+    _feature_on(monkeypatch, push=lambda *a, **k: pushes.append(1))
+    monkeypatch.setattr(state_sync, "pull_rebase", _advance_remote)
 
     import ack as ack_mod
     rc = ack_mod.run(["KLC-611", "--pick", "1"])
@@ -543,9 +542,7 @@ def test_intake_bad_identity_message_distinct(tmp_path, monkeypatch, capsys):
     as 'state sync failed' — and must leave no half-created ticket."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
-    monkeypatch.setattr(state_feature, "enabled", lambda: True)
-    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: None)
-    monkeypatch.setattr(state_sync, "commit_and_push_cas", lambda *a, **k: None)
+    _feature_on(monkeypatch)
     monkeypatch.setattr(identity, "current", lambda: "")
 
     import intake as intake_mod

@@ -1,11 +1,13 @@
-"""KLC-057 step-2/step-3: state_tx — the shared pull/push transaction envelope.
+"""KLC-057 — state_tx: the self-contained, self-healing sync envelope.
 
-step-2 pins the AC-8 no-op: feature OFF → pure pass-through (no pull, no push,
-no holder writes). step-3 adds the feature-ON envelope: pull on enter, CAS push
-on clean exit, and a single rollback of the touched paths on a same-ticket
-StateConflictError.
+Feature OFF → pure pass-through (no git at all). Feature ON → self-heal on enter,
+pull, snapshot the ticket subtree, run the body, glob-commit the subtree +
+CAS-push on clean exit, and roll the subtree back (tree AND index) on any
+terminal failure.
 
-All tests run against local git repos / stubbed state_sync (no network, AC-10).
+These are unit tests with a fake ``.klc`` and stubbed ``state_sync`` (no network,
+AC-10); the real git behaviour is exercised by the real-bare-repo integration
+tests (tests/integration/test_klc057_*.py).
 """
 from __future__ import annotations
 
@@ -22,23 +24,39 @@ import state_sync  # noqa: E402
 import state_tx  # noqa: E402
 
 
+def _klc(tmp_path: Path) -> Path:
+    kd = tmp_path / ".klc"
+    (kd / "tickets").mkdir(parents=True, exist_ok=True)
+    return kd
+
+
+def _stub_sync(monkeypatch, *, push=None):
+    """Stub every git-touching state_sync entry point and record calls."""
+    calls: list[str] = []
+    monkeypatch.setattr(state_sync, "ensure_clean",
+                        lambda *a, **k: calls.append("clean"))
+    monkeypatch.setattr(state_sync, "ensure_derived_ignored",
+                        lambda *a, **k: calls.append("ignore"))
+    monkeypatch.setattr(state_sync, "pull_rebase",
+                        lambda *a, **k: calls.append("pull"))
+    if push is None:
+        push = lambda *a, **k: calls.append("push")  # noqa: E731
+    monkeypatch.setattr(state_sync, "commit_and_push_cas_subtree", push)
+    # Keep the rollback's index reset a harmless no-op on the fake repo.
+    monkeypatch.setattr(state_sync, "_git", lambda *a, **k: None)
+    return calls
+
+
 # ---------------------------------------------------------------------------
-# step-2: no-op path when feature off
+# feature OFF: pure pass-through, no git
 # ---------------------------------------------------------------------------
 
 def test_noop_when_feature_off(monkeypatch):
-    """Feature OFF → the body runs but neither pull_rebase nor
-    commit_and_push_cas is ever called, and the handle is None."""
     monkeypatch.setattr(state_feature, "enabled", lambda: False)
-
-    calls = []
-    monkeypatch.setattr(state_sync, "pull_rebase",
-                        lambda *a, **k: calls.append("pull"))
-    monkeypatch.setattr(state_sync, "commit_and_push_cas",
-                        lambda *a, **k: calls.append("push"))
+    calls = _stub_sync(monkeypatch)
 
     ran = []
-    with state_tx.state_tx("KLC-T1", ["tickets/KLC-T1/meta.json"], "msg") as tx:
+    with state_tx.state_tx("KLC-T1", "msg") as tx:
         ran.append(True)
         assert tx is None
 
@@ -47,115 +65,92 @@ def test_noop_when_feature_off(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# step-3: feature-on envelope — pull on enter, CAS push on exit, rollback
+# feature ON: self-heal → pull → body → subtree commit
 # ---------------------------------------------------------------------------
 
-def _klc(tmp_path: Path) -> Path:
-    kd = tmp_path / ".klc"
-    (kd / "tickets").mkdir(parents=True, exist_ok=True)
-    return kd
+def test_signature_is_ticket_msg_only():
+    import inspect
+    params = list(inspect.signature(state_tx.state_tx).parameters)
+    assert params == ["ticket", "msg"], f"unexpected signature: {params}"
 
 
-def test_happy_push_commits_touched_paths(tmp_path, monkeypatch):
-    """Feature ON, clean exit → pull_rebase on enter and commit_and_push_cas
-    with exactly the touched paths + msg + ticket + klc_dir; the handle is
-    truthy and the file the body wrote survives (no rollback)."""
+def test_happy_path_self_heals_pulls_and_pushes_subtree(tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     kd = _klc(tmp_path)
     monkeypatch.setattr(state_feature, "enabled", lambda: True)
 
-    pulls = []
-    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: pulls.append(a))
     pushes = []
-    monkeypatch.setattr(state_sync, "commit_and_push_cas",
-                        lambda paths, msg, ticket, klc_dir, **k:
-                        pushes.append((list(paths), msg, ticket, Path(klc_dir))))
+    calls = _stub_sync(
+        monkeypatch,
+        push=lambda ticket, msg, klc_dir, **k:
+        pushes.append((ticket, msg, Path(klc_dir))),
+    )
 
-    rel = "tickets/KLC-T1/meta.json"
     (kd / "tickets" / "KLC-T1").mkdir(parents=True)
-    with state_tx.state_tx("KLC-T1", [rel], "intake KLC-T1") as tx:
+    with state_tx.state_tx("KLC-T1", "intake KLC-T1") as tx:
         assert tx is not None, "feature-on must yield a truthy handle"
-        (kd / rel).write_text('{"holder": {"id": "alice"}}', encoding="utf-8")
+        # A file the body writes under the subtree — no explicit path list.
+        (kd / "tickets" / "KLC-T1" / "meta.json").write_text(
+            '{"holder": {"id": "alice"}}', encoding="utf-8")
 
-    assert len(pulls) == 1, "pull_rebase must run exactly once on enter"
-    assert len(pushes) == 1, "commit_and_push_cas must run once on clean exit"
-    paths, msg, ticket, klc_arg = pushes[0]
-    assert paths == [rel] and msg == "intake KLC-T1" and ticket == "KLC-T1"
-    assert klc_arg == kd
-    assert (kd / rel).exists(), "written file must survive a clean push"
+    assert calls[:3] == ["clean", "ignore", "pull"], \
+        f"enter order must be self-heal → ignore → pull, got {calls}"
+    assert len(pushes) == 1, "subtree push must run once on clean exit"
+    ticket, msg, klc_arg = pushes[0]
+    assert ticket == "KLC-T1" and msg == "intake KLC-T1" and klc_arg == kd
+    assert (kd / "tickets" / "KLC-T1" / "meta.json").exists(), \
+        "written file must survive a clean push"
 
 
-def test_cas_conflict_rolls_back_local_state(tmp_path, monkeypatch):
-    """Feature ON, commit_and_push_cas raises StateConflictError → a file the
-    body CREATED is removed and a file it MODIFIED is restored to prior bytes,
-    then StateConflictError propagates."""
+def test_cas_conflict_rolls_back_whole_subtree(tmp_path, monkeypatch):
+    """A file the body CREATED (even one no caller listed) is removed and a
+    MODIFIED file is restored, on a StateConflictError from the push."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     kd = _klc(tmp_path)
     monkeypatch.setattr(state_feature, "enabled", lambda: True)
-    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: None)
 
     def _boom(*a, **k):
         raise state_sync.StateConflictError("same-ticket race")
-    monkeypatch.setattr(state_sync, "commit_and_push_cas", _boom)
+    _stub_sync(monkeypatch, push=_boom)
 
     td = kd / "tickets" / "KLC-T2"
     td.mkdir(parents=True)
-    existing = td / "raw.md"
-    existing.write_text("ORIGINAL", encoding="utf-8")
-    created_rel = "tickets/KLC-T2/meta.json"
-    modified_rel = "tickets/KLC-T2/raw.md"
+    (td / "raw.md").write_text("ORIGINAL", encoding="utf-8")
 
     with pytest.raises(state_sync.StateConflictError):
-        with state_tx.state_tx("KLC-T2", [created_rel, modified_rel], "intake KLC-T2"):
-            (kd / created_rel).write_text("NEW", encoding="utf-8")
-            (kd / modified_rel).write_text("CHANGED", encoding="utf-8")
+        with state_tx.state_tx("KLC-T2", "intake KLC-T2"):
+            (td / "meta.json").write_text("NEW", encoding="utf-8")   # created
+            (td / "raw.md").write_text("CHANGED", encoding="utf-8")   # modified
+            # An UNLISTED nested file the body creates must also roll back.
+            (td / "_superseded").mkdir()
+            (td / "_superseded" / "x.md").write_text("MOVED", encoding="utf-8")
 
-    assert not (kd / created_rel).exists(), "created file must be rolled back (deleted)"
-    assert existing.read_text(encoding="utf-8") == "ORIGINAL", \
+    assert not (td / "meta.json").exists(), "created file must be rolled back"
+    assert not (td / "_superseded" / "x.md").exists(), \
+        "an unlisted nested created file must also roll back"
+    assert (td / "raw.md").read_text(encoding="utf-8") == "ORIGINAL", \
         "modified file must be restored to prior bytes"
 
 
-# ---------------------------------------------------------------------------
-# LOW-3: the dead ``remote`` param is removed from the public signature
-# ---------------------------------------------------------------------------
-
-def test_state_tx_signature_has_no_remote_param():
-    """LOW-3: ``remote`` was never forwarded to state_sync, so it must not
-    linger in the public signature as a misleading dead knob."""
-    import inspect
-    params = inspect.signature(state_tx.state_tx).parameters
-    assert "remote" not in params, \
-        "state_tx must not expose a dead `remote` parameter"
-    assert list(params) == ["ticket", "paths", "msg"], \
-        f"unexpected state_tx signature: {list(params)}"
-
-
-def test_body_mutation_rolls_back_on_any_terminal_error(tmp_path, monkeypatch):
-    """HIGH-1/HIGH-2: a file the body created/modified is rolled back not only on
-    StateConflictError but on ANY terminal error from the push (e.g. a plain
-    RuntimeError) — the envelope guarantees local == post-pull baseline on
-    failure, never a half-applied divergence."""
+def test_rolls_back_on_any_terminal_error(tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     kd = _klc(tmp_path)
     monkeypatch.setattr(state_feature, "enabled", lambda: True)
-    monkeypatch.setattr(state_sync, "pull_rebase", lambda *a, **k: None)
 
     def _boom(*a, **k):
         raise RuntimeError("network is down")
-    monkeypatch.setattr(state_sync, "commit_and_push_cas", _boom)
+    _stub_sync(monkeypatch, push=_boom)
 
     td = kd / "tickets" / "KLC-T3"
     td.mkdir(parents=True)
     (td / "meta.json").write_text("ORIGINAL", encoding="utf-8")
-    created_rel = "tickets/KLC-T3/raw.md"
-    modified_rel = "tickets/KLC-T3/meta.json"
 
     with pytest.raises(RuntimeError):
-        with state_tx.state_tx("KLC-T3", [created_rel, modified_rel], "msg"):
-            (kd / created_rel).write_text("NEW", encoding="utf-8")
-            (kd / modified_rel).write_text("CHANGED", encoding="utf-8")
+        with state_tx.state_tx("KLC-T3", "msg"):
+            (td / "raw.md").write_text("NEW", encoding="utf-8")
+            (td / "meta.json").write_text("CHANGED", encoding="utf-8")
 
-    assert not (kd / created_rel).exists(), "created file must be rolled back"
+    assert not (td / "raw.md").exists(), "created file must be rolled back"
     assert (td / "meta.json").read_text(encoding="utf-8") == "ORIGINAL", \
         "modified file must be restored on a non-CAS terminal error too"
 
