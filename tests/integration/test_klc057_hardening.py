@@ -531,5 +531,76 @@ def test_scratch_dir_is_not_pushed(tmp_path, monkeypatch):
     assert _status(klc) == "", "scratch/ must be ignored (clean tree)"
 
 
+# --------------------------------------------------------------------------- #
+# harden3 — P2: a failed --force must NOT delete the restored pre-existing ticket
+# --------------------------------------------------------------------------- #
+
+def test_failed_force_intake_preserves_existing_ticket(tmp_path, monkeypatch):
+    """P2 (data-loss): `intake K --force` on an EXISTING K that hits a terminal
+    push failure must leave the state_tx-restored original ticket in place — the
+    unconditional rmtree(tdir) must not delete a pre-existing ticket."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+    klc = _init_repo(tmp_path, {
+        "KLC-4101": _meta("KLC-4101", phase="intake:ack-needed", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    _commit_file(klc, "tickets/KLC-4101/raw.md", "ORIGINAL raw body\n")
+
+    # A pre-receive hook rejects the push → terminal (non-CAS) failure AFTER the
+    # body wrote the new content and state_tx restored the original on rollback.
+    bare = tmp_path / "remote.git"
+    hook = bare / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+    assert state_feature.enabled() is True
+
+    import intake as intake_mod
+    rc = intake_mod.run(["KLC-4101", "--force", "brand new description"])
+    assert rc != 0, "the rejected push must fail the --force intake"
+
+    raw = klc / "tickets" / "KLC-4101" / "raw.md"
+    assert raw.exists(), "a failed --force must NOT delete the pre-existing ticket"
+    assert raw.read_text(encoding="utf-8") == "ORIGINAL raw body\n", \
+        "the original must be restored (not the half-written --force content)"
+    assert (klc / "tickets" / "KLC-4101" / "meta.json").exists()
+    assert _status(klc) == "", "the failed --force must leave a clean tree"
+
+
+# --------------------------------------------------------------------------- #
+# harden3 — P1: ack post-pull stale-guard covers ANY same-ticket change
+# --------------------------------------------------------------------------- #
+
+def test_ack_aborts_on_same_phase_pulled_change(tmp_path, monkeypatch, capsys):
+    """P1: scope/gate/pick are validated pre-pull; if the pull brings ANY change
+    to this ticket's committed state (even same-phase), ack must abort rather
+    than apply the stale-validated pick."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-4102": _meta("KLC-4102", phase="build:ack-needed", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    # A peer pushes a SAME-PHASE same-ticket change (a new committed artefact;
+    # meta.json / phase untouched), so the phase-only guard would miss it.
+    peer = _clone_peer(tmp_path, "peer", "bob@example.com")
+    (peer / "tickets" / "KLC-4102" / "reviewer-note.md").write_text(
+        "peer added this same-phase\n", encoding="utf-8")
+    _git(peer, "add", "-A")
+    _git(peer, "commit", "-m", "peer same-phase change to KLC-4102")
+    _git(peer, "push", "origin", "klc-state")
+    assert state_feature.enabled() is True
+
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-4102", "--pick", "1"])
+    assert rc != 0, "a same-phase pulled change must abort the stale-validated ack"
+    err = capsys.readouterr().err.lower()
+    assert "advanced" in err or "re-run" in err, f"unclear message: {err!r}"
+    assert _remote_meta(klc, "KLC-4102")["phase"] == "build:ack-needed", \
+        "the pick must NOT be applied against pulled-changed state"
+    assert _status(klc) == ""
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

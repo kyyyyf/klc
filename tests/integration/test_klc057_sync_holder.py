@@ -39,6 +39,10 @@ def _feature_on(monkeypatch, *, push=None):
     monkeypatch.setattr(state_feature, "enabled", lambda: True)
     monkeypatch.setattr(state_sync, "ensure_derived_ignored", lambda *a, **k: None)
     monkeypatch.setattr(state_sync, "pull_rebase_preserving", lambda *a, **k: None)
+    # P1 stale-guard reads the ticket's committed tree hash; with no real git
+    # here, return a constant so pre==post → the tree-hash guard is a no-op (the
+    # phase-divergence guard is exercised separately).
+    monkeypatch.setattr(state_sync, "ticket_tree_hash", lambda *a, **k: None)
     if push is None:
         push = lambda *a, **k: None  # noqa: E731
     monkeypatch.setattr(state_sync, "commit_and_push_cas_subtree", push)
