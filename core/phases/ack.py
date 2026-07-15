@@ -105,10 +105,24 @@ def run(argv: list[str]) -> int:
                             # (raises StaleStateError before the body if the pull
                             # changed this ticket) — closes P2b (manual-completion
                             # previously rechecked only phase).
+                            if tx is not None:
+                                # holder-auth (P1): do NOT push another user's held
+                                # phase. Mirror the pick-ack/next holder check
+                                # BEFORE the WORK→ack-needed set_state/push.
+                                _h = _lc.read_meta(args.ticket).get("holder")
+                                if _h and _h.get("id") \
+                                        and _h.get("id") != identity.current():
+                                    raise holder.HolderConflictError(
+                                        f"ticket {args.ticket!r} held by "
+                                        f"{_h.get('id')!r}", holder=_h)
                             _lc.set_state(
                                 args.ticket, pid, new_state,
                                 event="manual-completion", note=note,
                             )
+                    except holder.HolderConflictError as e:
+                        hid = e.holder.get("id") if e.holder else "?"
+                        sys.stderr.write(f"klc ack: phase held by {hid}\n")
+                        return 1
                     except state_sync.StaleStateError:
                         sys.stderr.write(
                             "klc ack: remote state advanced since you started — "

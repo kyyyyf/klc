@@ -35,6 +35,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 
+import lifecycle
 import state_feature
 import state_sync
 from _paths import klc_dir
@@ -111,19 +112,27 @@ def state_tx(ticket, msg):
         raise state_sync.StaleStateError("remote state advanced — re-run")
     # 4. Snapshot the ticket subtree so any body mutation can be rolled back.
     snap = _snapshot_subtree(ticket, kdir)
-    try:
-        # 4. The verb's whole mutating body runs here.
-        yield _TxHandle()
-        # 5. Glob-commit the ticket subtree + single CAS push.
-        state_sync.commit_and_push_cas_subtree(ticket, msg, kdir)
-    except Exception:
-        # ANY terminal failure — StateConflictError, a first-grab
-        # HolderConflictError, or a non-CAS sync error (RuntimeError/ValueError/
-        # NothingToCommitError) — unwinds every local mutation the body made so
-        # the local tree never diverges ahead of the untouched remote, and the
-        # index is reset for the subtree (commit_and_push_cas_subtree leaves its
-        # aborted commit STAGED via reset --soft) so the next pull never hits a
-        # dirty index. The exception then propagates for a clean verb message.
-        _restore_subtree(snap, ticket, kdir)
-        state_sync._git(["reset", "-q", "--", subtree], kdir)
-        raise
+    # 5. Defer any Jira push the body triggers (via set_state) until AFTER the
+    #    CAS push confirms — so a rejected/rolled-back push never leaves Jira
+    #    advanced ahead of klc (P1). The flush below fires only on clean success.
+    with lifecycle.defer_jira_pushes() as pending:
+        try:
+            # 6. The verb's whole mutating body runs here.
+            yield _TxHandle()
+            # 7. Glob-commit the ticket subtree + single CAS push.
+            state_sync.commit_and_push_cas_subtree(ticket, msg, kdir)
+        except Exception:
+            # ANY terminal failure — StateConflictError, a first-grab
+            # HolderConflictError, or a non-CAS sync error (RuntimeError/
+            # ValueError/NothingToCommitError) — unwinds every local mutation the
+            # body made so the local tree never diverges ahead of the untouched
+            # remote, and the index is reset for the subtree
+            # (commit_and_push_cas_subtree leaves its aborted commit STAGED via
+            # reset --soft) so the next pull never hits a dirty index. The
+            # collected Jira push is DISCARDED (not flushed). The exception then
+            # propagates for a clean verb message.
+            _restore_subtree(snap, ticket, kdir)
+            state_sync._git(["reset", "-q", "--", subtree], kdir)
+            raise
+    # 8. CAS push succeeded → NOW fire the deferred Jira push (never on rollback).
+    lifecycle.flush_jira_pushes(pending)

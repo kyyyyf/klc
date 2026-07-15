@@ -156,6 +156,22 @@ _DERIVED_IGNORES = (
 )
 
 
+def _derived_untrack_pathspecs(ticket: str) -> list[str]:
+    """git pathspecs (``:(glob)`` magic) for derived caches that must be
+    UNTRACKED on an upgraded worktree where an older layout committed them.
+    Scoped to THIS ticket's subtree plus the shared cross-ticket index, so one
+    op never disturbs another ticket's tracked state."""
+    t = f"tickets/{ticket}"
+    return [
+        "knowledge/tickets-index.jsonl",        # shared derived index (top-level)
+        f":(glob){t}/**/.lock",
+        f":(glob){t}/**/.index.json",
+        f":(glob){t}/**/_prompt.md",
+        f":(glob){t}/**/_prompt_step_*.md",
+        f":(glob){t}/**/scratch/**",
+    ]
+
+
 def _has_tracked_changes(klc_dir: Path) -> bool:
     """True if the worktree has uncommitted changes to TRACKED files.
 
@@ -460,8 +476,10 @@ def commit_and_push_cas_subtree(
     ``git add -A -- tickets/<ticket>/`` (adds, modifications AND deletions), so
     any file the verb body wrote under the subtree — meta.json, raw.md,
     ``_superseded/…``, a jira-merged raw.md — is captured automatically and no
-    mutation site can be "forgotten." Conflict classification, rebase, retry and
-    the terminal ``reset --soft`` unwind are shared with the CAS machinery.
+    mutation site can be "forgotten." It also converges an upgraded worktree by
+    untracking (keeping on disk) any derived cache an older layout committed (P2).
+    Conflict classification, rebase, retry and the terminal ``reset --soft``
+    unwind are shared with the CAS machinery.
 
     Raises:
         ConfigError: if *klc_dir* has no configured upstream.
@@ -483,6 +501,13 @@ def commit_and_push_cas_subtree(
         )
     upstream_branch = _upstream_branch(klc_dir)
 
+    # Build the index deterministically: unstage anything first, stage exactly
+    # this ticket's subtree, then untrack derived caches. Committing the INDEX
+    # (not a pathspec, which re-reads the working tree and would re-add an
+    # on-disk file `git rm --cached` just removed) keeps the op ticket-scoped
+    # while letting derived removals ride the push.
+    _git(["reset", "-q"], klc_dir)
+
     # Stage the ENTIRE subtree (``-A`` captures deletions from supersede moves).
     add = _git(["add", "-A", "--", subtree], klc_dir)
     if add.returncode != 0:
@@ -490,7 +515,15 @@ def commit_and_push_cas_subtree(
             f"git add refused {subtree!r}: {add.stderr.strip() or add.stdout.strip()}"
         )
 
-    commit = _git(["commit", "-m", msg, "--", subtree], klc_dir)
+    # P2 (upgrade convergence): untrack (keep on disk) any derived cache that an
+    # older layout committed — the info/exclude rules alone can't untrack an
+    # already-tracked file. Idempotent via --ignore-unmatch (a no-op on a fresh
+    # worktree where nothing derived is tracked). Scoped to this ticket + the
+    # shared index; the removal rides THIS commit so the tree converges clean.
+    _git(["rm", "--cached", "-q", "--ignore-unmatch", "--",
+          *_derived_untrack_pathspecs(ticket)], klc_dir)
+
+    commit = _git(["commit", "-m", msg], klc_dir)
     if commit.returncode != 0:
         out = (commit.stdout + commit.stderr).lower()
         if "nothing to commit" in out or "no changes added" in out:
