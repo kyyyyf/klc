@@ -33,6 +33,11 @@ def _klc(tmp_path: Path) -> Path:
 def _stub_sync(monkeypatch, *, push=None):
     """Stub every git-touching state_sync entry point and record calls."""
     calls: list[str] = []
+    # The envelope's stale-guard reads the subtree hash before/after the pull.
+    # Return None (fresh-ticket case) so the guard is skipped and these tests
+    # exercise the push/rollback path; the real hash behaviour is covered by the
+    # bare-repo hardening tests.
+    monkeypatch.setattr(state_sync, "ticket_tree_hash", lambda *a, **k: None)
     monkeypatch.setattr(state_sync, "ensure_derived_ignored",
                         lambda *a, **k: calls.append("ignore"))
     monkeypatch.setattr(state_sync, "pull_rebase_preserving",
@@ -151,6 +156,23 @@ def test_rolls_back_on_any_terminal_error(tmp_path, monkeypatch):
     assert not (td / "raw.md").exists(), "created file must be rolled back"
     assert (td / "meta.json").read_text(encoding="utf-8") == "ORIGINAL", \
         "modified file must be restored on a non-CAS terminal error too"
+
+
+def test_git_helpers_do_not_raise_when_git_binary_absent(tmp_path, monkeypatch):
+    """`_git` (and thus `ticket_tree_hash`) must honour its "never raises"
+    contract when the git binary is missing — a FileNotFoundError from
+    subprocess is turned into a non-zero result, and ticket_tree_hash returns
+    None."""
+    import subprocess as _sp
+
+    def _no_git(*a, **k):
+        raise FileNotFoundError("git: command not found")
+    monkeypatch.setattr(_sp, "run", _no_git)
+
+    cp = state_sync._git(["rev-parse", "HEAD"], tmp_path)
+    assert cp.returncode != 0, "a missing git binary must yield a non-zero result"
+    assert state_sync.ticket_tree_hash(tmp_path, "KLC-1") is None, \
+        "ticket_tree_hash must return None (not raise) when git is absent"
 
 
 if __name__ == "__main__":

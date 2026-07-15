@@ -602,5 +602,70 @@ def test_ack_aborts_on_same_phase_pulled_change(tmp_path, monkeypatch, capsys):
     assert _status(klc) == ""
 
 
+# --------------------------------------------------------------------------- #
+# harden4 — the stale-guard is CLASS-CLOSED in the state_tx envelope
+# --------------------------------------------------------------------------- #
+
+def test_force_intake_aborts_when_peer_changed_only_raw(tmp_path, monkeypatch):
+    """P2a (envelope): `intake --force` where a peer changed ONLY raw.md
+    (meta.json unchanged) must abort — the subtree-hash guard sees the raw change
+    that a meta-only compare would miss; the peer's raw is preserved, no push."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+    klc = _init_repo(tmp_path, {
+        "KLC-4201": _meta("KLC-4201", phase="intake:ack-needed", track="S"),
+    })
+    _commit_file(klc, "tickets/KLC-4201/raw.md", "original raw\n")
+
+    # A peer changes ONLY raw.md (meta.json untouched) and pushes.
+    peer = _clone_peer(tmp_path, "peer", "bob@example.com")
+    (peer / "tickets" / "KLC-4201" / "raw.md").write_text(
+        "PEER edited raw only\n", encoding="utf-8")
+    _git(peer, "add", "-A")
+    _git(peer, "commit", "-m", "peer edits only raw.md")
+    _git(peer, "push", "origin", "klc-state")
+    assert state_feature.enabled() is True
+
+    import intake as intake_mod
+    rc = intake_mod.run(["KLC-4201", "--force", "clobber attempt"])
+    assert rc != 0, "a --force over a peer-changed (raw-only) ticket must abort"
+
+    raw = klc / "tickets" / "KLC-4201" / "raw.md"
+    assert raw.read_text(encoding="utf-8") == "PEER edited raw only\n", \
+        "the peer's raw.md must be preserved (not clobbered by --force)"
+    assert _remote_meta(klc, "KLC-4201")["phase"] == "intake:ack-needed"
+    assert _status(klc) == ""
+
+
+def test_manual_completion_aborts_on_same_phase_pulled_change(tmp_path, monkeypatch):
+    """P2b (envelope): ack from :work (manual-completion) where a peer pushed a
+    same-phase artifact change must abort — the WORK→ack-needed set_state must
+    NOT run against pulled-changed state (previously it rechecked only phase)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-4202": _meta("KLC-4202", phase="build:work", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    import phase_completion
+    monkeypatch.setattr(phase_completion, "can_complete", lambda t, p: (True, ""))
+
+    # A peer pushes a SAME-PHASE artefact change (phase stays build:work).
+    peer = _clone_peer(tmp_path, "peer", "bob@example.com")
+    (peer / "tickets" / "KLC-4202" / "build-log.md").write_text(
+        "peer build note\n", encoding="utf-8")
+    _git(peer, "add", "-A")
+    _git(peer, "commit", "-m", "peer same-phase artefact on KLC-4202")
+    _git(peer, "push", "origin", "klc-state")
+    assert state_feature.enabled() is True
+
+    import ack as ack_mod
+    rc = ack_mod.run(["KLC-4202", "--pick", "1"])
+    assert rc != 0, "manual-completion must abort on a same-phase pulled change"
+    assert _remote_meta(klc, "KLC-4202")["phase"] == "build:work", \
+        "the WORK→ack-needed set_state must NOT have advanced the phase"
+    assert _status(klc) == ""
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

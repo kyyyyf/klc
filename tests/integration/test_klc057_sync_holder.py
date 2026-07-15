@@ -39,10 +39,15 @@ def _feature_on(monkeypatch, *, push=None):
     monkeypatch.setattr(state_feature, "enabled", lambda: True)
     monkeypatch.setattr(state_sync, "ensure_derived_ignored", lambda *a, **k: None)
     monkeypatch.setattr(state_sync, "pull_rebase_preserving", lambda *a, **k: None)
-    # P1 stale-guard reads the ticket's committed tree hash; with no real git
-    # here, return a constant so pre==post → the tree-hash guard is a no-op (the
-    # phase-divergence guard is exercised separately).
-    monkeypatch.setattr(state_sync, "ticket_tree_hash", lambda *a, **k: None)
+    # The envelope stale-guard compares the ticket's committed subtree hash
+    # before/after the (stubbed) pull. With no real git here, model it from the
+    # live meta bytes: unchanged meta → equal → no abort; a pull stub that mutates
+    # meta (see the stale test) → differs → the envelope aborts. Returns None when
+    # the ticket does not exist yet (fresh intake) so the guard is skipped.
+    def _fake_tree_hash(kdir, ticket):
+        mp = Path(kdir) / "tickets" / str(ticket) / "meta.json"
+        return mp.read_bytes().hex() if mp.exists() else None
+    monkeypatch.setattr(state_sync, "ticket_tree_hash", _fake_tree_hash)
     if push is None:
         push = lambda *a, **k: None  # noqa: E731
     monkeypatch.setattr(state_sync, "commit_and_push_cas_subtree", push)
@@ -362,6 +367,36 @@ def test_feature_off_ack_next_no_holder_fields(tmp_path, monkeypatch):
     assert next_mod.run(["KLC-812"]) == 0
     meta = json.loads(_meta_path(tmp_path, "KLC-812").read_text(encoding="utf-8"))
     assert "holder" not in meta, "feature-off next must not write a holder field"
+
+
+def test_feature_off_makes_no_state_sync_git_calls(tmp_path, monkeypatch):
+    """AC-8b: feature OFF → the sync layer touches NO git at all (the stale-guard,
+    pull, push, ignore, hash — none run). Spy state_sync._git and assert zero
+    calls across all three verbs. Also proves the verbs work with git absent from
+    the sync path (nothing in state_sync is invoked)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+    _feature_off(monkeypatch)
+
+    calls = []
+
+    def _boom_git(*a, **k):
+        calls.append(a)
+        raise AssertionError("feature-off must not invoke state_sync._git")
+    monkeypatch.setattr(state_sync, "_git", _boom_git)
+
+    import intake as intake_mod
+    assert intake_mod.run(["KLC-890", "no git off"]) == 0
+
+    _bootstrap_ticket(tmp_path, "KLC-891", phase="build:ack-needed", track="S")
+    import ack as ack_mod
+    assert ack_mod.run(["KLC-891", "--pick", "1"]) == 0
+
+    _bootstrap_ticket(tmp_path, "KLC-892", phase="build:ack", track="S")
+    import next as next_mod
+    assert next_mod.run(["KLC-892"]) == 0
+
+    assert calls == [], f"feature-off made state_sync git calls: {calls}"
 
 
 def test_sync_runs_inside_per_ticket_lock(tmp_path, monkeypatch):
