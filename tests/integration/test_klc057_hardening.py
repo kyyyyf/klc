@@ -667,5 +667,60 @@ def test_manual_completion_aborts_on_same_phase_pulled_change(tmp_path, monkeypa
     assert _status(klc) == ""
 
 
+# --------------------------------------------------------------------------- #
+# harden5 — P1 holder-auth on manual-completion; P2 upgrade untrack
+# --------------------------------------------------------------------------- #
+
+def test_manual_completion_refuses_when_peer_holds_phase(tmp_path, monkeypatch, capsys):
+    """P1 (holder-auth): ack manual-completion must NOT push WORK→ack-needed for a
+    phase held by ANOTHER user — the transition must be refused before any push,
+    leaving the remote phase unchanged."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-4301": _meta("KLC-4301", phase="build:work", track="S",
+                          holder={"id": "bob@example.com", "machine": "b",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    import phase_completion
+    monkeypatch.setattr(phase_completion, "can_complete", lambda t, p: (True, ""))
+    assert state_feature.enabled() is True
+
+    import ack as ack_mod  # current identity is ALICE; bob holds the phase
+    rc = ack_mod.run(["KLC-4301", "--pick", "1"])
+    assert rc != 0, "must not advance a phase held by another user"
+    err = capsys.readouterr().err.lower()
+    assert "held by" in err and "bob@example.com" in err, f"unclear: {err!r}"
+    assert _remote_meta(klc, "KLC-4301")["phase"] == "build:work", \
+        "no WORK→ack-needed may be pushed for another user's held phase"
+    assert _status(klc) == ""
+
+
+def test_upgraded_worktree_untracks_tracked_derived_index(tmp_path, monkeypatch):
+    """P2 (upgrade): a derived cache TRACKED by an older layout must be untracked
+    (kept on disk) by a feature-on op, so it stops dirtying the tree — and the
+    tree is clean afterward."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-4302": _meta("KLC-4302", phase="build:ack-needed", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    # OLD layout: the derived index is committed/tracked.
+    _commit_file(klc, "knowledge/tickets-index.jsonl", '{"key":"KLC-4302"}\n')
+    assert _git(klc, "ls-files", "knowledge/tickets-index.jsonl").strip() != ""
+    assert state_feature.enabled() is True
+
+    import ack as ack_mod
+    assert ack_mod.run(["KLC-4302", "--pick", "1"]) == 0
+
+    assert _git(klc, "ls-files", "knowledge/tickets-index.jsonl").strip() == "", \
+        "the tracked derived index must be untracked after a feature-on op"
+    assert (klc / "knowledge" / "tickets-index.jsonl").exists(), \
+        "the derived cache must be KEPT on disk (local-only), not deleted"
+    assert _status(klc) == "", "the tree must be clean after convergence"
+    assert not _remote_has(klc, "knowledge/tickets-index.jsonl"), \
+        "the derived index must no longer be on the shared state"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

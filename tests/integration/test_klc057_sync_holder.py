@@ -594,5 +594,55 @@ def test_intake_bad_identity_message_distinct(tmp_path, monkeypatch, capsys):
         "a bad-identity failure must leave no half-created ticket"
 
 
+# ---------------------------------------------------------------------------
+# harden5 P1: Jira push is deferred until AFTER the CAS push confirms
+# ---------------------------------------------------------------------------
+
+def test_jira_push_not_fired_when_cas_push_rejects(tmp_path, monkeypatch):
+    """P1: on a rejected CAS push, NO Jira push may happen (the tx rolls back;
+    Jira must not be left advanced ahead of klc)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    import lifecycle
+    order = []
+    monkeypatch.setattr(lifecycle, "_jira_push_after_state",
+                        lambda t, p, *, source: order.append("jira"))
+
+    def _reject(*a, **k):
+        order.append("push")
+        raise state_sync.StateConflictError("same-ticket race")
+
+    _bootstrap_ticket(tmp_path, "KLC-870", phase="build:ack-needed", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+    _feature_on(monkeypatch, push=_reject)
+
+    import ack as ack_mod
+    assert ack_mod.run(["KLC-870", "--pick", "1"]) != 0
+    assert "jira" not in order, \
+        f"a rejected CAS push must fire NO Jira push, got {order}"
+
+
+def test_jira_push_fires_once_after_successful_cas(tmp_path, monkeypatch):
+    """P1: on the happy path the Jira push fires exactly once, AFTER the CAS
+    push (never before it)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    import lifecycle
+    order = []
+    monkeypatch.setattr(lifecycle, "_jira_push_after_state",
+                        lambda t, p, *, source: order.append("jira"))
+
+    def _accept(*a, **k):
+        order.append("push")
+
+    _bootstrap_ticket(tmp_path, "KLC-871", phase="build:ack-needed", track="S",
+                      holder=dict(_HELD_BY_ALICE))
+    _feature_on(monkeypatch, push=_accept)
+
+    import ack as ack_mod
+    assert ack_mod.run(["KLC-871", "--pick", "1"]) == 0
+    assert order.count("jira") == 1, f"exactly one Jira push expected, got {order}"
+    assert order.index("push") < order.index("jira"), \
+        f"Jira push must fire only AFTER the CAS push, got {order}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
