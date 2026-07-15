@@ -11,6 +11,12 @@ it is inside a transaction:
    the rebase and restored (``state_sync.pull_rebase_preserving``) — never
    discarded. They are then captured by the exit glob-commit, so a normal op
    never loses phase work. Only truly derived/ignored files are excluded.
+1b. **Class-closing stale-guard.** The ticket's committed subtree hash is
+   captured before the pull and re-checked after; if the ticket existed and the
+   pull changed it, ``StaleStateError`` is raised BEFORE the body runs. Every
+   verb's pre-tx validation (scope/gate/pick/can_complete/``--force``) is thus
+   never applied to pulled-changed state — the single guard for the whole
+   "validate-before-pull" class, so no verb path can bypass it.
 2. **Glob-commit the ticket subtree on exit.** Instead of a hand-listed set of
    paths, everything under ``tickets/<ticket>/`` is committed and CAS-pushed, so
    any file the body writes there is captured automatically — no forgotten site.
@@ -83,13 +89,27 @@ def state_tx(ticket, msg):
     kdir = klc_dir()
     subtree = f"tickets/{ticket}/"
 
+    # 0. CLASS-CLOSING stale-guard (capture BEFORE the pull). Record this
+    #    ticket's committed subtree hash so we can tell, after the pull, whether
+    #    the shared state moved under a verb's pre-tx validation.
+    pre_hash = state_sync.ticket_tree_hash(kdir, ticket)
     # 1. Make sure the derived/runtime-local caches are git-ignored so they never
     #    dirty the tree, block the pull, or ride the glob-commit.
     state_sync.ensure_derived_ignored(kdir)
     # 2. Pull the latest remote state, PRESERVING any uncommitted tracked
     #    artifacts (in-progress work) across the rebase — never discard them.
     state_sync.pull_rebase_preserving(kdir)
-    # 3. Snapshot the ticket subtree so any body mutation can be rolled back.
+    # 3. If the ticket EXISTED at enter and the pull changed its committed state
+    #    (meta.json / raw.md / any artifact — it is a content-addressed SUBTREE
+    #    hash), EVERY verb's pre-tx validation (scope/gate/pick/can_complete/
+    #    --force overwrite) is stale → abort BEFORE the body runs. This closes the
+    #    whole "validate-before-pull" class at the envelope, so no verb path —
+    #    intake/ack/next, current or future — can act on pulled-changed state.
+    #    (pre_hash None → a brand-new ticket that only now appears; that
+    #    creation-collision is left to the verb's own taken-key handling.)
+    if pre_hash is not None and state_sync.ticket_tree_hash(kdir, ticket) != pre_hash:
+        raise state_sync.StaleStateError("remote state advanced — re-run")
+    # 4. Snapshot the ticket subtree so any body mutation can be rolled back.
     snap = _snapshot_subtree(ticket, kdir)
     try:
         # 4. The verb's whole mutating body runs here.

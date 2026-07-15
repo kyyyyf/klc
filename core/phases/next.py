@@ -29,11 +29,6 @@ import state_sync  # noqa: E402
 import state_tx  # noqa: E402
 
 
-class _StaleStateError(Exception):
-    """Raised inside the tx when the pull advanced the remote phase past the one
-    validated pre-tx — refuse to advance from stale state."""
-
-
 def _friendly_missing_ticket(ticket: str) -> int:
     sys.stderr.write(
         f"klc: unknown ticket {ticket!r}; run `klc intake {ticket}` "
@@ -98,11 +93,9 @@ def run(argv: list[str]) -> int:
                 with state_tx.state_tx(
                     args.ticket, f"next {args.ticket}"
                 ) as tx:
-                    # Uniform post-pull revalidation (mirrors ack): if the pull
-                    # advanced the remote phase past the `:ack` we validated
-                    # pre-tx, refuse rather than advance from stale state.
-                    if tx is not None and _lc.current_state(args.ticket) != cur:
-                        raise _StaleStateError()
+                    # Post-pull revalidation is enforced by the state_tx envelope:
+                    # it raises StaleStateError before this body if the pull
+                    # changed the ticket's committed state (phase or any artifact).
                     new_state = _lc.advance_to_next(args.ticket, note="klc next")
                     advanced["new_state"] = new_state
                     if tx is not None:
@@ -112,7 +105,7 @@ def run(argv: list[str]) -> int:
                             holder.release_holder(args.ticket, ident)
                         else:
                             holder.acquire_holder(args.ticket, ident)
-            except _StaleStateError:
+            except state_sync.StaleStateError:
                 sys.stderr.write(
                     "klc next: remote state advanced since you started — "
                     f"re-run `klc next {args.ticket}`.\n"

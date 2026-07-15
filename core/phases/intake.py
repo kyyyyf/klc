@@ -53,11 +53,6 @@ class _IdentityError(Exception):
     sync failure (LOW-3)."""
 
 
-class _ForcePeerNewerError(Exception):
-    """Raised inside the tx when a --force overwrite target was changed on the
-    shared state by a peer since the local copy (P2) — refuse to clobber."""
-
-
 def _load_key_pattern() -> re.Pattern:
     r"""Read the regex from .klc/config/ticket-id.yml.
 
@@ -244,16 +239,6 @@ def run(argv: list[str]) -> int:
     # StateConflictError. The first phase records the current holder in the SAME
     # push (AC-3). Feature-off (single-user), state_tx is a pure no-op and the
     # holder write is skipped, so behaviour is byte-for-byte identical (AC-8a).
-    # P2: for a --force overwrite of an existing LOCAL ticket, remember its exact
-    # bytes so that, if the pull reveals the shared state has since moved (a peer
-    # took or advanced the key), we refuse rather than clobber their work.
-    force_prev_meta = None
-    if existing and args.force:
-        try:
-            force_prev_meta = klc_ticket_meta_file(args.ticket).read_bytes()
-        except OSError:
-            pass
-
     # P2: only a ticket NEWLY created by THIS intake may be rmtree'd on failure.
     # For a --force over an EXISTING ticket, a terminal failure leaves state_tx's
     # RESTORED original subtree in place — deleting it would lose the user's
@@ -271,19 +256,12 @@ def run(argv: list[str]) -> int:
                     # over (silently clobber) their meta/holder. Re-check AFTER
                     # the pull and BEFORE writing; abort if the key appeared.
                     # (`existing` guards the legitimate --force overwrite of our
-                    # OWN pre-existing local ticket.)
+                    # OWN pre-existing local ticket.) The --force-over-a-peer-
+                    # changed-ticket case (P2, incl. peer touched only raw.md) is
+                    # now caught earlier by the state_tx envelope's StaleStateError
+                    # guard, so no per-site meta compare is needed here.
                     if not existing and klc_ticket_meta_file(args.ticket).exists():
                         raise _KeyTakenError()
-                    # P2: --force may only overwrite if the pulled state is still
-                    # the exact local record it intended to replace; if the pull
-                    # changed it, a peer moved the shared state → refuse.
-                    if existing and args.force and force_prev_meta is not None:
-                        cur_bytes = (
-                            klc_ticket_meta_file(args.ticket).read_bytes()
-                            if klc_ticket_meta_file(args.ticket).exists() else None
-                        )
-                        if cur_bytes != force_prev_meta:
-                            raise _ForcePeerNewerError()
                     tdir.mkdir(parents=True, exist_ok=True)
                     klc_ticket_raw_file(args.ticket).write_text(
                         raw_body, encoding="utf-8")
@@ -319,14 +297,15 @@ def run(argv: list[str]) -> int:
                     f"(exists on the shared state); nothing was written.\n"
                 )
                 return 1
-            except _ForcePeerNewerError:
-                # P2: the pulled state differs from the local record --force meant
-                # to replace — a peer took/advanced the key. Their tracked files
-                # are now in our worktree; leave them intact and refuse.
+            except state_sync.StaleStateError:
+                # P2: the envelope pulled a peer change to an EXISTING ticket
+                # (any file — meta OR raw) since our --force target snapshot, so
+                # the overwrite is stale. The peer's tracked files are now in our
+                # worktree; leave them intact (do NOT rmtree) and refuse.
                 sys.stderr.write(
-                    f"klc intake: {args.ticket} was updated by another user since "
-                    f"your local copy — refusing --force overwrite. Run "
-                    f"`klc status {args.ticket}` and retry if still needed.\n"
+                    f"klc intake: {args.ticket} remote state advanced since your "
+                    f"local copy — re-run `klc intake {args.ticket}` "
+                    f"(refusing to overwrite another user's change).\n"
                 )
                 return 1
             except _IdentityError as e:

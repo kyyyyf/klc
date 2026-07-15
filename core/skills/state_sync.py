@@ -70,6 +70,14 @@ class StashConflictError(Exception):
     loss (the stash is left intact and recoverable)."""
 
 
+class StaleStateError(Exception):
+    """The pull brought a committed change to THIS ticket, so any pre-pull
+    validation (scope/gate/pick/can_complete/``--force`` overwrite) a verb did is
+    stale. Raised by the ``state_tx`` envelope BEFORE the body runs so EVERY verb
+    aborts uniformly ("remote state advanced — re-run") rather than acting on the
+    changed state — the single, class-closing guard for "validate-before-pull"."""
+
+
 class NothingToCommitError(RuntimeError):
     """The supplied paths existed but had no staged changes to commit.
 
@@ -79,13 +87,23 @@ class NothingToCommitError(RuntimeError):
 
 
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        env=_GIT_ENV,
-    )
+    """Run git, capturing output. Never raises for a missing/unusable git binary:
+    a ``FileNotFoundError``/``OSError`` is turned into a synthetic non-zero
+    result (returncode 127) so callers uniformly branch on ``returncode`` and the
+    "never raises" helpers (e.g. :func:`ticket_tree_hash`) hold that contract even
+    where git is absent."""
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            env=_GIT_ENV,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        return subprocess.CompletedProcess(
+            args=["git", *args], returncode=127, stdout="", stderr=str(exc)
+        )
 
 
 def _rebase_in_progress(cwd: Path) -> bool:
