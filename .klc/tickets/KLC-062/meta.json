@@ -1,0 +1,40 @@
+{
+  "ticket": "KLC-062",
+  "kind": "bug",
+  "kind_source": "user",
+  "phase": "intake:ack-needed",
+  "phase_history": [
+    {
+      "phase": "intake:ack-needed",
+      "started_at": "2026-07-16T08:56:51Z"
+    }
+  ],
+  "track": "M",
+  "estimate": null,
+  "layer": null,
+  "affected_modules": [],
+  "created": "2026-07-16T08:56:51Z",
+  "owner": "developer@example.com",
+  "jira_url": null,
+  "links": [],
+  "rework_count": {},
+  "route_hint": "M",
+  "route_signals": {
+    "kind": "XS",
+    "length": "M",
+    "keywords": "M",
+    "modules": "S"
+  },
+  "route_confidence": "high",
+  "route_decision": "trust",
+  "mentions": [
+    {
+      "kind": "module",
+      "value": "ack"
+    }
+  ],
+  "clarify_required": false,
+  "metrics": {
+    "intake_ms": 5
+  }
+}

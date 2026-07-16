@@ -42,3 +42,7 @@
 {"key": "KLC-058", "kind": "unknown", "phase": "intake", "created": "2026-06-27T07:23:36Z"}
 {"key": "KLC-059", "kind": "unknown", "phase": "intake", "created": "2026-06-27T07:23:36Z"}
 {"key": "KLC-060", "kind": "unknown", "phase": "intake", "created": "2026-06-27T07:23:36Z"}
+{"key": "KLC-061", "kind": "tech", "phase": "intake", "created": "2026-07-16T08:56:51Z"}
+{"key": "KLC-062", "kind": "bug", "phase": "intake", "created": "2026-07-16T08:56:51Z"}
+{"key": "KLC-063", "kind": "tech", "phase": "intake", "created": "2026-07-16T08:56:51Z"}
+{"key": "KLC-064", "kind": "feature", "phase": "intake", "created": "2026-07-16T08:56:51Z"}
