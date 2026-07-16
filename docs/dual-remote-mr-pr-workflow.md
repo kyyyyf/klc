@@ -36,24 +36,23 @@ to match. Never click "merge" on both.**
    or is closed manually — do NOT click merge on it.
 7. Delete the feature branch on both remotes when done.
 
-## Canonical forge
+## Canonical forge — **GitHub `gh`** (decided 2026-07-16)
 
-Pick **one** as the merge point for all changes (proposal: **GitLab `origin`**,
-the WG-internal repo, since that is where MRs are reviewed). GitHub `gh` is then
-always a mirror of `origin/main`. Whichever is chosen, it must be consistent —
-the invariant is "exactly one forge merges, the other is `--ff-only` mirrored."
+The merge point for every change is **GitHub `gh`**: merge the **PR** there.
+GitLab `origin/main` is then always a `--ff-only` mirror of `gh/main`. The
+invariant is "exactly one forge merges (gh), the other (origin) is `--ff-only`
+mirrored." Never click merge on the GitLab MR — it exists for review/CI only.
 
 ## One-liner mirror helper
 
-After merging the MR/PR on the canonical forge:
+After merging the PR on GitHub (`gh`):
 ```
-CANON=origin OTHER=gh; \
+CANON=gh OTHER=origin; \
 git fetch "$CANON" && git checkout main && git merge --ff-only "$CANON"/main && git push "$OTHER" main
 ```
-(swap CANON/OTHER if GitHub is canonical). If `--ff-only` refuses, the mains
-already diverged (someone merged on both) — reconcile once with
-`git merge <other>/main` (identical trees → clean), push both, and resume the
-discipline.
+If `--ff-only` refuses, the mains already diverged (someone merged on both) —
+reconcile once with `git merge <other>/main` (identical trees → clean), push
+both, and resume the discipline.
 
 ## Bookkeeping vs code
 
