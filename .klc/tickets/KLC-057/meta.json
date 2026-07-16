@@ -2,7 +2,7 @@
   "ticket": "KLC-057",
   "kind": "tech",
   "kind_source": "discovery",
-  "phase": "review:work",
+  "phase": "review:ack-needed",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -104,7 +104,14 @@
       "phase": "review:work",
       "started_at": "2026-07-13T14:34:55Z",
       "event": "advance",
-      "note": "ack:approve"
+      "note": "ack:approve",
+      "finished_at": "2026-07-16T08:02:09Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-07-16T08:02:09Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py"
     }
   ],
   "track": "M",
@@ -120,7 +127,8 @@
     "intake",
     "ack",
     "core/phases",
-    "core/skills"
+    "core/skills",
+    "tests"
   ],
   "created": "2026-06-27T07:23:36Z",
   "owner": "developer@example.com",
