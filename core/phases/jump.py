@@ -20,6 +20,7 @@ they can `klc jump` freely.
 from __future__ import annotations
 
 import argparse
+import socket
 import sys
 from pathlib import Path
 
@@ -28,6 +29,10 @@ sys.path.insert(0, str(SKILLS))
 from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
+import identity  # noqa: E402
+import holder  # noqa: E402
+import state_sync  # noqa: E402
+import state_tx  # noqa: E402
 from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
 
 
@@ -78,8 +83,10 @@ def run(argv: list[str]) -> int:
 
     try:
         with acquire_lock(args.ticket):
-            plan = _lc.jump(args.ticket, args.target_phase, dry_run=not args.yes)
+            # Dry-run is a documented NO-OP (AC-3): it prints a plan and mutates
+            # no shared tracked state, so it runs no state_tx and issues no push.
             if not args.yes:
+                plan = _lc.jump(args.ticket, args.target_phase, dry_run=True)
                 print(f"jump plan for {args.ticket}:")
                 print(_render_plan(plan))
                 print()
@@ -90,6 +97,28 @@ def run(argv: list[str]) -> int:
                       f"`klc jump {args.target_phase} {args.ticket} --yes`")
                 return 0
 
+            # KLC-061 (AC-3): the apply path mutates shared tracked state
+            # (supersede + budgets + set_state to target :work), so feature-ON it
+            # runs inside state_tx (pull → body → CAS-push, deferred Jira). jump
+            # enters a fresh `<target>:work`, so it ACQUIRES the target holder in
+            # the same body (mirroring next). Feature-OFF, state_tx is a no-op and
+            # no holder is written (AC-5).
+            applied: dict = {}
+            with state_tx.state_tx(args.ticket, f"jump {args.ticket}") as tx:
+                applied["plan"] = _lc.jump(
+                    args.ticket, args.target_phase, dry_run=False)
+                if tx is not None:
+                    ident = {"id": identity.current(),
+                             "machine": socket.gethostname()}
+                    holder.acquire_holder(args.ticket, ident)
+                    # P2: acquire_holder is idempotent for the SAME user and keeps
+                    # the original `since`, so a caller who already held a STALE
+                    # holder would leave the jumped-to phase immediately stealable.
+                    # Refresh liveness so the claimed phase is within TTL (parity
+                    # with jira-pull). Harmless for a freshly-acquired holder.
+                    holder.heartbeat_holder(args.ticket)
+            plan = applied["plan"]
+
             # Applied. Render the prompt card and return.
             meta = _lc.read_meta(args.ticket)
             card = write_prompt_card(args.ticket, args.target_phase, meta)
@@ -98,6 +127,35 @@ def run(argv: list[str]) -> int:
             print(f"    # paste into your agent, then run `klc ack {args.ticket}`")
             return 0
 
+    except state_sync.StaleStateError:
+        sys.stderr.write(
+            f"klc jump: remote state advanced since you started — "
+            f"re-run `klc jump {args.target_phase} {args.ticket} --yes`.\n"
+        )
+        return 1
+    except state_sync.StashConflictError:
+        sys.stderr.write(
+            "klc jump: local changes conflict with the remote — resolve "
+            "manually; your work is saved in the git stash.\n"
+        )
+        return 1
+    except state_sync.StateConflictError:
+        sys.stderr.write(
+            "klc jump: concurrent update — another writer moved this "
+            "ticket; retry.\n"
+        )
+        return 1
+    except holder.HolderConflictError as e:
+        # HolderConflictError subclasses RuntimeError → must precede the catch-all.
+        hid = e.holder.get("id") if e.holder else "?"
+        sys.stderr.write(f"klc jump: target phase held by {hid}\n")
+        return 1
+    except (state_sync.RetryExhaustedError,
+            state_sync.RebaseConflictError,
+            state_sync.ConfigError,
+            RuntimeError):
+        sys.stderr.write("klc jump: state sync failed — retry.\n")
+        return 1
     except LockedError as e:
         sys.stderr.write(f"klc jump: {e}\n")
         return 1

@@ -176,7 +176,13 @@ def _worker(barrier, root: str, email: str, verb_name: str, argv, q) -> None:
     import intake as intake_mod
     import ack as ack_mod
     import next as next_mod
-    mods = {"intake": intake_mod, "ack": ack_mod, "next": next_mod}
+    import steal as steal_mod        # KLC-061
+    import ship as ship_mod          # KLC-061
+    import abort as abort_mod        # KLC-061
+    import jump as jump_mod          # KLC-061
+    mods = {"intake": intake_mod, "ack": ack_mod, "next": next_mod,
+            "steal": steal_mod, "ship": ship_mod,
+            "abort": abort_mod, "jump": jump_mod}
 
     reached = {"v": False}
     _orig_push = state_sync.commit_and_push_cas_subtree
@@ -494,6 +500,84 @@ def test_scenario4_mixed_concurrent_load(tmp_path):
     sys.stderr.write(
         f"\n[scenario4] {rounds} rounds: ok={outcome['ok']} abort={outcome['abort']} "
         f"tickets_attempted={len(created)}\n")
+
+
+# --------------------------------------------------------------------------- #
+# scenario 5 — concurrent steal of a STALE holder (KLC-061)
+# --------------------------------------------------------------------------- #
+
+def test_scenario5_concurrent_steal_stale_holder(tmp_path):
+    """KLC-061 AC-6: two users race to `klc steal` a ticket whose holder is stale.
+    Exactly one steal wins the CAS, the loser clean-aborts, the winner's identity
+    is durable on origin, and all workers converge — the same 7 invariants as the
+    ack race, now for the state_tx-wrapped steal verb. `steal` is a single-push op
+    so it slots directly into the barrier race."""
+    _, users, observer = _build_cluster(tmp_path, 2)
+    ph = _ph.load_phases()
+    stolen = 0
+    for r in range(_ROUNDS):
+        key = f"KLC-{6000 + r}"
+        stale = {"id": "ghost@example.com", "machine": "m",
+                 "since": "2020-01-01T00:00:00Z"}  # far past → stealable
+        _seed_ticket(users, key, phase="build:work", track="S", holder=stale)
+        results = _spawn_race([(users[0], "steal", [key]),
+                               (users[1], "steal", [key])])
+        ctx = f"scenario5 round={r} key={key} results={[(e,rc) for e,_,rc,_ in results]}"
+        assert len(results) == 2, f"{ctx}: lost a worker result"
+        winners = [x for x in results if x[2] == 0]
+        assert len(winners) == 1, f"{ctx}: expected EXACTLY ONE steal to win"
+        stolen += 1
+        for (e, v, rc, out) in results:
+            if rc != 0:
+                _assert_clean_abort(rc, out, ctx + f" loser={e}")
+        # the winner's identity is durable on origin (INV3/INV4/INV6).
+        m = _origin_meta(observer, key)
+        assert m not in (None, "MALFORMED"), f"{ctx}: INV3 meta lost/malformed"
+        hid = (m.get("holder") or {}).get("id")
+        assert hid == winners[0][0], \
+            f"{ctx}: INV3 CAS winner's steal not durable on origin (holder={hid!r})"
+        assert hid in {u.email for u in users}, \
+            f"{ctx}: INV4 holder is not one of the known stealers ({hid!r})"
+        assert _valid_phase(m.get("phase"), ph), f"{ctx}: INV5 illegal phase"
+        _assert_no_derived_on_origin(observer, ctx)
+        _settle_and_converge(users, observer, ctx)
+    sys.stderr.write(f"\n[scenario5] {_ROUNDS} rounds: stolen={stolen}\n")
+
+
+# --------------------------------------------------------------------------- #
+# scenario 6 — concurrent ship vs ack from the SAME :ack-needed (KLC-061)
+# --------------------------------------------------------------------------- #
+
+def test_scenario6_concurrent_ship_and_ack(tmp_path):
+    """KLC-061 AC-1/AC-6: `klc ship` (routed through the wrapped ack.run) races a
+    plain `klc ack`, both advancing the same `<P>:ack-needed`. Exactly one wins,
+    the loser clean-aborts, the advance is durable on origin. For every current
+    phase apply_ack folds the advance in, so ship is a single-push op here and
+    participates in the barrier race exactly like ack."""
+    _, users, observer = _build_cluster(tmp_path, 2)
+    ph = _ph.load_phases()
+    wins = 0
+    for r in range(_ROUNDS):
+        key = f"KLC-{6500 + r}"
+        _seed_ticket(users, key, phase="build:ack-needed", track="S")  # UNHELD
+        results = _spawn_race([(users[0], "ship", [key, "--pick", "1"]),
+                               (users[1], "ack", [key, "--pick", "1"])])
+        ctx = f"scenario6 round={r} key={key} results={[(e,rc) for e,_,rc,_ in results]}"
+        assert len(results) == 2, f"{ctx}: lost a worker result"
+        winners = [x for x in results if x[2] == 0]
+        assert len(winners) == 1, f"{ctx}: expected EXACTLY ONE winner"
+        wins += 1
+        for (e, v, rc, out) in results:
+            if rc != 0:
+                _assert_clean_abort(rc, out, ctx + f" loser={e}")
+        m = _origin_meta(observer, key)
+        assert m not in (None, "MALFORMED"), f"{ctx}: INV3 meta lost/malformed"
+        assert m.get("phase") == "review:work", \
+            f"{ctx}: INV3/5 advance not durable on origin (phase={m.get('phase')!r})"
+        assert _valid_phase(m.get("phase"), ph), f"{ctx}: INV5 illegal phase"
+        _assert_no_derived_on_origin(observer, ctx)
+        _settle_and_converge(users, observer, ctx)
+    sys.stderr.write(f"\n[scenario6] {_ROUNDS} rounds: wins={wins}\n")
 
 
 if __name__ == "__main__":

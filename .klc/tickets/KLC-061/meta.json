@@ -2,17 +2,105 @@
   "ticket": "KLC-061",
   "kind": "tech",
   "kind_source": "user",
-  "phase": "intake:ack-needed",
+  "phase": "build:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
-      "started_at": "2026-07-16T08:56:51Z"
+      "started_at": "2026-07-16T08:56:51Z",
+      "finished_at": "2026-07-16T09:06:57Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-07-16T09:06:57Z",
+      "event": "ack",
+      "note": "pick=2:force-full-discovery",
+      "finished_at": "2026-07-16T09:06:58Z"
+    },
+    {
+      "phase": "discovery:work",
+      "started_at": "2026-07-16T09:06:58Z",
+      "event": "ack-jump",
+      "note": "pick=force-full-discovery",
+      "finished_at": "2026-07-16T09:57:20Z"
+    },
+    {
+      "phase": "discovery:ack-needed",
+      "started_at": "2026-07-16T09:57:20Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-16T09:57:20Z"
+    },
+    {
+      "phase": "discovery:ack",
+      "started_at": "2026-07-16T09:57:20Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-16T09:57:20Z"
+    },
+    {
+      "phase": "acceptance-test-plan:work",
+      "started_at": "2026-07-16T09:57:20Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-16T09:58:20Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack-needed",
+      "started_at": "2026-07-16T09:58:20Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-16T09:58:28Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack",
+      "started_at": "2026-07-16T09:58:28Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-16T09:58:28Z"
+    },
+    {
+      "phase": "design:work",
+      "started_at": "2026-07-16T09:58:28Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-16T10:09:59Z"
+    },
+    {
+      "phase": "design:ack-needed",
+      "started_at": "2026-07-16T10:09:59Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-16T10:10:00Z"
+    },
+    {
+      "phase": "design:ack",
+      "started_at": "2026-07-16T10:10:00Z",
+      "event": "ack",
+      "note": "pick=1:option-A-minimal",
+      "finished_at": "2026-07-16T10:10:00Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-07-16T10:10:00Z",
+      "event": "advance",
+      "note": "ack:option-A-minimal"
     }
   ],
-  "track": "S",
-  "estimate": null,
-  "layer": null,
-  "affected_modules": [],
+  "track": "M",
+  "estimate": {
+    "complexity": 2,
+    "uncertainty": 1,
+    "risk": 2,
+    "manual": 1,
+    "total": 6
+  },
+  "layer": "code",
+  "affected_modules": [
+    "ack",
+    "core/phases",
+    "core/skills",
+    "tests"
+  ],
   "created": "2026-07-16T08:56:51Z",
   "owner": "developer@example.com",
   "jira_url": null,
@@ -39,6 +127,24 @@
   ],
   "clarify_required": false,
   "metrics": {
-    "intake_ms": 4
-  }
+    "intake_ms": 4,
+    "discovery_ms": 1
+  },
+  "track_source": "discovery",
+  "blast_radius": {
+    "available": true,
+    "external_dependents": [],
+    "note": "core/phases depended_by=[tests]; internal-tooling verbs, no consumers outside repo"
+  },
+  "related_tickets": [
+    "KLC-057",
+    "KLC-058",
+    "KLC-056",
+    "KLC-054"
+  ],
+  "risk_tags": [
+    "data",
+    "migration"
+  ],
+  "design_choice": "option-A-minimal"
 }

@@ -6,14 +6,26 @@ Subcommands:
     klc jira sync <KEY> [--dry-run]     report mismatch + add/update artefact links
     klc jira sync <KEY> --apply         apply artefact links + update meta.jira_sync
     klc jira reconcile <KEY> push       push klc phase to Jira (explicit; managed mode)
+    klc jira reconcile <KEY> pull --to <phase>         move klc to match Jira
+    klc jira reconcile <KEY> force-pull --to <phase> --reason ...
 
-Push/pull state changes are in KLC-021/022. This file (KLC-020) is the
-read-only and enrich part only.
+KLC-020 introduced the read-only/enrich subcommands; the state-changing
+reconcile pull/force-pull (KLC-021/022) move the klc phase to match Jira.
+
+KLC-061: `reconcile pull`/`force-pull` mutate shared tracked state
+(`meta.phase` via lifecycle.jira_pull → set_state), so they now run inside
+the per-ticket `acquire_lock` + `state_tx` envelope — a CAS-pushed pull with
+holder authorization and deferred Jira, exactly like abort/jump/steal/ack/next.
+`reconcile push` and `status` write only to the external Jira service (or
+read), touch no klc tracked state, and are deliberately NOT wrapped. `sync
+--apply` writes only `meta.jira_sync` drift bookkeeping (see Q-002) and is
+likewise left unwrapped — it rides the next verb's state_tx push.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 from pathlib import Path
 
@@ -22,6 +34,11 @@ sys.path.insert(0, str(SKILLS))
 
 from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
+import identity  # noqa: E402
+import holder  # noqa: E402
+import state_sync  # noqa: E402
+import state_tx  # noqa: E402
+from artefacts import acquire_lock, LockedError  # noqa: E402
 
 
 def _load_config():
@@ -232,11 +249,89 @@ def _reconcile_pull(key: str, to_phase: str,
             sys.stderr.write("[jira] Pull cancelled.\n")
             return 1
 
+    # KLC-061 (AC-3/AC-4): jira pull mutates shared tracked state (meta.phase via
+    # lifecycle.jira_pull → set_state), so feature-ON it runs inside state_tx —
+    # the phase move is CAS-pushed to origin and the Jira side-effect is deferred
+    # until after the push (discarded on rollback). `_js.pull` never raises (it
+    # returns a result dict), so a no-op / stopped / invalid pull mutates nothing;
+    # the tx exit then has nothing to commit → NothingToCommitError, which we
+    # treat as "clean, no change" and fall through to the normal result handling.
+    # Feature-OFF, state_tx is a no-op and jira_pull fires Jira eagerly as before.
+    #
+    # NOTE (Q-002): `klc jira sync --apply` writes only meta.jira_sync drift
+    # bookkeeping, which rides meta.json and is carried by the next verb's
+    # state_tx push; it is intentionally NOT wrapped here. `reconcile push` and
+    # `jira status` touch no klc tracked state (external/read-only) → no-op.
     try:
         import jira_sync as _js
-        result = _js.pull(key, to_phase,
-                          force=force,
-                          reason=reason or None)
+        result: dict = {}
+        # FIX-1(a): jira-pull now does git work (pull_rebase / commit / CAS-push)
+        # inside state_tx, so it must hold the per-ticket lock that serializes
+        # same-machine access to the shared `.klc` git repo — exactly like
+        # abort/jump/steal/ack/next. Without it a concurrent lock-holding verb
+        # (e.g. `klc ack`) would interleave git ops on the shared index.
+        with acquire_lock(key):
+            try:
+                with state_tx.state_tx(key, f"jira-pull {key}") as tx:
+                    result = _js.pull(
+                        key, to_phase, force=force, reason=reason or None)
+                    # FIX-1(b): jira-pull lands on `<target>:work` via set_state,
+                    # the same shape as `jump`, so it ACQUIRES the target holder
+                    # for the caller. acquire_holder raises HolderConflictError
+                    # when the ticket is actively held by ANOTHER user — so a pull
+                    # can never silently move someone else's held ticket — and it
+                    # clears any stale holder carried across the phase change. Only
+                    # on a REAL move (action == "pulled"): a no-op/stopped pull must
+                    # not gratuitously claim the holder. Feature-OFF (tx is None):
+                    # no holder write, byte-identical to before.
+                    if (tx is not None and result.get("ok")
+                            and result.get("action") == "pulled"):
+                        ident = {"id": identity.current(),
+                                 "machine": socket.gethostname()}
+                        holder.acquire_holder(key, ident)
+                        # P2: acquire_holder is idempotent for the SAME user and
+                        # preserves the original `since`, so if the caller already
+                        # held the ticket with a STALE holder the just-pulled phase
+                        # would remain immediately stealable. Refresh liveness
+                        # explicitly so the claimed phase is within TTL. Harmless
+                        # for a freshly-acquired holder (heartbeat_at just tracks
+                        # `since`); acquire_holder guarantees a holder exists here,
+                        # so heartbeat_holder never hits its no-holder ValueError.
+                        holder.heartbeat_holder(key)
+            except state_sync.NothingToCommitError:
+                # The pull made no tracked-state change (noop/stopped/invalid/
+                # error); nothing to push. Use the captured result dict below.
+                pass
+    except state_sync.StaleStateError:
+        sys.stderr.write(
+            f"klc jira: remote state advanced since you started — re-run.\n")
+        return 1
+    except state_sync.StashConflictError:
+        sys.stderr.write(
+            "klc jira: local changes conflict with the remote — resolve "
+            "manually; your work is saved in the git stash.\n")
+        return 1
+    except state_sync.StateConflictError:
+        sys.stderr.write(
+            "klc jira: concurrent update — another writer moved this ticket; "
+            "retry.\n")
+        return 1
+    except holder.HolderConflictError as e:
+        # Held by another user → refuse (no ownership bypass). HolderConflictError
+        # and LockedError both subclass RuntimeError, so these clauses MUST precede
+        # the RuntimeError catch-all below.
+        hid = e.holder.get("id") if e.holder else "?"
+        sys.stderr.write(f"klc jira: phase held by {hid}\n")
+        return 1
+    except LockedError as e:
+        sys.stderr.write(f"klc jira: {e}\n")
+        return 1
+    except (state_sync.RetryExhaustedError,
+            state_sync.RebaseConflictError,
+            state_sync.ConfigError,
+            RuntimeError):
+        sys.stderr.write("klc jira: state sync failed — retry.\n")
+        return 1
     except Exception as exc:
         sys.stderr.write(f"klc jira: pull failed — {exc}\n")
         return 1

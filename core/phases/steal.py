@@ -27,6 +27,8 @@ sys.path.insert(0, str(SKILLS))
 from _paths import klc_ticket_meta_file  # noqa: E402
 import holder  # noqa: E402
 import identity as _identity  # noqa: E402
+import state_sync  # noqa: E402
+import state_tx  # noqa: E402
 from artefacts import acquire_lock, LockedError  # noqa: E402
 
 
@@ -82,18 +84,57 @@ def run(argv: list[str]) -> int:
             f"(idle {int(age)}s >= TTL {int(ttl_seconds)}s); taking over.\n"
         )
 
+    # KLC-061 (AC-2): the holder mutation runs INSIDE state_tx so, feature-ON, it
+    # is pull → mutate meta.holder → glob-commit + CAS-push — the steal is durable
+    # on origin, not only in the caller's local worktree. The staleness check lives
+    # inside holder.steal_holder, so it runs in the tx body AFTER the pull and never
+    # judges staleness from stale local state. Note the envelope's stale-guard may
+    # PREEMPT it: if the pull changed the ticket subtree at all (e.g. a peer
+    # refreshed/advanced the holder), state_tx raises StaleStateError before the
+    # body runs — the steal is refused with "remote state advanced" rather than
+    # reaching the HolderActive check. Either way a live holder is never stolen.
+    # Feature-OFF, state_tx is a no-op and steal_holder mutates local meta as before.
+    result: dict = {}
     try:
         with acquire_lock(args.ticket):
-            result = holder.steal_holder(
-                args.ticket, identity,
-                ttl_seconds=ttl_seconds,
-                on_takeover=_warn_before_takeover,
-            )
+            with state_tx.state_tx(args.ticket, f"steal {args.ticket}"):
+                result = holder.steal_holder(
+                    args.ticket, identity,
+                    ttl_seconds=ttl_seconds,
+                    on_takeover=_warn_before_takeover,
+                )
     except holder.HolderActiveError as e:
         sys.stderr.write(f"klc steal: {e}\n")
         return 1
+    except state_sync.StaleStateError:
+        sys.stderr.write(
+            f"klc steal: remote state advanced since you started — "
+            f"re-run `klc steal {args.ticket}`.\n"
+        )
+        return 1
+    except state_sync.StashConflictError:
+        sys.stderr.write(
+            "klc steal: local changes conflict with the remote — resolve "
+            "manually; your work is saved in the git stash.\n"
+        )
+        return 1
+    except state_sync.StateConflictError:
+        sys.stderr.write(
+            "klc steal: concurrent update — another writer moved this "
+            "ticket; retry.\n"
+        )
+        return 1
     except (ValueError, holder.HolderConflictError) as e:
+        # HolderConflictError subclasses RuntimeError, so this MUST precede the
+        # RuntimeError catch-all below or a holder conflict would be masked as a
+        # generic sync failure.
         sys.stderr.write(f"klc steal: {e}\n")
+        return 1
+    except (state_sync.RetryExhaustedError,
+            state_sync.RebaseConflictError,
+            state_sync.ConfigError,
+            RuntimeError):
+        sys.stderr.write("klc steal: state sync failed — retry.\n")
         return 1
     except LockedError as e:
         sys.stderr.write(f"klc steal: {e}\n")
