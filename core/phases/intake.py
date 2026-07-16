@@ -18,11 +18,18 @@ import datetime as _dt
 import json
 import os
 import re
+import shutil
+import socket
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills"))
 import identity  # noqa: E402
+import holder  # noqa: E402
+import lifecycle as _lc  # noqa: E402
+import state_sync  # noqa: E402
+import state_tx  # noqa: E402
+from artefacts import acquire_lock, LockedError  # noqa: E402
 from _paths import (  # noqa: E402
     klc_config_dir,
     klc_global_tickets_index,
@@ -34,6 +41,28 @@ from _paths import (  # noqa: E402
 
 
 DEFAULT_KEY_RE = r"^[A-Z][A-Z0-9]+-\d+$"
+
+
+class _KeyTakenError(Exception):
+    """Raised inside the tx when `pull_rebase` reveals a peer already created this
+    key on the shared state (HIGH-B) — abort WITHOUT overwriting their files."""
+
+
+class _IdentityError(Exception):
+    """Raised inside the tx when the holder write fails because the caller's
+    identity is unusable (empty git user.email, …) — surfaced distinctly from a
+    sync failure (LOW-3)."""
+
+
+class _HeldByPeerError(Exception):
+    """Raised inside the tx when `--force` targets an EXISTING ticket held by a
+    DIFFERENT user (harden6). A --force must never silently steal a peer's held
+    phase — taking over goes through the TTL-gated `klc steal` (KLC-058).
+    Carries the current holder id for the message."""
+
+    def __init__(self, holder_id: str):
+        super().__init__(holder_id)
+        self.holder_id = holder_id
 
 
 def _load_key_pattern() -> re.Pattern:
@@ -167,8 +196,11 @@ def run(argv: list[str]) -> int:
         return 1
 
     t0 = _dt.datetime.now(_dt.timezone.utc)
-    tdir.mkdir(parents=True, exist_ok=True)
 
+    # Build raw.md + meta.json contents up front (pure computation — no fs writes
+    # yet). The actual create happens INSIDE the state_tx body so it lands AFTER
+    # `pull_rebase` on a clean tree (HIGH-1) and is captured by the rollback
+    # snapshot (a rejected/failed push unwinds it).
     jira_url = _load_jira_url(args.ticket)
     raw_header = [
         "---",
@@ -182,9 +214,7 @@ def run(argv: list[str]) -> int:
         "---",
         "",
     ]
-    klc_ticket_raw_file(args.ticket).write_text(
-        "\n".join(raw_header) + desc + "\n", encoding="utf-8"
-    )
+    raw_body = "\n".join(raw_header) + desc + "\n"
 
     # Deterministic route classification (no LLM)
     route = _classify_route(desc, args.kind or "unknown")
@@ -213,37 +243,172 @@ def run(argv: list[str]) -> int:
         "clarify_required": route["confidence"] == "low",
         "metrics":       {"intake_ms": int((_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds() * 1000)},
     }
-    klc_ticket_meta_file(args.ticket).write_text(
-        json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    meta_body = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
 
-    # append to global index (append-only)
-    idx = klc_global_tickets_index()
-    idx.parent.mkdir(parents=True, exist_ok=True)
-    with idx.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({
-            "key":        args.ticket,
-            "kind":       meta["kind"],
-            "phase":      "intake",
-            "created":    meta["created"],
-        }, ensure_ascii=False) + "\n")
+    # KLC-057: multi-user uniqueness + holder, INSIDE the same per-ticket lock
+    # ack/next use (AC-9). The CAS push of this ticket's own files *is* the
+    # uniqueness guarantee — a key a peer already created rejects as
+    # StateConflictError. The first phase records the current holder in the SAME
+    # push (AC-3). Feature-off (single-user), state_tx is a pure no-op and the
+    # holder write is skipped, so behaviour is byte-for-byte identical (AC-8a).
+    # P2: only a ticket NEWLY created by THIS intake may be rmtree'd on failure.
+    # For a --force over an EXISTING ticket, a terminal failure leaves state_tx's
+    # RESTORED original subtree in place — deleting it would lose the user's
+    # pre-existing local state. (`existing` is only True via --force here.)
+    created_new = not existing
 
-    print(f"INTAKE_OK {args.ticket}")
-    print(f"  dir:    {tdir}")
-    print(f"  kind:   {meta['kind']}")
-    print(f"  route:  {route_hint}  confidence={route['confidence']}  (signals: {route['signals']})")
-    print(f"  → intake:ack-needed")
-    decision = route["decision"]
-    if decision == "triage":
-        print(f"  ⚠ {route['confidence']}-confidence routing — the hint may under-size the ticket.")
-        print(f"     Recommended: run the cheap intake triage (core/agents/intake-triage.md)")
-        print(f"     to disambiguate scope, or `klc ack {args.ticket} --pick 2` to force full discovery.")
-    elif decision == "full-discovery":
-        print(f"  ⚠ low-confidence routing, triage disabled.")
-        print(f"     Recommended: `klc ack {args.ticket} --pick 2` (force-full-discovery).")
-    print(f"  picks:  klc ack {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
+    try:
+        with acquire_lock(args.ticket):
+            try:
+                with state_tx.state_tx(
+                    args.ticket, f"intake {args.ticket}"
+                ) as tx:
+                    # HIGH-B: state_tx has now pulled. A peer may have committed
+                    # this key since our pre-tx check — writing would fast-forward
+                    # over (silently clobber) their meta/holder. Re-check AFTER
+                    # the pull and BEFORE writing; abort if the key appeared.
+                    # (`existing` guards the legitimate --force overwrite of our
+                    # OWN pre-existing local ticket.) The --force-over-a-peer-
+                    # changed-ticket case (P2, incl. peer touched only raw.md) is
+                    # now caught earlier by the state_tx envelope's StaleStateError
+                    # guard, so no per-site meta compare is needed here.
+                    if not existing and klc_ticket_meta_file(args.ticket).exists():
+                        raise _KeyTakenError()
+                    # holder-auth (harden6): a --force overwrite of an EXISTING
+                    # ticket must obey the same holder authorization the other
+                    # verbs use. On the freshly-pulled state, if the ticket is
+                    # held by ANOTHER user, refuse — a --force must never silently
+                    # steal a peer's held phase; taking over goes through the
+                    # TTL-gated `klc steal` (KLC-058). Unheld / self-held tickets
+                    # are still overwritten as before. (tx is not None ⇒ feature
+                    # on; feature-off has no holders, so --force is unchanged.)
+                    if tx is not None and klc_ticket_meta_file(args.ticket).exists():
+                        _cur_holder = _lc.read_meta(args.ticket).get("holder")
+                        if isinstance(_cur_holder, dict) and _cur_holder.get("id") \
+                                and _cur_holder.get("id") != identity.current():
+                            raise _HeldByPeerError(_cur_holder.get("id"))
+                    tdir.mkdir(parents=True, exist_ok=True)
+                    klc_ticket_raw_file(args.ticket).write_text(
+                        raw_body, encoding="utf-8")
+                    klc_ticket_meta_file(args.ticket).write_text(
+                        meta_body, encoding="utf-8")
+                    if tx is not None:
+                        ident = {"id": identity.current(),
+                                 "machine": socket.gethostname()}
+                        try:
+                            holder.acquire_holder(args.ticket, ident)
+                        except ValueError as ie:
+                            # LOW-3: a bad identity is NOT a sync failure.
+                            raise _IdentityError(str(ie))
+                    # step-6: fold the jira raw.md enrichment INTO the tx body so
+                    # its merge is captured by the ticket-subtree push and never
+                    # dirties the tracked tree post-push (which would wedge the
+                    # next op's pull). Never raises (best-effort by contract).
+                    _jira_intake_enrich(args.ticket, args.jira_description)
+            except state_sync.StashConflictError:
+                # Pull-time restore of pre-existing local edits conflicted with
+                # the remote. Nothing was written for this intake; the user's
+                # work is preserved in the stash. Do NOT rmtree.
+                sys.stderr.write(
+                    f"klc intake: local changes conflict with the remote — "
+                    f"resolve manually; your work is saved in the git stash.\n"
+                )
+                return 1
+            except _KeyTakenError:
+                # HIGH-B: the peer's tracked ticket was pulled into our worktree —
+                # leave it intact (do NOT rmtree) and do not push.
+                sys.stderr.write(
+                    f"klc intake: key {args.ticket} already taken "
+                    f"(exists on the shared state); nothing was written.\n"
+                )
+                return 1
+            except _HeldByPeerError as e:
+                # harden6: --force refused — the ticket is held by another user.
+                # The peer's tracked ticket is intact in our worktree; do NOT
+                # rmtree and do NOT push. Taking over requires `klc steal`.
+                sys.stderr.write(
+                    f"klc intake: {args.ticket} phase held by {e.holder_id} — "
+                    f"refusing to --force over another user; use "
+                    f"`klc steal {args.ticket}` to take over.\n"
+                )
+                return 1
+            except state_sync.StaleStateError:
+                # P2: the envelope pulled a peer change to an EXISTING ticket
+                # (any file — meta OR raw) since our --force target snapshot, so
+                # the overwrite is stale. The peer's tracked files are now in our
+                # worktree; leave them intact (do NOT rmtree) and refuse.
+                sys.stderr.write(
+                    f"klc intake: {args.ticket} remote state advanced since your "
+                    f"local copy — re-run `klc intake {args.ticket}` "
+                    f"(refusing to overwrite another user's change).\n"
+                )
+                return 1
+            except _IdentityError as e:
+                if created_new:
+                    shutil.rmtree(tdir, ignore_errors=True)
+                sys.stderr.write(
+                    f"klc intake: cannot determine your identity ({e}); "
+                    f"set your git user.email, then retry. Nothing was written.\n"
+                )
+                return 1
+            except state_sync.StateConflictError:
+                if created_new:
+                    shutil.rmtree(tdir, ignore_errors=True)
+                sys.stderr.write(
+                    f"klc intake: key {args.ticket} already taken "
+                    f"(created by another user); nothing was written.\n"
+                )
+                return 1
+            except (state_sync.RetryExhaustedError,
+                    state_sync.RebaseConflictError,
+                    state_sync.ConfigError,
+                    RuntimeError, ValueError):
+                # Terminal, non-CAS sync failure (RRC set above, plus a plain
+                # RuntimeError/ValueError/NothingToCommitError from pull/push).
+                # Keep the shared state consistent by leaving no local-only
+                # ticket (only if THIS intake created it — P2: never delete a
+                # --force-over-existing ticket state_tx already restored), and
+                # surface a clean message (AC-7) — never a raw traceback.
+                if created_new:
+                    shutil.rmtree(tdir, ignore_errors=True)
+                sys.stderr.write(
+                    f"klc intake: state sync failed for {args.ticket}; "
+                    f"nothing was written — retry.\n"
+                )
+                return 1
 
-    _jira_intake_enrich(args.ticket, args.jira_description)
+            # append to global index (append-only) — deferred until AFTER a clean
+            # CAS push (D-005), so a rejected push leaves zero index pollution.
+            idx = klc_global_tickets_index()
+            idx.parent.mkdir(parents=True, exist_ok=True)
+            with idx.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "key":        args.ticket,
+                    "kind":       meta["kind"],
+                    "phase":      "intake",
+                    "created":    meta["created"],
+                }, ensure_ascii=False) + "\n")
+
+            print(f"INTAKE_OK {args.ticket}")
+            print(f"  dir:    {tdir}")
+            print(f"  kind:   {meta['kind']}")
+            print(f"  route:  {route_hint}  confidence={route['confidence']}  (signals: {route['signals']})")
+            print(f"  → intake:ack-needed")
+            decision = route["decision"]
+            if decision == "triage":
+                print(f"  ⚠ {route['confidence']}-confidence routing — the hint may under-size the ticket.")
+                print(f"     Recommended: run the cheap intake triage (core/agents/intake-triage.md)")
+                print(f"     to disambiguate scope, or `klc ack {args.ticket} --pick 2` to force full discovery.")
+            elif decision == "full-discovery":
+                print(f"  ⚠ low-confidence routing, triage disabled.")
+                print(f"     Recommended: `klc ack {args.ticket} --pick 2` (force-full-discovery).")
+            print(f"  picks:  klc ack {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
+    except LockedError as e:
+        sys.stderr.write(f"klc intake: {e}\n")
+        return 1
+
+    # jira raw.md enrichment already ran INSIDE the tx (step-6) so its merge rode
+    # the ticket-subtree push; only the read-only stale-module warning is left.
     _warn_stale_modules()
     return 0
 

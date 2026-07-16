@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 from pathlib import Path
 
@@ -22,6 +23,12 @@ from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
 import phase_completion  # noqa: E402
 import scope_delta as _sd  # noqa: E402
 import gate_policy as _gp  # noqa: E402
+import identity  # noqa: E402
+import holder  # noqa: E402
+import state_sync  # noqa: E402
+import state_feature  # noqa: E402
+import state_tx  # noqa: E402
+
 
 # Phases where expansion (scope creep) blocks ack toward next.
 # integrate is a checklist with no irreversible agent work (merge is manual),
@@ -84,13 +91,63 @@ def run(argv: list[str]) -> int:
                     if advisory:
                         note = f"{note}; {advisory}"
                     new_state = _ph.STATE_ACK_NEEDED
-                    _lc.set_state(
-                        args.ticket,
-                        pid,
-                        new_state,
-                        event="manual-completion",
-                        note=note
-                    )
+                    # KLC-057: the WORK→ack-needed advance is a state mutation, so
+                    # it must ride its own state_tx (self-heal → pull → set_state
+                    # → push) — never a pre-tx write that would dirty the tree and
+                    # deadlock the recursion's pull. Feature-off, this is a no-op
+                    # wrapper and set_state behaves exactly as before (AC-8).
+                    try:
+                        with state_tx.state_tx(
+                            args.ticket,
+                            f"ack {args.ticket} manual-completion"
+                        ) as tx:
+                            # Stale-guard is enforced by the state_tx envelope
+                            # (raises StaleStateError before the body if the pull
+                            # changed this ticket) — closes P2b (manual-completion
+                            # previously rechecked only phase).
+                            if tx is not None:
+                                # holder-auth (P1): do NOT push another user's held
+                                # phase. Mirror the pick-ack/next holder check
+                                # BEFORE the WORK→ack-needed set_state/push.
+                                _h = _lc.read_meta(args.ticket).get("holder")
+                                if _h and _h.get("id") \
+                                        and _h.get("id") != identity.current():
+                                    raise holder.HolderConflictError(
+                                        f"ticket {args.ticket!r} held by "
+                                        f"{_h.get('id')!r}", holder=_h)
+                            _lc.set_state(
+                                args.ticket, pid, new_state,
+                                event="manual-completion", note=note,
+                            )
+                    except holder.HolderConflictError as e:
+                        hid = e.holder.get("id") if e.holder else "?"
+                        sys.stderr.write(f"klc ack: phase held by {hid}\n")
+                        return 1
+                    except state_sync.StaleStateError:
+                        sys.stderr.write(
+                            "klc ack: remote state advanced since you started — "
+                            f"re-run `klc ack {args.ticket}`.\n"
+                        )
+                        return 1
+                    except state_sync.StashConflictError:
+                        sys.stderr.write(
+                            "klc ack: local changes conflict with the remote — "
+                            "resolve manually; your work is saved in the git "
+                            "stash.\n"
+                        )
+                        return 1
+                    except state_sync.StateConflictError:
+                        sys.stderr.write(
+                            "klc ack: concurrent update — another writer moved "
+                            "this ticket; retry.\n"
+                        )
+                        return 1
+                    except (state_sync.RetryExhaustedError,
+                            state_sync.RebaseConflictError,
+                            state_sync.ConfigError,
+                            RuntimeError):
+                        sys.stderr.write("klc ack: state sync failed — retry.\n")
+                        return 1
                     sys.stderr.write(f"→ {pid}:{new_state} (manual completion)\n")
                     # Recurse: now in ack-needed, apply normal ack logic
                     return run(argv)
@@ -186,9 +243,78 @@ def run(argv: list[str]) -> int:
                         + "; ".join(decision.reasons) + "\n"
                     )
                     return 2
-                new_state = _lc.apply_ack(args.ticket, pick.id)
+                pick_id = pick.id
             else:
-                new_state = _lc.apply_ack(args.ticket, args.pick)
+                pick_id = args.pick
+
+            # KLC-057: the lifecycle advance now runs INSIDE state_tx, AFTER the
+            # pull — so `pull_rebase` sees a clean tree and the advance is
+            # captured in the rollback snapshot (a rejected push unwinds it, not
+            # just the holder). The holder of the phase just left is released in
+            # the SAME body, so one CAS push carries both the advance and the
+            # cleared holder (AC-4/AC-5). Feature-off, state_tx is a no-op: the
+            # body still runs apply_ack (AC-8 byte-identical) but writes no holder
+            # and touches no git (AC-8b).
+            acked: dict = {}
+            try:
+                with state_tx.state_tx(
+                    args.ticket, f"ack {args.ticket}"
+                ) as tx:
+                    # Stale-guard (scope/gate/pick were validated pre-pull) is
+                    # enforced by the state_tx envelope: it raises StaleStateError
+                    # before this body if the pull changed the ticket's committed
+                    # state at all — phase, meta, OR any artifact/gate input.
+                    acked["new_state"] = _lc.apply_ack(args.ticket, pick_id)
+                    if tx is not None:
+                        ident = {"id": identity.current(),
+                                 "machine": socket.gethostname()}
+                        holder.release_holder(args.ticket, ident)
+            except state_sync.StaleStateError:
+                sys.stderr.write(
+                    "klc ack: remote state advanced since you started — "
+                    f"re-run `klc ack {args.ticket}`.\n"
+                )
+                return 1
+            except state_sync.StashConflictError:
+                sys.stderr.write(
+                    "klc ack: local changes conflict with the remote — resolve "
+                    "manually; your work is saved in the git stash.\n"
+                )
+                return 1
+            except holder.HolderConflictError as e:
+                # LOW-1: a release against a DIFFERENT holder is reported as such,
+                # not masked by the generic sync-failure message below.
+                hid = e.holder.get("id") if e.holder else "?"
+                sys.stderr.write(f"klc ack: phase held by {hid}\n")
+                return 1
+            except state_sync.StateConflictError:
+                sys.stderr.write(
+                    "klc ack: concurrent update — another writer moved this "
+                    "ticket; retry.\n"
+                )
+                return 1
+            except (state_sync.RetryExhaustedError,
+                    state_sync.RebaseConflictError,
+                    state_sync.ConfigError,
+                    RuntimeError):
+                # Terminal, non-CAS sync failure (RRC set above, plus a plain
+                # RuntimeError — network/auth/protected-branch/NothingToCommit).
+                # Clean message, no git internals (AC-7). The push did not land,
+                # so the remote is unchanged and the advance was rolled back.
+                sys.stderr.write(
+                    "klc ack: state sync failed — retry.\n"
+                )
+                return 1
+            except ValueError:
+                # apply_ack raises ValueError for a bad/ambiguous pick (a user
+                # error) — surface it via the outer handler. A ValueError AFTER
+                # apply_ack succeeded came from the push (bad path) → sync error.
+                if "new_state" not in acked:
+                    raise
+                sys.stderr.write("klc ack: state sync failed — retry.\n")
+                return 1
+            new_state = acked["new_state"]
+
             meta = _lc.read_meta(args.ticket)
 
             if new_state == _ph.STATE_ARCHIVED:
@@ -228,7 +354,16 @@ def run(argv: list[str]) -> int:
 
 
 def _write_scope_conflict(ticket: str, phase_id: str, delta: dict) -> None:
-    """Append a [!CONFLICT] entry to the review report when scope expands."""
+    """Append a [!CONFLICT] entry to the review report when scope expands.
+
+    Feature-ON this is a no-op: the scope-expansion check is a pre-decision ABORT
+    (no state_tx runs, nothing is pushed), so persisting a tracked annotation
+    out-of-band would be a dead write — self-heal/stash strips it and it never
+    reaches the shared state. The stderr message the caller emits already informs
+    the user. Feature-OFF (single-user) keeps the on-disk annotation as before.
+    """
+    if state_feature.enabled():
+        return
     from _paths import klc_ticket_dir
     report_name = "review-report.md" if phase_id == "review" else f"{phase_id}.md"
     report = klc_ticket_dir(ticket) / report_name

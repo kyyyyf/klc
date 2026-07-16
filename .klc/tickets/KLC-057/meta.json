@@ -2,7 +2,7 @@
   "ticket": "KLC-057",
   "kind": "tech",
   "kind_source": "discovery",
-  "phase": "build:work",
+  "phase": "integrate:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -83,7 +83,70 @@
       "phase": "build:work",
       "started_at": "2026-06-28T06:48:21Z",
       "event": "advance",
-      "note": "ack:option-B-clean"
+      "note": "ack:option-B-clean",
+      "finished_at": "2026-07-13T14:34:33Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-07-13T14:34:33Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-13T14:34:55Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-07-13T14:34:55Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-13T14:34:55Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-07-13T14:34:55Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-16T08:02:09Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-07-16T08:02:09Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-16T08:02:33Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-07-16T08:02:33Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-16T08:02:33Z"
+    },
+    {
+      "phase": "manual:work",
+      "started_at": "2026-07-16T08:02:33Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-16T08:03:45Z"
+    },
+    {
+      "phase": "manual:ack-needed",
+      "started_at": "2026-07-16T08:03:45Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-16T08:03:45Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-07-16T08:03:45Z",
+      "event": "ack",
+      "note": "pick=1:passed",
+      "finished_at": "2026-07-16T08:03:45Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-07-16T08:03:45Z",
+      "event": "advance",
+      "note": "ack:passed"
     }
   ],
   "track": "M",
@@ -99,7 +162,8 @@
     "intake",
     "ack",
     "core/phases",
-    "core/skills"
+    "core/skills",
+    "tests"
   ],
   "created": "2026-06-27T07:23:36Z",
   "owner": "developer@example.com",

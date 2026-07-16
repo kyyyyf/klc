@@ -64,6 +64,20 @@ class ConfigError(Exception):
     """Required remote/upstream configuration is missing."""
 
 
+class StashConflictError(Exception):
+    """Restoring stashed uncommitted local artifacts after the pull conflicted
+    with the incoming remote state — surfaced so the caller aborts WITHOUT data
+    loss (the stash is left intact and recoverable)."""
+
+
+class StaleStateError(Exception):
+    """The pull brought a committed change to THIS ticket, so any pre-pull
+    validation (scope/gate/pick/can_complete/``--force`` overwrite) a verb did is
+    stale. Raised by the ``state_tx`` envelope BEFORE the body runs so EVERY verb
+    aborts uniformly ("remote state advanced — re-run") rather than acting on the
+    changed state — the single, class-closing guard for "validate-before-pull"."""
+
+
 class NothingToCommitError(RuntimeError):
     """The supplied paths existed but had no staged changes to commit.
 
@@ -73,13 +87,23 @@ class NothingToCommitError(RuntimeError):
 
 
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        env=_GIT_ENV,
-    )
+    """Run git, capturing output. Never raises for a missing/unusable git binary:
+    a ``FileNotFoundError``/``OSError`` is turned into a synthetic non-zero
+    result (returncode 127) so callers uniformly branch on ``returncode`` and the
+    "never raises" helpers (e.g. :func:`ticket_tree_hash`) hold that contract even
+    where git is absent."""
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            env=_GIT_ENV,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        return subprocess.CompletedProcess(
+            args=["git", *args], returncode=127, stdout="", stderr=str(exc)
+        )
 
 
 def _rebase_in_progress(cwd: Path) -> bool:
@@ -113,6 +137,143 @@ def pull_rebase(klc_dir: Path) -> None:
         f"git pull --rebase failed in {klc_dir}: "
         f"{r.stderr.strip() or r.stdout.strip()}"
     )
+
+
+# Derived / runtime-local artifacts inside the klc-state worktree that must
+# never be tracked or pushed (C-003: board/index/prompt-cards are DERIVED from
+# per-ticket meta; the lock is process-local). Kept out of the tracked tree via
+# the worktree's git exclude file so they never dirty it, never block a
+# ``pull --rebase``, and are never swept into the ticket-subtree glob-commit.
+# Patterns without a slash match at any depth (so per-ticket ``.lock`` /
+# ``_prompt.md`` under ``tickets/<KEY>/<phase>/`` are covered).
+_DERIVED_IGNORES = (
+    "knowledge/tickets-index.jsonl",  # derived cross-ticket index cache
+    ".lock",                          # per-ticket runtime lock (held in-tx)
+    ".index.json",                    # per-ticket derived inline-items index
+    "_prompt.md",                     # derived phase prompt card
+    "_prompt_step_*.md",              # derived build step cards
+    "scratch/",                       # per-session local agent memory
+)
+
+
+def _derived_untrack_pathspecs(ticket: str) -> list[str]:
+    """git pathspecs (``:(glob)`` magic) for derived caches that must be
+    UNTRACKED on an upgraded worktree where an older layout committed them.
+    Scoped to THIS ticket's subtree plus the shared cross-ticket index, so one
+    op never disturbs another ticket's tracked state."""
+    t = f"tickets/{ticket}"
+    return [
+        "knowledge/tickets-index.jsonl",        # shared derived index (top-level)
+        f":(glob){t}/**/.lock",
+        f":(glob){t}/**/.index.json",
+        f":(glob){t}/**/_prompt.md",
+        f":(glob){t}/**/_prompt_step_*.md",
+        f":(glob){t}/**/scratch/**",
+    ]
+
+
+def _has_tracked_changes(klc_dir: Path) -> bool:
+    """True if the worktree has uncommitted changes to TRACKED files.
+
+    Untracked and git-ignored files are excluded: untracked new artifacts don't
+    block a rebase and are captured by the glob-commit; ignored/derived files
+    are never our concern.  Only tracked modifications/staged/deletions need to
+    be stashed around the pull.
+    """
+    r = _git(["status", "--porcelain", "--untracked-files=no"], klc_dir)
+    return bool(r.stdout.strip())
+
+
+def pull_rebase_preserving(klc_dir: Path) -> None:
+    """``git pull --rebase`` that PRESERVES uncommitted tracked artifacts.
+
+    In-progress TRACKED ticket artifacts (an agent's ``design.md`` /
+    ``build-log.md`` edit, a ``meta.json`` flag, …) are uncommitted until the
+    next verb's subtree glob-commit; they must NEVER be discarded.  A plain
+    ``git pull --rebase`` refuses a dirty tree, so tracked changes are stashed
+    around the rebase and then restored — the body then mutates and the
+    glob-commit captures artifacts + mutation into one push.  Untracked new
+    files are left in place (they don't block the rebase); ignored/derived files
+    are never touched.
+
+    On a restore (stash-pop) conflict — rare, since a ticket is single-writer —
+    the stash is left intact and :class:`StashConflictError` is raised so the
+    caller can abort WITHOUT losing the user's work.
+    """
+    stashed = _has_tracked_changes(klc_dir)
+    if stashed:
+        sp = _git(["stash", "push", "-q", "-m", "klc-state_tx autostash"], klc_dir)
+        if sp.returncode != 0:
+            raise RuntimeError(
+                f"could not preserve local changes in {klc_dir} before pull: "
+                f"{sp.stderr.strip() or sp.stdout.strip()}"
+            )
+    try:
+        pull_rebase(klc_dir)
+    except Exception:
+        # The pull failed (rebase conflict / network / …). Restore the stashed
+        # work so nothing is lost, then surface the original error.
+        if stashed:
+            _git(["stash", "pop"], klc_dir)
+        raise
+    if stashed:
+        pop = _git(["stash", "pop"], klc_dir)
+        if pop.returncode != 0:
+            # Incoming remote state conflicts with our uncommitted local edits.
+            # A conflicted pop keeps the stash entry (never dropped on failure);
+            # discard only the half-applied working-tree/index state so the tree
+            # is clean (no wedge) while the user's work stays fully recoverable
+            # in the stash, then surface a clear, non-destructive error.
+            _git(["reset", "--hard", "-q"], klc_dir)
+            raise StashConflictError(
+                f"local uncommitted changes in {klc_dir} conflict with the "
+                f"incoming remote state; resolve manually — your work is saved "
+                f"(see `git -C {klc_dir} stash list`)."
+            )
+
+
+def ticket_tree_hash(klc_dir: Path, ticket: str) -> str | None:
+    """The committed tree-object hash of ``tickets/<ticket>/`` at ``HEAD``.
+
+    Returns ``None`` if the subtree is absent from ``HEAD`` (or this is not a
+    git worktree). Comparing the value captured BEFORE ``pull_rebase_preserving``
+    with the value AFTER it tells a verb whether the pull brought ANY committed
+    change to this ticket — so a pre-pull scope/gate/pick validation is never
+    applied to pulled-changed state. Never raises.
+    """
+    r = _git(["rev-parse", "-q", "--verify", f"HEAD:tickets/{ticket}"], klc_dir)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def ensure_derived_ignored(klc_dir: Path) -> None:
+    """Ensure the derived local caches are git-ignored in this worktree.
+
+    Appends the derived-cache paths to the worktree's ``info/exclude`` (a LOCAL,
+    per-clone ignore that is never shared or committed) so an append to the
+    derived index never shows as an untracked change and never blocks a rebase.
+    Idempotent and never raises.
+    """
+    klc_dir = Path(klc_dir)
+    r = _git(["rev-parse", "--git-path", "info/exclude"], klc_dir)
+    if r.returncode != 0 or not r.stdout.strip():
+        return
+    exclude = Path(r.stdout.strip())
+    if not exclude.is_absolute():
+        exclude = klc_dir / exclude
+    try:
+        existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        present = set(existing.split())
+        missing = [rule for rule in _DERIVED_IGNORES if rule not in present]
+        if not missing:
+            return
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        with exclude.open("a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")
+            for rule in missing:
+                fh.write(rule + "\n")
+    except OSError:
+        pass
 
 
 def _upstream_branch(klc_dir: Path) -> str:
@@ -297,6 +458,92 @@ def commit_and_push_cas(
     except Exception:
         # Terminal failure: unwind the local commit (keep the changes staged)
         # so the next CAS cycle starts clean.
+        _git(["reset", "--soft", "HEAD~1"], klc_dir)
+        raise
+
+
+def commit_and_push_cas_subtree(
+    ticket: str,
+    msg: str,
+    klc_dir: Path,
+    remote: str = "origin",
+    max_retries: int = 3,
+) -> None:
+    """Glob-commit EVERYTHING under ``tickets/<ticket>/`` and CAS-push it.
+
+    The design-hardened counterpart to :func:`commit_and_push_cas`: instead of a
+    hand-listed path fragment it stages the ticket's whole subtree with
+    ``git add -A -- tickets/<ticket>/`` (adds, modifications AND deletions), so
+    any file the verb body wrote under the subtree — meta.json, raw.md,
+    ``_superseded/…``, a jira-merged raw.md — is captured automatically and no
+    mutation site can be "forgotten." It also converges an upgraded worktree by
+    untracking (keeping on disk) any derived cache an older layout committed (P2).
+    Conflict classification, rebase, retry and the terminal ``reset --soft``
+    unwind are shared with the CAS machinery.
+
+    Raises:
+        ConfigError: if *klc_dir* has no configured upstream.
+        ValueError: if ``git add`` refuses the subtree (before any commit).
+        NothingToCommitError: if the subtree had no staged changes.
+        StateConflictError / RetryExhaustedError / RebaseConflictError /
+        RuntimeError: per the CAS push semantics.
+    """
+    klc_dir = Path(klc_dir)
+    subtree = f"tickets/{ticket}/"
+
+    up = _git(
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        klc_dir,
+    )
+    if up.returncode != 0:
+        raise ConfigError(
+            f"no upstream configured for current branch in {klc_dir}"
+        )
+    upstream_branch = _upstream_branch(klc_dir)
+
+    # Build the index deterministically: unstage anything first, stage exactly
+    # this ticket's subtree, then untrack derived caches. Committing the INDEX
+    # (not a pathspec, which re-reads the working tree and would re-add an
+    # on-disk file `git rm --cached` just removed) keeps the op ticket-scoped
+    # while letting derived removals ride the push.
+    _git(["reset", "-q"], klc_dir)
+
+    # Stage the ENTIRE subtree (``-A`` captures deletions from supersede moves).
+    add = _git(["add", "-A", "--", subtree], klc_dir)
+    if add.returncode != 0:
+        raise ValueError(
+            f"git add refused {subtree!r}: {add.stderr.strip() or add.stdout.strip()}"
+        )
+
+    # P2 (upgrade convergence): untrack (keep on disk) any derived cache that an
+    # older layout committed — the info/exclude rules alone can't untrack an
+    # already-tracked file. Idempotent via --ignore-unmatch (a no-op on a fresh
+    # worktree where nothing derived is tracked). Scoped to this ticket + the
+    # shared index; the removal rides THIS commit so the tree converges clean.
+    _git(["rm", "--cached", "-q", "--ignore-unmatch", "--",
+          *_derived_untrack_pathspecs(ticket)], klc_dir)
+
+    commit = _git(["commit", "-m", msg], klc_dir)
+    if commit.returncode != 0:
+        out = (commit.stdout + commit.stderr).lower()
+        if "nothing to commit" in out or "no changes added" in out:
+            raise NothingToCommitError(
+                commit.stdout.strip() or commit.stderr.strip()
+                or "nothing to commit"
+            )
+        raise RuntimeError(commit.stderr.strip() or commit.stdout.strip())
+
+    cur_branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], klc_dir).stdout.strip()
+    upstream_remote = _git(
+        ["config", "--get", f"branch.{cur_branch}.remote"], klc_dir
+    ).stdout.strip()
+    use_upstream = remote == upstream_remote
+
+    try:
+        _push_with_cas(
+            ticket, upstream_branch, use_upstream, klc_dir, remote, max_retries
+        )
+    except Exception:
         _git(["reset", "--soft", "HEAD~1"], klc_dir)
         raise
 

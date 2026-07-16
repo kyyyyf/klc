@@ -30,6 +30,7 @@ Old-format meta.json (lifecycle states like `discovery-running`,
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import json
 import os
@@ -135,6 +136,42 @@ def steal_holder(ticket: str, identity: dict, *args, **kwargs):
 
 
 # --- low-level state write ----------------------------------------------------
+
+# --- Jira push deferral (KLC-057 P1: order after the CAS push) ----------------
+# While `defer_jira_pushes()` is active (set by `state_tx` around a feature-on
+# op), `set_state` COLLECTS the intended Jira transition instead of firing it
+# immediately. `state_tx` flushes the collected transition ONLY after
+# `commit_and_push_cas_subtree` succeeds — and never on rollback — so a rejected
+# / conflicting CAS push can no longer leave Jira advanced ahead of klc.
+_jira_deferral: "list | None" = None
+
+
+@contextlib.contextmanager
+def defer_jira_pushes():
+    """Collect Jira pushes instead of firing them; yields the collection list.
+    Save/restore the previous state so nested use (e.g. ack manual-completion
+    then its recursion) is safe."""
+    global _jira_deferral
+    prev = _jira_deferral
+    _jira_deferral = []
+    try:
+        yield _jira_deferral
+    finally:
+        _jira_deferral = prev
+
+
+def flush_jira_pushes(pending) -> None:
+    """Fire the deferred Jira push for the FINAL collected transition exactly
+    once, after a successful CAS push. Intermediate transitions within one atomic
+    op (e.g. ack's :ack then :work) collapse to the net phase. Never raises."""
+    if not pending:
+        return
+    ticket, phase, source = pending[-1]
+    try:
+        _jira_push_after_state(ticket, phase, source=source)
+    except Exception as _e:
+        sys.stderr.write(f"[jira-sync] non-fatal: {_e}\n")
+
 
 def _jira_push_after_state(ticket: str, phase: str, *, source: str) -> None:
     """Dispatch Jira sync after a state write.
@@ -396,10 +433,15 @@ def set_state(ticket: str, phase_id: str, state: str, *,
     history.append(entry)
     meta["phase"] = new
     write_meta(ticket, meta)
-    try:
-        _jira_push_after_state(ticket, new, source=event)
-    except Exception as _e:
-        sys.stderr.write(f"[jira-sync] non-fatal: {_e}\n")
+    if _jira_deferral is not None:
+        # Inside a state_tx: defer until the CAS push confirms (P1). Skipped
+        # entirely if the tx rolls back — no Jira/klc divergence.
+        _jira_deferral.append((ticket, new, event))
+    else:
+        try:
+            _jira_push_after_state(ticket, new, source=event)
+        except Exception as _e:
+            sys.stderr.write(f"[jira-sync] non-fatal: {_e}\n")
 
 
 def jira_pull(ticket: str, target_phase: str, *,
