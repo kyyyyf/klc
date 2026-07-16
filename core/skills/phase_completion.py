@@ -27,8 +27,15 @@ import impl_plan_check as _impl_plan_check  # noqa: E402
 import plan_quality as _plan_quality  # noqa: E402
 
 
-def can_complete_discovery(ticket: str) -> tuple[bool, str]:
+def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check if discovery phase artifacts are complete for manual ack.
+
+    Args:
+        persist: when True (default, the ack path), completion side effects are
+            persisted to meta.json — the floor-guard downgrade audit and the
+            risk_tags sync. Read-only callers (`klc remind`, gate-policy advisory)
+            pass persist=False so the completability *decision* is unchanged but
+            NOTHING is written (KLC-062 AC-1/AC-3).
 
     Returns:
         (success, error_message)
@@ -91,7 +98,10 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
 
     # Check meta.json fields
     try:
-        meta = _lc.read_meta(ticket)
+        # KLC-062: read-only callers (persist=False) must not trigger a
+        # legacy-phase migration write-back here; the in-memory migration still
+        # applies so the completion decision is unchanged.
+        meta = _lc.read_meta(ticket, persist_migration=persist)
 
         # Check track
         if not meta.get("track"):
@@ -149,12 +159,15 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
                     f"raise the track or use `klc retrack`",
                 )
             # AC-3: persist the audit trail so retrospective can verify the evidence.
-            meta["track_source"] = "discovery"
-            meta["blast_radius"] = {
-                "available": True,
-                "external_dependents": info.get("external_dependents", []),
-            }
-            _lc.write_meta(ticket, meta)
+            # KLC-062: only on the persisting (ack) path — a read-only probe must
+            # not write, even though the downgrade-safety decision above still ran.
+            if persist:
+                meta["track_source"] = "discovery"
+                meta["blast_radius"] = {
+                    "available": True,
+                    "external_dependents": info.get("external_dependents", []),
+                }
+                _lc.write_meta(ticket, meta)
 
     # Self-review gate (KLC-033): reject specs with placeholder/conflict/stub violations.
     _sr = _spec_selfreview.scan_spec(spec_text)
@@ -168,8 +181,11 @@ def can_complete_discovery(ticket: str) -> tuple[bool, str]:
     if not _spec_structure.recorded_pick(spec_text):
         return False, "spec.md: no recorded pick — add 'Picked: <approach>' before acking"
 
-    # All checks passed — extract risk_tags from spec.md frontmatter into meta
-    _sync_risk_tags(ticket)
+    # All checks passed — extract risk_tags from spec.md frontmatter into meta.
+    # KLC-062: this is a write, so it is gated on the persisting (ack) path only;
+    # read-only callers (remind) pass persist=False and leave meta.json untouched.
+    if persist:
+        _sync_risk_tags(ticket)
     if _spec_structure.has_decompose_signal(spec_text):
         return True, "DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building"
     return True, ""
@@ -250,11 +266,14 @@ def _sync_risk_tags(ticket: str) -> None:
         pass  # non-fatal: risk_tags will just be absent
 
 
-def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
+def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check if discovery-lite artifacts are complete (XS/S spec).
 
     Stricter than generic: verifies spec sections, estimate.total vs track,
     affected_modules >= 1, and risk_tags present in frontmatter.
+
+    `persist` mirrors `can_complete_discovery`: when False (read-only callers)
+    the risk_tags sync is skipped so meta.json is left byte-identical (KLC-062).
     """
     ticket_dir = klc_ticket_meta_file(ticket).parent
     spec_path = ticket_dir / "spec.md"
@@ -294,7 +313,9 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
         return False, f"Cannot read spec.md: {e}"
 
     try:
-        meta = _lc.read_meta(ticket)
+        # KLC-062: same read-only guard as can_complete_discovery — suppress the
+        # legacy-migration write-back when persist=False (decision unchanged).
+        meta = _lc.read_meta(ticket, persist_migration=persist)
         track = meta.get("track")
         if not track:
             return False, "meta.json: missing 'track' field"
@@ -356,8 +377,10 @@ def can_complete_discovery_lite(ticket: str) -> tuple[bool, str]:
         if _api_refs:
             return False, f"impl-plan.md: {_api_refs[0]}"
 
-    # All checks passed — sync risk_tags from spec.md into meta.json
-    _sync_risk_tags(ticket)
+    # All checks passed — sync risk_tags from spec.md into meta.json.
+    # KLC-062: gated to the persisting (ack) path; read-only callers skip the write.
+    if persist:
+        _sync_risk_tags(ticket)
     _advisories = []
     if _spec_structure.has_decompose_signal(text):
         _advisories.append("DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building")
@@ -447,21 +470,26 @@ def can_complete_build(ticket: str, repo: Path | None = None) -> tuple[bool, str
     return True, ""
 
 
-def can_complete(ticket: str, phase_id: str) -> tuple[bool, str]:
+def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check if a phase can be manually completed based on artifacts.
 
     Args:
         ticket: ticket key (e.g., "KLC-001")
         phase_id: phase identifier (e.g., "discovery", "build")
+        persist: when True (default, ack path) discovery completion may persist
+            side effects (risk_tags sync, floor-guard audit). Read-only callers
+            (`klc remind`, gate-policy advisory) pass False so the check never
+            writes meta.json (KLC-062 AC-1). Non-discovery phases never write, so
+            the flag is a no-op for them.
 
     Returns:
         (success, error_message)
     """
     if phase_id == "discovery":
-        return can_complete_discovery(ticket)
+        return can_complete_discovery(ticket, persist=persist)
 
     if phase_id == "discovery-lite":
-        return can_complete_discovery_lite(ticket)
+        return can_complete_discovery_lite(ticket, persist=persist)
 
     if phase_id == "acceptance-test-plan":
         return can_complete_acceptance_test_plan(ticket)

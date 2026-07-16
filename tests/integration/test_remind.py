@@ -67,6 +67,61 @@ def _fabricate_ticket(root: Path, ticket: str, *, phase: str,
 ID = "tester@example.com"
 
 
+def _fabricate_completable_discovery(root: Path, ticket: str, *,
+                                     holder_id: str,
+                                     phase: str = "discovery:work") -> Path:
+    """Fabricate a discovery ticket that passes every discovery gate.
+
+    Returns the meta.json path. Used by KLC-062 to prove `klc remind` does not
+    rewrite meta.json (via the `_sync_risk_tags` write inside
+    `can_complete_discovery`). track == route_hint == M so the floor guard is
+    skipped and no modules.json is needed.
+
+    `phase` may be an on-disk LEGACY string (e.g. ``discovery-running`` →
+    ``discovery:work``) to exercise the migration-write-back path.
+    """
+    tdir = root / ".klc" / "tickets" / ticket
+    tdir.mkdir(parents=True)
+    meta = {
+        "ticket": ticket,
+        "kind": "bug",
+        "phase": phase,
+        "phase_history": [],
+        "track": "M",
+        "route_hint": "M",
+        "estimate": {"complexity": 2, "uncertainty": 1, "risk": 1,
+                     "manual": 1, "total": 5},
+        "layer": "code",
+        "affected_modules": ["core/skills"],
+        "created": "2026-01-01T00:00:00Z",
+        "holder": {"id": holder_id, "machine": "test-machine",
+                   "since": "2026-01-01T00:00:00Z"},
+    }
+    (tdir / "meta.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    spec = (
+        "---\n"
+        f"ticket: {ticket}\n"
+        "kind: bug\n"
+        "authority: human\n"
+        "risk_tags: [data]\n"
+        "---\n\n"
+        f"# {ticket} — completable discovery fixture\n\n"
+        "## Goals\n\nMake the thing read-only.\n\n"
+        "## Acceptance Criteria\n\n1. AC-1: given X, when Y, then Z.\n\n"
+        "## Approaches considered\n\n"
+        "- Approach A — keyword flag: gate the write behind a defaulted keyword.\n"
+        "- Approach B — relocate: move the write to the ack path.\n\n"
+        "Picked: Approach A — smallest blast radius.\n\n"
+        "## Estimate\n\n"
+        "- complexity: 2\n- uncertainty: 1\n- risk: 1\n- manual: 1\n"
+        "- total: 5\n- track: M\n"
+    )
+    (tdir / "spec.md").write_text(spec, encoding="utf-8")
+    return tdir / "meta.json"
+
+
 def test_remind_silent_when_nothing_to_do(tmp_path, monkeypatch, capsys):
     """AC-1: no completable-held ticket → no output, exit 0."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
@@ -341,6 +396,96 @@ def test_remind_does_not_drain_jira_queue(tmp_path):
     assert queue.exists(), "remind deleted the Jira queue"
     assert queue.read_text(encoding="utf-8") == payload, (
         "remind mutated the Jira queue (unexpected drain side effect)"
+    )
+
+
+def test_remind_does_not_write_meta_for_completable_discovery(
+    tmp_path, monkeypatch, capsys
+):
+    """KLC-062 AC-1/AC-4: `klc remind` on a completable `discovery:work` ticket
+    held by the caller must fire the reminder AND leave meta.json byte-identical.
+
+    Today `can_complete_discovery` calls `_sync_risk_tags`, which rewrites
+    meta.json → per-prompt git-dirty churn. Post-fix the probe runs with
+    persist=False so no write happens.
+    """
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    meta_p = _fabricate_completable_discovery(tmp_path, "KLC-905", holder_id=ID)
+    before = meta_p.read_bytes()
+    remind = _load_remind()
+    monkeypatch.setattr(remind, "_git_user", lambda: ID)
+
+    rc = remind.run([])
+
+    assert rc == 0
+    assert capsys.readouterr().out == "KLC-905 discovery is done — run klc ack\n"
+    assert meta_p.read_bytes() == before, (
+        "remind rewrote meta.json for a completable discovery ticket "
+        "(_sync_risk_tags side effect must be suppressed on the read-only path)"
+    )
+
+
+def test_remind_does_not_write_meta_legacy_discovery_phase(
+    tmp_path, monkeypatch, capsys
+):
+    """KLC-062 FINDING-1: `klc remind` must not persist a legacy-phase migration
+    even when the phase maps to a WRITE-CAPABLE completion checker (discovery).
+
+    A completable ticket whose on-disk phase is the legacy `discovery-running`
+    (→ `discovery:work`) routes through `can_complete_discovery`, which loads meta
+    via `read_meta`. Unless that read is also read-only, the migration is written
+    back → AC-2 breach. This fixture fails before the FINDING-1 fix (read_meta
+    persists the migration) and passes after.
+    """
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    meta_p = _fabricate_completable_discovery(
+        tmp_path, "KLC-908", holder_id=ID, phase="discovery-running"
+    )
+    before = meta_p.read_bytes()
+    remind = _load_remind()
+    monkeypatch.setattr(remind, "_git_user", lambda: ID)
+
+    rc = remind.run([])
+
+    assert rc == 0
+    assert capsys.readouterr().out == "KLC-908 discovery is done — run klc ack\n"
+    assert meta_p.read_bytes() == before, (
+        "remind persisted a legacy→discovery migration via can_complete_discovery's "
+        "internal read_meta (must be read-only on the advisory path)"
+    )
+
+
+def test_remind_does_not_write_meta_legacy_phase(tmp_path, monkeypatch, capsys):
+    """KLC-062 AC-2: `klc remind` must not persist a legacy-phase migration.
+
+    A ticket whose phase is a legacy string (`integrate-post` → `integrate:work`)
+    that the caller holds is completable (integrate declares no outputs), so the
+    reminder fires — but meta.json must stay byte-identical (no read_meta
+    write-back on the advisory path).
+    """
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _write_meta_raw(tmp_path, "KLC-906", {
+        "ticket": "KLC-906",
+        "kind": "feature",
+        "phase": "integrate-post",  # legacy → integrate:work
+        "phase_history": [],
+        "track": "M",
+        "affected_modules": [],
+        "estimate": None,
+        "created": "2026-01-01T00:00:00Z",
+        "holder": {"id": ID, "machine": "m", "since": "2026-01-01T00:00:00Z"},
+    })
+    meta_p = tmp_path / ".klc" / "tickets" / "KLC-906" / "meta.json"
+    before = meta_p.read_bytes()
+    remind = _load_remind()
+    monkeypatch.setattr(remind, "_git_user", lambda: ID)
+
+    rc = remind.run([])
+
+    assert rc == 0
+    assert capsys.readouterr().out == "KLC-906 integrate is done — run klc ack\n"
+    assert meta_p.read_bytes() == before, (
+        "remind persisted a legacy-phase migration (must be read-only)"
     )
 
 

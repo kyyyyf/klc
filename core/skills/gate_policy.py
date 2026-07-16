@@ -187,7 +187,10 @@ def collect_signals(ticket: str, phase_id: str) -> dict:
 
     # advisory
     try:
-        _, advisory = _pc.can_complete(ticket, phase_id)
+        # persist=False: this is an advisory probe only; it must not trigger the
+        # discovery risk_tags/audit write side effect (KLC-062). The real ack
+        # transition persists them.
+        _, advisory = _pc.can_complete(ticket, phase_id, persist=False)
     except Exception:
         advisory = "phase_completion_error"
 

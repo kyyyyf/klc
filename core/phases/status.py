@@ -38,7 +38,9 @@ def _meta(ticket: str) -> dict | None:
     if not p.exists():
         return None
     try:
-        return _lc.read_meta(ticket)  # triggers legacy migration if needed
+        # Read-only: migrate a legacy phase in-memory for display, but never
+        # write it back — status must not dirty the tree (KLC-062 AC-2).
+        return _lc.read_meta_ro(ticket)
     except FileNotFoundError:
         return None
 

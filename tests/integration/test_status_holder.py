@@ -113,3 +113,25 @@ def test_status_does_not_write_meta() -> None:
         r = _run(["status", "T-SH-5"], root)
         assert r.returncode == 0, f"stderr={r.stderr}"
         assert meta_p.read_bytes() == before, "status rewrote meta.json"
+
+
+def test_status_does_not_write_meta_legacy_phase() -> None:
+    """KLC-062 AC-2: a legacy-format phase string must NOT be persisted back to
+    disk on a read-only `klc status`. The migration is applied in-memory (so the
+    modern phase shows in the render), but meta.json stays byte-identical.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); kd = root / ".klc"; kd.mkdir()
+        # "design-pending" is a legacy phase → migrates to "design:work".
+        meta_p = _bootstrap(kd, "T-SH-6", phase="design-pending", track="M",
+                            holder=_HOLDER)
+        before = meta_p.read_bytes()
+        r = _run(["status", "T-SH-6"], root)
+        assert r.returncode == 0, f"stderr={r.stderr}"
+        # In-memory migration still surfaces the modern phase in the render.
+        line = _current_line(r.stdout)
+        assert "design" in line, line
+        # …but the read must not write the migration back.
+        assert meta_p.read_bytes() == before, (
+            "status persisted a legacy-phase migration (must be read-only)"
+        )

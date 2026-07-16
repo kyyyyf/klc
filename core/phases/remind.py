@@ -98,7 +98,9 @@ def _scan() -> int:
             continue
         ticket = tdir.name
         try:
-            meta = _lc.read_meta(ticket)
+            # Read-only: never persist a legacy-phase migration on the advisory
+            # path (KLC-062 AC-2). Migration is still applied in-memory.
+            meta = _lc.read_meta_ro(ticket)
         except Exception:
             continue
 
@@ -116,7 +118,10 @@ def _scan() -> int:
         phase_id = phase_val.split(":", 1)[0]
 
         try:
-            ok, _msg = _pc.can_complete(ticket, phase_id)
+            # persist=False: remind is advisory-only and runs on every prompt
+            # submit — the completion probe must never write meta.json (KLC-062
+            # AC-1). risk_tags/audit are still persisted at the real ack.
+            ok, _msg = _pc.can_complete(ticket, phase_id, persist=False)
         except Exception:
             continue
         if ok:

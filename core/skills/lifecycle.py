@@ -93,16 +93,36 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def read_meta(ticket: str) -> dict:
+def read_meta(ticket: str, *, persist_migration: bool = True) -> dict:
+    """Load a ticket's meta.json, migrating a legacy phase string in-memory.
+
+    By default (`persist_migration=True`) a legacy-format phase is also written
+    back to disk — this is the historic behaviour every write-path caller
+    relies on. Read-only callers (`klc status`, `klc remind`) must pass
+    `persist_migration=False` (or use `read_meta_ro`) so that merely displaying
+    a ticket never dirties the tree (KLC-062 AC-2). The migration is still
+    applied to the returned dict either way, so callers always see the modern
+    `<phase>:<state>` form.
+    """
     p = klc_ticket_meta_file(ticket)
     if not p.exists():
         raise FileNotFoundError(
             f"ticket {ticket!r} has no meta.json; run `klc intake` first"
         )
     meta = json.loads(p.read_text(encoding="utf-8"))
-    if _migrate_legacy_phase(meta):
+    if _migrate_legacy_phase(meta) and persist_migration:
         write_meta(ticket, meta)
     return meta
+
+
+def read_meta_ro(ticket: str) -> dict:
+    """Read-only `read_meta`: never persists a legacy-phase migration (KLC-062).
+
+    Thin wrapper for advisory / display verbs (`status`, `remind`). The legacy
+    migration is still applied in-memory for correct display; only the write-back
+    is suppressed.
+    """
+    return read_meta(ticket, persist_migration=False)
 
 
 def write_meta(ticket: str, meta: dict) -> None:
