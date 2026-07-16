@@ -722,5 +722,57 @@ def test_upgraded_worktree_untracks_tracked_derived_index(tmp_path, monkeypatch)
         "the derived index must no longer be on the shared state"
 
 
+# --------------------------------------------------------------------------- #
+# harden6 — intake --force holder authorization
+# --------------------------------------------------------------------------- #
+
+def test_force_refused_over_peer_held_ticket(tmp_path, monkeypatch, capsys):
+    """harden6 (INV4): `intake --force` on an EXISTING ticket held by ANOTHER
+    user must be REFUSED (no overwrite, no push, no holder steal) — taking over
+    goes through `klc steal`, never a silent --force."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+    klc = _init_repo(tmp_path, {
+        "KLC-4401": _meta("KLC-4401", phase="build:ack", track="S",
+                          holder={"id": "bob@example.com", "machine": "b",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    assert state_feature.enabled() is True
+
+    import intake as intake_mod  # current identity is ALICE; bob holds KLC-4401
+    rc = intake_mod.run(["KLC-4401", "--force", "alice tries to steal"])
+    assert rc != 0, "--force over a peer-held ticket must be refused"
+    err = capsys.readouterr().err.lower()
+    assert "held by" in err and "bob@example.com" in err, f"unclear: {err!r}"
+    assert "steal" in err, "message should point at `klc steal`"
+
+    remote = _remote_meta(klc, "KLC-4401")
+    assert remote["phase"] == "build:ack", "peer's phase must be untouched"
+    assert remote["holder"]["id"] == "bob@example.com", \
+        "peer's holder must NOT be transferred to the forcing user"
+    assert _status(klc) == "", "the refused --force must leave a clean tree"
+
+
+def test_force_allowed_over_self_held_ticket(tmp_path, monkeypatch):
+    """harden6: `intake --force` on a ticket the CURRENT user holds is still
+    allowed (the legit re-intake case) — holder-auth only blocks PEER-held."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("KLC_INTAKE_TRIAGE", "0")
+    klc = _init_repo(tmp_path, {
+        "KLC-4402": _meta("KLC-4402", phase="intake:ack-needed", track="S",
+                          holder={"id": ALICE, "machine": "box",
+                                  "since": "2026-01-01T00:00:00Z"}),
+    })
+    assert state_feature.enabled() is True
+
+    import intake as intake_mod  # ALICE holds KLC-4402
+    rc = intake_mod.run(["KLC-4402", "--force", "alice re-intakes her own"])
+    assert rc == 0, "--force over a self-held ticket must be allowed"
+    remote = _remote_meta(klc, "KLC-4402")
+    assert remote["phase"] == "intake:ack-needed"
+    assert remote["holder"]["id"] == ALICE, "self re-intake keeps the current user as holder"
+    assert _status(klc) == ""
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

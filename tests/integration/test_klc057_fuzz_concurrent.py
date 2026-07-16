@@ -355,10 +355,15 @@ def test_scenario2_concurrent_intake_same_key(tmp_path):
 # --------------------------------------------------------------------------- #
 
 def test_scenario3_force_vs_peer_held(tmp_path):
+    """INV4 (harden6): `intake --force` racing a peer-HELD ticket must NEVER
+    silently transfer the holder to the forcing user. In every round the holder
+    of the ticket stays the original holder (or a legal advance thereof) — the
+    forcing user only obtains it via `klc steal`, never via --force. Who wins the
+    CAS is irrelevant; the invariant is that no cross-user steal occurs."""
+    ph = _ph.load_phases()
     _, users, observer = _build_cluster(tmp_path, 2)
     holder_user, force_user = users[0], users[1]
-    findings: list[str] = []
-    force_wins = held_op_wins = 0
+    force_refused = held_op_wins = steal_findings = 0
     for r in range(_ROUNDS):
         key = f"KLC-{4000 + r}"
         held = {"id": holder_user.email, "machine": "m",
@@ -372,38 +377,42 @@ def test_scenario3_force_vs_peer_held(tmp_path):
         ctx = f"scenario3 round={r} key={key} results={[(e,rc) for e,_,rc,_ in results]}"
         assert len(results) == 2, f"{ctx}: lost a worker result"
         by_email = {e: (rc, out) for e, v, rc, out in results}
-        # no crash either way
         for e, (rc, out) in by_email.items():
             assert rc != -999, f"{ctx}: {e} crashed:\n{out[-800:]}"
+        force_rc, force_out = by_email[force_user.email]
+        # --force must be REFUSED with a holder-auth message (it must not push).
+        if force_rc != 0:
+            force_refused += 1
+            low = force_out.lower()
+            assert "held by" in low or "steal" in low \
+                or "concurrent update" in low or "remote state advanced" in low, \
+                f"{ctx}: --force loser message not a clean holder/CAS abort:\n{force_out[-500:]}"
+            assert "traceback" not in low, f"{ctx}: traceback leaked:\n{force_out[-500:]}"
         m = _origin_meta(observer, key)
         assert m not in (None, "MALFORMED"), f"{ctx}: INV3 meta lost/malformed"
         phase = m.get("phase")
         hid = (m.get("holder") or {}).get("id")
-        force_rc = by_email[force_user.email][0]
-        # INV4: if --force won and reset a phase the peer held, that is a silent
-        # cross-user steal (the known intake-holder-auth gap) — record it.
-        if force_rc == 0 and phase == "intake:ack-needed":
-            force_wins += 1
-            if hid == force_user.email:
-                findings.append(
-                    f"round={r} key={key}: `intake --force` by {force_user.email} "
-                    f"OVERWROTE a phase held by {holder_user.email} "
-                    f"(now phase={phase!r} holder={hid!r}); loser="
-                    f"{by_email[holder_user.email]}")
-        else:
+        # INV4: the forcing user must NEVER hold the ticket (no silent steal).
+        if hid == force_user.email:
+            steal_findings += 1
+        assert hid != force_user.email, (
+            f"{ctx}: INV4 cross-user steal — `intake --force` by {force_user.email} "
+            f"took a phase held by {holder_user.email} "
+            f"(now phase={phase!r} holder={hid!r})")
+        # INV4/5: the phase must not have been reset to intake by the forcing user
+        # (i.e. no silent overwrite of the peer's held ticket).
+        assert not (force_rc == 0 and phase == "intake:ack-needed"), \
+            f"{ctx}: INV4 --force overwrote the peer-held ticket to {phase!r}"
+        if phase != "build:ack":
             held_op_wins += 1
-        assert _valid_phase(phase, ph=_ph.load_phases()), f"{ctx}: INV5 illegal phase"
+        assert _valid_phase(phase, ph), f"{ctx}: INV5 illegal phase {phase!r}"
         _assert_no_derived_on_origin(observer, ctx)
         _settle_and_converge(users, observer, ctx)
     sys.stderr.write(
-        f"\n[scenario3] {_ROUNDS} rounds: force_wins={force_wins} "
-        f"held_op_wins={held_op_wins} steal_findings={len(findings)}\n")
-    if findings:
-        pytest.xfail(
-            "FINDING (intake holder-auth gap — report, do NOT fix here): "
-            "intake --force has no holder check and can win the CAS to silently "
-            "overwrite another user's held phase. Reproducers:\n  "
-            + "\n  ".join(findings[:5]))
+        f"\n[scenario3] {_ROUNDS} rounds: force_refused={force_refused} "
+        f"held_op_advanced={held_op_wins} steal_findings={steal_findings}\n")
+    assert steal_findings == 0, \
+        f"scenario3: {steal_findings} cross-user steals (INV4) — the fix regressed"
 
 
 # --------------------------------------------------------------------------- #

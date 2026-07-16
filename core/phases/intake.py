@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills"))
 import identity  # noqa: E402
 import holder  # noqa: E402
+import lifecycle as _lc  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
 from artefacts import acquire_lock, LockedError  # noqa: E402
@@ -51,6 +52,17 @@ class _IdentityError(Exception):
     """Raised inside the tx when the holder write fails because the caller's
     identity is unusable (empty git user.email, …) — surfaced distinctly from a
     sync failure (LOW-3)."""
+
+
+class _HeldByPeerError(Exception):
+    """Raised inside the tx when `--force` targets an EXISTING ticket held by a
+    DIFFERENT user (harden6). A --force must never silently steal a peer's held
+    phase — taking over goes through the TTL-gated `klc steal` (KLC-058).
+    Carries the current holder id for the message."""
+
+    def __init__(self, holder_id: str):
+        super().__init__(holder_id)
+        self.holder_id = holder_id
 
 
 def _load_key_pattern() -> re.Pattern:
@@ -262,6 +274,19 @@ def run(argv: list[str]) -> int:
                     # guard, so no per-site meta compare is needed here.
                     if not existing and klc_ticket_meta_file(args.ticket).exists():
                         raise _KeyTakenError()
+                    # holder-auth (harden6): a --force overwrite of an EXISTING
+                    # ticket must obey the same holder authorization the other
+                    # verbs use. On the freshly-pulled state, if the ticket is
+                    # held by ANOTHER user, refuse — a --force must never silently
+                    # steal a peer's held phase; taking over goes through the
+                    # TTL-gated `klc steal` (KLC-058). Unheld / self-held tickets
+                    # are still overwritten as before. (tx is not None ⇒ feature
+                    # on; feature-off has no holders, so --force is unchanged.)
+                    if tx is not None and klc_ticket_meta_file(args.ticket).exists():
+                        _cur_holder = _lc.read_meta(args.ticket).get("holder")
+                        if isinstance(_cur_holder, dict) and _cur_holder.get("id") \
+                                and _cur_holder.get("id") != identity.current():
+                            raise _HeldByPeerError(_cur_holder.get("id"))
                     tdir.mkdir(parents=True, exist_ok=True)
                     klc_ticket_raw_file(args.ticket).write_text(
                         raw_body, encoding="utf-8")
@@ -295,6 +320,16 @@ def run(argv: list[str]) -> int:
                 sys.stderr.write(
                     f"klc intake: key {args.ticket} already taken "
                     f"(exists on the shared state); nothing was written.\n"
+                )
+                return 1
+            except _HeldByPeerError as e:
+                # harden6: --force refused — the ticket is held by another user.
+                # The peer's tracked ticket is intact in our worktree; do NOT
+                # rmtree and do NOT push. Taking over requires `klc steal`.
+                sys.stderr.write(
+                    f"klc intake: {args.ticket} phase held by {e.holder_id} — "
+                    f"refusing to --force over another user; use "
+                    f"`klc steal {args.ticket}` to take over.\n"
                 )
                 return 1
             except state_sync.StaleStateError:
