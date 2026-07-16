@@ -774,5 +774,89 @@ def test_force_allowed_over_self_held_ticket(tmp_path, monkeypatch):
     assert _status(klc) == ""
 
 
+# --------------------------------------------------------------------------- #
+# KLC-063: tx rollback must leave a CLEAN index (tree AND index) even on an
+# upgraded worktree that still tracks the shared derived index.
+# --------------------------------------------------------------------------- #
+
+def _reject_pushes(tmp_path: Path) -> None:
+    """Install a pre-receive hook on the bare upstream that rejects every push,
+    forcing the in-tx CAS push to fail for real (no stub)."""
+    hook = tmp_path / "remote.git" / "hooks" / "pre-receive"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+
+
+def _run_failing_tx(klc: Path, ticket: str) -> None:
+    """Drive one state_tx whose body mutates the ticket subtree and whose CAS
+    push is forced to fail, so the rollback path runs against real git."""
+    import state_tx  # noqa: E402
+    with pytest.raises(Exception):
+        with state_tx.state_tx(ticket, f"{ticket} build: advance") as tx:
+            assert tx is not None, "feature must be ON for this test"
+            meta_fp = klc / "tickets" / ticket / "meta.json"
+            d = json.loads(meta_fp.read_text(encoding="utf-8"))
+            d["phase"] = "build:ack"
+            meta_fp.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
+
+
+def test_upgraded_worktree_rollback_leaves_clean_index(tmp_path, monkeypatch):
+    """AC-3 / AC-6b: on an UPGRADED worktree that still TRACKS the shared derived
+    index, a failed CAS push must leave a CLEAN index after rollback — no staged
+    `rm --cached` of knowledge/tickets-index.jsonl left behind. Fails on the
+    pre-fix subtree-scoped rollback reset (state_tx.py:135)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-6301": _meta("KLC-6301", phase="build:ack-needed", track="S"),
+    })
+    # Upgraded layout: an older KLC committed the derived cross-ticket index.
+    _commit_file(klc, "knowledge/tickets-index.jsonl", '{"ticket":"KLC-6301"}\n')
+    assert state_feature.enabled() is True
+    assert _git(klc, "ls-files", "knowledge/tickets-index.jsonl").strip() == \
+        "knowledge/tickets-index.jsonl", "derived index must be TRACKED (upgraded case)"
+
+    _reject_pushes(tmp_path)
+    _run_failing_tx(klc, "KLC-6301")
+
+    porcelain = _git(klc, "status", "--porcelain")
+    assert "knowledge/tickets-index.jsonl" not in porcelain, \
+        f"derived-index untracking left staged after rollback: {porcelain!r}"
+    assert _git(klc, "diff", "--cached", "--name-only").strip() == "", \
+        f"index not clean after rollback: {porcelain!r}"
+    assert (klc / "knowledge" / "tickets-index.jsonl").exists(), \
+        "the on-disk derived index file must be untouched by the rollback"
+
+
+def test_orphan_worktree_rollback_still_clean_index(tmp_path, monkeypatch):
+    """AC-4: on a KLC-053-created orphan (derived index NEVER tracked) a failed
+    CAS push still rolls back to a clean tree AND index — the fix is a no-op here.
+    Also proves an unscoped index reset does NOT destroy another ticket's
+    uncommitted working-tree edit (C-003)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _init_repo(tmp_path, {
+        "KLC-6302": _meta("KLC-6302", phase="build:ack-needed", track="S"),
+        "KLC-6303": _meta("KLC-6303", phase="design:work", track="M"),
+    })
+    assert state_feature.enabled() is True
+    # No knowledge/tickets-index.jsonl is tracked (orphan happy path).
+    assert _git(klc, "ls-files", "knowledge/tickets-index.jsonl").strip() == ""
+
+    # An uncommitted tracked edit to ANOTHER ticket must survive the rollback.
+    other = klc / "tickets" / "KLC-6303" / "meta.json"
+    d = json.loads(other.read_text(encoding="utf-8"))
+    d["note"] = "in-progress work on another ticket"
+    other.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
+
+    _reject_pushes(tmp_path)
+    _run_failing_tx(klc, "KLC-6302")
+
+    assert _git(klc, "diff", "--cached", "--name-only").strip() == "", \
+        "index must be clean after rollback on the orphan path"
+    survived = json.loads(other.read_text(encoding="utf-8"))
+    assert survived.get("note") == "in-progress work on another ticket", \
+        "another ticket's uncommitted working-tree edit must survive the rollback"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

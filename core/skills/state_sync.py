@@ -156,6 +156,56 @@ _DERIVED_IGNORES = (
 )
 
 
+def _derived_match_pathspecs() -> list[str]:
+    """POSITIVE git pathspecs matching the DERIVED cache set anywhere in a tree
+    (single source of truth: ``_DERIVED_IGNORES``). Mirrors the gitignore
+    semantics of each pattern:
+
+    - a trailing ``/`` (a directory) → its whole subtree at any depth;
+    - a pattern containing ``/`` (anchored to the tree root) → that exact path;
+    - a slash-less basename → that name at any depth via a leading ``**/``.
+    """
+    specs: list[str] = []
+    for pat in _DERIVED_IGNORES:
+        if pat.endswith("/"):
+            specs.append(f":(glob)**/{pat}**")
+        elif "/" in pat:
+            specs.append(pat)
+        else:
+            specs.append(f":(glob)**/{pat}")
+    return specs
+
+
+def derived_add_exclude_pathspecs() -> list[str]:
+    """``git add`` EXCLUDE-pathspecs for the DERIVED cache set — the negated form
+    of :func:`_derived_match_pathspecs`.
+
+    Lets a caller stage a whole tree while omitting derived/local artifacts
+    WITHOUT mutating any repo-wide ignore file (``info/exclude`` is the COMMON
+    git dir file, shared by every worktree — appending to it would silently hide
+    unrelated files in other worktrees). Used by ``klc state init`` to keep NEW
+    derived files out of the preserved klc-state commit.
+    """
+    out: list[str] = []
+    for spec in _derived_match_pathspecs():
+        if spec.startswith(":(glob)"):
+            out.append(":(exclude,glob)" + spec[len(":(glob)"):])
+        else:
+            out.append(":(exclude)" + spec)
+    return out
+
+
+def derived_untrack_pathspecs() -> list[str]:
+    """POSITIVE ``git rm --cached`` pathspecs for the DERIVED cache set (unscoped,
+    tree-wide) — used to converge ALREADY-TRACKED derived files (a legacy layout
+    that committed them) OUT of a tree. The counterpart to
+    :func:`derived_add_exclude_pathspecs`: exclude stops NEW derived being staged,
+    untrack removes ones the branch already tracks, so the two together fully
+    close the derived-never-shared invariant (matches the runtime
+    :func:`commit_and_push_cas_subtree` staging discipline)."""
+    return _derived_match_pathspecs()
+
+
 def _derived_untrack_pathspecs(ticket: str) -> list[str]:
     """git pathspecs (``:(glob)`` magic) for derived caches that must be
     UNTRACKED on an upgraded worktree where an older layout committed them.

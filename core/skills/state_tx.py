@@ -22,8 +22,9 @@ it is inside a transaction:
    any file the body writes there is captured automatically — no forgotten site.
 3. **Rollback cleans tree AND index.** On ANY terminal failure the subtree is
    restored to its post-pull snapshot (created files deleted, modified files
-   restored) and the index is reset for the subtree, so the next op's pull never
-   hits a dirty tree/index.
+   restored) and the WHOLE index is reset, so the next op's pull never hits a
+   dirty tree/index — including the top-level `rm --cached` untracking of the
+   shared derived cache that an upgraded worktree stages OUTSIDE the subtree.
 
 When ``state_feature.enabled()`` is False (single-user mode) the wrapper is a
 pure pass-through: no git at all. It yields ``None`` so callers can gate holder
@@ -88,7 +89,6 @@ def state_tx(ticket, msg):
         return
 
     kdir = klc_dir()
-    subtree = f"tickets/{ticket}/"
 
     # 0. CLASS-CLOSING stale-guard (capture BEFORE the pull). Record this
     #    ticket's committed subtree hash so we can tell, after the pull, whether
@@ -126,13 +126,21 @@ def state_tx(ticket, msg):
             # HolderConflictError, or a non-CAS sync error (RuntimeError/
             # ValueError/NothingToCommitError) — unwinds every local mutation the
             # body made so the local tree never diverges ahead of the untouched
-            # remote, and the index is reset for the subtree
-            # (commit_and_push_cas_subtree leaves its aborted commit STAGED via
-            # reset --soft) so the next pull never hits a dirty index. The
-            # collected Jira push is DISCARDED (not flushed). The exception then
-            # propagates for a clean verb message.
+            # remote, and the WHOLE index is reset so the next pull never hits a
+            # dirty index. commit_and_push_cas_subtree leaves its aborted commit
+            # STAGED via reset --soft, and that staged set includes the
+            # `rm --cached` untracking of the shared derived cache
+            # (knowledge/tickets-index.jsonl) which lives OUTSIDE tickets/<ticket>/
+            # on an upgraded worktree (state_sync.py:523). A subtree-scoped reset
+            # would leave that top-level staged deletion behind, contradicting the
+            # rollback contract; an UNSCOPED `git reset` clears it too. This is
+            # safe: stash-popped edits to other tickets and this ticket's snapshot
+            # restore both live in the WORKING TREE, not the index, so an
+            # index-only reset (no --hard) cannot destroy any in-progress work.
+            # The collected Jira push is DISCARDED (not flushed). The exception
+            # then propagates for a clean verb message.
             _restore_subtree(snap, ticket, kdir)
-            state_sync._git(["reset", "-q", "--", subtree], kdir)
+            state_sync._git(["reset", "-q"], kdir)
             raise
     # 8. CAS push succeeded → NOW fire the deferred Jira push (never on rollback).
     lifecycle.flush_jira_pushes(pending)

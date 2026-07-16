@@ -30,6 +30,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+_SKILLS = Path(__file__).resolve().parent.parent / "skills"
+if str(_SKILLS) not in sys.path:
+    sys.path.insert(0, str(_SKILLS))
+import state_sync  # noqa: E402  — single source of truth for the derived-ignore set
+
 STATE_BRANCH = "klc-state"
 STATE_DIR = ".klc"
 DEFAULT_REMOTE = "origin"
@@ -375,7 +380,11 @@ def _teardown_partial(repo: Path, klc: Path, *, stashed: bool) -> None:
 
 
 def _restore_backup(backup, klc: Path) -> None:
-    if backup is not None and not klc.exists():
+    # Guard `backup.exists()`: on any post-merge-back failure the backup is the
+    # only pristine copy, but it must never raise if it is already gone (e.g. a
+    # failure after the success-path cleanup) — restore is best-effort and must
+    # not turn a handled failure into an unhandled FileNotFoundError (KLC-063).
+    if backup is not None and backup.exists() and not klc.exists():
         backup.rename(klc)
 
 
@@ -427,11 +436,76 @@ def _merge_back(backup, klc: Path) -> None:
     The top-level `.git` in the preserved content is skipped so it can never
     clobber the worktree's `.git` pointer (which would make git inside `.klc/`
     talk to the old nested repo instead of this repo's klc-state worktree).
+
+    The backup is NOT deleted here: it is the ONLY pristine copy of the user's
+    preserved tickets and must survive until `_commit_preserved` has durably
+    committed them (KLC-063 data-loss fix). `run()` drops the backup only on a
+    fully successful init, and `_restore_backup` renames it back on any failure.
     """
     if backup is None:
         return
     _merge_tree(backup, klc, skip=frozenset({".git"}))
-    shutil.rmtree(backup)
+
+
+def _commit_preserved(repo: Path, klc: Path, remote: str) -> None:
+    """Commit tickets merged back into the worktree onto `klc-state` and push them
+    (KLC-063).
+
+    `_add_worktree` commits/pushes the `klc-state` branch BEFORE `_merge_back`
+    copies any pre-existing `.klc/tickets/...` into the worktree, so without this
+    step the preserved files stay uncommitted and never reach a second clone —
+    and a later remote creation of the same paths can make future pulls diverge.
+    This commits them onto `klc-state` and (when a remote is configured) pushes,
+    so the preserved state is durable and propagates.
+
+    Fail-safe: makes NO empty commit when there is nothing to preserve (or the
+    merge produced no tracked change). The caller keeps the pristine backup until
+    this returns successfully, so a commit failure restores the preserved tickets
+    (KLC-063 data-loss fix) rather than destroying them.
+
+    Derived/local artifacts must NOT reach the shared klc-state branch (INV7):
+    the derived index, per-ticket `.lock`, prompt cards, `.index.json` and
+    `scratch/` are DERIVED from per-ticket meta and are process-/clone-local.
+    NEW derived files are kept out of the commit via `git add` EXCLUDE PATHSPECS
+    built from the `state_sync` derived set (single source of truth). This
+    deliberately does NOT touch `info/exclude`: that file lives in the COMMON git
+    dir and is shared by every worktree of the repo, so appending to it would
+    silently hide unrelated files in the user's main worktree — a surprising side
+    effect of a plain `klc state init`.
+
+    ALREADY-TRACKED derived files (a legacy klc-state that committed them before
+    the derived-ignore era) are then converged OUT with `git rm --cached`: the
+    exclude alone would leave a tracked derived file modified-but-unstaged (dirty
+    tree) and still on the shared branch. Untracking (keeping the file on disk)
+    stages its removal so the preserved commit drops it and the worktree ends
+    clean w.r.t. tracked files. This mirrors the runtime staging discipline in
+    `state_sync.commit_and_push_cas_subtree` (exclude NEW + untrack TRACKED), so
+    the derived-never-shared invariant is closed for init the same way.
+    """
+    _git(["add", "-A", "--", ".", *state_sync.derived_add_exclude_pathspecs()], klc)
+    _git(["rm", "-r", "--cached", "-q", "--ignore-unmatch", "--",
+          *state_sync.derived_untrack_pathspecs()], klc)
+    # Nothing staged → no preserved content, or the merged files are identical to
+    # what klc-state already carries. Do not create an empty commit; leave init's
+    # output/exit code exactly as they were on the no-preserve path.
+    if _git(["diff", "--cached", "--quiet"], klc, check=False).returncode == 0:
+        return
+    _git(["-c", "user.name=klc", "-c", "user.email=klc@localhost",
+          "commit", "-m", "klc-state: preserve pre-existing tickets"], klc)
+    if _remote_is_configured(repo, remote):
+        # Fail-safe like the orphan-create push tail (see below): the preserved
+        # tickets are already committed locally, so a push failure (offline /
+        # auth / permission) must NOT tear init down — warn and continue (exit 0).
+        push_refspec = f"refs/heads/{STATE_BRANCH}:refs/heads/{STATE_BRANCH}"
+        pushed = _git(["push", remote, push_refspec], klc, check=False)
+        if pushed.returncode != 0:
+            detail = pushed.stderr.strip() or "push failed"
+            sys.stderr.write(
+                f"klc state: warning: preserved tickets committed to "
+                f"{STATE_BRANCH} locally but not pushed to {remote!r} ({detail}); "
+                f"run `git -C {STATE_DIR} push {remote} {push_refspec}` when "
+                f"online so other clones receive them.\n"
+            )
 
 
 def run(argv: list[str]) -> int:
@@ -505,6 +579,7 @@ def run(argv: list[str]) -> int:
         backup = _stash_existing(klc, repo)
         _add_worktree(repo, klc, remote)
         _merge_back(backup, klc)
+        _commit_preserved(repo, klc, remote)
     except (subprocess.CalledProcessError, StateInitError, OSError) as e:
         # Tear down any partial worktree first, THEN restore the backup, so
         # ticket data is never stranded and the next run starts clean. This
@@ -516,6 +591,23 @@ def run(argv: list[str]) -> int:
         detail = e.stderr if isinstance(e, subprocess.CalledProcessError) else str(e)
         sys.stderr.write(f"klc state init: {detail or e}\n")
         return 1
+
+    # Init fully succeeded: the preserved tickets are now committed on klc-state,
+    # so the pristine backup is redundant. Drop it only here (never in
+    # `_merge_back`) so a failure anywhere up to this point can always restore it
+    # (KLC-063 data-loss fix). Do NOT silently ignore a cleanup failure: the init
+    # already succeeded so it must not become a hard error, but a leftover backup
+    # would make the NEXT init refuse as an "interrupted init", so surface it
+    # clearly (leftover path) instead of hiding it.
+    if backup is not None and backup.exists():
+        try:
+            shutil.rmtree(backup)
+        except OSError as e:
+            sys.stderr.write(
+                f"klc state: warning: init succeeded but the backup {backup} "
+                f"could not be removed ({e}); remove it manually, otherwise the "
+                f"next `klc state init` will refuse it as an interrupted init.\n"
+            )
 
     print(f"klc state: initialized {STATE_DIR}/ worktree on branch {STATE_BRANCH}.")
     return 0

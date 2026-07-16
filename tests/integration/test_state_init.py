@@ -1027,5 +1027,322 @@ def test_state_init_orphan_bootstrap_with_same_named_tag_pushes_branch(tmp_path)
     assert up == "origin/klc-state", f"upstream must resolve, got {up!r}"
 
 
+# --- KLC-063: preserved tickets must be committed AND pushed ----------------
+
+
+def _bare_origin(tmp_path: Path) -> Path:
+    """A fresh bare 'origin' with NO klc-state branch (drives the orphan-create
+    path, where init creates+pushes klc-state and must also push preserved
+    tickets)."""
+    bare = tmp_path / "origin.git"
+    _git(["init", "--bare", str(bare)], tmp_path)
+    return bare
+
+
+def test_state_init_commits_and_pushes_preserved_tickets(tmp_path):
+    """AC-1 / AC-6a: `klc state init` on a repo with pre-existing `.klc/tickets`
+    must COMMIT the preserved tickets on klc-state and PUSH them to origin, so a
+    second clone tracking origin/klc-state receives them. Fails today because
+    `_merge_back` copies but never commits."""
+    bare = _bare_origin(tmp_path)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(bare)], root)
+
+    # pre-existing preserved ticket in a plain .klc directory (orphan-create path)
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "local.txt").write_text("LOCAL-TICKET", encoding="utf-8")
+
+    assert _run_in(root, ["init"]) == 0
+
+    # committed on the local klc-state branch
+    show = _git(["show", "klc-state:tickets/local.txt"], root, check=False)
+    assert show.returncode == 0 and show.stdout == "LOCAL-TICKET", \
+        "preserved ticket must be COMMITTED on klc-state, not left uncommitted"
+    # and pushed to origin/klc-state
+    rshow = _git(["show", "origin/klc-state:tickets/local.txt"], root, check=False)
+    assert rshow.returncode == 0 and rshow.stdout == "LOCAL-TICKET", \
+        "preserved ticket must be PUSHED to origin/klc-state"
+
+    # a SECOND clone tracking origin/klc-state receives it via state init
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    _init_repo(clone)
+    _git(["remote", "add", "origin", str(bare)], clone)
+    _git(["fetch", "origin"], clone)
+    assert _run_in(clone, ["init"]) == 0
+    assert (clone / ".klc" / "tickets" / "local.txt").read_text(encoding="utf-8") \
+        == "LOCAL-TICKET", "a second clone must receive the preserved ticket"
+
+
+def test_state_init_no_preserved_content_makes_no_empty_commit(tmp_path):
+    """AC-2: with nothing to preserve, init must NOT create an empty commit — the
+    orphan klc-state keeps its single root commit and output/exit code are
+    unchanged."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    assert _run_in(root, ["init"]) == 0
+
+    count = _git(["rev-list", "--count", "klc-state"], root).stdout.strip()
+    assert count == "1", \
+        f"no preserved content must not add a commit; got {count} commits on klc-state"
+
+
+def _reject_pushes(bare: Path) -> None:
+    """Install a pre-receive hook on the bare origin that rejects every push — a
+    REAL mechanism (057 style) to force the preserved-tickets push to fail."""
+    hooks = bare / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    hook = hooks / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+
+
+def _reject_commits(root: Path) -> None:
+    """Install a pre-commit hook in the repo (shared by the `.klc` worktree) that
+    rejects every commit — a REAL mechanism to force `_commit_preserved` to fail.
+    Used on the track-origin path where `_add_worktree` makes NO commit, so only
+    the preserved-tickets commit is affected."""
+    hooks = root / ".git" / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    hook = hooks / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+
+
+def test_state_init_excludes_derived_from_preserved_commit(tmp_path):
+    """AC-1 / INV7: preserved DERIVED/local artifacts (.lock, _prompt.md,
+    .index.json, scratch/, knowledge/tickets-index.jsonl) must be EXCLUDED from
+    the klc-state commit and never pushed — only real ticket state is shared.
+    Fails today: a bare `git add -A` (no derived-ignore applied at init) commits
+    and pushes every derived file."""
+    bare = _bare_origin(tmp_path)
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(bare)], root)
+
+    klcd = root / ".klc"
+    tk = klcd / "tickets" / "KLC-9001"
+    (tk / "design").mkdir(parents=True)
+    (tk / "scratch").mkdir(parents=True)
+    (tk / "meta.json").write_text('{"ticket":"KLC-9001"}\n', encoding="utf-8")  # REAL
+    (tk / ".lock").write_text("pid\n", encoding="utf-8")                        # derived
+    (tk / ".index.json").write_text("{}\n", encoding="utf-8")                   # derived
+    (tk / "design" / "_prompt.md").write_text("card\n", encoding="utf-8")       # derived
+    (tk / "scratch" / "note.txt").write_text("local\n", encoding="utf-8")       # derived
+    (klcd / "knowledge").mkdir()
+    (klcd / "knowledge" / "tickets-index.jsonl").write_text(
+        '{"ticket":"KLC-9001"}\n', encoding="utf-8")                            # derived
+
+    assert _run_in(root, ["init"]) == 0
+
+    committed = _git(["ls-tree", "-r", "--name-only", "klc-state"], root).stdout
+    assert "tickets/KLC-9001/meta.json" in committed, \
+        f"the real ticket must be committed; tree was:\n{committed}"
+    for derived in ("tickets/KLC-9001/.lock", "tickets/KLC-9001/.index.json",
+                    "tickets/KLC-9001/design/_prompt.md",
+                    "tickets/KLC-9001/scratch/note.txt",
+                    "knowledge/tickets-index.jsonl"):
+        assert derived not in committed, \
+            f"derived file leaked into klc-state: {derived}\ntree:\n{committed}"
+
+    # a second clone must inherit the real ticket but NONE of the derived files
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    _init_repo(clone)
+    _git(["remote", "add", "origin", str(bare)], clone)
+    _git(["fetch", "origin"], clone)
+    assert _run_in(clone, ["init"]) == 0
+    assert (clone / ".klc" / "tickets" / "KLC-9001" / "meta.json").exists(), \
+        "second clone must receive the real ticket"
+    assert not (clone / ".klc" / "knowledge" / "tickets-index.jsonl").exists(), \
+        "second clone must not inherit the shared derived index"
+    assert not (clone / ".klc" / "tickets" / "KLC-9001" / ".lock").exists(), \
+        "second clone must not inherit a shared .lock"
+
+
+def test_state_init_preserved_commit_failure_preserves_tickets_no_crash(tmp_path):
+    """AC-2 / data-loss: if the preserved-tickets COMMIT fails, init must return 1
+    cleanly (no traceback) and the user's preserved tickets must SURVIVE. Fails
+    today: `_merge_back` deletes the backup before the commit, so a commit failure
+    tears down the merged worktree and crashes with FileNotFoundError, destroying
+    the only copy."""
+    origin = _make_origin_with_state(tmp_path)  # track-origin → no orphan-root commit
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+    _git(["fetch", "origin"], root)
+
+    (root / ".klc" / "tickets").mkdir(parents=True)
+    (root / ".klc" / "tickets" / "local.txt").write_text("PRECIOUS", encoding="utf-8")
+
+    _reject_commits(root)  # ONLY the _commit_preserved commit will fire+fail
+
+    rc = _run_in(root, ["init"])  # must NOT raise
+    assert rc == 1, "a preserved-commit failure must return 1 cleanly (no crash)"
+
+    survivor = root / ".klc" / "tickets" / "local.txt"
+    bak = root / ".klc.init-bak" / "tickets" / "local.txt"
+    assert survivor.exists() or bak.exists(), \
+        "the preserved ticket must survive a failed preserved-commit"
+    content = (survivor if survivor.exists() else bak).read_text(encoding="utf-8")
+    assert content == "PRECIOUS", "preserved ticket content must be intact"
+
+
+def test_state_init_preserved_commit_pushfail_warns_exit0(tmp_path, capsys):
+    """AC-2: when the preserved-tickets PUSH fails (offline / auth / permission),
+    init must warn and still exit 0 — the tickets are committed locally and
+    nothing is stranded. Uses a REAL pre-receive hook (057 style), not a git
+    monkeypatch."""
+    bare = _bare_origin(tmp_path)
+    _reject_pushes(bare)  # the remote rejects every push, for real
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(bare)], root)
+
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "local.txt").write_text("LOCAL-TICKET", encoding="utf-8")
+
+    rc = _run_in(root, ["init"])
+    assert rc == 0, "a preserved-tickets push failure must not fail init"
+
+    err = capsys.readouterr().err.lower()
+    assert "not pushed" in err, f"expected a 'not pushed' warning, got: {err!r}"
+    # committed locally even though the push failed → nothing stranded
+    show = _git(["show", "klc-state:tickets/local.txt"], root, check=False)
+    assert show.returncode == 0 and show.stdout == "LOCAL-TICKET", \
+        "preserved ticket must be committed locally despite the push failure"
+    # the worktree stays intact (not torn down)
+    assert str((root / ".klc").resolve()) in _worktree_paths(root)
+
+
+def _exclude_bytes(root: Path) -> bytes:
+    p = root / ".git" / "info" / "exclude"
+    return p.read_bytes() if p.exists() else b""
+
+
+def test_state_init_does_not_mutate_repo_exclude(tmp_path):
+    """P2-A: init must exclude preserved derived files from the klc-state commit
+    WITHOUT touching the repo-wide `.git/info/exclude` (a COMMON, shared file —
+    polluting it makes unrelated main-worktree files silently ignored). Fails on
+    the ensure_derived_ignored-based fix (which appends to info/exclude)."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+
+    klcd = root / ".klc"
+    tk = klcd / "tickets" / "KLC-9100"
+    (tk / "scratch").mkdir(parents=True)
+    (tk / "meta.json").write_text('{"ticket":"KLC-9100"}\n', encoding="utf-8")  # REAL
+    (tk / ".lock").write_text("pid\n", encoding="utf-8")                        # derived
+    (tk / "scratch" / "note.txt").write_text("local\n", encoding="utf-8")       # derived
+    (klcd / "knowledge").mkdir()
+    (klcd / "knowledge" / "tickets-index.jsonl").write_text("{}\n", encoding="utf-8")
+
+    before = _exclude_bytes(root)
+    assert _run_in(root, ["init"]) == 0
+    after = _exclude_bytes(root)
+
+    assert after == before, \
+        "klc state init must NOT mutate the repo-wide .git/info/exclude"
+    # and the derived files are STILL excluded from the committed tree
+    committed = _git(["ls-tree", "-r", "--name-only", "klc-state"], root).stdout
+    assert "tickets/KLC-9100/meta.json" in committed
+    for derived in ("tickets/KLC-9100/.lock", "tickets/KLC-9100/scratch/note.txt",
+                    "knowledge/tickets-index.jsonl"):
+        assert derived not in committed, f"derived file leaked: {derived}"
+
+
+def _fail_backup_cleanup(state):
+    """Make ONLY the post-success backup rmtree fail (as an unwritable/read-only
+    backup would), honoring `ignore_errors` so the CURRENT code silently swallows
+    it — proving the RED (no warning). Scoped to this loaded module instance via a
+    shutil shim, so it never mutates the process-global shutil."""
+    import shutil as _real
+
+    class _ShutilShim:
+        def __getattr__(self, name):
+            return getattr(_real, name)
+
+        def rmtree(self, path, *a, **k):
+            if str(path).endswith(state._BACKUP_DIR):
+                if k.get("ignore_errors"):
+                    return  # mimic real ignore_errors: swallow → leftover remains
+                raise OSError("simulated: backup is read-only")
+            return _real.rmtree(path, *a, **k)
+
+    state.shutil = _ShutilShim()
+
+
+def test_state_init_backup_cleanup_failure_surfaces_warning(tmp_path, capsys):
+    """P2-B: if the post-success backup cleanup fails, init must NOT silently claim
+    success with a hidden leftover — it warns (leftover path visible) so the next
+    init's backup-preflight break is not a surprise. Fails on the
+    ignore_errors=True code (no warning emitted)."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    tdir = root / ".klc" / "tickets"
+    tdir.mkdir(parents=True)
+    (tdir / "local.txt").write_text("LOCAL-TICKET", encoding="utf-8")
+
+    rc = _run_in_patched(root, ["init"], _fail_backup_cleanup)
+    assert rc == 0, "a cleanup failure must not hard-fail an otherwise-successful init"
+    err = capsys.readouterr().err.lower()
+    assert ".klc.init-bak" in err and "backup" in err, \
+        f"a leftover-backup warning must be surfaced (not silently ignored): {err!r}"
+
+
+def test_state_init_converges_out_tracked_derived_on_upgrade(tmp_path):
+    """FINDING-3 / INV7 upgrade case: when klc-state ALREADY TRACKS a derived file
+    (legacy layout), init must converge it OUT (git rm --cached) so the preserved
+    commit removes it from the shared branch and the worktree ends clean w.r.t.
+    TRACKED files. Fails today: the exclude-only `git add` neither stages the
+    local modification nor removes it → dirty tree + still-tracked derived file."""
+    origin = _make_origin_with_state(tmp_path, files={
+        "knowledge/tickets-index.jsonl": "OLD-INDEX\n",       # legacy TRACKED derived
+        "tickets/KLC-ORIG/meta.json": '{"ticket":"KLC-ORIG"}\n',
+    })
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_repo(root)
+    _git(["remote", "add", "origin", str(origin)], root)
+    _git(["fetch", "origin"], root)
+
+    # local .klc carries a NEWER copy of the tracked derived file + a real new ticket
+    klcd = root / ".klc"
+    (klcd / "knowledge").mkdir(parents=True)
+    (klcd / "knowledge" / "tickets-index.jsonl").write_text("NEW-LOCAL-INDEX\n", encoding="utf-8")
+    (klcd / "tickets" / "KLC-NEW").mkdir(parents=True)
+    (klcd / "tickets" / "KLC-NEW" / "meta.json").write_text('{"ticket":"KLC-NEW"}\n', encoding="utf-8")
+
+    assert _run_in(root, ["init"]) == 0
+
+    # (a) worktree clean w.r.t. TRACKED files (no staged/modified tracked derived)
+    status = _git(["status", "--porcelain", "--untracked-files=no"], klcd).stdout.strip()
+    assert status == "", f"worktree must be clean w.r.t. tracked files, got: {status!r}"
+
+    # (b) the legacy tracked derived file is REMOVED from the klc-state tree
+    committed = _git(["ls-tree", "-r", "--name-only", "klc-state"], root).stdout
+    assert "knowledge/tickets-index.jsonl" not in committed, \
+        f"legacy tracked derived file must be converged OUT of klc-state; tree:\n{committed}"
+
+    # (c) real ticket content intact and committed (both the origin one and the new one)
+    assert "tickets/KLC-NEW/meta.json" in committed, "the new preserved ticket must be committed"
+    assert "tickets/KLC-ORIG/meta.json" in committed, "the pre-existing ticket must remain"
+    # the derived file remains on disk (untracked) for the runtime to hide later
+    assert (klcd / "knowledge" / "tickets-index.jsonl").exists(), \
+        "the derived file must stay on disk (only untracked), not be deleted"
+
+
 if __name__ == "__main__":
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-q"]))
