@@ -53,7 +53,9 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 from core.shared.paths import framework_root, klc_index_dir, project_root  # noqa: E402, F401
+import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 
 
 def load_json(p: Path) -> dict:
@@ -106,12 +108,19 @@ def bfs_neighbours(
 
 
 def load_symbols_by_module(
-    modules: list[dict], inventory: dict | None = None
+    modules_data: list[dict] | dict, inventory: dict | None = None
 ) -> dict[str, list[dict]]:
     """Load the per-module symbol index. Prefers the materialized file at
     .klc/index/symbols_by_module.json (written by public-api-filter.py);
     if it is missing or stale-looking, rebuilds it on the fly from
-    `inventory` so ad-hoc runs still work."""
+    `inventory` so ad-hoc runs still work.
+
+    KLC-066: accepts the full modules.json object (dict with `modules` +
+    `files`) so the on-the-fly rebuild honours `files` overrides through the
+    single resolver. A bare list is wrapped for back-compat (no overrides)."""
+    if isinstance(modules_data, list):
+        modules_data = {"modules": modules_data}
+    modules = modules_data.get("modules", [])
     sbm_path = klc_index_dir() / "symbols_by_module.json"
     if sbm_path.exists():
         try:
@@ -129,26 +138,30 @@ def load_symbols_by_module(
                 f"context-loader: could not read {sbm_path} ({exc}); "
                 "falling back to on-the-fly build from inventory\n"
             )
-    return _build_symbols_by_module_from_inventory(inventory or {}, modules)
+    return _build_symbols_by_module_from_inventory(inventory or {}, modules_data)
 
 
 def _build_symbols_by_module_from_inventory(
-    inventory: dict, modules: list[dict]
+    inventory: dict, modules_data: list[dict] | dict
 ) -> dict[str, list[dict]]:
     """Fallback path when symbols_by_module.json is absent. One pass over
-    inventory.symbols with longest-prefix assignment."""
-    sorted_modules = sorted(modules, key=lambda m: -len(m.get("path", "")))
+    inventory.symbols. KLC-066: assignment goes through the single
+    file_to_module() resolver so context-loader sees the same module set as
+    every other consumer (no divergent second set); a shared file's symbols are
+    shared across its member_of modules. Accepts the full modules.json object so
+    `files` overrides are honoured (a bare list is wrapped for back-compat)."""
+    if isinstance(modules_data, list):
+        modules_data = {"modules": modules_data}
+    modules = modules_data.get("modules", [])
     index: dict[str, list[dict]] = {m["name"]: [] for m in modules}
     for _lang, entry in inventory.get("symbols", {}).items():
         for item in entry.get("items", []):
             f = item.get("file", "")
             if not f:
                 continue
-            for m in sorted_modules:
-                p = m.get("path", "")
-                if p and f.startswith(p):
-                    index[m["name"]].append(item)
-                    break
+            for name in _mm.file_to_module(f, modules_data)["member_of"]:
+                if name in index:
+                    index[name].append(item)
     return index
 
 
@@ -505,11 +518,11 @@ def main() -> int:
     # cost flat in module count instead of growing with project size.
     sbm_path = klc_index_dir() / "symbols_by_module.json"
     if sbm_path.exists():
-        by_module = load_symbols_by_module(modules)
+        by_module = load_symbols_by_module(modules_doc)
         total = total_project_symbols_from_sbm(by_module)
     else:
         inventory = load_json(klc_index_dir() / "inventory.json")
-        by_module = load_symbols_by_module(modules, inventory=inventory)
+        by_module = load_symbols_by_module(modules_doc, inventory=inventory)
         total = total_project_symbols(inventory)
 
     # Depth: honour --depth if the caller insisted; otherwise grow from 1

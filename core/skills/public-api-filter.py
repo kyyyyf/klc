@@ -44,7 +44,9 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 from core.shared.paths import framework_root, klc_index_dir  # noqa: E402, F401
+import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 
 FORWARD_KINDS = {"forward", "cpp-header-symbols-forward"}
 
@@ -92,21 +94,19 @@ def trim_modules(
         for it in blob.get("items", []):
             by_file.setdefault(it["file"], []).append(it)
 
-    # Longest-prefix assignment of each file to exactly one module, so a
-    # file under `src/payments/webhooks/` goes to `payments.webhooks` and
-    # not also to `payments`. Matches the rule decompose/diff-modules use.
+    # KLC-066: assignment of each file to its module(s) goes through the single
+    # file_to_module() resolver (the private longest-prefix copy is deleted). A
+    # normal file lands in its primary module; a shared file's symbols are shared
+    # across every module in its member_of so they are not stranded. For a
+    # modules.json with no `files` map this is byte-identical to the old
+    # longest-prefix assignment.
     modules = mods.get("modules", [])
-    sorted_paths = sorted(
-        [(m.get("path") or "", m["name"]) for m in modules if m.get("path")],
-        key=lambda p: -len(p[0]),
-    )
-
     symbols_by_module: dict[str, list[dict]] = {m["name"]: [] for m in modules}
     for f, items in by_file.items():
-        for path, name in sorted_paths:
-            if f.startswith(path):
+        res = _mm.file_to_module(f, mods)
+        for name in (res["member_of"] or []):
+            if name in symbols_by_module:
                 symbols_by_module[name].extend(items)
-                break
 
     trimmed_modules = 0
     removed_total = 0

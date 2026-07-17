@@ -10,17 +10,14 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-
-def _file_to_module(filepath: str, path_to_mod: dict[str, str]) -> str | None:
-    """Map a file path to its owning module name via longest prefix match."""
-    best_len = -1
-    best_mod: str | None = None
-    for mpath, mname in path_to_mod.items():
-        if filepath == mpath or filepath.startswith(mpath + "/"):
-            if len(mpath) > best_len:
-                best_len = len(mpath)
-                best_mod = mname
-    return best_mod
+# KLC-066: the ONE file→module resolver. The private longest-prefix copy that
+# used to live here (boundary-aware `startswith(mpath + "/")`) is deleted so
+# module_edges attributes files to exactly the same module set as scope_delta /
+# diff-modules / public-api-filter / update. That reconciliation also fixes a
+# latent bug: file-module paths (e.g. `core/phases/intake` owning
+# `core/phases/intake.py`) are now attributed to the file-module, not its parent
+# dir-module, which the boundary-aware match missed.
+import module_membership as _mm
 
 
 def aggregate_module_edges(modules_data: dict, depgraph: dict) -> dict:
@@ -37,13 +34,6 @@ def aggregate_module_edges(modules_data: dict, depgraph: dict) -> dict:
     result = copy.deepcopy(modules_data)
     modules: list[dict] = result.get("modules", [])
 
-    # Build path→module name map (strip trailing slash for consistency)
-    path_to_mod: dict[str, str] = {}
-    for m in modules:
-        mpath = (m.get("path") or "").rstrip("/")
-        if mpath:
-            path_to_mod[mpath] = m["name"]
-
     # Collect all file-edge pairs from every language's import_graphs
     all_edges: list[tuple[str, str]] = []
     for lang_data in (depgraph.get("import_graphs") or {}).values():
@@ -58,8 +48,8 @@ def aggregate_module_edges(modules_data: dict, depgraph: dict) -> dict:
     depended_by: dict[str, set[str]] = {m["name"]: set() for m in modules}
 
     for src_file, tgt_file in all_edges:
-        src_mod = _file_to_module(src_file, path_to_mod)
-        tgt_mod = _file_to_module(tgt_file, path_to_mod)
+        src_mod = _mm.primary_module(src_file, result)
+        tgt_mod = _mm.primary_module(tgt_file, result)
         if src_mod is None or tgt_mod is None:
             continue
         if src_mod == tgt_mod:

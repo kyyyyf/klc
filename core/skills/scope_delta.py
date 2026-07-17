@@ -25,9 +25,11 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 
 from core.shared.paths import klc_index_dir, project_root  # noqa: E402
 import lifecycle as _lc  # noqa: E402
+import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 
 
 def _git_changed_files(root: Path) -> list[str]:
@@ -66,28 +68,34 @@ def _git_changed_files(root: Path) -> list[str]:
     return sorted(files)
 
 
-def _files_to_modules(
-    files: list[str], modules: list[dict]
-) -> tuple[list[str], list[str]]:
-    """Map file paths to module names via longest-prefix matching.
+def _bucket_changed(
+    files: list[str], modules_data: dict
+) -> tuple[list[str], list[str], list[str]]:
+    """Route changed files to scope buckets via the single file_to_module()
+    resolver (KLC-066 — the private longest-prefix copy is deleted).
 
-    Returns (matched_modules, unknown_files) where unknown_files are
-    paths that matched no module prefix.
+    Returns (owned_modules, shared_touched, unknown_files):
+      - owned_modules   — primary_module of non-shared changed files. These
+                          feed `actual` / `expansion` (the hard-fail path).
+      - shared_touched  — member_of of changed *shared* files (primary_module
+                          is None). A utility edit must not force every consumer
+                          into a hard scope-expansion, so these route to drift
+                          (a warning), not expansion (planning_indexer.md
+                          §"Правило scope для shared-файлов").
+      - unknown_files   — paths that resolve to no module (orphans).
     """
-    sorted_mods = sorted(modules, key=lambda m: -len(m.get("path", "")))
-    names: set[str] = set()
+    owned: set[str] = set()
+    shared: set[str] = set()
     unknown: list[str] = []
     for f in files:
-        matched = False
-        for m in sorted_mods:
-            p = m.get("path", "")
-            if p and f.startswith(p):
-                names.add(m["name"])
-                matched = True
-                break
-        if not matched:
+        res = _mm.file_to_module(f, modules_data)
+        if res["is_shared"]:
+            shared.update(res["member_of"])
+        elif res["primary_module"]:
+            owned.add(res["primary_module"])
+        else:
             unknown.append(f)
-    return sorted(names), sorted(unknown)
+    return sorted(owned), sorted(shared), sorted(unknown)
 
 
 def compare(ticket: str) -> dict:
@@ -103,16 +111,18 @@ def compare(ticket: str) -> dict:
     if not modules_path.exists():
         return {
             "planned": planned, "actual": [], "drift": [], "expansion": [],
+            "shared_touched": [],
             "skipped": "modules.json not found",
         }
 
     try:
-        modules: list[dict] = json.loads(
-            modules_path.read_text(encoding="utf-8")
-        ).get("modules", [])
+        modules_data: dict = json.loads(modules_path.read_text(encoding="utf-8"))
+        if not isinstance(modules_data, dict):
+            modules_data = {"modules": modules_data}
     except Exception as exc:
         return {
             "planned": planned, "actual": [], "drift": [], "expansion": [],
+            "shared_touched": [],
             "skipped": f"modules.json unreadable: {exc}",
         }
 
@@ -126,19 +136,28 @@ def compare(ticket: str) -> dict:
     if not changed_files:
         return {
             "planned": planned, "actual": [], "drift": [], "expansion": [],
+            "shared_touched": [],
             "skipped": "no changed files detected",
         }
 
-    actual, unknown_files = _files_to_modules(changed_files, modules)
+    actual, shared_touched, unknown_files = _bucket_changed(changed_files, modules_data)
     planned_set = set(planned)
     drift = sorted(set(actual) - planned_set)
     # Files outside all known module prefixes are treated as expansion.
+    # Shared-file modules (shared_touched) are deliberately kept OUT of
+    # expansion — a utility edit surfaces as drift (a warning), not a hard-fail,
+    # so the author consciously chooses which consumers to add to
+    # meta.affected_modules via the existing ack path (KLC-066 AC-5).
     expansion = sorted(set(drift) | set(unknown_files))
+    # shared_touched that the author has not already planned surfaces as drift.
+    shared_drift = sorted(set(shared_touched) - planned_set)
+    drift = sorted(set(drift) | set(shared_drift))
     return {
         "planned": planned,
         "actual": actual,
         "drift": drift,
         "expansion": expansion,
+        "shared_touched": sorted(shared_touched),
         "unknown_files": unknown_files,
     }
 

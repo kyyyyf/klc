@@ -36,7 +36,9 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 from core.shared.paths import framework_root, klc_index_dir  # noqa: E402, F401
+import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 
 
 def parse_diff_files(diff_path: Path) -> list[str]:
@@ -58,25 +60,19 @@ def parse_diff_files(diff_path: Path) -> list[str]:
     return sorted(p for p in files if p and p != "/dev/null")
 
 
-def longest_prefix_match(path: str, modules_sorted: list[dict]) -> str | None:
-    """Given a file path, return the name of the module whose `path`
-    is its longest prefix (or None). `modules_sorted` must be pre-
-    sorted by descending path length."""
-    for m in modules_sorted:
-        p = m.get("path", "")
-        if p and path.startswith(p):
-            return m["name"]
-    return None
+def affected_modules(diff_path: Path, modules_data: dict) -> list[str]:
+    """Modules touched by the diff. KLC-066: routes through the single
+    file_to_module() resolver (private longest-prefix copy deleted). Accepts the
+    full modules.json object so `files` overrides are honoured. A shared file
+    contributes every module in its member_of so it is not stranded.
 
-
-def affected_modules(diff_path: Path, modules: list[dict]) -> list[str]:
+    A bare list is accepted too (wrapped) for back-compat."""
+    if isinstance(modules_data, list):
+        modules_data = {"modules": modules_data}
     files = parse_diff_files(diff_path)
-    sorted_modules = sorted(modules, key=lambda m: -len(m.get("path", "")))
     names: set[str] = set()
     for f in files:
-        name = longest_prefix_match(f, sorted_modules)
-        if name:
-            names.add(name)
+        names.update(_mm.file_to_module(f, modules_data)["member_of"])
     return sorted(names)
 
 
@@ -94,8 +90,10 @@ def main() -> int:
         sys.stderr.write(f"diff-modules: modules.json {args.modules} not found\n")
         return 1
 
-    modules = json.loads(args.modules.read_text(encoding="utf-8")).get("modules", [])
-    for name in affected_modules(args.diff, modules):
+    modules_data = json.loads(args.modules.read_text(encoding="utf-8"))
+    if not isinstance(modules_data, dict):
+        modules_data = {"modules": modules_data}
+    for name in affected_modules(args.diff, modules_data):
         print(name)
     return 0
 

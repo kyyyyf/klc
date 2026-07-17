@@ -33,6 +33,7 @@ FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 from _paths import project_root, klc_index_dir, klc_logs_dir  # noqa: E402
 from module_edges import aggregate_module_edges  # noqa: E402
+import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 
 
 def log(msg: str) -> None:
@@ -108,19 +109,14 @@ def _compute_stale(index_dir: Path, changed: list[str]) -> dict:
     if not changed or not modules:
         return {"stale_modules": [], "changed_files": len(changed), "total_modules": total}
 
-    # Build path→module map
-    path_to_mod: dict[str, str] = {}
-    for m in modules:
-        mpath = (m.get("path") or "").rstrip("/")
-        if mpath:
-            path_to_mod[mpath] = m["name"]
-
-    # Map changed files to modules
+    # KLC-066: map changed files to modules through the single file_to_module()
+    # resolver (the private path→module copy is deleted) so stale detection sees
+    # exactly the module set scope_delta / module_edges / diff-modules see. A
+    # shared file marks every module in its member_of stale.
+    modules_data = raw if isinstance(raw, dict) else {"modules": modules}
     directly_stale: set[str] = set()
     for f in changed:
-        for mpath, mname in path_to_mod.items():
-            if f.startswith(mpath + "/") or f == mpath:
-                directly_stale.add(mname)
+        directly_stale.update(_mm.file_to_module(f, modules_data)["member_of"])
 
     # Transitive closure via depended_by
     name_to_mod = {m["name"]: m for m in modules}
