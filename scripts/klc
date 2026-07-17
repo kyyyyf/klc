@@ -14,6 +14,10 @@ The ticket lifecycle is driven by seven verbs:
     step     — generate minimal build step card (step N context only)
     work     — print the next required action (read-only; card/outputs/verify)
     retrack  — operator-only: change a ticket's track (both directions), audited
+    run      — autonomous runner: drive a ticket through the state machine,
+               auto-acking clean conditional gates and pausing at decision gates,
+               guardrails (integrate/merge, budget ceiling, consecutive-auto cap),
+               and dirty gates (single-user / feature-off only)
 
 Plus a few operational commands:
 
@@ -93,6 +97,7 @@ def _project_root() -> str:
 LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step", "work",
     "retrack", "task-brief", "build-run", "steal", "remind", "heartbeat",
+    "run",
 )
 OPERATIONAL_CMDS = (
     "board", "doctor", "metrics", "reindex", "install", "jira-sync", "jira", "setup",

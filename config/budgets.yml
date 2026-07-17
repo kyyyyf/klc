@@ -17,6 +17,13 @@
 
 version: 1
 
+# Autonomous-runner (KLC-046) consecutive-auto-transition cap. This is a
+# runaway backstop for `klc run`, NOT a phase budget counter — it is
+# deliberately NOT part of the meta.json:budgets counters or budget._load_limits()
+# (those feed gate_policy's budget_overrun signal). autorunner._cap() reads this
+# top-level key; a KLC_AUTORUN_CAP env var overrides it.
+consecutive_auto_transitions: 20
+
 # Soft limits: warn on stderr, run proceeds.
 soft_limits:
   XS:    6000    # ~24 KB — heads-up before XS context gets too wide

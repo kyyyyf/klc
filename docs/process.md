@@ -842,6 +842,75 @@ Plain `klc ack <KEY> [--pick N]` is unchanged — no policy is consulted.
 
 ---
 
+## Autonomous runner (`klc run`, KLC-046)
+
+`klc run <KEY>` is a headless, single-user Python driver that walks a ticket
+through the state machine on its own, reusing the KLC-045 gate-policy through the
+SAME `klc ack --auto` path a human takes. It is the autonomy capstone built on
+the trusted gates of phases 0–5.
+
+```
+klc run <KEY> [--cap N] [--json]
+```
+
+Each iteration reads `meta.json:phase`. At a `:work` state it dispatches the
+phase agent (build via the KLC-042 orchestrator, others via `runner.run_agent`
+with the resolved model), then calls `klc ack --auto` — which auto-detects
+completion, walks `:work → :ack-needed`, and applies the gate policy in one call.
+
+### Guardrails (safety-critical — the loop PAUSES, never proceeds)
+
+The runner is bounded so it can never silently take an irreversible or risky
+action. Before acting on any phase it checks, and pauses on:
+
+| Guardrail | Fires when | Why |
+|-----------|-----------|-----|
+| outward-facing / irreversible | the next phase is in `_OUTWARD_PHASES = {integrate}` | integrate is the only merge/push phase — merge is always human |
+| budget ceiling | any `meta.budgets` counter is at/over its limit | runaway-cost backstop |
+| consecutive-auto cap | `N` consecutive auto-transitions reached (`--cap`, default 20, `KLC_AUTORUN_CAP`) | runaway-loop backstop |
+| decision gate | the forward pick's gate is `decision` (applied inside `ack --auto`) | irreducibly human |
+| dirty conditional gate | a `conditional` gate has a dirty signal (applied inside `ack --auto`) | fail-closed |
+
+Every pause names which guardrail or gate fired, emits a stderr notification, and
+is recorded in the per-ticket run log `.klc/tickets/<KEY>/run-log.md` (each
+transition taken, plus the pause reason) so a human resuming after a pause sees
+exactly what happened.
+
+**Never merges or pushes**: `integrate` is never dispatched or acked by the
+runner — it pauses at `integrate:work` and hands off to a human for the merge.
+
+### rc / behaviour
+
+- rc `0` — the ticket reached a terminal/clean stop (archived).
+- rc `2` — the loop paused; a human must act (decision gate, dirty gate, or a
+  guardrail). `ack --auto` returns rc 2 on a gate pause; any other non-zero rc
+  from `ack --auto` becomes an error pause with its own message.
+- rc `1` — refusal (see scope boundary below).
+
+### Scope boundary — single-user / feature-off only
+
+The runner runs only when the multi-user state feature is OFF
+(`state_feature.enabled()` is False — the common single-user case, where
+`state_tx` is a no-op and `ack --auto` behaves exactly as above). If the feature
+is ON, `klc run` **refuses** (rc 1) and takes no transition: multi-user
+autonomous running would need a CAS-push per ack, holder management, and rc-1
+sync-error disambiguation, which are out of scope for this driver.
+
+The consecutive-auto cap is a runaway backstop, **not** a phase budget counter:
+it lives as a top-level key in the framework `config/budgets.yml` and is read by
+`autorunner._cap()`, deliberately kept out of `meta.json:budgets` /
+`budget._load_limits()` (which feed the `budget_overrun` gate signal).
+
+### Relation to `/klc:run` (KLC-052)
+
+`klc run` (this driver) and `/klc:run` (below) are different surfaces. `klc run`
+is a headless Python CLI for single-user autonomy that **pauses** at every human
+gate and never touches interactive phases (it hands off instead). `/klc:run` is
+the prompt-driven main-loop orchestrator that runs inside Claude Code and *can*
+drive interactive phases (clarify / picks) because it has an interactive channel.
+
+---
+
 ## Orchestrator (`/klc:run`, KLC-052)
 
 `/klc:run <KEY>` runs a ticket through its lifecycle without a human
