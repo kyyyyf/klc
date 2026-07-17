@@ -2,7 +2,7 @@
   "ticket": "KLC-064",
   "kind": "feature",
   "kind_source": "user",
-  "phase": "build:work",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -49,7 +49,133 @@
       "from_track": "S",
       "to_track": "M",
       "reason": "Design-pass re-scope: heartbeat is concurrency/coordination touching state_tx (feature-ON throttled CAS-push propagation, steal-vs-heartbeat race); S wiring under-scoped it. Builds on KLC-061 envelope; must honor KLC-062 no-churn.",
-      "ts": "2026-07-16T10:28:28Z"
+      "ts": "2026-07-16T10:28:28Z",
+      "finished_at": "2026-07-17T08:00:14Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-07-17T08:00:14Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T08:00:14Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-07-17T08:00:14Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-17T08:00:14Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-07-17T08:00:14Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "manual:work",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "manual:ack-needed",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "ack",
+      "note": "pick=1:passed",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "advance",
+      "note": "ack:passed",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-07-17T08:00:22Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-07-17T08:00:22Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-07-17T08:00:30Z"
+    },
+    {
+      "phase": "observe:ack-needed",
+      "started_at": "2026-07-17T08:00:30Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T08:00:30Z"
+    },
+    {
+      "phase": "observe:ack",
+      "started_at": "2026-07-17T08:00:30Z",
+      "event": "ack",
+      "note": "pick=1:clean",
+      "finished_at": "2026-07-17T08:00:30Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-07-17T08:00:30Z",
+      "event": "advance",
+      "note": "ack:clean",
+      "finished_at": "2026-07-17T08:00:30Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-07-17T08:00:30Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T08:00:30Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-07-17T08:00:30Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-07-17T08:00:30Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-07-17T08:00:30Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": "M",

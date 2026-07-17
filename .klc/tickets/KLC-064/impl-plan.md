@@ -5,7 +5,7 @@
 > branch onto the merged 061 before build. Align with KLC-062's read-only meta
 > probe (soft dep). See spec.md D-061/D-062.
 
-## step-1 — throttle constant + `klc heartbeat` verb (feature-ON write via state_tx)
+## step-1 [x] — throttle constant + `klc heartbeat` verb (feature-ON write via state_tx)
 
 **Goal:** Add `HEARTBEAT_PUSH_INTERVAL_SECONDS = HOLDER_TTL_SECONDS // 3` and a
 `core/phases/heartbeat.py` `run(argv)` that, feature-ON, refreshes an
@@ -45,7 +45,7 @@ def run(argv):
         return 0
 ```
 
-## step-2 — non-blocking UserPromptSubmit hook
+## step-2 [x] — non-blocking UserPromptSubmit hook
 
 **Goal:** Fire `klc heartbeat` on every agent turn so `heartbeat_at` advances
 during a long single phase; per-prompt cost is the cheap throttle read, the push
@@ -71,7 +71,7 @@ def main() -> int:
     return 0     # non-blocking; heartbeat is silent (no stdout forward)
 ```
 
-## step-3 — feature-OFF parity + best-effort hardening + docstring truth-up
+## step-3 [x] — feature-OFF parity + best-effort hardening + docstring truth-up
 
 **Goal:** Lock feature-OFF byte-parity and best-effort-never-crash, and fix the
 now-true "kept fresh by heartbeat_holder" docstrings to name `klc heartbeat` + the
@@ -85,7 +85,7 @@ hook.
 **Interfaces:** none
 **Depends on:** step-2
 
-## step-4 — steal-vs-heartbeat property/fuzz test on a REAL bare-repo substrate
+## step-4 [x] — steal-vs-heartbeat property/fuzz test on a REAL bare-repo substrate
 
 **Goal:** Prove the AC-5 coherence invariant across many heartbeat/steal
 interleavings on a real `klc-state` bare-repo fixture (two worktrees), not stubs —
