@@ -20,7 +20,7 @@ All integration tests fabricate a temp `PROJECT_ROOT` with hand-written
 `meta.json` / `spec.md`; no network and no real git remote (mirrors the existing
 `tests/integration/test_remind.py` harness).
 
-## step-1 — non-persisting meta read: read_meta_ro + status wiring
+## step-1 [x] — non-persisting meta read: read_meta_ro + status wiring
 
 **Goal:** Add `lifecycle.read_meta(ticket, *, persist_migration: bool = True)` and
 a thin `lifecycle.read_meta_ro(ticket)` wrapper, then switch `status._meta` to the
@@ -73,7 +73,7 @@ def read_meta_ro(ticket):
 
 **Depends-on:** none
 
-## step-2 — side-effect-optional completion probe; remind wired read-only
+## step-2 [x] — side-effect-optional completion probe; remind wired read-only
 
 **Goal:** Add keyword-only `persist: bool = True` to `can_complete`,
 `can_complete_discovery`, and `can_complete_discovery_lite`, guarding both write
@@ -139,7 +139,7 @@ def can_complete(ticket, phase_id, *, persist=True):
 
 **Depends-on:** step-1
 
-## step-3 — AC-3 regression guard: ack still persists risk_tags
+## step-3 [x] — AC-3 regression guard: ack still persists risk_tags
 
 **Goal:** Add a regression test proving the default (`persist=True`) path still
 writes `risk_tags` at the real completion transition, so Option A cannot silently
