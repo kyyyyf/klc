@@ -80,6 +80,7 @@ klc next   <key>               # :ack → next phase :work
 klc ack    <key> [--pick N]    # :ack-needed → :ack
 klc ship   <key> [--pick N]    # ack + next in one step
 klc step   <key> <N>           # regenerate minimal TDD step card (build only)
+klc work   <key>               # read-only: the next action (card/outputs/verify)
 klc jump   <phase> <key> [--yes]   # cross-cut to any phase :work
 klc abort  <key>               # cancel :work → previous :ack
 ```

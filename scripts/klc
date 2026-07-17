@@ -12,6 +12,7 @@ The ticket lifecycle is driven by seven verbs:
     abort    — cancel `<X>:work`, return to the previous `:ack`
     steal    — take over a stale holder slot (TTL-gated, warns first)
     step     — generate minimal build step card (step N context only)
+    work     — print the next required action (read-only; card/outputs/verify)
     retrack  — operator-only: change a ticket's track (both directions), audited
 
 Plus a few operational commands:
@@ -90,7 +91,7 @@ def _project_root() -> str:
 # --- subcommand dispatch ------------------------------------------------------
 
 LIFECYCLE_CMDS = (
-    "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
+    "intake", "status", "next", "ack", "ship", "jump", "abort", "step", "work",
     "retrack", "task-brief", "build-run", "steal", "remind", "heartbeat",
 )
 OPERATIONAL_CMDS = (
@@ -107,7 +108,10 @@ OPERATIONAL_CMDS = (
 #   heartbeat — likewise a per-UserPromptSubmit advisory verb (KLC-064); it is
 #               throttled to <=1 push per window and must not spend the Jira
 #               drain timeout on every prompt.
-NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat")
+#   work      — a read-only "what's next?" query (KLC-047). It advertises a pure
+#               read contract, so it must not push queued Jira updates or rewrite
+#               the queue file as a side effect (like remind).
+NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat", "work")
 
 
 def _drain_jira_queue() -> None:
