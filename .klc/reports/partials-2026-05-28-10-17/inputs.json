@@ -1,9 +1,0 @@
-{
-  "diff_sha256": "202a478a9d4a7f0976e20e52738611280da2a5b2297ebba4fc670d715b03b915",
-  "spec_sha256": "7c6f105fd73a0c9028637c04bf8ab22bc884bc91541f7a9351130f56ae6772f9",
-  "context_sha256": "",
-  "severity_rubric_sha256": "e56fcf777efb9c13fc706d4848a079ff9d9d1ac8eeb8aa4312759be653bbdbf3",
-  "manifest_sha256": "1a75cf5f2cb4c7dbb2723f7b8f958777f1ddfbdf0e376c1198210e961f1912cf",
-  "model": "unknown",
-  "framework_git_sha": "9d25eb0ae77eb038abeb3561aec949d7260e87db"
-}
