@@ -17,9 +17,16 @@ KLC-061: `reconcile pull`/`force-pull` mutate shared tracked state
 the per-ticket `acquire_lock` + `state_tx` envelope — a CAS-pushed pull with
 holder authorization and deferred Jira, exactly like abort/jump/steal/ack/next.
 `reconcile push` and `status` write only to the external Jira service (or
-read), touch no klc tracked state, and are deliberately NOT wrapped. `sync
---apply` writes only `meta.jira_sync` drift bookkeeping (see Q-002) and is
-likewise left unwrapped — it rides the next verb's state_tx push.
+read), touch no klc tracked state, and are deliberately NOT wrapped.
+
+KLC-065 (deferred from KLC-061 Q-002): `sync --apply` writes only
+`meta.jira_sync` advisory drift bookkeeping. That is still tracked state under
+`tickets/<key>/meta.json`, so feature-ON it now runs inside the same
+`acquire_lock` + `state_tx` CAS-push envelope (at the `cmd_sync` call site) —
+otherwise the write is stranded locally until a later verb pushes it. Because
+it is NOT a phase/ownership move, it deliberately takes NO holder authorization
+(unlike `reconcile pull`). Feature-OFF it is a byte-identical direct local
+write, no lock and no git.
 """
 from __future__ import annotations
 
@@ -38,6 +45,7 @@ import identity  # noqa: E402
 import holder  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
+import state_feature  # noqa: E402
 from artefacts import acquire_lock, LockedError  # noqa: E402
 
 
@@ -162,9 +170,52 @@ def cmd_sync(argv: list[str]) -> int:
         return 1
 
     # Update meta.jira_sync; clear stale conflicts when Jira is now in sync.
+    #
+    # KLC-065 (deferred from KLC-061 Q-002): meta.jira_sync is advisory drift
+    # bookkeeping (timestamps + last-seen status), NOT lifecycle/holder state. So
+    # feature-ON it must still be committed + CAS-pushed within THIS verb — the
+    # same acquire_lock → state_tx → write → CAS-push envelope KLC-061 gave the
+    # reconcile-pull path — otherwise the write sits only in the local worktree
+    # until a later verb pushes it and can be stranded in a stash on a rebase
+    # conflict. But because it is NOT a phase/ownership move, we deliberately do
+    # NOT acquire or check the holder (no acquire_holder / HolderConflictError):
+    # any user or automation may reconcile drift without taking over the ticket.
+    # We wrap ONLY here at the sync call site — the shared `_update_jira_sync_meta`
+    # helper is also called by the `reconcile push` path (push_to_jira), which
+    # stays unwrapped and byte-identical. Feature-OFF: state_feature.enabled() is
+    # False → the direct local write with no lock and no git, byte-identical to
+    # before this ticket. The Jira artefact-link upsert above is idempotent and is
+    # intentionally left before/outside the tx (out of scope for advisory sync).
     import jira_sync as _js
-    _js._update_jira_sync_meta(args.key, jira_status, phase_full, "sync",
-                               clear_conflicts=not mismatch)
+    if state_feature.enabled():
+        try:
+            with acquire_lock(args.key):
+                try:
+                    with state_tx.state_tx(args.key, f"jira-sync {args.key}"):
+                        _js._update_jira_sync_meta(
+                            args.key, jira_status, phase_full, "sync",
+                            clear_conflicts=not mismatch)
+                except state_sync.NothingToCommitError:
+                    # The write produced no tracked-state change (e.g. helper
+                    # swallowed an internal error) → nothing to push; treat as a
+                    # clean no-op and fall through to the normal return below.
+                    pass
+        except Exception as exc:
+            # Any terminal tx failure — state_sync.* sync errors AND the plain
+            # ValueError commit_and_push_cas_subtree raises when `git add -A` is
+            # refused (corrupt index / disk-full / permission; state_sync.py:564),
+            # which is NOT a RuntimeError subclass — must surface the friendly
+            # message + return 1, never a raw traceback. state_tx has already
+            # rolled the subtree back, so this is data-safe. Mirrors the terminal
+            # `except Exception` in _reconcile_pull. (No HolderConflictError clause:
+            # we never touch the holder — advisory bookkeeping, not an ownership
+            # move.)
+            sys.stderr.write(
+                f"klc jira: jira_sync bookkeeping not pushed — {exc}\n")
+            return 1
+    else:
+        _js._update_jira_sync_meta(args.key, jira_status, phase_full, "sync",
+                                   clear_conflicts=not mismatch)
     print("meta.json:jira_sync updated.")
     return 1 if mismatch else 0
 
@@ -258,10 +309,11 @@ def _reconcile_pull(key: str, to_phase: str,
     # treat as "clean, no change" and fall through to the normal result handling.
     # Feature-OFF, state_tx is a no-op and jira_pull fires Jira eagerly as before.
     #
-    # NOTE (Q-002): `klc jira sync --apply` writes only meta.jira_sync drift
-    # bookkeeping, which rides meta.json and is carried by the next verb's
-    # state_tx push; it is intentionally NOT wrapped here. `reconcile push` and
-    # `jira status` touch no klc tracked state (external/read-only) → no-op.
+    # NOTE (Q-002 → KLC-065): `klc jira sync --apply` writes only meta.jira_sync
+    # drift bookkeeping. It is now wrapped in its OWN acquire_lock + state_tx at
+    # the `cmd_sync` call site (durable CAS-push, no holder-auth), not here.
+    # `reconcile push` and `jira status` touch no klc tracked state
+    # (external/read-only) → no-op.
     try:
         import jira_sync as _js
         result: dict = {}

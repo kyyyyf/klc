@@ -686,5 +686,100 @@ def test_jump_refreshes_stale_same_user_holder(tmp_path, monkeypatch):
         "the same-user holder must carry a refreshed heartbeat_at"
 
 
+# =========================================================================== #
+# KLC-065 — jira sync --apply meta.jira_sync wrapped in state_tx
+# =========================================================================== #
+# `jira sync --apply` writes only meta.jira_sync advisory drift bookkeeping (no
+# phase/holder move). Deferred from KLC-061 Q-002. Feature-ON it must be committed
+# + CAS-pushed within the same verb (acquire_lock → state_tx → write → push), not
+# stranded locally; feature-OFF it stays a byte-identical local write, no git.
+# No holder-auth: it is not a lifecycle/ownership mutation.
+
+def _run_cmd_sync(key: str, cfg, client, argv_extra=("--apply",)) -> tuple[int, str]:
+    """Drive jira.cmd_sync with config+client patched (no network). Returns (rc, out)."""
+    from unittest.mock import patch
+    import jira as jira_mod
+    buf = io.StringIO()
+    with patch("jira_config.load", return_value=cfg), \
+         patch("jira_client.make_client", return_value=client), \
+         redirect_stdout(buf), redirect_stderr(buf):
+        rc = int(jira_mod.cmd_sync([key, *argv_extra]))
+    return rc, buf.getvalue()
+
+
+def test_jira_sync_apply_durable_on_origin(tmp_path, monkeypatch):
+    """AC-1/AC-3 (real substrate): feature-ON `jira sync --apply` CAS-pushes the
+    meta.jira_sync drift-bookkeeping block to origin within the same invocation —
+    proven on a real local bare repo, not stubbed at the git layer. On unwrapped
+    code the local write never reaches origin (RED)."""
+    from jira_client import FakeJiraClient
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _build_state_repo(tmp_path, "KLC-S65", phase="build:work", track="S")
+    monkeypatch.setattr(identity, "current", lambda: ALICE)
+    assert state_feature.enabled() is True
+
+    cfg = _jira_cfg()
+    client = FakeJiraClient(
+        issues={"KLC-S65": {"fields": {"status": {"name": "In Progress"}}}})
+    rc, out = _run_cmd_sync("KLC-S65", cfg, client)
+    assert rc == 0, f"in-sync apply must return 0:\n{out}"
+
+    remote = _remote_meta(klc, "KLC-S65")
+    assert "jira_sync" in remote, \
+        f"meta.jira_sync must be CAS-pushed to origin, got keys {list(remote)!r}"
+    assert remote["jira_sync"]["last_action"] == "sync", \
+        f"origin jira_sync must record the sync action, got {remote['jira_sync']!r}"
+    assert remote["jira_sync"]["last_jira_status"] == "In Progress"
+
+
+def test_feature_off_jira_sync_apply_no_git(tmp_path, monkeypatch):
+    """AC-2/AC-3 (parity): feature-OFF `jira sync --apply` writes meta.jira_sync
+    locally with NO state_tx and NO git — no `.git` is ever created."""
+    from jira_client import FakeJiraClient
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    klc = _plain_state_repo(tmp_path, "KLC-S66", phase="build:work", track="S")
+    monkeypatch.setattr(identity, "current", lambda: ALICE)
+    assert state_feature.enabled() is False
+
+    cfg = _jira_cfg()
+    client = FakeJiraClient(
+        issues={"KLC-S66": {"fields": {"status": {"name": "In Progress"}}}})
+    rc, out = _run_cmd_sync("KLC-S66", cfg, client)
+    assert rc == 0, f"feature-off apply must return 0:\n{out}"
+
+    local = _local_meta(klc, "KLC-S66")
+    assert local.get("jira_sync", {}).get("last_action") == "sync", \
+        "feature-off apply must write meta.jira_sync locally"
+    assert not (klc / ".git").exists(), "feature-off must not create a git repo"
+
+
+def test_jira_sync_apply_valueerror_is_handled_not_raised(tmp_path, monkeypatch):
+    """LOW (review): commit_and_push_cas_subtree raises a plain ValueError (not a
+    RuntimeError) when `git add -A` is refused (corrupt index / disk-full). The
+    cmd_sync wrap must catch it via the terminal `except Exception`, print the
+    friendly `jira_sync bookkeeping not pushed` message and return 1 — never let a
+    raw traceback escape. Mirrors the terminal catch-all in _reconcile_pull."""
+    import state_sync as _ss
+    from jira_client import FakeJiraClient
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    _build_state_repo(tmp_path, "KLC-S67", phase="build:work", track="S")
+    monkeypatch.setattr(identity, "current", lambda: ALICE)
+    assert state_feature.enabled() is True
+
+    def _boom(*a, **k):
+        raise ValueError("git add refused 'tickets/KLC-S67/': simulated")
+    monkeypatch.setattr(_ss, "commit_and_push_cas_subtree", _boom)
+
+    cfg = _jira_cfg()
+    client = FakeJiraClient(
+        issues={"KLC-S67": {"fields": {"status": {"name": "In Progress"}}}})
+    # _run_cmd_sync would re-raise if cmd_sync let the ValueError escape.
+    rc, out = _run_cmd_sync("KLC-S67", cfg, client)
+    assert rc == 1, f"a refused CAS commit must return 1, got {rc}:\n{out}"
+    assert "jira_sync bookkeeping not pushed" in out, \
+        f"must emit the friendly message, not a traceback:\n{out}"
+    assert "Traceback" not in out, f"no raw traceback may escape:\n{out}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
