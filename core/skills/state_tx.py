@@ -119,7 +119,15 @@ def state_tx(ticket, msg):
         try:
             # 6. The verb's whole mutating body runs here.
             yield _TxHandle()
-            # 7. Glob-commit the ticket subtree + single CAS push.
+            # 7. Glob-commit the ticket subtree + single CAS push. The remote is
+            #    left to `commit_and_push_cas_subtree`, whose default now resolves
+            #    to the branch's CONFIGURED upstream remote (KLC-069) — the remote
+            #    `klc state init <remote>` bound klc-state to (e.g. `sm`), NOT a
+            #    hardcoded `origin`. Resolving inside the CAS layer keeps state_tx
+            #    from touching git directly (all git stays behind state_sync entry
+            #    points) and closes the class for every caller, not one call site;
+            #    it also takes the tested use_upstream @{upstream} CAS path rather
+            #    than the other-remote FETCH_HEAD path.
             state_sync.commit_and_push_cas_subtree(ticket, msg, kdir)
         except Exception:
             # ANY terminal failure — StateConflictError, a first-grab

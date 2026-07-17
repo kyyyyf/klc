@@ -1,8 +1,10 @@
 """state_sync — git CAS coordination for the multi-user ``.klc/`` state.
 
 The ``.klc/`` directory is a git worktree of the project's ``klc-state`` orphan
-branch, pushed to ``origin``.  Multiple users may race to update it.  This
-module provides:
+branch, pushed to the branch's configured upstream remote
+(``branch.klc-state.remote`` — commonly, but not necessarily, ``origin``; see
+``_upstream_remote``).  Multiple users may race to update it.  This module
+provides:
 
 * :func:`pull_rebase` — bring the local worktree up to date via
   ``git pull --rebase``.
@@ -349,6 +351,28 @@ def _upstream_branch(klc_dir: Path) -> str:
     return val.split("/", 1)[1] if "/" in val else val
 
 
+def _upstream_remote(klc_dir: Path) -> str:
+    """Return the *remote name* the current branch's upstream is bound to.
+
+    Reads ``branch.<current>.remote`` — the remote ``klc state init`` (or ``gh``)
+    bound the ``klc-state`` branch to. This is the remote every CAS push MUST
+    target: hardcoding/defaulting to ``origin`` (KLC-069) sent the push to a
+    remote literally named ``origin`` regardless of where ``klc-state`` was
+    actually bound, so on a clone whose state remote is e.g. ``sm`` the push
+    landed on the wrong repo and peers saw nothing.
+
+    Returns ``""`` when the branch has no configured upstream remote (detached
+    HEAD or no tracking config); the caller then falls back to the historical
+    ``origin`` default and the missing-``@{upstream}`` ConfigError still fires.
+    Never raises.
+    """
+    cur = _git(["rev-parse", "--abbrev-ref", "HEAD"], klc_dir).stdout.strip()
+    if not cur:
+        return ""
+    r = _git(["config", "--get", f"branch.{cur}.remote"], klc_dir)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 def _incoming_same_ticket_paths(
     prefix: str, klc_dir: Path, upstream_ref: str = "@{upstream}"
 ) -> list[str]:
@@ -389,10 +413,17 @@ def commit_and_push_cas(
     msg: str,
     ticket: str,
     klc_dir: Path,
-    remote: str = "origin",
+    remote: str | None = None,
     max_retries: int = 3,
 ) -> None:
     """Stage *paths*, commit *msg*, and push to *remote* with CAS semantics.
+
+    *remote* defaults to the current branch's CONFIGURED upstream remote
+    (``branch.<klc-state>.remote``) rather than a hardcoded ``origin`` (KLC-069),
+    so the push always targets wherever ``klc-state`` is bound. When it IS
+    ``origin`` (the common case) behaviour is byte-for-byte unchanged; when the
+    state branch is bound elsewhere (e.g. ``sm``) the push follows it. Passing an
+    explicit *remote* still overrides the default.
 
     The commit is always pushed with an explicit ``HEAD:<upstream_branch>``
     refspec, where ``<upstream_branch>`` is the branch name the current branch
@@ -405,9 +436,9 @@ def commit_and_push_cas(
     *remote*:
 
     * When *remote* is the current branch's configured upstream remote (the
-      default ``origin`` case), ``@{upstream}`` is used — it resolves custom
-      fetch refspecs correctly (the tracking ref is not always
-      ``<remote>/<branch>``).
+      configured-upstream case, commonly ``origin``), ``@{upstream}`` is used —
+      it resolves custom fetch refspecs correctly (the tracking ref is not
+      always ``<remote>/<branch>``).
     * For any other *remote*, ``<upstream_branch>`` is fetched from it
       explicitly and ``FETCH_HEAD`` is used, without assuming any
       tracking-ref naming.
@@ -442,6 +473,12 @@ def commit_and_push_cas(
         NothingToCommitError: if the supplied paths have no staged changes.
     """
     klc_dir = Path(klc_dir)
+
+    # Resolve the target remote to the branch's configured upstream when the
+    # caller did not pin one (KLC-069): never silently default to a remote named
+    # ``origin`` when ``klc-state`` is bound elsewhere.
+    if remote is None:
+        remote = _upstream_remote(klc_dir) or "origin"
 
     # Materialise once (paths may be a generator) and require at least one:
     # an empty pathspec would make `git add`/`git commit` operate on the whole
@@ -495,11 +532,7 @@ def commit_and_push_cas(
     # (the tracking ref is not always ``<remote>/<branch>``) and is the AC-2
     # path.  For any OTHER remote, the branch is fetched explicitly and we work
     # off FETCH_HEAD, never assuming a ``<remote>/<branch>`` tracking ref.
-    cur_branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], klc_dir).stdout.strip()
-    upstream_remote = _git(
-        ["config", "--get", f"branch.{cur_branch}.remote"], klc_dir
-    ).stdout.strip()
-    use_upstream = remote == upstream_remote
+    use_upstream = remote == _upstream_remote(klc_dir)
 
     try:
         _push_with_cas(
@@ -516,10 +549,18 @@ def commit_and_push_cas_subtree(
     ticket: str,
     msg: str,
     klc_dir: Path,
-    remote: str = "origin",
+    remote: str | None = None,
     max_retries: int = 3,
 ) -> None:
     """Glob-commit EVERYTHING under ``tickets/<ticket>/`` and CAS-push it.
+
+    *remote* defaults to the current branch's CONFIGURED upstream remote
+    (``branch.<klc-state>.remote``) rather than a hardcoded ``origin`` (KLC-069),
+    so the push always follows wherever ``klc-state`` is bound. This is the sole
+    production CAS caller (via ``state_tx``); the old ``origin`` default sent
+    every transaction's push to a remote named ``origin`` even when the state
+    branch was bound to e.g. ``sm``, so peers cloning ``sm/klc-state`` saw
+    nothing. An explicit *remote* still overrides the default.
 
     The design-hardened counterpart to :func:`commit_and_push_cas`: instead of a
     hand-listed path fragment it stages the ticket's whole subtree with
@@ -540,6 +581,12 @@ def commit_and_push_cas_subtree(
     """
     klc_dir = Path(klc_dir)
     subtree = f"tickets/{ticket}/"
+
+    # Resolve the target remote to the branch's configured upstream when the
+    # caller did not pin one (KLC-069): the transaction must push to wherever
+    # ``klc-state`` is bound, not to a remote literally named ``origin``.
+    if remote is None:
+        remote = _upstream_remote(klc_dir) or "origin"
 
     up = _git(
         ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
@@ -583,11 +630,7 @@ def commit_and_push_cas_subtree(
             )
         raise RuntimeError(commit.stderr.strip() or commit.stdout.strip())
 
-    cur_branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], klc_dir).stdout.strip()
-    upstream_remote = _git(
-        ["config", "--get", f"branch.{cur_branch}.remote"], klc_dir
-    ).stdout.strip()
-    use_upstream = remote == upstream_remote
+    use_upstream = remote == _upstream_remote(klc_dir)
 
     try:
         _push_with_cas(
