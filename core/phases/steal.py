@@ -2,9 +2,11 @@
 """`klc steal <KEY>` — take over a ticket's holder slot when it is stale.
 
 The `holder` sub-object in meta.json records who owns the ticket's active
-phase (see KLC-056). A live agent keeps it fresh with `heartbeat_holder`
-(KLC-058). If that agent dies or wanders off, the holder goes stale and the
-ticket is stuck — nobody else can acquire it.
+phase (see KLC-056). A live agent keeps it fresh via `klc heartbeat` — the
+throttled UserPromptSubmit hook that calls `heartbeat_holder` (KLC-058 provides
+the primitive; KLC-064 provides this real caller). If that agent dies or wanders
+off, the heartbeat stops, the holder goes stale, and the ticket is stuck —
+nobody else can acquire it.
 
 `klc steal` is the recovery path. It takes over the holder slot ONLY when the
 current holder's liveness timestamp (heartbeat_at, else since) is OLDER than

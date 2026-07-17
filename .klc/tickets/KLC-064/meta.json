@@ -2,17 +2,72 @@
   "ticket": "KLC-064",
   "kind": "feature",
   "kind_source": "user",
-  "phase": "intake:ack-needed",
+  "phase": "build:work",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
-      "started_at": "2026-07-16T08:56:51Z"
+      "started_at": "2026-07-16T08:56:51Z",
+      "finished_at": "2026-07-16T09:10:49Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-07-16T09:10:49Z",
+      "event": "ack",
+      "note": "pick=1:confirm-route",
+      "finished_at": "2026-07-16T09:10:49Z"
+    },
+    {
+      "phase": "discovery-lite:work",
+      "started_at": "2026-07-16T09:10:49Z",
+      "event": "advance",
+      "note": "ack:confirm-route",
+      "finished_at": "2026-07-16T09:55:49Z"
+    },
+    {
+      "phase": "discovery-lite:ack-needed",
+      "started_at": "2026-07-16T09:55:49Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-16T09:55:49Z"
+    },
+    {
+      "phase": "discovery-lite:ack",
+      "started_at": "2026-07-16T09:55:49Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-16T09:55:49Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-07-16T09:55:49Z",
+      "event": "advance",
+      "note": "ack:approve"
+    },
+    {
+      "event": "retrack",
+      "phase": "build:work",
+      "from_track": "S",
+      "to_track": "M",
+      "reason": "Design-pass re-scope: heartbeat is concurrency/coordination touching state_tx (feature-ON throttled CAS-push propagation, steal-vs-heartbeat race); S wiring under-scoped it. Builds on KLC-061 envelope; must honor KLC-062 no-churn.",
+      "ts": "2026-07-16T10:28:28Z"
     }
   ],
-  "track": "S",
-  "estimate": null,
+  "track": "M",
+  "estimate": {
+    "complexity": 2,
+    "uncertainty": 2,
+    "risk": 2,
+    "manual": 1,
+    "total": 7
+  },
   "layer": null,
-  "affected_modules": [],
+  "affected_modules": [
+    "core/phases",
+    "core/skills",
+    "scripts",
+    "klc-plugin",
+    "tests"
+  ],
   "created": "2026-07-16T08:56:51Z",
   "owner": "developer@example.com",
   "jira_url": null,
@@ -40,5 +95,9 @@
   "clarify_required": false,
   "metrics": {
     "intake_ms": 6
-  }
+  },
+  "risk_tags": [
+    "data"
+  ],
+  "track_source": "operator"
 }

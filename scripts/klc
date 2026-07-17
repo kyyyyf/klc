@@ -91,7 +91,7 @@ def _project_root() -> str:
 
 LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
-    "retrack", "task-brief", "build-run", "steal", "remind",
+    "retrack", "task-brief", "build-run", "steal", "remind", "heartbeat",
 )
 OPERATIONAL_CMDS = (
     "board", "doctor", "metrics", "reindex", "install", "jira-sync", "jira", "setup",
@@ -104,7 +104,10 @@ OPERATIONAL_CMDS = (
 #   remind    — a pure read-only advisory verb run on every UserPromptSubmit
 #               via the hook; draining here would spend the Jira transport
 #               timeout / perform writes on every prompt submit.
-NO_DRAIN_CMDS = ("jira-sync", "remind")
+#   heartbeat — likewise a per-UserPromptSubmit advisory verb (KLC-064); it is
+#               throttled to <=1 push per window and must not spend the Jira
+#               drain timeout on every prompt.
+NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat")
 
 
 def _drain_jira_queue() -> None:
