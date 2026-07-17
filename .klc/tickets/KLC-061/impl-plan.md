@@ -21,7 +21,7 @@ Riskiest work first: `steal` (concurrency + real-substrate CAS-rollback) and
 bare-repo `klc-state` fixture — no network. Feature-OFF assertions guard AC-5
 byte parity on every verb.
 
-## step-1 — wrap `klc steal` holder mutation in state_tx
+## step-1 [x] — wrap `klc steal` holder mutation in state_tx
 
 **Goal:** `steal` runs `holder.steal_holder(ticket, identity, ttl_seconds, on_takeover)` inside `state_tx` so the
 takeover is pull-then-mutate-then-CAS-push and durable on origin (AC-2); a
@@ -83,7 +83,7 @@ except LockedError as e:
     sys.stderr.write(f"klc steal: {e}\n"); return 1
 ```
 
-## step-2 — route `klc ship` through ack.run + next.run
+## step-2 [x] — route `klc ship` through ack.run + next.run
 
 **Goal:** `ship` delegates to the already-wrapped `ack.run` then `next.run`
 instead of calling `apply_ack`/`advance_to_next` directly, so the phase advance
@@ -134,7 +134,7 @@ if cur == _ph.STATE_ARCHIVED:
 return _next.run([args.ticket])
 ```
 
-## step-3 — wrap `klc abort` in state_tx + release holder
+## step-3 [x] — wrap `klc abort` in state_tx + release holder
 
 **Goal:** `abort` runs `lifecycle.abort` inside `state_tx` and releases the
 aborted phase's holder, so the supersede + budget reset + phase move + holder
@@ -179,7 +179,7 @@ with acquire_lock(args.ticket):
 #   → clean exit-1, mirroring ack/next
 ```
 
-## step-4 — wrap `klc jump` (apply path) in state_tx + acquire holder
+## step-4 [x] — wrap `klc jump` (apply path) in state_tx + acquire holder
 
 **Goal:** `jump --yes` runs `lifecycle.jump(ticket, target_phase, dry_run=False)` inside
 `state_tx` and acquires the target phase's holder, so the supersede + budget
@@ -225,7 +225,7 @@ with acquire_lock(args.ticket):
     ...  # render prompt card as today
 ```
 
-## step-5 — wrap `klc jira` state-mutating subcommands in state_tx
+## step-5 [x] — wrap `klc jira` state-mutating subcommands in state_tx
 
 **Goal:** `jira reconcile pull`/`force-pull` (calls `set_state` via
 `jira_sync.pull` → `lifecycle.jira_pull`) and `jira sync --apply` (writes
@@ -269,7 +269,7 @@ with state_tx.state_tx(key, f"jira-pull {key}") as tx:
 #   (writes only to the external Jira service, or reads) → documented no-op.
 ```
 
-## step-6 — extend the concurrency fuzz harness with ship + steal
+## step-6 [x] — extend the concurrency fuzz harness with ship + steal
 
 **Goal:** Extend `tests/integration/test_klc057_fuzz_concurrent.py` so the
 op-dispatch table and scenarios include `ship` and `steal` operations and

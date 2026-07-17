@@ -2,7 +2,7 @@
   "ticket": "KLC-061",
   "kind": "tech",
   "kind_source": "user",
-  "phase": "build:work",
+  "phase": "archived",
   "phase_history": [
     {
       "phase": "intake:ack-needed",
@@ -83,7 +83,133 @@
       "phase": "build:work",
       "started_at": "2026-07-16T10:10:00Z",
       "event": "advance",
-      "note": "ack:option-A-minimal"
+      "note": "ack:option-A-minimal",
+      "finished_at": "2026-07-17T07:51:50Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-07-17T07:51:50Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T07:51:50Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-07-17T07:51:50Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-17T07:51:50Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-07-17T07:51:50Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-17T07:51:59Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-07-17T07:51:59Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T07:52:19Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-07-17T07:52:19Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "finished_at": "2026-07-17T07:52:19Z"
+    },
+    {
+      "phase": "manual:work",
+      "started_at": "2026-07-17T07:52:19Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-07-17T07:52:32Z"
+    },
+    {
+      "phase": "manual:ack-needed",
+      "started_at": "2026-07-17T07:52:32Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T07:52:32Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-07-17T07:52:32Z",
+      "event": "ack",
+      "note": "pick=1:passed",
+      "finished_at": "2026-07-17T07:52:32Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-07-17T07:52:32Z",
+      "event": "advance",
+      "note": "ack:passed",
+      "finished_at": "2026-07-17T07:52:43Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-07-17T07:52:43Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T07:52:43Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-07-17T07:52:43Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "finished_at": "2026-07-17T07:52:43Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-07-17T07:52:43Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-07-17T07:52:55Z"
+    },
+    {
+      "phase": "observe:ack-needed",
+      "started_at": "2026-07-17T07:52:55Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T07:52:55Z"
+    },
+    {
+      "phase": "observe:ack",
+      "started_at": "2026-07-17T07:52:55Z",
+      "event": "ack",
+      "note": "pick=1:clean",
+      "finished_at": "2026-07-17T07:52:55Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-07-17T07:52:55Z",
+      "event": "advance",
+      "note": "ack:clean",
+      "finished_at": "2026-07-17T07:52:55Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-07-17T07:52:55Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-07-17T07:52:55Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-07-17T07:52:55Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "finished_at": "2026-07-17T07:52:55Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-07-17T07:52:55Z",
+      "event": "ack",
+      "note": "pick=archive"
     }
   ],
   "track": "M",
