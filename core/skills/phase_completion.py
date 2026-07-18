@@ -408,7 +408,9 @@ def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
     out = []
     for s in _ipc.parse_impl_plan_steps(text):
         step_num = int(s["id"].split("-")[1])
-        red_m = re.search(r"(?i)\bRED:(.+)", s["body"])
+        # Tolerate markdown emphasis around the field name (`**RED**:`),
+        # the form the design agent's impl-plan template actually emits.
+        red_m = re.search(r"(?i)\bRED\**:(.+)", s["body"])
         red_val = red_m.group(1).strip().lower() if red_m else ""
         out.append({
             "step": step_num,
