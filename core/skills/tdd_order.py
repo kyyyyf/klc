@@ -30,9 +30,13 @@ def _git(args: list[str], repo: Path | None = None) -> str:
 
 
 def _is_test_path(path: str) -> bool:
-    """True when path lives inside the tests/ directory."""
+    """True when path lives inside a tests/ directory at any depth.
+
+    Monorepo layouts nest per-component projects (e.g. ``indexer/tests/...``),
+    so any exact ``tests`` path segment counts, not just the repo root.
+    """
     parts = PurePosixPath(path).parts
-    return bool(parts) and parts[0] == "tests"
+    return "tests" in parts
 
 
 # ---------------------------------------------------------------------------

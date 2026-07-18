@@ -139,6 +139,22 @@ def test_classify_nested_test_path(tmp_path):
     assert classify(sha, repo) == "test"
 
 
+def test_classify_subproject_test_path(tmp_path):
+    """Monorepo layouts: <component>/tests/... paths are classified as 'test'."""
+    repo = _make_repo(tmp_path)
+    sha = _commit(
+        repo, {"indexer/tests/acceptance/test_baz.py": "# sub test"}, "add sub test"
+    )
+    assert classify(sha, repo) == "test"
+
+
+def test_classify_tests_substring_dir_is_impl(tmp_path):
+    """A directory merely containing 'tests' as a substring is NOT a test path."""
+    repo = _make_repo(tmp_path)
+    sha = _commit(repo, {"contests/foo.py": "# impl"}, "add contests impl")
+    assert classify(sha, repo) == "impl"
+
+
 # ---------------------------------------------------------------------------
 # verify_step — step-2 tests (kept in same file per impl-plan)
 # ---------------------------------------------------------------------------
