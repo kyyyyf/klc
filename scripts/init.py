@@ -112,6 +112,38 @@ def _aggregate_and_write_module_edges(index_dir: Path) -> None:
     log(f"  reverse edges written for {n} module(s)")
 
 
+def _build_planning_views(index_dir: Path) -> None:
+    """KLC-070: build the deterministic planning views (inventory, test_map,
+    module_edges v2) in dependency order. Degrade-not-fail — a builder that errors
+    is logged and skipped, never aborting init.
+
+    Order: inventory first (independent of modules.json), then test_map and
+    module_edges (which read modules.json + depgraph; when those are absent early in
+    bootstrap the builders degrade into their own errors[] rather than failing).
+    This does NOT run modules_build — the authoritative module SET is unchanged
+    (KLC-070 D-001 / AC-13); these views consume whatever modules.json exists via the
+    file_to_module() resolver."""
+    skills = FRAMEWORK_ROOT / "core" / "skills"
+    views = (
+        ("inventory",    skills / "deterministic_inventory.py",
+         ["--out", str(index_dir / "inventory.json")]),
+        ("test_map",     skills / "test_map.py",
+         ["--out", str(index_dir / "test_map.json")]),
+        ("module_edges", skills / "module_edges.py",
+         ["--edges-only", "--out-edges", str(index_dir / "module_edges.json")]),
+    )
+    for name, script, extra in views:
+        try:
+            r = subprocess.run([sys.executable, str(script), *extra],
+                               capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                log(f"  planning view '{name}' degraded (exit {r.returncode})")
+            else:
+                log(f"  planning view: {name}")
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log(f"  planning view '{name}' failed ({e})")
+
+
 def _run_scanner(script: Path, out_file: Path, step: str) -> int:
     log(f"{step} {script.name}")
     r = subprocess.run([sys.executable, str(script)],
@@ -188,6 +220,11 @@ def main(argv: list[str]) -> int:
     # modules.json not yet written — LLM decompose agent writes it later).
     _aggregate_and_write_module_edges(index_dir)
 
+    # KLC-070: build the deterministic planning views (inventory always; test_map /
+    # module_edges degrade if modules.json is not yet present). Runs on the
+    # scan-only deterministic path so `init --scan-only` produces inventory.json.
+    _build_planning_views(index_dir)
+
     # --scan-only: record baseline and stop — no LLM needed.
     if args.scan_only:
         rc = _finalize(index_dir)
@@ -226,8 +263,10 @@ def main(argv: list[str]) -> int:
                     f"inspect {out_path.relative_to(root)}"
                 )
             log(f"  [{name}] {trailer} ✓")
-        # After decompose agent writes modules.json, aggregate reverse edges.
+        # After decompose agent writes modules.json, aggregate reverse edges and
+        # rebuild the planning views so they see the real module set.
         _aggregate_and_write_module_edges(index_dir)
+        _build_planning_views(index_dir)
         log("Step 5/5: recording baseline sha")
         return _finalize(index_dir)
 

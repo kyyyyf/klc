@@ -196,6 +196,32 @@ def _aggregate_and_write_module_edges(index_dir: Path) -> None:
     log(f"  reverse edges written for {n} module(s)")
 
 
+def _build_planning_views(index_dir: Path) -> None:
+    """KLC-070: refresh the deterministic planning views (inventory, test_map,
+    module_edges v2) after an incremental update. Degrade-not-fail. Does NOT run
+    modules_build — the module SET is unchanged (D-001 / AC-13); the views consume
+    the current modules.json via the file_to_module() resolver."""
+    skills = FRAMEWORK_ROOT / "core" / "skills"
+    views = (
+        ("inventory",    skills / "deterministic_inventory.py",
+         ["--out", str(index_dir / "inventory.json")]),
+        ("test_map",     skills / "test_map.py",
+         ["--out", str(index_dir / "test_map.json")]),
+        ("module_edges", skills / "module_edges.py",
+         ["--edges-only", "--out-edges", str(index_dir / "module_edges.json")]),
+    )
+    for name, script, extra in views:
+        try:
+            r = subprocess.run([sys.executable, str(script), *extra],
+                               capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                log(f"  planning view '{name}' degraded (exit {r.returncode})")
+            else:
+                log(f"  planning view: {name}")
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log(f"  planning view '{name}' failed ({e})")
+
+
 # --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
@@ -258,11 +284,15 @@ def main(argv: list[str]) -> int:
         log("  WARN: dep_graph failed; stale detection may be less precise")
 
     # Step 3: aggregate module-level reverse edges from depgraph (non-fatal)
-    log("Step 3/4: aggregating module reverse edges")
+    log("Step 3/5: aggregating module reverse edges")
     _aggregate_and_write_module_edges(index_dir)
 
-    # Step 4: compute stale modules
-    log("Step 4/4: computing stale modules")
+    # KLC-070: refresh the deterministic planning views (non-fatal)
+    log("Step 4/5: refreshing planning views (inventory, test_map, module_edges)")
+    _build_planning_views(index_dir)
+
+    # Step 5: compute stale modules
+    log("Step 5/5: computing stale modules")
     stale = _compute_stale(index_dir, changed)
     stale_file = index_dir / "stale.json"
     stale_file.write_text(json.dumps(stale, indent=2, ensure_ascii=False),
