@@ -29,14 +29,32 @@ orchestrating prompt for phase 3.
   absent. Read on demand.
 - `.klc/index/modules.json` — module → path map for resolving
   `affected_modules`.
+- `.klc/tickets/<KEY>/retrieval_trace.json` (if present, KLC-073) — the
+  deterministic planning slice intake built for this ticket. Its
+  `files_to_read_first` / `files_likely_to_edit` are the ranked candidate
+  files to open first; `tests_to_read_or_run` are the directly-mapped
+  tests for that slice; `conditional_neighbors[]` (each with `module_name`
+  + `condition`) are neighbour modules to pull in when their condition
+  holds; `stop_rules` bound how far to expand. Skip it when absent or
+  `status:"unavailable"`.
 - On demand: `core/skills/context-loader.py` for module CLAUDE.md
   bundles.
 
-**Planning-slice discipline (KLC-071).** Before reading broad project
-context, start from the planning views' primary modules and files for
-this ticket. Do not expand beyond graph depth 1 (`module_edges`
-neighbours) unless the implementation plan requires it. When an option
-adds a file outside that slice, state the reason in the option.
+**Planning-slice discipline (KLC-071, KLC-073).** Before reading broad
+project context, read `.klc/tickets/<KEY>/retrieval_trace.json` and start
+from its `files_to_read_first` / `files_likely_to_edit`; run the
+dependency-impact step (1a) over those files plus the `module_edges`
+neighbours. Also consume the trace's own `conditional_neighbors[]`: for
+each, evaluate its `condition` and, when it holds, include that
+`module_name` in the slice and its dependency-impact analysis — these
+neighbours can come from retriever logic (e.g. shared-file membership),
+not only from `module_edges`, so do not rely on `module_edges` alone.
+Consume `tests_to_read_or_run` as the starting test set for the affected
+files. Honour the trace `stop_rules`: do not expand beyond graph depth 1
+(`module_edges` neighbours) unless the implementation plan requires it, or
+a `conditional_neighbors` entry's condition holds. When an option adds a file
+outside that slice, state the reason in the option. Fall back to the views
+below when the trace is absent or `status:"unavailable"`.
 
 ## Model handoff guard
 

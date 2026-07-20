@@ -32,6 +32,32 @@ hover                    — inspect type / doc
 This is cheaper than reading a static symbol dump and gives you the
 real, current signature.
 
+## Planning slice (read first, KLC-073)
+
+Before loading the broad context bundle, read
+`.klc/tickets/<KEY>/retrieval_trace.json` — the deterministic planning
+slice intake built from this ticket's description (planning_indexer.md
+§"Фазовая интеграция и authority"). Use it to bound what you open:
+
+- `files_to_read_first` / `files_likely_to_edit` — open these before any
+  broad scan; they are the retriever's ranked candidate files.
+- `tests_to_read_or_run` — the tests directly mapped to that slice.
+- `conditional_neighbors[]` (each has `module_name` + `condition`) — open
+  a neighbour module only when its stated `condition` holds.
+- `stop_rules` — honour them: do not expand context past graph depth 1
+  without a reason you record in `spec.md`.
+- `affected_modules_hint` — the retriever's **advisory** scope proposal.
+- `unknown_or_ambiguous_modules` — files the retriever could not place in
+  a module; you MUST resolve each (include or explicitly exclude) before
+  writing `meta.affected_modules`.
+
+**Authority (planning_indexer.md §Authority).** The trace is a *hint*, not
+truth — you are the authority for scope. `affected_modules_hint` only
+*seeds* `meta.affected_modules` / `spec.md` «Affected modules», which you
+own and `ack` freezes; it never overrides them. When the trace is
+`status:"unavailable"` (planning views not built) or `confidence:"low"`,
+fall back to the full context bundle below.
+
 Reachable on demand but expensive:
 - `.klc/tickets/archive/<KEY>/retrospective.md` — lessons from past
   tickets you deem relevant. Read only those 40-related.md flagged.

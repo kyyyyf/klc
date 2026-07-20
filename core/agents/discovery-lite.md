@@ -9,6 +9,17 @@ your best guess and mark it with `[!ASSUMPTION if-false=…]`.
 - `raw.md` — ticket description
 - root `CLAUDE.md` — project invariants
 - `meta.json` — track (XS or S), kind, affected_modules hint
+- `.klc/tickets/<KEY>/retrieval_trace.json` (if present, KLC-073) — the
+  deterministic planning slice intake built. Start from its
+  `files_to_read_first` / `files_likely_to_edit` and
+  `tests_to_read_or_run` instead of scanning broadly; treat
+  `affected_modules_hint` as an advisory seed for the `## Affected`
+  section (you remain the authority) and honour `stop_rules`. Also inspect
+  `conditional_neighbors[]` (each has `module_name` + `condition`):
+  evaluate each `condition` and, when it holds, include that
+  `module_name` in the affected scope — a conditional neighbour can come
+  from retriever logic (e.g. shared-file membership), not only from module
+  edges. Skip it when absent or `status:"unavailable"`.
 
 ## Output: `spec.md`
 

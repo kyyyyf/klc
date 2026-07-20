@@ -142,6 +142,55 @@ def _classify_route(desc: str, kind: str) -> dict:
                 "mentions": [], "decision": "trust"}
 
 
+def _description_from_raw(text: str) -> str:
+    """Return the ticket description with the YAML front-matter stripped, so the
+    retrieval query is the human text (not `ticket:`/`created:` metadata)."""
+    lines = text.splitlines()
+    if lines and lines[0].strip() == "---":
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                return "\n".join(lines[i + 1:]).strip()
+    return text.strip()
+
+
+def _planning_retrieve(ticket: str) -> None:
+    """KLC-073 — build the per-ticket `retrieval_trace.json` deterministically.
+
+    Runs the planning retriever (planning-retriever.py, KLC-068) in
+    `deterministic` mode (no model) over the ticket's *final* enriched
+    description, so a ticket automatically gets an advisory planning slice
+    (`files_to_read_first` / `tests_to_read_or_run` / `stop_rules` / …) that the
+    discovery/design/review/test-planner agents consume instead of scanning the
+    project broadly (planning_indexer.md §"Фазовая интеграция и authority").
+
+    Authority (CRITICAL): the retriever writes ONLY `retrieval_trace.json` and
+    proposes `affected_modules_hint`. It NEVER touches `meta.affected_modules` —
+    that stays discovery/operator-owned. This helper opens neither meta.json.
+
+    Degrade-not-fail: when the planning views are absent (early bootstrap) the
+    retriever writes `status:"unavailable"` and exits 0. This helper additionally
+    swallows every error — retrieval is advisory and must NEVER break intake.
+    """
+    try:
+        import importlib.util
+
+        raw = klc_ticket_raw_file(ticket)
+        query = _description_from_raw(raw.read_text(encoding="utf-8"))
+        if not query.strip():
+            return
+        skill = (Path(__file__).resolve().parent.parent
+                 / "skills" / "planning-retriever.py")
+        if not skill.exists():
+            return
+        spec = importlib.util.spec_from_file_location("planning_retriever", skill)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        # deterministic mode = the intake hot path (no model, byte-reproducible).
+        mod.main(["--ticket", ticket, "--query", query, "--mode", "deterministic"])
+    except (Exception, SystemExit) as exc:  # advisory — never break intake
+        sys.stderr.write(f"[planning] retrieval skipped (non-fatal): {exc}\n")
+
+
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc intake", description=__doc__)
     ap.add_argument("--kind", choices=["feature", "bug", "tech", "unknown"],
@@ -305,6 +354,14 @@ def run(argv: list[str]) -> int:
                     # dirties the tracked tree post-push (which would wedge the
                     # next op's pull). Never raises (best-effort by contract).
                     _jira_intake_enrich(args.ticket, args.jira_description)
+                    # KLC-073: after the FINAL raw.md enrichment (incl. the
+                    # optional Jira merge above), build the per-ticket
+                    # retrieval_trace.json deterministically so it reflects the
+                    # full description, rides this ticket-subtree push, and is
+                    # ready for discovery. Advisory hint only — never writes
+                    # meta.affected_modules; degrades to status:"unavailable"
+                    # without breaking intake when the planning views are absent.
+                    _planning_retrieve(args.ticket)
             except state_sync.StashConflictError:
                 # Pull-time restore of pre-existing local edits conflicted with
                 # the remote. Nothing was written for this intake; the user's

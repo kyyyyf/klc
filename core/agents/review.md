@@ -130,9 +130,15 @@ one-line `[INFO]` note, do not block):
   every changed file to its module (via `modules.json`). Flag, as a
   `MEDIUM` finding, any changed file whose module is **outside**
   `affected_modules` and is not explained in `spec.md` / the impl-plan
-  (an unexplained edit outside the selected slice). A change to a shared
-  file (`file_roles` `eligible_as_primary:false`) is a warning, not a
-  block — note its consumers so the author can decide the scope.
+  (an unexplained edit outside the selected slice). Also cross-check the
+  diff against the trace's `files_likely_to_edit` and `stop_rules`: an
+  edit far outside `files_likely_to_edit`, or one that violates an entry
+  in `stop_rules` without a stated reason, is the same `MEDIUM`
+  "unexplained edit outside the slice" finding. The trace is advisory — `meta`/`spec`
+  win on any conflict; skip it when absent or `status:"unavailable"`. A
+  change to a shared file (`file_roles` `eligible_as_primary:false`) is a
+  warning, not a block — note its consumers so the author can decide the
+  scope.
 - Confirm the tests in the diff match the affected modules
   (`test_map.json` `module_to_tests`); a changed production file left at
   `coverage:"none"` is an `INFO`/`LOW` "no direct test" note.
