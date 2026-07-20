@@ -113,13 +113,15 @@ def _aggregate_and_write_module_edges(index_dir: Path) -> None:
 
 
 def _build_planning_views(index_dir: Path) -> None:
-    """KLC-070: build the deterministic planning views (inventory, test_map,
-    module_edges v2) in dependency order. Degrade-not-fail — a builder that errors
-    is logged and skipped, never aborting init.
+    """KLC-070/KLC-071: build the deterministic planning views (inventory, test_map,
+    file_roles, module_edges v2, symbol_usage) in dependency order. Degrade-not-fail —
+    a builder that errors is logged and skipped, never aborting init.
 
-    Order: inventory first (independent of modules.json), then test_map and
-    module_edges (which read modules.json + depgraph; when those are absent early in
-    bootstrap the builders degrade into their own errors[] rather than failing).
+    Order: inventory first (independent of modules.json); then test_map, file_roles
+    (KLC-071: needs inventory + modules + structural), module_edges, and symbol_usage
+    (KLC-071: needs inventory + callgraph, degrades to import-level usage). When
+    modules.json / depgraph / callgraph are absent early in bootstrap the builders
+    degrade into their own errors[] rather than failing.
     This does NOT run modules_build — the authoritative module SET is unchanged
     (KLC-070 D-001 / AC-13); these views consume whatever modules.json exists via the
     file_to_module() resolver."""
@@ -129,8 +131,14 @@ def _build_planning_views(index_dir: Path) -> None:
          ["--out", str(index_dir / "inventory.json")]),
         ("test_map",     skills / "test_map.py",
          ["--out", str(index_dir / "test_map.json")]),
+        # KLC-071: file_roles depends on inventory (built above) + modules + structural.
+        ("file_roles",   skills / "file_roles.py",
+         ["--out", str(index_dir / "file_roles.json")]),
         ("module_edges", skills / "module_edges.py",
          ["--edges-only", "--out-edges", str(index_dir / "module_edges.json")]),
+        # KLC-071: symbol_usage depends on inventory + callgraph (degrades to imports).
+        ("symbol_usage", skills / "symbol_usage.py",
+         ["--out", str(index_dir / "symbol_usage.json")]),
     )
     for name, script, extra in views:
         try:

@@ -118,3 +118,30 @@ def test_update_refreshes_all_three_views(tmp_path):
     assert r.returncode == 0, r.stderr
     for name in ("inventory.json", "test_map.json", "module_edges.json"):
         assert (idx / name).exists(), f"{name} missing after update"
+
+
+def test_file_roles_and_symbol_usage_wired(tmp_path):
+    """KLC-071 AC-7: file_roles and symbol_usage build after inventory in both init
+    (scan-only) and update, degrade-not-fail (no callgraph → symbol_usage still
+    written; here without modules.json file_roles still classifies from inventory)."""
+    root = _make_repo(tmp_path)
+    r = _run(INIT, root, "--scan-only")
+    assert r.returncode == 0, r.stderr
+    idx = root / ".klc" / "index"
+    # file_roles needs only inventory (required) — built even without modules.json.
+    fr = json.loads((idx / "file_roles.json").read_text(encoding="utf-8"))
+    assert "pkg/mod.py" in fr["files"]
+    assert fr["files"]["pkg/mod.py"]["eligible_as_primary"] is True
+    # symbol_usage degrades to file-level import usage (no callgraph) but still exists.
+    su = json.loads((idx / "symbol_usage.json").read_text(encoding="utf-8"))
+    assert "pkg/mod.py::public_fn" in su["symbols"]
+    tested = su["symbols"]["pkg/mod.py::public_fn"]["tested_by"]
+    assert "tests/test_mod.py" in tested  # the test imports the defining file
+
+    # update refreshes both too.
+    (idx / "modules.json").write_text(json.dumps({"modules": [
+        {"name": "pkg", "path": "pkg/", "files": ["pkg/mod.py"]},
+    ]}), encoding="utf-8")
+    assert _run(UPDATE, root, "--force").returncode == 0
+    for name in ("file_roles.json", "symbol_usage.json"):
+        assert (idx / name).exists(), f"{name} missing after update"

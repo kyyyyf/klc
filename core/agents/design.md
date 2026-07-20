@@ -13,12 +13,30 @@ orchestrating prompt for phase 3.
 - `00-spec.md`
 - `10-test-plan.md`
 - `20-related-adrs.md` (optional)
+- `.klc/index/module_edges.json` — ranked, evidence-backed module
+  edges (KLC-071). **Preferred** source for the dependency-impact step:
+  read this before falling back to the raw `depgraph`, because each edge
+  already carries `evidence_count`, `confidence`, `edge_types`, and
+  `expand_by_default`. Degrade to `depgraph` when absent.
+- `.klc/index/symbol_usage.json` — per-symbol impact radius (KLC-071):
+  `used_by` (consumers with module + `usage_type`), `tested_by`, and
+  `change_risk`. Use it to size a public-symbol change instead of a
+  manual graph walk. Degrades to file-level `usage_type:"import"` /
+  `confidence:"low"` when no callgraph was built — treat low-confidence
+  usage as a hint, not a complete list.
 - `.klc/index/depgraph.json` — `import_graphs.<lang>` (authoritative
-  module/file dependency edges). Read on demand.
+  file-level dependency edges). Fallback when `module_edges.json` is
+  absent. Read on demand.
 - `.klc/index/modules.json` — module → path map for resolving
   `affected_modules`.
 - On demand: `core/skills/context-loader.py` for module CLAUDE.md
   bundles.
+
+**Planning-slice discipline (KLC-071).** Before reading broad project
+context, start from the planning views' primary modules and files for
+this ticket. Do not expand beyond graph depth 1 (`module_edges`
+neighbours) unless the implementation plan requires it. When an option
+adds a file outside that slice, state the reason in the option.
 
 ## Model handoff guard
 
@@ -81,13 +99,21 @@ can be reflected in every option's `Affected files` / `Risks` instead of
 being discovered at review.
 
 1. For each module in `meta.json.affected_modules`, read
-   `depgraph.import_graphs.<lang>.edges` and list:
+   `module_edges.json` (KLC-071) — its `edges[]` already give ranked
+   `depends_on` neighbours with `evidence_count` / `confidence` /
+   `edge_types`. Expand the `expand_by_default` / high-confidence
+   neighbours first. Fall back to `depgraph.import_graphs.<lang>.edges`
+   only when `module_edges.json` is absent. List:
    - **downstream** — modules/files this one imports (what the change
      may break that it relies on);
    - **upstream (dependents)** — modules/files that import this one
      (who breaks if its public API changes).
-2. Verify the touched public symbols with LSP `findReferences` to
-   confirm the real call sites, not just module-level edges.
+2. For a public-symbol change, read `symbol_usage.json` for the touched
+   symbols (`<file>::<name>`): its `used_by` consumers, `tested_by`
+   tests, and `change_risk` size the blast radius directly. Then confirm
+   with LSP `findReferences` — the symbol_usage `used_by` is a starting
+   set (and only file-level when no callgraph exists), not the final
+   word.
 3. Record findings in `design/options.md` under a short
    `## Dependency impact` section:
    - dependents that must keep compiling / passing tests,

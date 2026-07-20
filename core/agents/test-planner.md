@@ -33,7 +33,21 @@ Detailed mode (additionally):
 - `.klc/tickets/<KEY>/design/options.md` — the chosen option.
 - `.klc/tickets/<KEY>/design/adr.md` (if present).
 - `.klc/tickets/<KEY>/impl-plan.md` — the step IDs `step-1`, `step-2`, …
+- `.klc/index/test_map.json` — **read this FIRST** (KLC-071). For each
+  edited production file, `production_to_tests[file]` gives its directly
+  mapped tests (`relationship`: `direct_import` / `call` /
+  `name_similarity`) and its `coverage` (`direct` / `module` / `none`);
+  `module_to_tests[module]` gives the module-level tests. A file with
+  `coverage:"none"` is a real hole — plan a new test, do not assume
+  "no test needed".
 - `.klc/index/symbols_by_module.json` scoped to affected modules.
+
+**Test-selection order (KLC-071).** Prefer **direct** tests for the
+edited files (from `test_map` `production_to_tests`), then **module**
+tests (`module_to_tests`), then **integration** tests. Do not suggest a
+broad suite unless the impact graph (`module_edges` / `symbol_usage`
+`change_risk`) or a public-contract change justifies widening. State one
+reason per test you select.
 
 ## Output
 

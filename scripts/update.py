@@ -197,8 +197,9 @@ def _aggregate_and_write_module_edges(index_dir: Path) -> None:
 
 
 def _build_planning_views(index_dir: Path) -> None:
-    """KLC-070: refresh the deterministic planning views (inventory, test_map,
-    module_edges v2) after an incremental update. Degrade-not-fail. Does NOT run
+    """KLC-070/KLC-071: refresh the deterministic planning views (inventory, test_map,
+    file_roles, module_edges v2, symbol_usage) after an incremental update.
+    Degrade-not-fail. Does NOT run
     modules_build — the module SET is unchanged (D-001 / AC-13); the views consume
     the current modules.json via the file_to_module() resolver."""
     skills = FRAMEWORK_ROOT / "core" / "skills"
@@ -207,8 +208,14 @@ def _build_planning_views(index_dir: Path) -> None:
          ["--out", str(index_dir / "inventory.json")]),
         ("test_map",     skills / "test_map.py",
          ["--out", str(index_dir / "test_map.json")]),
+        # KLC-071: file_roles depends on inventory (built above) + modules + structural.
+        ("file_roles",   skills / "file_roles.py",
+         ["--out", str(index_dir / "file_roles.json")]),
         ("module_edges", skills / "module_edges.py",
          ["--edges-only", "--out-edges", str(index_dir / "module_edges.json")]),
+        # KLC-071: symbol_usage depends on inventory + callgraph (degrades to imports).
+        ("symbol_usage", skills / "symbol_usage.py",
+         ["--out", str(index_dir / "symbol_usage.json")]),
     )
     for name, script, extra in views:
         try:
@@ -288,7 +295,8 @@ def main(argv: list[str]) -> int:
     _aggregate_and_write_module_edges(index_dir)
 
     # KLC-070: refresh the deterministic planning views (non-fatal)
-    log("Step 4/5: refreshing planning views (inventory, test_map, module_edges)")
+    log("Step 4/5: refreshing planning views (inventory, test_map, file_roles, "
+        "module_edges, symbol_usage)")
     _build_planning_views(index_dir)
 
     # Step 5: compute stale modules

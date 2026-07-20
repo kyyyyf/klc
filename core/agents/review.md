@@ -112,6 +112,31 @@ If the operator chooses full review, force the multi-agent path even when
 cascade would allow cheap. Record `review_depth: cheap|full` and
 `full_review_offered: true|false` in the report frontmatter.
 
+### 1b. Planning-slice / impact-radius audit (KLC-071)
+
+Before launching the sub-agents, cross-check the diff against the
+planning views so the aggregate report can flag scope and downstream
+gaps. Read on demand (all degrade-not-fail — skip a missing view with a
+one-line `[INFO]` note, do not block):
+
+- `.klc/index/module_edges.json` + `.klc/index/symbol_usage.json` —
+  review the **impact radius**. For each changed public symbol, read
+  `symbol_usage[<file>::<name>].used_by` / `tested_by` / `change_risk`
+  and confirm the diff (or the tests) covers the direct consumers; a
+  `high` `change_risk` symbol changed without touching its consumers or
+  their tests is a `MEDIUM` "missing downstream" finding.
+- `.klc/tickets/<KEY>/retrieval_trace.json` (if present) +
+  `meta.affected_modules` — the intended **planning slice**. Resolve
+  every changed file to its module (via `modules.json`). Flag, as a
+  `MEDIUM` finding, any changed file whose module is **outside**
+  `affected_modules` and is not explained in `spec.md` / the impl-plan
+  (an unexplained edit outside the selected slice). A change to a shared
+  file (`file_roles` `eligible_as_primary:false`) is a warning, not a
+  block — note its consumers so the author can decide the scope.
+- Confirm the tests in the diff match the affected modules
+  (`test_map.json` `module_to_tests`); a changed production file left at
+  `coverage:"none"` is an `INFO`/`LOW` "no direct test" note.
+
 ### 2. Launch sub-agents
 Always-on sub-agents run unconditionally. Conditional sub-agents run
 only when their trigger matches — each conditional prompt begins with a
