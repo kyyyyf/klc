@@ -254,6 +254,9 @@ function shimCmd(workspaceRoot: string, args: string): string {
 
 function buildAckCommand(workspaceRoot: string, ts: TicketState): string {
   const base = shimCmd(workspaceRoot, `ack ${ts.meta.ticket}`);
-  if (!ts.phase?.pickRequired || ts.phase.picks.length <= 1) return base;
+  if (!ts.phase?.pickRequired) return base;
+  // A single required pick (e.g. build's 1=approve) must be named explicitly —
+  // a bare `klc ack` would be rejected as "pick required" (KLC-072).
+  if (ts.phase.picks.length === 1) return `${base} --pick ${ts.phase.picks[0].id}`;
   return `${base} --pick <N>`;
 }

@@ -160,25 +160,53 @@ def _annotate_state(phase: _ph.Phase, state: str, meta: dict) -> str:
     return state
 
 
-def _next_hint(ticket: str, cur_pid: str, cur_state: str, meta: dict) -> str:
+def _work_card(ticket: str, cur_pid: str, meta: dict) -> Path:
+    """Path to the prompt card for a `<phase>:work` state.
+
+    build:work is a multi-step loop whose card is the per-step card written by
+    `klc step` (`build/_prompt_step_<N>.md`, default step 1), not a flat
+    `build/_prompt.md` (KLC-072). Every other phase uses the flat
+    `<phase>/_prompt.md`.
+    """
     tdir = klc_ticket_dir(ticket)
+    if cur_pid == "build":
+        step = meta.get("impl_step") or 1
+        return tdir / "build" / f"_prompt_step_{step}.md"
+    return tdir / cur_pid / "_prompt.md"
+
+
+def _ack_command(ticket: str, pid: str) -> str:
+    """The exact `klc ack` command for a phase, naming a required single pick.
+
+    build's ack (and any single-required-pick phase) requires `--pick <id>`;
+    naming it removes the guesswork from the status hint (KLC-072). Phases with
+    multiple required picks keep the `--pick N` placeholder; unrequired picks
+    get a bare `klc ack`.
+    """
+    try:
+        ph = _ph.load_phases().by_id(pid)
+    except Exception:
+        return f"klc ack {ticket}"
+    if ph.pick_required and len(ph.picks) == 1:
+        return f"klc ack {ticket} --pick {ph.picks[0].id}"
+    if ph.pick_required:
+        return f"klc ack {ticket} --pick N"
+    return f"klc ack {ticket}"
+
+
+def _next_hint(ticket: str, cur_pid: str, cur_state: str, meta: dict) -> str:
     if cur_state == _ph.STATE_WORK:
-        card = tdir / cur_pid / "_prompt.md"
+        card = _work_card(ticket, cur_pid, meta)
+        ack = _ack_command(ticket, cur_pid)
         if card.exists():
-            rel = card.relative_to(tdir.parent.parent.parent) \
-                if card.is_absolute() else card
             return (f"→ work in progress. Agent prompt: "
                     f"`cat {card}`\n"
-                    f"  When done: `klc ack {ticket}` "
-                    f"(with --pick if required), "
+                    f"  When done: `{ack}`, "
                     f"or `klc abort {ticket}` to cancel.")
-        return (f"→ {cur_pid}:work. Run `klc ack {ticket}` when done, "
+        return (f"→ {cur_pid}:work. Run `{ack}` when done, "
                 f"or `klc abort {ticket}` to cancel.")
     if cur_state == _ph.STATE_ACK_NEEDED:
-        ph = _ph.load_phases().by_id(cur_pid)
-        if ph.pick_required:
-            return f"→ run `klc ack {ticket} --pick N`"
-        return f"→ run `klc ack {ticket}`"
+        return f"→ run `{_ack_command(ticket, cur_pid)}`"
     if cur_state == _ph.STATE_ACK:
         return f"→ run `klc next {ticket}` to advance"
     return ""

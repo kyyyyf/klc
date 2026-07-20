@@ -99,8 +99,14 @@ LIFECYCLE_CMDS = (
     "retrack", "task-brief", "build-run", "steal", "remind", "heartbeat",
     "run",
 )
+# Only verbs that have a real core/phases/<name>.py belong here — the dispatch
+# below routes these through the generic `_run_phase`. `metrics`, `reindex`, and
+# `jira-sync` are deliberately absent: they have no phase file (metrics/reindex
+# are served by explicit handlers below; jira-sync's wrapper is
+# `jira_sync_cmd.py`, routed explicitly). Listing them here would let the
+# generic route shadow their handlers → "command not implemented" (KLC-072).
 OPERATIONAL_CMDS = (
-    "board", "doctor", "metrics", "reindex", "install", "jira-sync", "jira", "setup",
+    "board", "doctor", "install", "jira", "setup",
     "state",
 )
 
@@ -147,6 +153,11 @@ def _dispatch(argv: list[str]) -> int:
     if cmd in LIFECYCLE_CMDS or cmd in OPERATIONAL_CMDS:
         return _run_phase(cmd, rest)
 
+    # jira-sync's wrapper module is core/phases/jira_sync_cmd.py, so it cannot be
+    # routed by name via OPERATIONAL_CMDS (that would look for jira_sync.py).
+    if cmd == "jira-sync":
+        return _run_phase("jira_sync_cmd", rest)
+
     if cmd == "reindex":
         if not rest:
             sys.stderr.write("usage: klc reindex <ticket>\n"); return 2
@@ -174,12 +185,8 @@ def _dispatch(argv: list[str]) -> int:
             env={**os.environ, "PROJECT_ROOT": _project_root()},
         )
 
-    if cmd == "jira":
-        phases_dir = FRAMEWORK_ROOT / "core" / "phases"
-        sys.path.insert(0, str(SKILLS_DIR))
-        sys.path.insert(0, str(phases_dir))
-        from jira import run as _jira_run
-        return _jira_run(rest)
+    # NB: `jira` is served by core/phases/jira.py via OPERATIONAL_CMDS above —
+    # it never reaches here, so no explicit `jira` handler is needed (KLC-072).
 
     sys.stderr.write(f"klc: unknown subcommand: {cmd}\n")
     _print_help()

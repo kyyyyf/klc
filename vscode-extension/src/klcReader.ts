@@ -19,6 +19,7 @@ export interface TicketMeta {
   kind: string;
   blocked_reason?: string;
   jira_url?: string;
+  impl_step?: number;   // build multi-step loop position (default step 1)
   modified: number;     // mtime ms, for recency sort
 }
 
@@ -73,6 +74,7 @@ export function liveTickets(workspaceRoot: string): TicketMeta[] {
         kind: raw.kind ?? "unknown",
         blocked_reason: raw.blocked_reason,
         jira_url: raw.jira_url,
+        impl_step: typeof raw.impl_step === "number" ? raw.impl_step : undefined,
         modified: stat.mtimeMs,
       });
     } catch {
@@ -95,6 +97,7 @@ export function readMeta(workspaceRoot: string, ticketKey: string): TicketMeta |
       kind: raw.kind ?? "unknown",
       blocked_reason: raw.blocked_reason,
       jira_url: raw.jira_url,
+      impl_step: typeof raw.impl_step === "number" ? raw.impl_step : undefined,
       modified: stat.mtimeMs,
     };
   } catch {
@@ -205,7 +208,12 @@ export function buildTicketState(
   const { phaseId, state } = parseState(meta.phase);
   const phase = phases.get(phaseId) ?? null;
 
-  const promptCard = promptCardPath(workspaceRoot, ticketKey, phaseId);
+  // build:work is a multi-step loop whose card is build/_prompt_step_<N>.md
+  // (default step 1), not a flat _prompt.md. Pass the step so it resolves.
+  // `|| 1` (not `?? 1`) mirrors status.py's `meta.get("impl_step") or 1`: a
+  // non-positive/absent step falls back to step 1 identically on both sides.
+  const buildStep = phaseId === "build" ? (meta.impl_step || 1) : undefined;
+  const promptCard = promptCardPath(workspaceRoot, ticketKey, phaseId, buildStep);
 
   const blockers: string[] = [];
   if (meta.blocked_reason) blockers.push(meta.blocked_reason);
@@ -226,8 +234,12 @@ export function buildTicketState(
 
 export function resolveFrameworkRoot(workspaceRoot: string, shimPath: string): string | null {
   // Read the shim file and extract the framework path from it.
-  // The shim contains a line like: KLC_FRAMEWORK_ROOT=/opt/klc
-  // or: $FW = "C:\klc"
+  // `klc install` writes the framework path into a KLC_FW variable in all three
+  // shim flavours:
+  //   bash: KLC_FW="/opt/klc"
+  //   cmd:  set "KLC_FW=C:\klc"
+  //   ps1:  $env:KLC_FW = 'C:\klc'
+  // Legacy KLC_FRAMEWORK_ROOT / $FW forms are still accepted as a fallback.
   const fullShim = path.isAbsolute(shimPath)
     ? shimPath
     : path.join(workspaceRoot, shimPath);
@@ -236,10 +248,25 @@ export function resolveFrameworkRoot(workspaceRoot: string, shimPath: string): s
 
   try {
     const text = fs.readFileSync(fullShim, "utf8");
-    // bash shim: KLC_FRAMEWORK_ROOT="..." or similar
-    let m = text.match(/KLC_FRAMEWORK_ROOT=["']?([^"'\n]+)["']?/);
+    // primary: the KLC_FW variable klc install actually writes. The three shim
+    // flavours quote it differently, and a framework path may legitimately
+    // contain an apostrophe (e.g. /Users/o'brien/klc), so parse by the actual
+    // quote delimiter rather than a char class that excludes `'`:
+    //   bash: KLC_FW="…"        (double-quoted; the value may contain ')
+    //   cmd:  set "KLC_FW=…"    (the closing " comes after the value)
+    //   ps1:  $env:KLC_FW = '…' ('' is a PowerShell-escaped single quote)
+    let m = text.match(/KLC_FW\s*=\s*"([^"\n]*)"/); // bash double-quoted
     if (m) return m[1].trim();
-    // PS1 shim: $FW = "..."
+    m = text.match(/KLC_FW\s*=\s*'((?:[^'\n]|'')*)'/); // ps1 single-quoted (with '' escape)
+    if (m) return m[1].replace(/''/g, "'").trim();
+    m = text.match(/KLC_FW=([^"\n]*)"/); // cmd: set "KLC_FW=…"
+    if (m) return m[1].trim();
+    m = text.match(/KLC_FW\s*=\s*([^"'\n]+)/); // bare/unquoted fallback
+    if (m) return m[1].trim();
+    // legacy bash shim: KLC_FRAMEWORK_ROOT="..." or similar
+    m = text.match(/KLC_FRAMEWORK_ROOT=["']?([^"'\n]+)["']?/);
+    if (m) return m[1].trim();
+    // legacy PS1 shim: $FW = "..."
     m = text.match(/\$FW\s*=\s*["']([^"']+)["']/);
     if (m) return m[1].trim();
     // fallback: parent of the shim's scripts/ dir isn't available,
