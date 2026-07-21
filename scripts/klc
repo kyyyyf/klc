@@ -13,6 +13,8 @@ The ticket lifecycle is driven by seven verbs:
     steal    — take over a stale holder slot (TTL-gated, warns first)
     step     — generate minimal build step card (step N context only)
     work     — print the next required action (read-only; card/outputs/verify)
+    publish  — publish the review verdict to the ticket's GitHub PR
+               (read-only; degrade-not-fail; label/comment/commit-status)
     retrack  — operator-only: change a ticket's track (both directions), audited
     scope-fix — correct meta.affected_modules durably (incl. after archive),
                state_tx-wrapped; --modules/--add/--remove
@@ -99,7 +101,7 @@ def _project_root() -> str:
 LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step", "work",
     "retrack", "scope-fix", "task-brief", "build-run", "steal", "remind",
-    "heartbeat", "run",
+    "heartbeat", "run", "publish",
 )
 # Only verbs that have a real core/phases/<name>.py belong here — the dispatch
 # below routes these through the generic `_run_phase`. `metrics`, `reindex`, and
@@ -124,7 +126,10 @@ OPERATIONAL_CMDS = (
 #   work      — a read-only "what's next?" query (KLC-047). It advertises a pure
 #               read contract, so it must not push queued Jira updates or rewrite
 #               the queue file as a side effect (like remind).
-NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat", "work")
+#   publish   — a read-only forge-publish verb (KLC-003). Like `work` it makes no
+#               lifecycle writes (no phase advance, no meta write); draining the
+#               Jira queue here would be an unadvertised write side effect.
+NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat", "work", "publish")
 
 
 def _drain_jira_queue() -> None:
