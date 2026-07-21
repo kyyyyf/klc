@@ -75,8 +75,8 @@ def run(argv: list[str]) -> int:
         sys.stderr.write(f"klc ship: {e}\n")
         return 1
 
-    if cur == _ph.STATE_ARCHIVED:
-        sys.stderr.write(f"klc ship: ticket {args.ticket} is archived.\n")
+    if _ph.is_terminal(cur):
+        sys.stderr.write(f"klc ship: ticket {args.ticket} is {cur}.\n")
         return 1
 
     pid, state = _ph.parse_state(cur)

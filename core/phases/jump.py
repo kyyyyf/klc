@@ -73,11 +73,14 @@ def run(argv: list[str]) -> int:
     if not klc_ticket_meta_file(args.ticket).exists():
         return _friendly_missing_ticket(args.ticket)
 
-    # Forbid jumping to archived; that's a terminal state owned by learn.
-    if args.target_phase == _ph.STATE_ARCHIVED:
+    # Forbid jumping to a terminal pseudo-state. `archived` is reached through
+    # `klc ack --pick 1` on learn; `cancelled` is reached through
+    # `klc abort --cancel` (KLC-076). Neither is a phase you can jump into.
+    if _ph.is_terminal(args.target_phase):
         sys.stderr.write(
-            "klc jump: target `archived` is not allowed. Archived is a "
-            "terminal state reached through `klc ack --pick 1` on learn.\n"
+            f"klc jump: target `{args.target_phase}` is not allowed — it is a "
+            f"terminal state, not a phase. Reach `archived` via `klc ack --pick 1` "
+            f"on learn, or `cancelled` via `klc abort --cancel`.\n"
         )
         return 2
 

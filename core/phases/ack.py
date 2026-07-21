@@ -70,9 +70,9 @@ def run(argv: list[str]) -> int:
     try:
         with acquire_lock(args.ticket):
             cur = _lc.current_state(args.ticket)
-            if cur == _ph.STATE_ARCHIVED:
+            if _ph.is_terminal(cur):
                 sys.stderr.write(
-                    f"klc ack: ticket {args.ticket} is archived.\n"
+                    f"klc ack: ticket {args.ticket} is {cur}.\n"
                 )
                 return 1
 

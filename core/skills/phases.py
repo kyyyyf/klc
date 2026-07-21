@@ -8,8 +8,10 @@ interprets it. Everything else asks:
     ph = load_phases()
     ph.next_phase(track="M", phase_id="design")
 
-States per phase: `<id>:work`, `<id>:ack-needed`, `<id>:ack`. Plus one
-terminal pseudo-state `archived` that no phase owns.
+States per phase: `<id>:work`, `<id>:ack-needed`, `<id>:ack`. Plus two
+terminal pseudo-states that no phase owns: `archived` (the ticket finished
+its lifecycle — "done") and `cancelled` (the ticket was terminated early and
+will never be done — NOT counted as completed work; see KLC-076).
 
 YAML parser is a small subset tailored to the shape of phases.yml:
   - top-level mapping;
@@ -38,7 +40,14 @@ STATE_WORK        = "work"
 STATE_ACK_NEEDED  = "ack-needed"
 STATE_ACK         = "ack"
 STATE_ARCHIVED    = "archived"
+STATE_CANCELLED   = "cancelled"    # KLC-076: terminated-early terminal (not "done")
 VALID_STATES = {STATE_WORK, STATE_ACK_NEEDED, STATE_ACK}
+
+# Terminal pseudo-states no phase owns. `archived` = finished/done;
+# `cancelled` = terminated early (excluded from completion metrics). Consumers
+# that must refuse to advance, or render/handle a finished ticket, gate on
+# `is_terminal(...)` so a future third terminal is added in exactly one place.
+TERMINAL_STATES = {STATE_ARCHIVED, STATE_CANCELLED}
 
 TRACK_ORDER = ("XS", "S", "M", "L")
 
@@ -364,11 +373,19 @@ def load_phases(force: bool = False) -> Phases:
 
 # --- state helpers ------------------------------------------------------------
 
+def is_terminal(phase_value: str) -> bool:
+    """True iff the meta.phase string is a terminal pseudo-state that no phase
+    owns (`archived` or `cancelled`). The single gate every consumer that must
+    refuse-to-advance / render-as-finished should use (KLC-076)."""
+    return phase_value in TERMINAL_STATES
+
+
 def parse_state(state: str) -> tuple[str, str]:
-    """Split `<phase>:<state>` into (phase_id, state). Accepts the
-    sentinel `archived` as ('archived', 'archived')."""
-    if state == STATE_ARCHIVED:
-        return (STATE_ARCHIVED, STATE_ARCHIVED)
+    """Split `<phase>:<state>` into (phase_id, state). Accepts the terminal
+    sentinels `archived`/`cancelled` as ('archived','archived') /
+    ('cancelled','cancelled') — never raises on a recognised terminal."""
+    if state in TERMINAL_STATES:
+        return (state, state)
     if ":" not in state:
         raise ValueError(f"invalid state {state!r}; expected '<phase>:<state>'")
     pid, st = state.split(":", 1)
@@ -378,8 +395,8 @@ def parse_state(state: str) -> tuple[str, str]:
 
 
 def format_state(phase_id: str, state: str) -> str:
-    if phase_id == STATE_ARCHIVED:
-        return STATE_ARCHIVED
+    if phase_id in TERMINAL_STATES:
+        return phase_id
     if state not in VALID_STATES:
         raise ValueError(f"invalid state {state!r}")
     return f"{phase_id}:{state}"

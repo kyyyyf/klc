@@ -92,6 +92,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 def cmd_rollup(args: argparse.Namespace) -> int:
     tickets_dir = klc_tickets_dir()
     rows: list[dict] = []
+    cancelled_total = 0
     if tickets_dir.exists():
         for meta_file in tickets_dir.glob("*/meta.json"):
             try:
@@ -99,6 +100,12 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             except json.JSONDecodeError:
                 continue
             if m.get("phase") in (None, "intake"):
+                continue
+            # KLC-076: `cancelled` is terminated-early work, NOT completed —
+            # unlike `archived` (done), it must never inflate throughput /
+            # lead-time / completion. Count it separately and exclude from rows.
+            if m.get("phase") == "cancelled":
+                cancelled_total += 1
                 continue
             rows.append(m)
 
@@ -183,6 +190,7 @@ def cmd_rollup(args: argparse.Namespace) -> int:
     payload = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "tickets_total": len(rows),
+        "cancelled_total": cancelled_total,   # KLC-076: excluded from tickets_total
         "per_track":     per_track,
     }
     out = klc_knowledge_dir() / "process-metrics.json"

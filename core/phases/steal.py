@@ -29,6 +29,8 @@ sys.path.insert(0, str(SKILLS))
 from _paths import klc_ticket_meta_file  # noqa: E402
 import holder  # noqa: E402
 import identity as _identity  # noqa: E402
+import lifecycle as _lc  # noqa: E402
+import phases as _ph  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
 from artefacts import acquire_lock, LockedError  # noqa: E402
@@ -64,6 +66,17 @@ def run(argv: list[str]) -> int:
 
     if not klc_ticket_meta_file(args.ticket).exists():
         return _friendly_missing_ticket(args.ticket)
+
+    # A terminal ticket (archived/cancelled) holds no active phase, so there is
+    # nothing to steal — refuse before touching git, mirroring the terminal gate
+    # in ack/next/ship/jump (KLC-076). Prevents writing a holder onto a terminal.
+    cur = _lc.current_state(args.ticket)
+    if _ph.is_terminal(cur):
+        sys.stderr.write(
+            f"klc steal: ticket {args.ticket} is {cur}; a terminal ticket has "
+            f"no active phase to steal.\n"
+        )
+        return 1
 
     # A TTL must be strictly positive. ttl<=0 would make the staleness gate
     # (age < ttl_seconds) reject nothing — every holder, however fresh, would

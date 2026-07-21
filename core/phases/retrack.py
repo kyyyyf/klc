@@ -75,10 +75,10 @@ def run(argv: list[str]) -> int:
 
     # Compatibility guard: the current phase must exist in the target track.
     phase_value = meta.get("phase") or ""
-    if phase_value == _ph.STATE_ARCHIVED:
+    if _ph.is_terminal(phase_value):
         sys.stderr.write(
-            f"klc retrack: ticket {args.ticket} is archived; cannot retrack a "
-            f"terminal ticket.\n"
+            f"klc retrack: ticket {args.ticket} is {phase_value}; cannot retrack "
+            f"a terminal ticket.\n"
         )
         return 1
     try:

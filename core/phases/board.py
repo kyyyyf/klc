@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""`klc board` — kanban view of every live ticket.
+"""`klc board` — kanban view of every ticket.
 
-Groups `.klc/tickets/<key>/meta.json` by phase and prints a table.
-Archived tickets are omitted.
+Groups `.klc/tickets/<key>/meta.json` by the raw `phase` string and prints a
+table. The terminal pseudo-states `archived` (done) and `cancelled` (terminated
+early, KLC-076) each form their own section (`== archived (N) ==` /
+`== cancelled (N) ==`) — never an active/pending phase section. Because board
+buckets by the raw phase string and never resolves it through
+`phases.by_id`/`parse_state`, an unknown or terminal phase is just a section
+label and never crashes the view.
 """
 from __future__ import annotations
 

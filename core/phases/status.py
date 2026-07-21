@@ -28,9 +28,10 @@ import phases as _ph  # noqa: E402
 import holder_display  # noqa: E402
 
 
-BOX_DONE    = "[✓]"  # ✓
-BOX_CURRENT = "[●]"  # ●
-BOX_EMPTY   = "[ ]"
+BOX_DONE      = "[✓]"  # ✓
+BOX_CURRENT   = "[●]"  # ●
+BOX_EMPTY     = "[ ]"
+BOX_CANCELLED = "[✗]"  # ✗ — terminated early (KLC-076)
 
 
 def _meta(ticket: str) -> dict | None:
@@ -65,10 +66,12 @@ def run(argv: list[str]) -> int:
     phase_value = meta.get("phase") or ""
 
     if args.json:
-        if phase_value == _ph.STATE_ARCHIVED:
-            print(json.dumps({"ticket": args.ticket, "phase": "archived",
+        # Terminal pseudo-states (archived/cancelled) own no phase — special-case
+        # BEFORE parse_state, which would otherwise treat them as active (KLC-076).
+        if _ph.is_terminal(phase_value):
+            print(json.dumps({"ticket": args.ticket, "phase": phase_value,
                               "track": track, "kind": kind,
-                              "phase_id": "archived", "state": "archived"}))
+                              "phase_id": phase_value, "state": phase_value}))
             return 0
         try:
             cur_pid, cur_state = _ph.parse_state(phase_value)
@@ -90,6 +93,19 @@ def run(argv: list[str]) -> int:
         for p in ph.track_phases(track):
             print(f"  {BOX_DONE} {p.id}")
         print(f"  {BOX_DONE} archived")
+        return 0
+
+    # Cancelled is terminal but NOT done: don't paint the track green. Show a
+    # single cancelled row (with the reason / originating phase, if recorded) so
+    # it renders without error and never reads as active/complete (KLC-076).
+    if phase_value == _ph.STATE_CANCELLED:
+        print(f"  {BOX_CANCELLED} cancelled — ticket terminated (will not be done)")
+        reason = meta.get("cancel_reason")
+        if reason:
+            print(f"      reason: {reason}")
+        from_phase = _cancelled_from_phase(meta)
+        if from_phase:
+            print(f"      cancelled from: {from_phase}")
         return 0
 
     try:
@@ -127,6 +143,15 @@ def run(argv: list[str]) -> int:
     hint = _next_hint(args.ticket, cur_pid, cur_state, meta)
     print(hint)
     return 0
+
+
+def _cancelled_from_phase(meta: dict) -> str | None:
+    """The phase a cancelled ticket was terminated from, recorded on the
+    `cancelled` phase_history entry (KLC-076). None if unavailable."""
+    for entry in reversed(meta.get("phase_history") or []):
+        if entry.get("event") == "cancelled":
+            return entry.get("from_phase")
+    return None
 
 
 def _annotate_current(phase: _ph.Phase, state: str, meta: dict) -> str:

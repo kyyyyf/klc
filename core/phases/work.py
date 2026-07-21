@@ -40,11 +40,14 @@ def next_action(ticket: str) -> dict:
     meta = _lc.read_meta_ro(ticket)
     phase_value = meta.get("phase") or "intake:ack-needed"
 
-    # Archived is a terminal pseudo-state no phase owns — handle it FIRST,
-    # exactly as status.py does, before parse_state.
+    # Archived/cancelled are terminal pseudo-states no phase owns — handle them
+    # FIRST, exactly as status.py does, before parse_state (KLC-076).
     if phase_value == _ph.STATE_ARCHIVED:
         return {"ticket": ticket, "phase": "archived", "state": "archived",
                 "next": "(ticket archived — nothing to do)"}
+    if phase_value == _ph.STATE_CANCELLED:
+        return {"ticket": ticket, "phase": "cancelled", "state": "cancelled",
+                "next": "(ticket cancelled — nothing to do)"}
 
     pid, state = _ph.parse_state(phase_value)
     ph = _ph.load_phases().by_id(pid)
@@ -70,8 +73,8 @@ def next_action(ticket: str) -> dict:
 
 def _render(info: dict) -> str:
     ticket = info["ticket"]
-    if info["phase"] == "archived":
-        return f"{ticket}: archived — nothing to do."
+    if info["phase"] in ("archived", "cancelled"):
+        return f"{ticket}: {info['phase']} — nothing to do."
 
     lines = [f"{ticket}  {info['phase']}:{info['state']}", ""]
     state = info["state"]

@@ -87,7 +87,8 @@ _DEFAULT_CAP = 20
 class RunResult:
     transitions: list[str] = field(default_factory=list)  # phase-ids auto-acked, in order
     paused_at: str | None = None                          # phase-id where the loop stopped
-    reason: str | None = None                             # why it stopped (None = archived/done)
+    reason: str | None = None                             # why it stopped (None = clean terminal)
+    terminal: str | None = None                           # terminal state reached: "archived"/"cancelled" (KLC-076)
 
 
 # ---------------------------------------------------------------------------
@@ -280,9 +281,14 @@ def run(ticket: str, *, dispatch=None, cap: int | None = None) -> RunResult:
         while True:
             pid, state = _ph.parse_state(_lc.current_state(ticket))
             last_pid = pid
-            if state == _ph.STATE_ARCHIVED:
-                _log(ticket, "done: archived")
-                return RunResult(list(trace), None, None)
+            if _ph.is_terminal(state):
+                # archived (done) and cancelled (terminated early) are both CLEAN
+                # terminal stops — the runner has nothing left to drive (KLC-076).
+                # reason stays None (a set reason with no paused_at means a
+                # refusal → rc 1); the terminal name is carried in `terminal` so
+                # run.py can report "DONE (cancelled)" distinctly and still exit 0.
+                _log(ticket, f"done: {state}")
+                return RunResult(list(trace), None, None, terminal=state)
 
             # Guardrails BEFORE any dispatch or auto-ack (fail-closed).
             stop = guardrail(ticket, pid, n_auto, cap)

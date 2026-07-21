@@ -10,7 +10,8 @@ guardrail (integrate/merge, a budget ceiling, or the consecutive-auto cap).
 
 SINGLE-USER / feature-off only: if the multi-user state feature is ON, the
 runner refuses. Exit code: 0 when the ticket reaches a terminal/clean stop
-(archived), 2 when the loop paused (a human must act), 1 on a refusal.
+(archived OR cancelled — both are clean terminals, KLC-076), 2 when the loop
+paused (a human must act), 1 on a refusal.
 """
 from __future__ import annotations
 
@@ -28,7 +29,11 @@ import autorunner  # noqa: E402
 
 def _render(res: "autorunner.RunResult") -> str:
     lines = [f"transitions: {' → '.join(res.transitions) if res.transitions else '(none)'}"]
-    if res.paused_at is None and res.reason is None:
+    if res.terminal is not None:
+        # A clean terminal stop — archived (done) or cancelled (terminated
+        # early). Both are exit 0, distinct from a refusal (KLC-076).
+        lines.append(f"result: DONE ({res.terminal})")
+    elif res.paused_at is None and res.reason is None:
         lines.append("result: DONE (archived)")
     elif res.paused_at is None:
         lines.append(f"result: {res.reason}")
@@ -50,10 +55,15 @@ def run(argv: list[str]) -> int:
 
     if args.json:
         print(json.dumps({"ticket": args.ticket, "transitions": res.transitions,
-                          "paused_at": res.paused_at, "reason": res.reason}))
+                          "paused_at": res.paused_at, "reason": res.reason,
+                          "terminal": res.terminal}))
     else:
         print(_render(res))
 
+    # A clean terminal stop (archived/cancelled) is exit 0 — even for cancelled,
+    # which is a deliberate terminal, not a failure (KLC-076).
+    if res.terminal is not None:
+        return 0
     # Refusal (feature-on): reason set but no paused_at and no transitions taken.
     if res.paused_at is None and res.reason is not None:
         return 1

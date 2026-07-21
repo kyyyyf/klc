@@ -68,7 +68,8 @@ _LEGACY_MAP = {
     "integrate-post":             "integrate:work",
     "observe":                    "observe:work",
     "learn":                      "learn:work",
-    "archived":                   "archived",
+    # No "archived"/"cancelled" entry: _migrate_legacy_phase early-returns on
+    # is_terminal(cur), so a terminal never reaches this map (KLC-076).
 }
 
 
@@ -78,7 +79,7 @@ def _migrate_legacy_phase(meta: dict) -> bool:
     cur = meta.get("phase")
     if not isinstance(cur, str):
         return False
-    if ":" in cur or cur == _ph.STATE_ARCHIVED:
+    if ":" in cur or _ph.is_terminal(cur):
         return False
     new = _LEGACY_MAP.get(cur)
     if new:
@@ -555,8 +556,8 @@ def advance_to_next(ticket: str, *, note: str = "") -> str:
     Returns the new state string. Raises if not in an `:ack` state."""
     meta = read_meta(ticket)
     cur = meta.get("phase", "")
-    if cur == _ph.STATE_ARCHIVED:
-        raise ValueError("ticket is archived; no further transitions")
+    if _ph.is_terminal(cur):
+        raise ValueError(f"ticket is {cur}; no further transitions")
     pid, st = _ph.parse_state(cur)
     if st != _ph.STATE_ACK:
         raise ValueError(
@@ -665,8 +666,8 @@ def jump(ticket: str, target_phase: str, *, dry_run: bool = False) -> dict:
     plan has been applied."""
     meta = read_meta(ticket)
     cur = meta.get("phase", "")
-    if cur == _ph.STATE_ARCHIVED:
-        raise ValueError("cannot jump from archived")
+    if _ph.is_terminal(cur):
+        raise ValueError(f"cannot jump from {cur}")
     cur_pid, cur_state = _ph.parse_state(cur)
     if cur_state != _ph.STATE_ACK:
         raise ValueError(
@@ -729,6 +730,10 @@ def abort(ticket: str) -> str:
     (or intake:ack-needed if the current phase is the first)."""
     meta = read_meta(ticket)
     cur = meta.get("phase", "")
+    if _ph.is_terminal(cur):
+        # A terminal ticket (archived/cancelled) has no :work to abort — give a
+        # terminal-specific message like ack/next/ship/jump do (KLC-076).
+        raise ValueError(f"cannot abort a {cur} ticket — it is terminal")
     cur_pid, cur_state = _ph.parse_state(cur)
     if cur_state != _ph.STATE_WORK:
         raise ValueError(f"abort: current state is {cur!r}; expected :work")
@@ -757,12 +762,52 @@ def abort(ticket: str) -> str:
     return _ph.format_state(prev.id, _ph.STATE_ACK)
 
 
+def cancel(ticket: str, *, reason: str, by: str) -> str:
+    """Terminate a ticket to the `cancelled` terminal from ANY non-terminal
+    state (KLC-076). This is `klc abort --cancel`.
+
+    Unlike plain `abort` (which only steps a `:work` back to the previous
+    `:ack`), cancel closes a ticket that will never be done and is valid from
+    `intake:ack-needed`, `<X>:ack` and `<X>:work`. From a `:work` state it first
+    moves the current phase's artefacts to `_superseded/<ts>/` exactly like
+    abort, then terminates.
+
+    Records a `phase_history` {event: cancelled, from_phase, reason, by} entry
+    (its `started_at` is the event ts) and sets a top-level terminal marker
+    (`phase="cancelled"`, `cancelled: true`, `cancel_reason`). Refuses a ticket
+    that is already terminal (archived or cancelled)."""
+    meta = read_meta(ticket)
+    cur = meta.get("phase", "")
+    if _ph.is_terminal(cur):
+        raise ValueError(
+            f"cancel: ticket is already {cur}; a terminal ticket cannot be cancelled"
+        )
+    cur_pid, cur_state = _ph.parse_state(cur)
+
+    # From :work, supersede the current phase's artefacts first (like abort), so
+    # nothing half-done is left in place. :ack / :ack-needed have nothing to move.
+    if cur_state == _ph.STATE_WORK:
+        supersede_phases(ticket, [cur_pid])
+
+    # Reset budgets and stamp the top-level terminal marker.
+    meta = read_meta(ticket)
+    _reset_budgets(meta)
+    meta["cancelled"] = True
+    meta["cancel_reason"] = reason
+    write_meta(ticket, meta)
+
+    set_state(ticket, _ph.STATE_CANCELLED, _ph.STATE_CANCELLED,
+              event="cancelled",
+              extra={"from_phase": cur, "reason": reason, "by": by})
+    return _ph.STATE_CANCELLED
+
+
 # --- convenience --------------------------------------------------------------
 
 def can_ack(ticket: str) -> bool:
     """True iff current state is :ack-needed."""
     cur = current_state(ticket)
-    if cur == _ph.STATE_ARCHIVED:
+    if _ph.is_terminal(cur):
         return False
     try:
         _, st = _ph.parse_state(cur)
@@ -773,7 +818,7 @@ def can_ack(ticket: str) -> bool:
 
 def is_work(ticket: str) -> bool:
     cur = current_state(ticket)
-    if cur == _ph.STATE_ARCHIVED:
+    if _ph.is_terminal(cur):
         return False
     try:
         _, st = _ph.parse_state(cur)

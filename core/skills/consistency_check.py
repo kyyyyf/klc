@@ -73,7 +73,7 @@ def check_ticket(ticket: str) -> list[str]:
     phase = meta.get("phase") or ""
     try:
         pid, state = _phases.parse_state(phase)
-        if pid != _phases.STATE_ARCHIVED:
+        if not _phases.is_terminal(pid):
             _phases.load_phases().by_id(pid)
     except (ValueError, KeyError) as e:
         errs.append(f"{ticket}: meta.json:phase={phase!r} invalid ({e})")

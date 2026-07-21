@@ -64,6 +64,7 @@ status_mapping:
     observe:              "Monitoring"
     learn:                "Done"
     archived:             "Done"
+    cancelled:             "Cancelled"
 
   # Jira status → candidate klc phases. Used by pull path (KLC-022).
   # A list because one Jira status can map to multiple klc phases.
@@ -138,3 +139,4 @@ sync:
     observe:              "Observing"
     learn:                "Done"
     archived:             "Done"
+    cancelled:             "Cancelled"

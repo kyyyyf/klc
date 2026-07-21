@@ -653,7 +653,13 @@ sync:
     build: "In Progress"
     review: "In Review"
     archived: "Done"
+    cancelled: "Cancelled"   # terminal for `klc abort --cancel` (KLC-076)
 ```
+
+`cancelled` is a terminal sentinel parallel to `archived`: a ticket closed with
+`klc abort --cancel` pushes this status so its Jira issue does not linger in its
+old (e.g. "In Progress") status. If your Jira workflow has no cancelled/won't-do
+status, drop the key — the push then no-ops (the issue keeps its current status).
 
 For `transport: mcp`, set `sync.mcp.url` to the HTTP endpoint of a
 running `mcp-atlassian` instance.

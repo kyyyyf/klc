@@ -79,7 +79,7 @@ def _resolve_status(phase: str, sync: dict) -> str | None:
     Lookup order:
       1. Exact match on full phase string (e.g. 'build:work').
       2. Match on phase id only (e.g. 'build').
-      3. Special sentinel 'archived'.
+      3. Special terminal sentinels 'archived' / 'cancelled' (KLC-076).
     Returns None if no mapping found.
     """
     mapping: dict = sync.get("phase_to_status") or {}
@@ -93,8 +93,12 @@ def _resolve_status(phase: str, sync: dict) -> str | None:
     if phase_id in mapping:
         return mapping[phase_id]
 
-    if phase == "archived" and "archived" in mapping:
-        return mapping["archived"]
+    # Terminal sentinels: a terminal phase owns no `<id>:<state>` form, so it is
+    # looked up by its bare name. `cancelled` (KLC-076) sits parallel to
+    # `archived` so a cancelled ticket is not left desynced in its old Jira
+    # status; both require the operator to configure the key in phase_to_status.
+    if phase in ("archived", "cancelled") and phase in mapping:
+        return mapping[phase]
 
     return None
 
