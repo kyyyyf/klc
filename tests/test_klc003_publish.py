@@ -165,18 +165,36 @@ def test_parse_verdict_lowercase_and_approved_variants():
     assert pg.parse_verdict("---\nverdict: Approval granted\n---") == pg.APPROVED
 
 
-def test_parse_verdict_reject_wins_across_all_forms():
-    # bare line APPROVED + section CHANGES REQUESTED (fresh M3)
+def test_structured_reject_wins_among_declarations():
+    # two STRUCTURED verdicts disagree → reject-wins among them (fresh M3)
     assert pg.parse_verdict(
-        "VERDICT APPROVED\n## Verdict\nCHANGES REQUESTED\n"
+        "VERDICT APPROVED\n## Verdict: CHANGES REQUESTED\n"
     ) == pg.CHANGES_REQUESTED
-    # frontmatter APPROVED + heading-inline CHANGES REQUESTED
+    # frontmatter APPROVED + heading-inline CHANGES REQUESTED (both structured)
     assert pg.parse_verdict(
         "---\nverdict: APPROVED\n---\n## Verdict: CHANGES REQUESTED\n"
     ) == pg.CHANGES_REQUESTED
-    # heading-inline APPROVED + a stray reject token elsewhere
+
+
+def test_structured_verdict_beats_body_prose():
+    # codex P2 over-reach fix: an authoritative `## Verdict: APPROVED` is NOT
+    # flipped by a reject phrase that merely appears in the body prose.
     assert pg.parse_verdict(
-        "## Verdict: APPROVED\n\n(previously rejected)\n"
+        "## Verdict: APPROVED\n\nNo changes requested were needed this pass.\n"
+    ) == pg.APPROVED
+    assert pg.parse_verdict(
+        "## Verdict: APPROVED\n\n(the previous pass was rejected)\n"
+    ) == pg.APPROVED
+    # frontmatter (structured) APPROVED likewise beats body prose
+    assert pg.parse_verdict(
+        "---\nverdict: APPROVED\n---\n\nEarlier findings: changes requested.\n"
+    ) == pg.APPROVED
+
+
+def test_tier2_prose_reject_wins_when_no_structured_declaration():
+    # no structured field, only a `## Verdict` section → tier-2 whole-doc scan
+    assert pg.parse_verdict(
+        "# r\n\n## Verdict\n\nThe reviewer concluded: changes requested.\n"
     ) == pg.CHANGES_REQUESTED
 
 
@@ -258,6 +276,28 @@ def test_comment_dedupe_edits_existing_comment():
     assert gh.has("api", "--method", "PATCH",
                   "repos/{owner}/{repo}/issues/comments/555")
     assert gh.has("pr", "comment") is None
+    # the lookup must paginate every page (codex P2)
+    listing = gh.has("api", "repos/{owner}/{repo}/issues/42/comments")
+    assert listing is not None and "--paginate" in listing
+
+
+def test_comment_dedupe_finds_marker_on_a_later_page():
+    """codex P2: with `--paginate --jq`, gh emits JSONL across all pages; the
+    KLC marker on a LATER page must still be found and the comment EDITED."""
+    marker = "<!-- klc:review:KLC-003 -->"
+    # JSONL (one object per line) — the marker is on the last line (later page).
+    jsonl = "\n".join(json.dumps({"id": i, "body": f"chatter {i}"})
+                      for i in range(1, 31))
+    jsonl += "\n" + json.dumps({"id": 999, "body": f"prior review\n{marker}"})
+    gh = GhRecorder({
+        ("pr", "list"): (0, PR_LIST_JSON),
+        ("api", "repos/{owner}/{repo}/issues/42/comments"): (0, jsonl),
+    })
+    res = pg.publish("KLC-003", APPROVED_REPORT, gh)
+    assert res.published and "comment:updated" in res.actions
+    assert gh.has("api", "--method", "PATCH",
+                  "repos/{owner}/{repo}/issues/comments/999")
+    assert gh.has("pr", "comment") is None  # edited, not duplicated
 
 
 # --- PR resolution ------------------------------------------------------------
