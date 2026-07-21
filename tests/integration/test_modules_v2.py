@@ -150,3 +150,129 @@ def test_degrades_without_depgraph():
     res = mb.build_modules(STRUCTURAL, None)
     assert res["modules"]           # still produced something
     assert any("depgraph" in e for e in res["errors"])
+
+
+# --------------------------------------------------------------------------- #
+# KLC-074: full-file-listing clustering (non-code directories no longer orphan)
+# --------------------------------------------------------------------------- #
+ALL_FILES = [
+    "core/skills/a.py", "core/skills/b.py", "core/phases/intake.py",
+    "scripts/init.py",
+    # non-code files that the import graph never sees:
+    "docs/guide.md", "docs/adr/0001.md", "core/agents/review.md",
+    "config/models.yml",
+]
+
+
+def test_all_files_covers_non_code_directories():
+    """KLC-074: feeding the full tracked-file listing makes non-code directories
+    (docs/, core/agents/, config/) real modules instead of orphaning their files."""
+    res = mb.build_modules(STRUCTURAL, DEPGRAPH, all_files=ALL_FILES)
+    names = {m["name"] for m in res["modules"]}
+    assert {"docs", "docs/adr", "core/agents", "config"} <= names, names
+    # and the resolver attributes a non-code file to its directory module (not orphan)
+    r = mm.file_to_module("core/agents/review.md", res)
+    assert r["primary_module"] == "core/agents"
+    assert r["resolution_source"] == "longest_prefix"
+    # a config yaml resolves too
+    assert mm.file_to_module("config/models.yml", res)["primary_module"] == "config"
+
+
+def test_all_files_byte_reproducible():
+    """KLC-074: build_modules is pure over (structural, depgraph, all_files) — the same
+    all_files list yields byte-identical membership on re-run (AC-3 preserved)."""
+    a = mb.build_modules(STRUCTURAL, DEPGRAPH, all_files=ALL_FILES)
+    b = mb.build_modules(STRUCTURAL, DEPGRAPH, all_files=list(reversed(ALL_FILES)))
+    assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+    assert "generated_at" not in a
+
+
+def test_all_files_source_label_and_no_degrade_error():
+    """With a full listing, source is 'file_listing' and there is no depgraph-missing
+    error even when depgraph is None (the listing covers everything)."""
+    res = mb.build_modules(STRUCTURAL, None, all_files=ALL_FILES)
+    assert all(m["source"] == "file_listing" for m in res["modules"])
+    assert not res["errors"]
+
+
+def test_module_file_universe_is_git_tracked_and_excluded(tmp_path):
+    """KLC-074 review HIGH-1/HIGH-2: the module file universe is GIT-TRACKED intersected
+    with the resolved scan excludes — untracked junk and tracked-but-excluded files are
+    both dropped, and the result is sorted (byte-reproducible)."""
+    import subprocess
+    root = tmp_path
+    (root / "pkg").mkdir()
+    (root / "pkg" / "m.py").write_text("x=1\n", encoding="utf-8")
+    (root / "build").mkdir()                 # baseline-excluded dir
+    (root / "build" / "gen.py").write_text("g=1\n", encoding="utf-8")
+    (root / "untracked.py").write_text("u=1\n", encoding="utf-8")  # never git-added
+    for args in (["init", "-q"], ["config", "user.email", "t@t"],
+                 ["config", "user.name", "t"], ["add", "pkg/m.py", "build/gen.py"],
+                 ["commit", "-qm", "init"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True,
+                       capture_output=True, text=True)
+    got, source = mb.module_file_universe(root)
+    assert source.endswith("git"), source
+    assert "pkg/m.py" in got
+    assert "untracked.py" not in got, "untracked file leaked into the universe"
+    assert "build/gen.py" not in got, "tracked-but-excluded file leaked in"
+    assert got == sorted(got)
+
+
+def test_empty_universe_produces_zero_modules_not_fallback():
+    """KLC-074 review P2: an EMPTY-but-authoritative universe (``[]``) must yield ZERO
+    modules — it must NOT be treated as 'absent' and fall back to the depgraph /
+    directory_tree clustering (which would re-fabricate modules from untracked/excluded
+    import-graph files, reopening HIGH-1). Distinguishes ``[]`` (legit empty) from
+    ``None`` (no universe available)."""
+    res = mb.build_modules(STRUCTURAL, DEPGRAPH, all_files=[])
+    assert res["modules"] == [], (
+        "empty universe fell back and fabricated modules: "
+        f"{[m['name'] for m in res['modules']]}")
+
+
+def test_none_universe_falls_back_to_depgraph():
+    """The None sentinel (universe genuinely unavailable) still falls back to the
+    depgraph clustering — only ``[]`` means 'zero modules'."""
+    res = mb.build_modules(STRUCTURAL, DEPGRAPH, all_files=None)
+    assert res["modules"], "None universe should fall back to depgraph clustering"
+
+
+def test_module_file_universe_empty_git_repo_is_empty_list_not_none(tmp_path):
+    """KLC-074 review P2: an initialised git repo with only UNTRACKED files has a
+    legitimately empty authoritative universe → module_file_universe returns ``[]``
+    (determinate), never None."""
+    import subprocess
+    root = tmp_path
+    (root / "untracked.py").write_text("x=1\n", encoding="utf-8")  # never git-added
+    for args in (["init", "-q"], ["config", "user.email", "t@t"],
+                 ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True,
+                       capture_output=True, text=True)
+    files, src = mb.module_file_universe(root)
+    assert files == [], files
+    assert files is not None
+    assert src.endswith("git"), src
+
+
+def test_module_file_universe_non_git_returns_none(tmp_path):
+    """KLC-074 review P2: a non-git tree (no structural.files_rel, git unavailable) is a
+    'cannot determine the authoritative git-tracked universe' case → returns None so the
+    caller degrades to depgraph, rather than using a non-reproducible working-tree walk
+    as the authoritative universe (HIGH-1)."""
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "m.py").write_text("x=1\n", encoding="utf-8")
+    files, src = mb.module_file_universe(tmp_path)
+    assert files is None, files
+
+
+def test_all_files_intersects_universe_dropping_untracked_depgraph_nodes():
+    """KLC-074 review: a code file present in the import graph but ABSENT from the
+    tracked universe (untracked/excluded) must not create a module — build_modules
+    intersects, it does not union depgraph nodes back in."""
+    dg = {"import_graphs": {"python": {
+        "nodes": [{"id": "pkg/keep.py"}, {"id": "build/leak.py"}], "edges": []}}}
+    res = mb.build_modules(STRUCTURAL, dg, all_files=["pkg/keep.py"])
+    names = {m["name"] for m in res["modules"]}
+    assert "pkg" in names
+    assert "build" not in names, "depgraph node outside the universe fabricated a module"

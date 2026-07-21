@@ -6,7 +6,9 @@ Runs the pipeline:
   1. structural scan  (core/skills/file_scanner.py)       — always
   2. MCP hint         (advisory)                          — always
   3. dep graph        (core/skills/dep_graph.py)          — always
-  4. LLM agents       (inventory → decompose → docgen)    — opt-in
+  3b. module SET      (core/skills/modules_build.py)      — always (KLC-074:
+                       deterministic; replaces the retired LLM decompose agent)
+  4. LLM agents       (inventory → docgen)                — opt-in (annotation only)
   5. record baseline sha (--finalize or --scan-only)
 
 Modes
@@ -18,7 +20,7 @@ Modes
                  project already has CLAUDE.md files.
   --auto         Run all LLM agents automatically via core/skills/runner.py
                  (requires config/models.yml). Same as before.
-  --finalize     Record current HEAD as the baseline after the three LLM
+  --finalize     Record current HEAD as the baseline after the LLM
                  agents have been run manually.
 
 Per-project state lives in $PROJECT_ROOT/.klc/.
@@ -51,15 +53,15 @@ def die(msg: str) -> int:
     return 1
 
 
+# KLC-074: the `decompose` LLM agent is retired from the pipeline. The module SET is
+# now built deterministically by core/skills/modules_build.py (see _build_modules
+# below), closing the last LLM-derived piece of the planning index. inventory + docgen
+# remain LLM-annotation steps; both run AFTER modules.json exists.
 _INDEXING_AGENTS = (
     ("inventory",
      "core/agents/inventory.md",
      ".klc/index/inventory.json",
      "INVENTORY_OK"),
-    ("decompose",
-     "core/agents/decompose.md",
-     ".klc/index/modules.json",
-     "DECOMPOSE_OK"),
     ("docgen",
      "core/agents/docgen.md",
      "CLAUDE.md (root + per-module)",
@@ -112,6 +114,61 @@ def _aggregate_and_write_module_edges(index_dir: Path) -> None:
     log(f"  reverse edges written for {n} module(s)")
 
 
+def _build_modules(index_dir: Path) -> None:
+    """KLC-074: build modules.json DETERMINISTICALLY via core/skills/modules_build.py,
+    replacing the retired LLM `decompose` agent. Clusters the full tracked-file listing
+    by directory (non-code dirs included) so nothing orphans. Degrade-not-fail: a
+    non-zero exit is logged and the existing modules.json (if any) is left untouched —
+    a failed build must never abort init/update or clobber a good module set."""
+    script = FRAMEWORK_ROOT / "core" / "skills" / "modules_build.py"
+    try:
+        r = subprocess.run(
+            [sys.executable, str(script),
+             "--in-structural", str(index_dir / "structural.json"),
+             "--in-depgraph", str(index_dir / "depgraph.json"),
+             "--out-modules", str(index_dir / "modules.json")],
+            capture_output=True, text=True, timeout=600,
+        )
+        if r.returncode != 0:
+            log(f"  modules_build degraded (exit {r.returncode}); "
+                f"keeping existing modules.json")
+            if r.stderr:
+                sys.stderr.write(r.stderr)
+        else:
+            log(f"  modules.json (deterministic): {r.stdout.strip()}")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log(f"  modules_build failed ({e}); keeping existing modules.json")
+
+
+def _validate_modules(index_dir: Path) -> None:
+    """KLC-074: cross-check modules.json with planning_validate.py (self-consistency of
+    the membership map through the single resolver, PLUS the KLC-071 cross-artifact
+    checks against file_roles/module_edges). Advisory / degrade-not-fail — warnings are
+    logged, never fatal, so a validation hiccup does not break bootstrap.
+
+    KLC-074 review LOW-1: call this AFTER _build_planning_views so file_roles.json and
+    module_edges.json are the CURRENT run's output, not a stale previous copy — the
+    cross-artifact eligibility/edge checks then validate fresh data."""
+    script = FRAMEWORK_ROOT / "core" / "skills" / "planning_validate.py"
+    try:
+        r = subprocess.run(
+            [sys.executable, str(script),
+             "--in-modules", str(index_dir / "modules.json"),
+             "--in-file-roles", str(index_dir / "file_roles.json"),
+             "--in-module-edges", str(index_dir / "module_edges.json")],
+            capture_output=True, text=True, timeout=120,
+        )
+        report = json.loads(r.stdout) if r.stdout.strip() else {}
+        warnings = report.get("warnings") or []
+        if warnings:
+            log(f"  planning_validate: {len(warnings)} warning(s) "
+                f"(advisory): {warnings[0]}")
+        else:
+            log("  planning_validate: modules.json is self-consistent")
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        log(f"  planning_validate skipped ({e})")
+
+
 def _build_planning_views(index_dir: Path) -> None:
     """KLC-070/KLC-071: build the deterministic planning views (inventory, test_map,
     file_roles, module_edges v2, symbol_usage) in dependency order. Degrade-not-fail —
@@ -122,9 +179,10 @@ def _build_planning_views(index_dir: Path) -> None:
     (KLC-071: needs inventory + callgraph, degrades to import-level usage). When
     modules.json / depgraph / callgraph are absent early in bootstrap the builders
     degrade into their own errors[] rather than failing.
-    This does NOT run modules_build — the authoritative module SET is unchanged
-    (KLC-070 D-001 / AC-13); these views consume whatever modules.json exists via the
-    file_to_module() resolver."""
+    KLC-074: the module SET is now built by _build_modules (modules_build.py) BEFORE
+    this runs, so these views consume the deterministic modules.json via the single
+    file_to_module() resolver (KLC-070 D-001 / AC-13 is superseded — the LLM decompose
+    agent no longer decides membership)."""
     skills = FRAMEWORK_ROOT / "core" / "skills"
     views = (
         ("inventory",    skills / "deterministic_inventory.py",
@@ -172,12 +230,12 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc init", description=__doc__)
     ap.add_argument("--finalize", action="store_true",
                     help="Record current HEAD as the baseline after the "
-                         "three LLM agents have finished.")
+                         "LLM agents have finished.")
     ap.add_argument("--scan-only", action="store_true",
-                    help="Run only deterministic steps (file_scanner + dep_graph) "
-                         "and record baseline SHA. No LLM calls.")
+                    help="Run only deterministic steps (file_scanner + dep_graph + "
+                         "modules_build) and record baseline SHA. No LLM calls.")
     ap.add_argument("--auto", action="store_true",
-                    help="Run inventory/decompose/docgen automatically via "
+                    help="Run inventory/docgen automatically via "
                          "core/skills/runner.py (requires config/models.yml).")
     args = ap.parse_args(argv)
 
@@ -224,14 +282,23 @@ def main(argv: list[str]) -> int:
     if rc:
         log("  WARN: dep_graph failed; inventory will note this")
 
+    # KLC-074: build the deterministic module SET (replaces the LLM decompose agent).
+    # Runs on the scan-only path too, so `init --scan-only` now produces modules.json.
+    log("Building deterministic modules.json (modules_build)")
+    _build_modules(index_dir)
+
     # Aggregate module reverse edges from depgraph (non-fatal; no-op if
-    # modules.json not yet written — LLM decompose agent writes it later).
+    # modules.json is absent — e.g. modules_build degraded).
     _aggregate_and_write_module_edges(index_dir)
 
     # KLC-070: build the deterministic planning views (inventory always; test_map /
     # module_edges degrade if modules.json is not yet present). Runs on the
     # scan-only deterministic path so `init --scan-only` produces inventory.json.
     _build_planning_views(index_dir)
+
+    # KLC-074 review LOW-1: validate modules.json AFTER the views exist so the
+    # cross-artifact checks see this run's file_roles/module_edges (advisory).
+    _validate_modules(index_dir)
 
     # --scan-only: record baseline and stop — no LLM needed.
     if args.scan_only:
@@ -249,7 +316,8 @@ def main(argv: list[str]) -> int:
         sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
         from runner import run_agent  # noqa: E402
 
-        log("Step 4/5: running indexing agents via core/skills/runner.py")
+        log("Step 4/5: running indexing agents via core/skills/runner.py "
+            "(inventory + docgen; module SET already built deterministically)")
         for name, prompt_rel, out_desc, trailer in _INDEXING_AGENTS:
             prompt_path = FRAMEWORK_ROOT / prompt_rel
             out_path = index_dir / f"_{name}.out.md"
@@ -271,14 +339,16 @@ def main(argv: list[str]) -> int:
                     f"inspect {out_path.relative_to(root)}"
                 )
             log(f"  [{name}] {trailer} ✓")
-        # After decompose agent writes modules.json, aggregate reverse edges and
-        # rebuild the planning views so they see the real module set.
+        # modules.json was already built deterministically above; re-aggregate
+        # reverse edges and rebuild the planning views so they see the module set.
         _aggregate_and_write_module_edges(index_dir)
         _build_planning_views(index_dir)
+        _validate_modules(index_dir)  # LOW-1: after views are refreshed
         log("Step 5/5: recording baseline sha")
         return _finalize(index_dir)
 
-    log("Step 4/5: run the three LLM agents in Claude Code")
+    log("Step 4/5: run the LLM agents in Claude Code "
+        "(module SET already built deterministically by modules_build)")
     for name, prompt, out, ok in _INDEXING_AGENTS:
         print(f"  [{name}]  prompt: {prompt}")
         print(f"           outputs: {out}")
@@ -286,7 +356,7 @@ def main(argv: list[str]) -> int:
 
     log("Step 5/5: record baseline sha after the agents finish")
     log(f"  klc init --finalize     # writes HEAD to {index_dir / '.last-run'}")
-    log("init done. Next: run the three agents above inside Claude Code.")
+    log("init done. Next: run the agents above inside Claude Code.")
     log("")
     log("TIP: for a quick start without LLM, run:")
     log("  klc init --scan-only")

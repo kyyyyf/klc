@@ -196,12 +196,65 @@ def _aggregate_and_write_module_edges(index_dir: Path) -> None:
     log(f"  reverse edges written for {n} module(s)")
 
 
+def _build_modules(index_dir: Path) -> None:
+    """KLC-074: rebuild modules.json DETERMINISTICALLY via core/skills/modules_build.py
+    on every incremental update, so a directory added/removed since the last run is
+    reflected in the module SET. Degrade-not-fail: a non-zero exit is logged and the
+    existing modules.json is left untouched — a failed build must never abort update or
+    clobber a good module set."""
+    script = FRAMEWORK_ROOT / "core" / "skills" / "modules_build.py"
+    try:
+        r = subprocess.run(
+            [sys.executable, str(script),
+             "--in-structural", str(index_dir / "structural.json"),
+             "--in-depgraph", str(index_dir / "depgraph.json"),
+             "--out-modules", str(index_dir / "modules.json")],
+            capture_output=True, text=True, timeout=600,
+        )
+        if r.returncode != 0:
+            log(f"  modules_build degraded (exit {r.returncode}); "
+                f"keeping existing modules.json")
+            if r.stderr:
+                sys.stderr.write(r.stderr)
+        else:
+            log(f"  modules.json (deterministic): {r.stdout.strip()}")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log(f"  modules_build failed ({e}); keeping existing modules.json")
+
+
+def _validate_modules(index_dir: Path) -> None:
+    """KLC-074: advisory self-consistency check of modules.json via planning_validate.py
+    (single-resolver round-trip + KLC-071 cross-artifact checks). Degrade-not-fail.
+
+    KLC-074 review LOW-1: called AFTER _build_planning_views so the file_roles/
+    module_edges it cross-checks are this run's output, not the previous run's stale
+    copies."""
+    script = FRAMEWORK_ROOT / "core" / "skills" / "planning_validate.py"
+    try:
+        r = subprocess.run(
+            [sys.executable, str(script),
+             "--in-modules", str(index_dir / "modules.json"),
+             "--in-file-roles", str(index_dir / "file_roles.json"),
+             "--in-module-edges", str(index_dir / "module_edges.json")],
+            capture_output=True, text=True, timeout=120,
+        )
+        report = json.loads(r.stdout) if r.stdout.strip() else {}
+        warnings = report.get("warnings") or []
+        if warnings:
+            log(f"  planning_validate: {len(warnings)} warning(s) "
+                f"(advisory): {warnings[0]}")
+        else:
+            log("  planning_validate: modules.json is self-consistent")
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        log(f"  planning_validate skipped ({e})")
+
+
 def _build_planning_views(index_dir: Path) -> None:
     """KLC-070/KLC-071: refresh the deterministic planning views (inventory, test_map,
     file_roles, module_edges v2, symbol_usage) after an incremental update.
-    Degrade-not-fail. Does NOT run
-    modules_build — the module SET is unchanged (D-001 / AC-13); the views consume
-    the current modules.json via the file_to_module() resolver."""
+    Degrade-not-fail. KLC-074: the module SET is rebuilt by _build_modules
+    (modules_build.py) BEFORE this runs, so the views consume the deterministic
+    modules.json via the single file_to_module() resolver (supersedes D-001 / AC-13)."""
     skills = FRAMEWORK_ROOT / "core" / "skills"
     views = (
         ("inventory",    skills / "deterministic_inventory.py",
@@ -290,6 +343,11 @@ def main(argv: list[str]) -> int:
     if rc:
         log("  WARN: dep_graph failed; stale detection may be less precise")
 
+    # KLC-074: rebuild the deterministic module SET before edge aggregation / stale
+    # detection, so both see the current directory layout (non-fatal).
+    log("Rebuilding deterministic modules.json (modules_build)")
+    _build_modules(index_dir)
+
     # Step 3: aggregate module-level reverse edges from depgraph (non-fatal)
     log("Step 3/5: aggregating module reverse edges")
     _aggregate_and_write_module_edges(index_dir)
@@ -298,6 +356,10 @@ def main(argv: list[str]) -> int:
     log("Step 4/5: refreshing planning views (inventory, test_map, file_roles, "
         "module_edges, symbol_usage)")
     _build_planning_views(index_dir)
+
+    # KLC-074 review LOW-1: validate modules.json AFTER the views are refreshed so the
+    # cross-artifact checks see this run's file_roles/module_edges (advisory).
+    _validate_modules(index_dir)
 
     # Step 5: compute stale modules
     log("Step 5/5: computing stale modules")

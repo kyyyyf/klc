@@ -120,6 +120,49 @@ def adrs_mentioning(module_name: str, module_path: str) -> list[dict]:
     return out
 
 
+# KLC-074 review MEDIUM-2: with 41 deterministic DIRECTORY-level modules, many are
+# pure doc/config/template dirs (docs/, config/, core/templates/, klc-plugin/ markdown)
+# that carry no source code. Rendering a CLAUDE.md into each — and listing all 41 in the
+# root overview table — is noise. docgen is scoped to CODE-bearing modules: a module is
+# rendered only if it contains at least one source file (or carries a language/symbol
+# hint). modules.json itself is left COMPLETE (the scope guard still needs every module);
+# only the docgen render/overview set is narrowed.
+_CODE_EXTS = {
+    "py", "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "c", "h", "cc", "cpp",
+    "cxx", "hpp", "hh", "hxx", "cs", "java", "kt", "kts", "rb", "php", "swift",
+    "go", "scala", "m", "mm",
+}
+
+
+def _is_code_module(module: dict) -> bool:
+    """True iff *module* contains source code worth a CLAUDE.md (KLC-074 review)."""
+    for f in module.get("files", []):
+        base = f.rsplit("/", 1)[-1]
+        ext = base.rsplit(".", 1)[1].lower() if "." in base else ""
+        if ext in _CODE_EXTS:
+            return True
+    return bool(module.get("language") or module.get("symbol_count"))
+
+
+def _code_modules(modules: list[dict]) -> list[dict]:
+    return [m for m in modules if _is_code_module(m)]
+
+
+# Optional doc fields the templates read via `x or default`. A deterministic
+# modules_build module (KLC-074) sets NONE of these, and the templates run under
+# StrictUndefined — accessing a missing key raises instead of being falsy. Filling
+# defaults lets a deterministic module render (as "-" / empty) rather than crash.
+_DOC_MODULE_DEFAULTS = {
+    "language": None, "public_api": [], "public_api_note": None,
+    "depends_on": [], "depended_by": [], "entry": None,
+}
+
+
+def _doc_module(module: dict) -> dict:
+    """Return *module* with the optional doc fields defaulted (KLC-074 review)."""
+    return {**_DOC_MODULE_DEFAULTS, **module}
+
+
 def render_root(out_path: Path | None) -> Path:
     inv = load_json(klc_index_dir() / "inventory.json")
     mods = load_json(klc_index_dir() / "modules.json")
@@ -161,7 +204,7 @@ def render_root(out_path: Path | None) -> Path:
         ),
         "total_lines": inv.get("structural", {}).get("total_lines", 0),
         "total_files": inv.get("structural", {}).get("total_files", 0),
-        "modules": mods.get("modules", []),
+        "modules": [_doc_module(m) for m in _code_modules(mods.get("modules", []))],
         "cycles": mods.get("cycles", []),
         "adr_index": collect_adr_index(),
         "notes": inv.get("notes", []) + mods.get("notes", []),
@@ -175,6 +218,7 @@ def render_root(out_path: Path | None) -> Path:
 def render_module(module: dict, out_path: Path | None = None) -> Path:
     env = jinja_env()
     tpl = env.get_template("module-CLAUDE.md.j2")
+    module = _doc_module(module)  # KLC-074: default optional fields for StrictUndefined
     mod_path = project_root() / module["path"]
     target = out_path or (mod_path / (module.get("doc_filename") or "CLAUDE.md"))
     manual = extract_manual_block(target)
@@ -335,9 +379,14 @@ def main() -> int:
             render_root(None)
 
             if args.all:
-                targets = resolved
+                # KLC-074 review MEDIUM-2: render only code-bearing modules; pure
+                # doc/config/template dirs get no CLAUDE.md.
+                targets = _code_modules(resolved)
             else:
                 wanted = {n.strip() for n in args.only.split(",") if n.strip()}
+                if not wanted:
+                    sys.stderr.write("module-writer: --only resolved to empty set\n")
+                    return 1
                 unknown = wanted - {m["name"] for m in resolved}
                 if unknown:
                     sys.stderr.write(
@@ -345,10 +394,18 @@ def main() -> int:
                         f"{sorted(unknown)}\n"
                     )
                     return 1
-                targets = [m for m in resolved if m["name"] in wanted]
-                if not targets:
-                    sys.stderr.write("module-writer: --only resolved to empty set\n")
-                    return 1
+                requested = [m for m in resolved if m["name"] in wanted]
+                # KLC-074 review P3: --only skips non-code modules too (parity with
+                # --all), so `klc update --regen` never renders a CLAUDE.md into a stale
+                # docs/config-only module. A named non-code module is skipped with a log
+                # line rather than erroring — nothing to render is not a failure.
+                targets = _code_modules(requested)
+                skipped = sorted(m["name"] for m in requested
+                                 if _is_code_module(m) is False)
+                for name in skipped:
+                    sys.stderr.write(
+                        f"module-writer: skipping non-code module {name!r} "
+                        f"(no CLAUDE.md rendered)\n")
 
             for m in targets:
                 render_module(m)
@@ -357,8 +414,9 @@ def main() -> int:
             # state of the whole tree. --only does not widen this gate
             # deliberately: a periodic run that only touched 2 of 50
             # modules still sees 50 CLAUDE.md files on disk and validates
-            # them all.
-            errors = _verify(resolved)
+            # them all. KLC-074 review: verify only the code-bearing modules
+            # (the render set) — non-code dirs are intentionally never rendered.
+            errors = _verify(_code_modules(resolved))
             if errors:
                 sys.stderr.write("module-writer: verify failed:\n")
                 for e in errors:

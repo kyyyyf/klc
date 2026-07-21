@@ -1,0 +1,3131 @@
+{
+  "description": "KLC-074 planning-index cut-over baseline. Frozen at cut-over from the LLM-decompose modules.json (.klc/index/modules.json) and the archived-ticket corpus (.klc/tickets/*/meta.json + git history). The gate test rebuilds modules_build over the LIVE repo and asserts the containment invariant per file (see test docstring).",
+  "files": {
+    "CLAUDE.md": {
+      "old_module": "CLAUDE",
+      "old_path": "CLAUDE.md"
+    },
+    "config/README.md": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/budgets.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/clarify.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/jira.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/models.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/phases.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/profile.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/reviewer-allowlist.seed.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/reviewers.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/sentinels.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/ticket-id.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "config/tiers.yml": {
+      "old_module": "config",
+      "old_path": "config/"
+    },
+    "core/agents/adr.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/consistency.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/decompose.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/design-scout.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/design.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/discovery-lite.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/discovery.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/docgen.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/external-review.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/impl.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/intake-triage.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/intake.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/inventory.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/manual-check.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/retrospective.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/review-lite.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/review.md": {
+      "old_module": "review",
+      "old_path": "core/agents/review"
+    },
+    "core/agents/review/architecture.md": {
+      "old_module": "review",
+      "old_path": "core/agents/review"
+    },
+    "core/agents/review/cheap.md": {
+      "old_module": "review",
+      "old_path": "core/agents/review"
+    },
+    "core/agents/review/per-step.md": {
+      "old_module": "review",
+      "old_path": "core/agents/review"
+    },
+    "core/agents/task.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/test-planner.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/test.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/agents/xs-fasttrack.md": {
+      "old_module": "core/agents",
+      "old_path": "core/agents/"
+    },
+    "core/phases/abort.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/ack.py": {
+      "old_module": "ack",
+      "old_path": "core/phases/ack"
+    },
+    "core/phases/board.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/build_run.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/doctor.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/heartbeat.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/install.py": {
+      "old_module": "install",
+      "old_path": "core/phases/install"
+    },
+    "core/phases/intake.py": {
+      "old_module": "intake",
+      "old_path": "core/phases/intake"
+    },
+    "core/phases/jira.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/jump.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/next.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/remind.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/retrack.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/run.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/scope_fix.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/setup.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/ship.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/state.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/status.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/steal.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/task_brief.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/phases/work.py": {
+      "old_module": "core/phases",
+      "old_path": "core/phases"
+    },
+    "core/skills/artefacts.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/autorunner.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/budget.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/budget_guard.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/build_ledger.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/build_orchestrator.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/callgraph_cpp.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/callgraph_python.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/callgraph_rust_async.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/clarify_config.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/classify_tier.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/consistency_check.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/context-loader.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/detect_languages.py": {
+      "old_module": "detect_languages",
+      "old_path": "core/skills/detect_languages"
+    },
+    "core/skills/deterministic_inventory.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/diff-modules.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/file_roles.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/filter-build-overrides.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/findings.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/gate_policy.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/holder.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/holder_display.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/identity.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/impl_plan_check.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/import-graph.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/items.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/items_verify.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/jira_artifacts.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/jira_client.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/jira_config.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/jira_sync.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/lifecycle.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/lint_review_prompts.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/metrics.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/model_guard.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/models.py": {
+      "old_module": "models",
+      "old_path": "core/skills/models"
+    },
+    "core/skills/module_edges.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/module_membership.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/modules_build.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/per_module_hash.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/per_step_review.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/phase_completion.py": {
+      "old_module": "phase_completion",
+      "old_path": "core/skills/phase_completion"
+    },
+    "core/skills/phase_resolver.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/phases.py": {
+      "old_module": "phases",
+      "old_path": "core/skills/phases"
+    },
+    "core/skills/plan_quality.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/planning-eval.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/planning-retriever.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/planning_validate.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/plugin_gen.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/public-api-filter.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/review_cascade.py": {
+      "old_module": "review_cascade",
+      "old_path": "core/skills/review_cascade"
+    },
+    "core/skills/route_heuristic.py": {
+      "old_module": "route_heuristic",
+      "old_path": "core/skills/route_heuristic"
+    },
+    "core/skills/run_signal.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/runner.py": {
+      "old_module": "runner",
+      "old_path": "core/skills/runner"
+    },
+    "core/skills/scan_sentinels.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/scope_delta.py": {
+      "old_module": "scope_delta",
+      "old_path": "core/skills/scope_delta"
+    },
+    "core/skills/scratch.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/spec_structure.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/state_feature.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/state_sync.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/state_tx.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/symbol_usage.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/task_brief.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/tdd_order.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/test-writer.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/test_map.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/tools.py": {
+      "old_module": "core/skills",
+      "old_path": "core/skills/"
+    },
+    "core/skills/validate_config.py": {
+      "old_module": "validate_config",
+      "old_path": "core/skills/validate_config"
+    },
+    "core/templates/impl-step.md.j2": {
+      "old_module": "core/templates",
+      "old_path": "core/templates"
+    },
+    "core/templates/review-report.md.j2": {
+      "old_module": "core/templates",
+      "old_path": "core/templates"
+    },
+    "core/templates/step-impl-report.md.j2": {
+      "old_module": "core/templates",
+      "old_path": "core/templates"
+    },
+    "core/templates/step-review-package.md.j2": {
+      "old_module": "core/templates",
+      "old_path": "core/templates"
+    },
+    "core/templates/step-review.md.j2": {
+      "old_module": "core/templates",
+      "old_path": "core/templates"
+    },
+    "core/templates/task-brief.md.j2": {
+      "old_module": "core/templates",
+      "old_path": "core/templates"
+    },
+    "docs/adr/ADR-001-phase-resolver-two-executors.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/callgraph-backends.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/dual-remote-mr-pr-workflow.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/glossary.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/happy-path.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/acceptance-test-plan.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/build.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/design.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/detailed-test-plan.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/discovery.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/intake.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/integrate.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/learn.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/manual.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/observe.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/review-lite.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/review.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/phases/xs-build.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/planning-eval.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/process-artifacts.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/process.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/roles.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/severity-rubric.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "docs/tracks.md": {
+      "old_module": "docs",
+      "old_path": "docs/"
+    },
+    "klc-plugin/README.md": {
+      "old_module": "klc-plugin",
+      "old_path": "klc-plugin"
+    },
+    "klc-plugin/agents/adr.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/consistency.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/decompose.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/design-scout.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/design.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/discovery-lite.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/discovery.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/docgen.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/external-review.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/impl.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/intake-triage.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/intake.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/inventory.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/manual-check.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/retrospective.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/review-lite.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/review.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/task.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/test-planner.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/test.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/agents/xs-fasttrack.md": {
+      "old_module": "klc-plugin/agents",
+      "old_path": "klc-plugin/agents"
+    },
+    "klc-plugin/commands/run.md": {
+      "old_module": "klc-plugin/commands",
+      "old_path": "klc-plugin/commands"
+    },
+    "klc-plugin/hooks/heartbeat.py": {
+      "old_module": "klc-plugin",
+      "old_path": "klc-plugin"
+    },
+    "klc-plugin/hooks/hooks.json": {
+      "old_module": "klc-plugin",
+      "old_path": "klc-plugin"
+    },
+    "klc-plugin/hooks/remind.py": {
+      "old_module": "klc-plugin",
+      "old_path": "klc-plugin"
+    },
+    "klc-plugin/skills/run/SKILL.md": {
+      "old_module": "klc-plugin/skills",
+      "old_path": "klc-plugin/skills"
+    },
+    "scripts/init.py": {
+      "old_module": "scripts",
+      "old_path": "scripts/"
+    },
+    "scripts/install_deps.py": {
+      "old_module": "scripts",
+      "old_path": "scripts/"
+    },
+    "scripts/klc": {
+      "old_module": "scripts",
+      "old_path": "scripts/"
+    },
+    "scripts/review-runner.py": {
+      "old_module": "scripts",
+      "old_path": "scripts/"
+    },
+    "scripts/review.py": {
+      "old_module": "scripts",
+      "old_path": "scripts/"
+    },
+    "scripts/update.py": {
+      "old_module": "scripts",
+      "old_path": "scripts/"
+    },
+    "tests/_env.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/conftest.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/deps/test_bootstrap.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/deps/test_dev.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/deps/test_utils.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/e2e/test_discovery_split.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/e2e/test_orchestrator.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/e2e/test_runner_parks_interactive.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/e2e_pipeline.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/acceptance-test-plan.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/build.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/design.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/detailed-test-plan.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/discovery.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/impl-plan.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/integrate.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/observe.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/retrospective.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/fake-agent-outputs/review.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/fixtures/klc-034-socratic-input.md": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_ack_risk_tags.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_autorunner.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_board_holder.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_build_evidence_gate.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_build_orchestrator.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_clarify_gate.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_clarify_style.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_deterministic_inventory.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_discovery_floor_guard.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_doctor_integration.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_doctor_tests_check.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_file_roles.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_gate_policy.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_happy_path_doc.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_heartbeat.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_heartbeat_race.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_holder_display.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_init_integration.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_jira_core.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_jira_managed.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_jira_pull.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc057_fuzz.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc057_fuzz_concurrent.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc057_hardening.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc057_real_repo.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc057_sync_holder.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc061_wrap_verbs.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc066_fuzz.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc069_non_origin_remote.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc072_dispatch.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc075_retrack_cas.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_klc075_scope_fix.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_model_subagent_guard.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_module_edges_v2.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_module_membership.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_modules_v2.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_no_pre_judgment_lint.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_orchestrator_dispatch.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_orchestrator_failure.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_orchestrator_run_to_gate.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_orchestrator_signal.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_orchestrator_stop.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_per_step_review.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_pipeline_wiring.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_plan_completeness_gate.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_plan_quality.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_planning_eval.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_planning_retriever.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_planning_single_source.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_planning_validation.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_planning_validation_crossartifact.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_plugin_manifest.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_remind.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_retrack.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_review_cascade.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_scope_delta_shared.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_setup_integration.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_socratic_gate.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_spec_selfreview.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_state_init.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_status_holder.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_step_card_compression.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_symbol_usage.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_task_brief.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_tdd_order_gate.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_test_map.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_token_telemetry.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/integration/test_work_verb.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/prompt_harness.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/shared/test_artefacts.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/shared/test_module_import.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/shared/test_paths.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/shared/test_yaml.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_budget_guard.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_callgraph_cpp_lsp.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_callgraph_rust_lsp.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_detect_languages_malformed.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_detect_languages_threshold.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_holder.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_holder_steal.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_identity.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_impl_plan_check.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_install_deps.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_intake_identity.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_intake_retrieval.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_prompt_regression.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_state_feature.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_state_sync.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_state_tx.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_tdd_order.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    },
+    "tests/test_yaml_shadow.py": {
+      "old_module": "tests",
+      "old_path": "tests/"
+    }
+  },
+  "new_module_set_source": "modules_build.py all-files directory clustering @ cut-over (41 modules)",
+  "old_module_set_source": ".klc/index/modules.json @ cut-over (LLM decompose-derived, 29 modules)",
+  "tickets": {
+    "KLC-001": {
+      "changed_files_current": [
+        "core/phases/ack.py",
+        "core/skills/callgraph_rust_async.py",
+        "core/skills/phase_completion.py",
+        "tests/test_callgraph_rust_lsp.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "tests"
+      ],
+      "old_modules": [
+        "ack",
+        "core/skills",
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-003": {
+      "changed_files_current": [],
+      "new_modules_at_cutover": [],
+      "old_modules": []
+    },
+    "KLC-004": {
+      "changed_files_current": [
+        "core/skills/callgraph_cpp.py",
+        "core/skills/scope_delta.py",
+        "docs/callgraph-backends.md",
+        "tests/test_callgraph_cpp_lsp.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/skills",
+        "docs",
+        "tests"
+      ],
+      "old_modules": [
+        "core/skills",
+        "docs",
+        "scope_delta",
+        "tests"
+      ]
+    },
+    "KLC-005": {
+      "changed_files_current": [],
+      "new_modules_at_cutover": [],
+      "old_modules": []
+    },
+    "KLC-006": {
+      "changed_files_current": [
+        "core/agents/design.md",
+        "core/agents/discovery.md",
+        "core/agents/impl.md",
+        "core/agents/intake.md",
+        "core/agents/retrospective.md",
+        "core/agents/review-lite.md",
+        "core/agents/review.md",
+        "core/agents/test-planner.md",
+        "core/agents/xs-fasttrack.md",
+        "docs/glossary.md",
+        "docs/phases/acceptance-test-plan.md",
+        "docs/phases/build.md",
+        "docs/phases/design.md",
+        "docs/phases/detailed-test-plan.md",
+        "docs/phases/discovery.md",
+        "docs/phases/intake.md",
+        "docs/phases/integrate.md",
+        "docs/phases/learn.md",
+        "docs/phases/manual.md",
+        "docs/phases/observe.md",
+        "docs/phases/review-lite.md",
+        "docs/phases/review.md",
+        "docs/phases/xs-build.md",
+        "docs/roles.md",
+        "docs/tracks.md"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "docs",
+        "docs/phases"
+      ],
+      "old_modules": [
+        "core/agents",
+        "docs",
+        "review"
+      ]
+    },
+    "KLC-007": {
+      "changed_files_current": [
+        "core/shared/__init__.py",
+        "core/shared/artefacts.py",
+        "core/shared/paths.py",
+        "core/shared/yaml.py",
+        "core/skills/artefacts.py",
+        "core/skills/budget.py",
+        "core/skills/callgraph_python.py",
+        "core/skills/callgraph_rust_async.py",
+        "core/skills/classify_tier.py",
+        "core/skills/consistency_check.py",
+        "core/skills/context-loader.py",
+        "core/skills/diff-modules.py",
+        "core/skills/filter-build-overrides.py",
+        "core/skills/import-graph.py",
+        "core/skills/items.py",
+        "core/skills/items_verify.py",
+        "core/skills/jira_sync.py",
+        "core/skills/lifecycle.py",
+        "core/skills/metrics.py",
+        "core/skills/models.py",
+        "core/skills/per_module_hash.py",
+        "core/skills/phase_completion.py",
+        "core/skills/phases.py",
+        "core/skills/public-api-filter.py",
+        "core/skills/scan_sentinels.py",
+        "core/skills/scratch.py",
+        "core/skills/test-writer.py",
+        "core/skills/tools.py",
+        "tests/e2e_pipeline.py",
+        "tests/fixtures/fake-agent-outputs/acceptance-test-plan.md",
+        "tests/fixtures/fake-agent-outputs/build.md",
+        "tests/fixtures/fake-agent-outputs/design.md",
+        "tests/fixtures/fake-agent-outputs/detailed-test-plan.md",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/fixtures/fake-agent-outputs/impl-plan.md",
+        "tests/fixtures/fake-agent-outputs/integrate.md",
+        "tests/fixtures/fake-agent-outputs/observe.md",
+        "tests/fixtures/fake-agent-outputs/retrospective.md",
+        "tests/fixtures/fake-agent-outputs/review.md",
+        "tests/shared/test_artefacts.py",
+        "tests/shared/test_module_import.py",
+        "tests/shared/test_paths.py",
+        "tests/shared/test_yaml.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/shared",
+        "core/skills",
+        "tests",
+        "tests/fixtures/fake-agent-outputs",
+        "tests/shared"
+      ],
+      "old_modules": [
+        "core/skills",
+        "models",
+        "phase_completion",
+        "phases",
+        "tests"
+      ]
+    },
+    "KLC-008": {
+      "changed_files_current": [
+        "core/skills/phase_completion.py",
+        "tests/e2e_pipeline.py",
+        "tests/fixtures/fake-agent-outputs/acceptance-test-plan.md",
+        "tests/fixtures/fake-agent-outputs/build.md",
+        "tests/fixtures/fake-agent-outputs/design.md",
+        "tests/fixtures/fake-agent-outputs/detailed-test-plan.md",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/fixtures/fake-agent-outputs/impl-plan.md",
+        "tests/fixtures/fake-agent-outputs/integrate.md",
+        "tests/fixtures/fake-agent-outputs/observe.md",
+        "tests/fixtures/fake-agent-outputs/retrospective.md",
+        "tests/fixtures/fake-agent-outputs/review.md"
+      ],
+      "new_modules_at_cutover": [
+        "core/skills",
+        "tests",
+        "tests/fixtures/fake-agent-outputs"
+      ],
+      "old_modules": [
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-009": {
+      "changed_files_current": [
+        "config/README.md",
+        "config/jira.yml",
+        "config/models.yml",
+        "config/phases.yml",
+        "config/profile.yml",
+        "config/reviewer-allowlist.seed.yml",
+        "config/reviewers.yml",
+        "config/sentinels.yml",
+        "config/ticket-id.yml",
+        "config/tiers.yml",
+        "core/phases/doctor.py",
+        "core/skills/phase_completion.py",
+        "core/skills/tools.py",
+        "core/skills/validate_config.py",
+        "docs/process.md",
+        "docs/severity-rubric.md",
+        "tests/e2e_pipeline.py",
+        "tests/fixtures/fake-agent-outputs/acceptance-test-plan.md",
+        "tests/fixtures/fake-agent-outputs/build.md",
+        "tests/fixtures/fake-agent-outputs/design.md",
+        "tests/fixtures/fake-agent-outputs/detailed-test-plan.md",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/fixtures/fake-agent-outputs/impl-plan.md",
+        "tests/fixtures/fake-agent-outputs/integrate.md",
+        "tests/fixtures/fake-agent-outputs/observe.md",
+        "tests/fixtures/fake-agent-outputs/retrospective.md",
+        "tests/fixtures/fake-agent-outputs/review.md"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests",
+        "tests/fixtures/fake-agent-outputs"
+      ],
+      "old_modules": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "tests",
+        "validate_config"
+      ]
+    },
+    "KLC-010": {
+      "changed_files_current": [
+        "README.md",
+        "core/deps/__init__.py",
+        "core/deps/bootstrap.py",
+        "core/deps/dev.py",
+        "core/deps/project.py",
+        "core/phases/doctor.py",
+        "core/phases/setup.py",
+        "core/skills/detect_languages.py",
+        "scripts/init.py",
+        "scripts/install_deps.py",
+        "scripts/klc",
+        "tests/deps/test_bootstrap.py",
+        "tests/deps/test_dev.py",
+        "tests/deps/test_utils.py",
+        "tests/e2e_pipeline.py",
+        "tests/integration/test_doctor_integration.py",
+        "tests/integration/test_init_integration.py",
+        "tests/integration/test_setup_integration.py",
+        "tests/test_detect_languages_malformed.py",
+        "tests/test_detect_languages_threshold.py",
+        "tests/test_install_deps.py"
+      ],
+      "new_modules_at_cutover": [
+        ".",
+        "core/deps",
+        "core/phases",
+        "core/skills",
+        "scripts",
+        "tests",
+        "tests/deps",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "detect_languages",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-011": {
+      "changed_files_current": [
+        "config/models.yml",
+        "docs/process.md"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "docs"
+      ],
+      "old_modules": [
+        "config",
+        "docs"
+      ]
+    },
+    "KLC-012": {
+      "changed_files_current": [
+        "config/models.yml",
+        "config/phases.yml",
+        "core/agents/review/cheap.md",
+        "core/phases/ack.py",
+        "core/phases/intake.py",
+        "core/skills/models.py",
+        "core/skills/phase_completion.py",
+        "core/skills/phases.py",
+        "core/skills/review_cascade.py",
+        "core/skills/route_heuristic.py",
+        "core/skills/runner.py",
+        "core/skills/scope_delta.py",
+        "core/skills/validate_config.py",
+        "docs/process.md",
+        "scripts/review.py",
+        "tests/e2e_pipeline.py",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/integration/test_review_cascade.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests",
+        "tests/fixtures/fake-agent-outputs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "ack",
+        "config",
+        "docs",
+        "intake",
+        "models",
+        "phase_completion",
+        "phases",
+        "review",
+        "review_cascade",
+        "route_heuristic",
+        "runner",
+        "scope_delta",
+        "scripts",
+        "tests",
+        "validate_config"
+      ]
+    },
+    "KLC-014": {
+      "changed_files_current": [
+        "config/models.yml",
+        "config/phases.yml",
+        "core/agents/discovery-lite.md",
+        "core/agents/discovery.md",
+        "core/agents/review/cheap.md",
+        "core/phases/ack.py",
+        "core/phases/intake.py",
+        "core/phases/status.py",
+        "core/skills/lifecycle.py",
+        "core/skills/models.py",
+        "core/skills/phase_completion.py",
+        "core/skills/phases.py",
+        "core/skills/review_cascade.py",
+        "core/skills/route_heuristic.py",
+        "core/skills/runner.py",
+        "core/skills/scope_delta.py",
+        "core/skills/validate_config.py",
+        "docs/process.md",
+        "scripts/review.py",
+        "tests/e2e_pipeline.py",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/integration/test_review_cascade.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/agents",
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests",
+        "tests/fixtures/fake-agent-outputs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "ack",
+        "config",
+        "core/agents",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "intake",
+        "models",
+        "phase_completion",
+        "phases",
+        "review",
+        "review_cascade",
+        "route_heuristic",
+        "runner",
+        "scope_delta",
+        "scripts",
+        "tests",
+        "validate_config"
+      ]
+    },
+    "KLC-015": {
+      "changed_files_current": [
+        "config/models.yml",
+        "config/phases.yml",
+        "config/reviewers.yml",
+        "core/agents/review/cheap.md",
+        "core/phases/ack.py",
+        "core/phases/intake.py",
+        "core/skills/models.py",
+        "core/skills/phase_completion.py",
+        "core/skills/phases.py",
+        "core/skills/review_cascade.py",
+        "core/skills/route_heuristic.py",
+        "core/skills/runner.py",
+        "core/skills/scope_delta.py",
+        "core/skills/validate_config.py",
+        "docs/process.md",
+        "scripts/review.py",
+        "tests/e2e_pipeline.py",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/integration/test_review_cascade.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests",
+        "tests/fixtures/fake-agent-outputs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "ack",
+        "config",
+        "docs",
+        "intake",
+        "models",
+        "phase_completion",
+        "phases",
+        "review",
+        "review_cascade",
+        "route_heuristic",
+        "runner",
+        "scope_delta",
+        "scripts",
+        "tests",
+        "validate_config"
+      ]
+    },
+    "KLC-016": {
+      "changed_files_current": [
+        "config/budgets.yml",
+        "config/models.yml",
+        "config/phases.yml",
+        "core/agents/review/cheap.md",
+        "core/phases/ack.py",
+        "core/phases/intake.py",
+        "core/skills/metrics.py",
+        "core/skills/models.py",
+        "core/skills/phase_completion.py",
+        "core/skills/phases.py",
+        "core/skills/review_cascade.py",
+        "core/skills/route_heuristic.py",
+        "core/skills/runner.py",
+        "core/skills/scope_delta.py",
+        "core/skills/validate_config.py",
+        "docs/process.md",
+        "scripts/review.py",
+        "tests/e2e_pipeline.py",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/integration/test_review_cascade.py",
+        "tests/integration/test_token_telemetry.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests",
+        "tests/fixtures/fake-agent-outputs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "ack",
+        "config",
+        "core/skills",
+        "docs",
+        "intake",
+        "models",
+        "phase_completion",
+        "phases",
+        "review",
+        "review_cascade",
+        "route_heuristic",
+        "runner",
+        "scope_delta",
+        "scripts",
+        "tests",
+        "validate_config"
+      ]
+    },
+    "KLC-017": {
+      "changed_files_current": [
+        "core/skills/artefacts.py",
+        "core/skills/metrics.py",
+        "core/skills/runner.py",
+        "core/templates/impl-step.md.j2",
+        "docs/process.md",
+        "tests/integration/test_step_card_compression.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/skills",
+        "core/templates",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/skills",
+        "core/templates",
+        "docs",
+        "runner",
+        "tests"
+      ]
+    },
+    "KLC-018": {
+      "changed_files_current": [
+        "config/models.yml",
+        "config/phases.yml",
+        "core/agents/review/cheap.md",
+        "core/phases/ack.py",
+        "core/phases/intake.py",
+        "core/phases/retrack.py",
+        "core/skills/models.py",
+        "core/skills/phase_completion.py",
+        "core/skills/phases.py",
+        "core/skills/review_cascade.py",
+        "core/skills/route_heuristic.py",
+        "core/skills/runner.py",
+        "core/skills/scope_delta.py",
+        "core/skills/validate_config.py",
+        "docs/process.md",
+        "scripts/klc",
+        "scripts/review.py",
+        "tests/e2e_pipeline.py",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/integration/test_retrack.py",
+        "tests/integration/test_review_cascade.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests",
+        "tests/fixtures/fake-agent-outputs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "ack",
+        "config",
+        "core/phases",
+        "docs",
+        "intake",
+        "models",
+        "phase_completion",
+        "phases",
+        "review",
+        "review_cascade",
+        "route_heuristic",
+        "runner",
+        "scope_delta",
+        "scripts",
+        "tests",
+        "validate_config"
+      ]
+    },
+    "KLC-019": {
+      "changed_files_current": [
+        "config/profile.yml",
+        "core/skills/detect_languages.py",
+        "core/skills/validate_config.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/skills"
+      ],
+      "old_modules": [
+        "config",
+        "detect_languages",
+        "validate_config"
+      ]
+    },
+    "KLC-02": {
+      "changed_files_current": [
+        "config/models.yml",
+        "config/sentinels.yml",
+        "config/tiers.yml",
+        "core/agents/review/architecture.md",
+        "core/phases/ack.py",
+        "core/skills/callgraph_python.py",
+        "core/skills/classify_tier.py",
+        "core/skills/context-loader.py",
+        "core/skills/phase_completion.py",
+        "core/skills/scan_sentinels.py",
+        "core/templates/review-report.md.j2",
+        "docs/process.md",
+        "scripts/review-runner.py",
+        "scripts/review.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "scripts"
+      ],
+      "old_modules": [
+        "ack",
+        "config",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "phase_completion",
+        "review",
+        "scripts"
+      ]
+    },
+    "KLC-020": {
+      "changed_files_current": [
+        "config/jira.yml",
+        "core/phases/intake.py",
+        "core/phases/jira.py",
+        "core/skills/jira_artifacts.py",
+        "core/skills/jira_client.py",
+        "core/skills/jira_config.py",
+        "core/skills/jira_sync.py",
+        "core/skills/lifecycle.py",
+        "core/skills/validate_config.py",
+        "docs/process.md",
+        "scripts/klc",
+        "tests/integration/test_jira_core.py",
+        "tests/integration/test_jira_managed.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "intake",
+        "scripts",
+        "tests",
+        "validate_config"
+      ]
+    },
+    "KLC-021": {
+      "changed_files_current": [
+        "config/jira.yml",
+        "core/phases/intake.py",
+        "core/phases/jira.py",
+        "core/skills/jira_artifacts.py",
+        "core/skills/jira_config.py",
+        "core/skills/jira_sync.py",
+        "core/skills/lifecycle.py",
+        "docs/process.md",
+        "tests/integration/test_jira_core.py",
+        "tests/integration/test_jira_managed.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "intake",
+        "tests"
+      ]
+    },
+    "KLC-022": {
+      "changed_files_current": [
+        "core/phases/doctor.py",
+        "core/phases/jira.py",
+        "core/skills/jira_sync.py",
+        "core/skills/lifecycle.py",
+        "core/skills/validate_config.py",
+        "docs/process.md",
+        "tests/integration/test_jira_pull.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests",
+        "validate_config"
+      ]
+    },
+    "KLC-034": {
+      "changed_files_current": [
+        "core/agents/discovery-lite.md",
+        "core/agents/discovery.md",
+        "core/skills/phase_completion.py",
+        "core/skills/spec_structure.py",
+        "docs/process-artifacts.md",
+        "docs/process.md",
+        "docs/roles.md",
+        "tests/fixtures/klc-034-socratic-input.md",
+        "tests/integration/test_socratic_gate.py",
+        "tests/test_prompt_regression.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "tests",
+        "tests/fixtures",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-035": {
+      "changed_files_current": [
+        "core/agents/design.md",
+        "core/agents/discovery-lite.md",
+        "core/agents/review/per-step.md",
+        "core/agents/test-planner.md",
+        "core/skills/build_orchestrator.py",
+        "core/skills/findings.py",
+        "core/skills/per_step_review.py",
+        "core/templates/step-review.md.j2",
+        "docs/process-artifacts.md",
+        "docs/process.md",
+        "tests/integration/test_build_orchestrator.py",
+        "tests/integration/test_per_step_review.py",
+        "tests/prompt_harness.py",
+        "tests/test_prompt_regression.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/agents/review",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "review",
+        "tests"
+      ]
+    },
+    "KLC-036": {
+      "changed_files_current": [
+        "core/phases/doctor.py",
+        "core/skills/impl_plan_check.py",
+        "core/skills/phase_completion.py",
+        "docs/process-artifacts.md",
+        "docs/process.md",
+        "tests/_env.py",
+        "tests/conftest.py",
+        "tests/integration/test_discovery_floor_guard.py",
+        "tests/integration/test_doctor_integration.py",
+        "tests/integration/test_doctor_tests_check.py",
+        "tests/integration/test_no_pre_judgment_lint.py",
+        "tests/integration/test_plan_completeness_gate.py",
+        "tests/integration/test_setup_integration.py",
+        "tests/integration/test_socratic_gate.py",
+        "tests/integration/test_spec_selfreview.py",
+        "tests/prompt_harness.py",
+        "tests/test_detect_languages_malformed.py",
+        "tests/test_detect_languages_threshold.py",
+        "tests/test_impl_plan_check.py",
+        "tests/test_yaml_shadow.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-037": {
+      "changed_files_current": [
+        "core/agents/design.md",
+        "core/agents/discovery-lite.md",
+        "core/agents/test-planner.md",
+        "docs/process.md",
+        "tests/test_prompt_regression.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "docs",
+        "tests"
+      ],
+      "old_modules": [
+        "core/agents",
+        "docs",
+        "tests"
+      ]
+    },
+    "KLC-038": {
+      "changed_files_current": [
+        "CLAUDE.md",
+        "core/agents/impl.md",
+        "core/skills/phase_completion.py",
+        "docs/process-artifacts.md",
+        "docs/process.md",
+        "tests/integration/test_build_evidence_gate.py"
+      ],
+      "new_modules_at_cutover": [
+        ".",
+        "core/agents",
+        "core/skills",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "CLAUDE",
+        "core/agents",
+        "docs",
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-039": {
+      "changed_files_current": [
+        "core/agents/impl.md",
+        "core/agents/test.md",
+        "core/skills/phase_completion.py",
+        "core/skills/tdd_order.py",
+        "docs/phases/build.md",
+        "tests/integration/test_tdd_order_gate.py",
+        "tests/test_tdd_order.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/skills",
+        "docs/phases",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-040": {
+      "changed_files_current": [
+        "core/agents/review/per-step.md",
+        "core/phases/install.py",
+        "core/skills/build_orchestrator.py",
+        "core/skills/findings.py",
+        "core/skills/per_step_review.py",
+        "core/templates/step-review.md.j2",
+        "docs/process.md",
+        "tests/integration/test_build_orchestrator.py",
+        "tests/integration/test_per_step_review.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/skills",
+        "core/templates",
+        "docs",
+        "install",
+        "review",
+        "tests"
+      ]
+    },
+    "KLC-041": {
+      "changed_files_current": [
+        "core/agents/impl.md",
+        "core/agents/review/per-step.md",
+        "core/phases/build_run.py",
+        "core/phases/task_brief.py",
+        "core/skills/build_ledger.py",
+        "core/skills/build_orchestrator.py",
+        "core/skills/findings.py",
+        "core/skills/per_step_review.py",
+        "core/skills/task_brief.py",
+        "core/templates/step-impl-report.md.j2",
+        "core/templates/step-review-package.md.j2",
+        "core/templates/step-review.md.j2",
+        "core/templates/task-brief.md.j2",
+        "docs/phases/build.md",
+        "docs/process-artifacts.md",
+        "docs/process.md",
+        "klc-plugin/agents/impl.md",
+        "scripts/klc",
+        "tests/integration/test_build_orchestrator.py",
+        "tests/integration/test_per_step_review.py",
+        "tests/integration/test_task_brief.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "docs/phases",
+        "klc-plugin/agents",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/phases",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "klc-plugin/agents",
+        "review",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-042": {
+      "changed_files_current": [
+        "core/agents/impl.md",
+        "core/agents/review/per-step.md",
+        "core/phases/build_run.py",
+        "core/skills/build_ledger.py",
+        "core/skills/build_orchestrator.py",
+        "core/skills/findings.py",
+        "core/skills/per_step_review.py",
+        "core/templates/step-review.md.j2",
+        "docs/phases/build.md",
+        "docs/process-artifacts.md",
+        "docs/process.md",
+        "klc-plugin/agents/impl.md",
+        "tests/integration/test_build_orchestrator.py",
+        "tests/integration/test_per_step_review.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/agents/review",
+        "core/phases",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "docs/phases",
+        "klc-plugin/agents",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/phases",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "klc-plugin/agents",
+        "review",
+        "tests"
+      ]
+    },
+    "KLC-043": {
+      "changed_files_current": [
+        "core/agents/review/per-step.md",
+        "core/skills/build_orchestrator.py",
+        "core/skills/findings.py",
+        "core/skills/per_step_review.py",
+        "core/templates/step-review.md.j2",
+        "docs/process.md",
+        "tests/integration/test_build_orchestrator.py",
+        "tests/integration/test_per_step_review.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents/review",
+        "core/skills",
+        "core/templates",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/skills",
+        "core/templates",
+        "docs",
+        "review",
+        "tests"
+      ]
+    },
+    "KLC-044": {
+      "changed_files_current": [
+        "core/agents/discovery-lite.md",
+        "core/agents/discovery.md",
+        "core/agents/impl.md",
+        "core/skills/budget.py",
+        "core/skills/phase_completion.py",
+        "docs/process-artifacts.md",
+        "docs/process.md",
+        "klc-plugin/agents/discovery-lite.md",
+        "klc-plugin/agents/discovery.md"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "klc-plugin/agents"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "klc-plugin/agents",
+        "phase_completion"
+      ]
+    },
+    "KLC-045": {
+      "changed_files_current": [
+        "config/budgets.yml",
+        "config/phases.yml",
+        "core/phases/ack.py",
+        "core/phases/run.py",
+        "core/skills/autorunner.py",
+        "core/skills/gate_policy.py",
+        "core/skills/phases.py",
+        "docs/process.md",
+        "scripts/klc",
+        "tests/integration/test_autorunner.py",
+        "tests/integration/test_gate_policy.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "ack",
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "phases",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-046": {
+      "changed_files_current": [
+        "config/budgets.yml",
+        "core/phases/run.py",
+        "core/skills/autorunner.py",
+        "docs/process.md",
+        "scripts/klc",
+        "tests/integration/test_autorunner.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-047": {
+      "changed_files_current": [
+        "core/phases/work.py",
+        "docs/process.md",
+        "scripts/klc",
+        "tests/integration/test_work_verb.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "docs",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "docs",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-048": {
+      "changed_files_current": [
+        "docs/happy-path.md",
+        "tests/integration/test_happy_path_doc.py"
+      ],
+      "new_modules_at_cutover": [
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "docs",
+        "tests"
+      ]
+    },
+    "KLC-049": {
+      "changed_files_current": [
+        "core/phases/doctor.py",
+        "docs/process.md",
+        "tests/_env.py",
+        "tests/conftest.py",
+        "tests/integration/test_discovery_floor_guard.py",
+        "tests/integration/test_doctor_integration.py",
+        "tests/integration/test_doctor_tests_check.py",
+        "tests/integration/test_no_pre_judgment_lint.py",
+        "tests/integration/test_setup_integration.py",
+        "tests/integration/test_socratic_gate.py",
+        "tests/integration/test_spec_selfreview.py",
+        "tests/test_detect_languages_malformed.py",
+        "tests/test_detect_languages_threshold.py",
+        "tests/test_yaml_shadow.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "docs",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "docs",
+        "tests"
+      ]
+    },
+    "KLC-050": {
+      "changed_files_current": [
+        "core/phases/build_run.py",
+        "core/skills/build_orchestrator.py",
+        "core/skills/lint_review_prompts.py",
+        "core/skills/model_guard.py",
+        "core/skills/phase_completion.py",
+        "core/skills/runner.py",
+        "core/skills/spec_structure.py",
+        "docs/process-artifacts.md",
+        "docs/process.md",
+        "tests/integration/test_model_subagent_guard.py",
+        "tests/integration/test_no_pre_judgment_lint.py",
+        "tests/integration/test_socratic_gate.py",
+        "tests/test_impl_plan_check.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "runner",
+        "tests"
+      ]
+    },
+    "KLC-051": {
+      "changed_files_current": [
+        "core/agents/design.md",
+        "core/agents/discovery-lite.md",
+        "core/agents/test-planner.md",
+        "core/skills/phase_completion.py",
+        "core/skills/plan_quality.py",
+        "docs/process.md",
+        "tests/integration/test_plan_completeness_gate.py",
+        "tests/integration/test_plan_quality.py",
+        "tests/test_prompt_regression.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-052": {
+      "changed_files_current": [
+        "config/clarify.yml",
+        "core/agents/adr.md",
+        "core/agents/consistency.md",
+        "core/agents/decompose.md",
+        "core/agents/design-scout.md",
+        "core/agents/design.md",
+        "core/agents/discovery-lite.md",
+        "core/agents/discovery.md",
+        "core/agents/docgen.md",
+        "core/agents/external-review.md",
+        "core/agents/impl.md",
+        "core/agents/intake-triage.md",
+        "core/agents/intake.md",
+        "core/agents/inventory.md",
+        "core/agents/manual-check.md",
+        "core/agents/retrospective.md",
+        "core/agents/review-lite.md",
+        "core/agents/review.md",
+        "core/agents/task.md",
+        "core/agents/test-planner.md",
+        "core/agents/test.md",
+        "core/agents/xs-fasttrack.md",
+        "core/phases/intake.py",
+        "core/skills/budget_guard.py",
+        "core/skills/clarify_config.py",
+        "core/skills/phase_resolver.py",
+        "core/skills/plugin_gen.py",
+        "core/skills/run_signal.py",
+        "core/skills/runner.py",
+        "docs/adr/ADR-001-phase-resolver-two-executors.md",
+        "docs/process.md",
+        "docs/tracks.md",
+        "klc-plugin/README.md",
+        "klc-plugin/agents/adr.md",
+        "klc-plugin/agents/consistency.md",
+        "klc-plugin/agents/decompose.md",
+        "klc-plugin/agents/design-scout.md",
+        "klc-plugin/agents/design.md",
+        "klc-plugin/agents/discovery-lite.md",
+        "klc-plugin/agents/discovery.md",
+        "klc-plugin/agents/docgen.md",
+        "klc-plugin/agents/external-review.md",
+        "klc-plugin/agents/impl.md",
+        "klc-plugin/agents/intake-triage.md",
+        "klc-plugin/agents/intake.md",
+        "klc-plugin/agents/inventory.md",
+        "klc-plugin/agents/manual-check.md",
+        "klc-plugin/agents/retrospective.md",
+        "klc-plugin/agents/review-lite.md",
+        "klc-plugin/agents/review.md",
+        "klc-plugin/agents/task.md",
+        "klc-plugin/agents/test-planner.md",
+        "klc-plugin/agents/test.md",
+        "klc-plugin/agents/xs-fasttrack.md",
+        "klc-plugin/commands/run.md",
+        "klc-plugin/skills/run/SKILL.md",
+        "tests/e2e/test_discovery_split.py",
+        "tests/e2e/test_orchestrator.py",
+        "tests/e2e/test_runner_parks_interactive.py",
+        "tests/integration/test_clarify_gate.py",
+        "tests/integration/test_clarify_style.py",
+        "tests/integration/test_orchestrator_dispatch.py",
+        "tests/integration/test_orchestrator_failure.py",
+        "tests/integration/test_orchestrator_run_to_gate.py",
+        "tests/integration/test_orchestrator_signal.py",
+        "tests/integration/test_orchestrator_stop.py",
+        "tests/integration/test_plugin_manifest.py",
+        "tests/test_budget_guard.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/agents",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "docs/adr",
+        "klc-plugin",
+        "klc-plugin/agents",
+        "klc-plugin/commands",
+        "klc-plugin/skills/run",
+        "tests",
+        "tests/e2e",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "config",
+        "core/agents",
+        "core/skills",
+        "docs",
+        "intake",
+        "klc-plugin",
+        "klc-plugin/agents",
+        "klc-plugin/commands",
+        "klc-plugin/skills",
+        "review",
+        "runner",
+        "tests"
+      ]
+    },
+    "KLC-053": {
+      "changed_files_current": [
+        "core/phases/state.py",
+        "scripts/klc",
+        "tests/integration/test_state_init.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-054": {
+      "changed_files_current": [
+        "core/skills/state_sync.py",
+        "tests/test_state_sync.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/skills",
+        "tests"
+      ],
+      "old_modules": [
+        "core/skills",
+        "tests"
+      ]
+    },
+    "KLC-055": {
+      "changed_files_current": [
+        "core/phases/intake.py",
+        "core/skills/identity.py",
+        "tests/test_identity.py",
+        "tests/test_intake_identity.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "tests"
+      ],
+      "old_modules": [
+        "core/skills",
+        "intake",
+        "tests"
+      ]
+    },
+    "KLC-056": {
+      "changed_files_current": [
+        "core/skills/holder.py",
+        "tests/test_holder.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/skills",
+        "tests"
+      ],
+      "old_modules": [
+        "core/skills",
+        "tests"
+      ]
+    },
+    "KLC-057": {
+      "changed_files_current": [
+        "config/budgets.yml",
+        "core/phases/ack.py",
+        "core/phases/intake.py",
+        "core/phases/next.py",
+        "core/phases/run.py",
+        "core/skills/autorunner.py",
+        "core/skills/lifecycle.py",
+        "core/skills/state_feature.py",
+        "core/skills/state_sync.py",
+        "core/skills/state_tx.py",
+        "docs/process.md",
+        "scripts/klc",
+        "tests/integration/test_autorunner.py",
+        "tests/integration/test_klc057_fuzz.py",
+        "tests/integration/test_klc057_fuzz_concurrent.py",
+        "tests/integration/test_klc057_hardening.py",
+        "tests/integration/test_klc057_real_repo.py",
+        "tests/integration/test_klc057_sync_holder.py",
+        "tests/test_state_feature.py",
+        "tests/test_state_tx.py"
+      ],
+      "new_modules_at_cutover": [
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "ack",
+        "config",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "intake",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-058": {
+      "changed_files_current": [
+        "core/phases/intake.py",
+        "core/phases/steal.py",
+        "core/skills/holder.py",
+        "core/skills/lifecycle.py",
+        "scripts/klc",
+        "tests/integration/test_klc057_fuzz_concurrent.py",
+        "tests/integration/test_klc057_hardening.py",
+        "tests/test_holder_steal.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "scripts",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "intake",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-059": {
+      "changed_files_current": [
+        "core/phases/remind.py",
+        "klc-plugin/hooks/hooks.json",
+        "klc-plugin/hooks/remind.py",
+        "scripts/klc",
+        "tests/integration/test_remind.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "klc-plugin/hooks",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "klc-plugin",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-060": {
+      "changed_files_current": [
+        "core/phases/board.py",
+        "core/phases/status.py",
+        "core/skills/holder_display.py",
+        "tests/integration/test_board_holder.py",
+        "tests/integration/test_holder_display.py",
+        "tests/integration/test_status_holder.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "tests"
+      ]
+    },
+    "KLC-061": {
+      "changed_files_current": [
+        "core/phases/abort.py",
+        "core/phases/jira.py",
+        "core/phases/jump.py",
+        "core/phases/ship.py",
+        "core/phases/steal.py",
+        "docs/dual-remote-mr-pr-workflow.md",
+        "tests/integration/test_klc057_fuzz_concurrent.py",
+        "tests/integration/test_klc061_wrap_verbs.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "docs",
+        "tests"
+      ]
+    },
+    "KLC-062": {
+      "changed_files_current": [
+        "core/phases/remind.py",
+        "core/phases/status.py",
+        "core/skills/gate_policy.py",
+        "core/skills/lifecycle.py",
+        "core/skills/phase_completion.py",
+        "docs/dual-remote-mr-pr-workflow.md",
+        "tests/integration/test_ack_risk_tags.py",
+        "tests/integration/test_remind.py",
+        "tests/integration/test_status_holder.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-063": {
+      "changed_files_current": [
+        "core/phases/state.py",
+        "core/skills/state_sync.py",
+        "core/skills/state_tx.py",
+        "docs/dual-remote-mr-pr-workflow.md",
+        "tests/integration/test_klc057_hardening.py",
+        "tests/integration/test_state_init.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests"
+      ]
+    },
+    "KLC-064": {
+      "changed_files_current": [
+        "core/phases/heartbeat.py",
+        "core/phases/steal.py",
+        "core/skills/holder.py",
+        "docs/dual-remote-mr-pr-workflow.md",
+        "klc-plugin/hooks/heartbeat.py",
+        "klc-plugin/hooks/hooks.json",
+        "scripts/klc",
+        "tests/integration/test_heartbeat.py",
+        "tests/integration/test_heartbeat_race.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "klc-plugin/hooks",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "klc-plugin",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-065": {
+      "changed_files_current": [
+        "core/phases/jira.py",
+        "tests/integration/test_klc061_wrap_verbs.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "tests"
+      ]
+    },
+    "KLC-066": {
+      "changed_files_current": [
+        "core/agents/decompose.md",
+        "core/agents/design.md",
+        "core/agents/review.md",
+        "core/agents/test-planner.md",
+        "core/skills/context-loader.py",
+        "core/skills/deterministic_inventory.py",
+        "core/skills/diff-modules.py",
+        "core/skills/file_roles.py",
+        "core/skills/module_edges.py",
+        "core/skills/module_membership.py",
+        "core/skills/modules_build.py",
+        "core/skills/phase_completion.py",
+        "core/skills/planning-eval.py",
+        "core/skills/planning-retriever.py",
+        "core/skills/planning_validate.py",
+        "core/skills/public-api-filter.py",
+        "core/skills/scope_delta.py",
+        "core/skills/symbol_usage.py",
+        "core/skills/tdd_order.py",
+        "core/skills/test_map.py",
+        "docs/planning-eval.md",
+        "scripts/init.py",
+        "scripts/update.py",
+        "tests/integration/test_deterministic_inventory.py",
+        "tests/integration/test_file_roles.py",
+        "tests/integration/test_klc066_fuzz.py",
+        "tests/integration/test_module_edges_v2.py",
+        "tests/integration/test_module_membership.py",
+        "tests/integration/test_modules_v2.py",
+        "tests/integration/test_pipeline_wiring.py",
+        "tests/integration/test_planning_eval.py",
+        "tests/integration/test_planning_retriever.py",
+        "tests/integration/test_planning_single_source.py",
+        "tests/integration/test_planning_validation.py",
+        "tests/integration/test_planning_validation_crossartifact.py",
+        "tests/integration/test_scope_delta_shared.py",
+        "tests/integration/test_symbol_usage.py",
+        "tests/integration/test_test_map.py",
+        "tests/test_tdd_order.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "review",
+        "scope_delta",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-067": {
+      "changed_files_current": [
+        "core/skills/phase_completion.py",
+        "core/skills/planning-eval.py",
+        "core/skills/planning-retriever.py",
+        "core/skills/tdd_order.py",
+        "docs/planning-eval.md",
+        "tests/integration/test_planning_eval.py",
+        "tests/integration/test_planning_retriever.py",
+        "tests/test_tdd_order.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/skills",
+        "docs",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/skills",
+        "docs",
+        "phase_completion",
+        "tests"
+      ]
+    },
+    "KLC-068": {
+      "changed_files_current": [
+        "core/agents/design-scout.md",
+        "core/agents/design.md",
+        "core/agents/discovery-lite.md",
+        "core/agents/discovery.md",
+        "core/agents/review.md",
+        "core/agents/test-planner.md",
+        "core/phases/intake.py",
+        "core/skills/phase_completion.py",
+        "core/skills/planning-eval.py",
+        "core/skills/planning-retriever.py",
+        "core/skills/tdd_order.py",
+        "docs/planning-eval.md",
+        "tests/integration/test_planning_eval.py",
+        "tests/integration/test_planning_retriever.py",
+        "tests/test_intake_retrieval.py",
+        "tests/test_tdd_order.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/phases",
+        "core/skills",
+        "docs",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "docs",
+        "intake",
+        "phase_completion",
+        "review",
+        "tests"
+      ]
+    },
+    "KLC-069": {
+      "changed_files_current": [
+        "core/skills/state_sync.py",
+        "core/skills/state_tx.py",
+        "tests/integration/test_klc069_non_origin_remote.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/skills",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/skills",
+        "tests"
+      ]
+    },
+    "KLC-070": {
+      "changed_files_current": [
+        "core/agents/decompose.md",
+        "core/agents/design.md",
+        "core/agents/review.md",
+        "core/agents/test-planner.md",
+        "core/skills/context-loader.py",
+        "core/skills/deterministic_inventory.py",
+        "core/skills/diff-modules.py",
+        "core/skills/file_roles.py",
+        "core/skills/module_edges.py",
+        "core/skills/module_membership.py",
+        "core/skills/modules_build.py",
+        "core/skills/planning_validate.py",
+        "core/skills/public-api-filter.py",
+        "core/skills/scope_delta.py",
+        "core/skills/symbol_usage.py",
+        "core/skills/test_map.py",
+        "scripts/init.py",
+        "scripts/update.py",
+        "tests/integration/test_deterministic_inventory.py",
+        "tests/integration/test_file_roles.py",
+        "tests/integration/test_klc066_fuzz.py",
+        "tests/integration/test_module_edges_v2.py",
+        "tests/integration/test_module_membership.py",
+        "tests/integration/test_modules_v2.py",
+        "tests/integration/test_pipeline_wiring.py",
+        "tests/integration/test_planning_single_source.py",
+        "tests/integration/test_planning_validation.py",
+        "tests/integration/test_planning_validation_crossartifact.py",
+        "tests/integration/test_scope_delta_shared.py",
+        "tests/integration/test_symbol_usage.py",
+        "tests/integration/test_test_map.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/skills",
+        "scripts",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "review",
+        "scope_delta",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-071": {
+      "changed_files_current": [
+        "core/agents/design-scout.md",
+        "core/agents/design.md",
+        "core/agents/discovery-lite.md",
+        "core/agents/discovery.md",
+        "core/agents/review.md",
+        "core/agents/test-planner.md",
+        "core/phases/intake.py",
+        "core/skills/deterministic_inventory.py",
+        "core/skills/file_roles.py",
+        "core/skills/module_edges.py",
+        "core/skills/planning_validate.py",
+        "core/skills/symbol_usage.py",
+        "core/skills/test_map.py",
+        "scripts/init.py",
+        "scripts/update.py",
+        "tests/integration/test_deterministic_inventory.py",
+        "tests/integration/test_file_roles.py",
+        "tests/integration/test_module_edges_v2.py",
+        "tests/integration/test_pipeline_wiring.py",
+        "tests/integration/test_planning_validation_crossartifact.py",
+        "tests/integration/test_symbol_usage.py",
+        "tests/integration/test_test_map.py",
+        "tests/test_intake_retrieval.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/phases",
+        "core/skills",
+        "scripts",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/agents",
+        "core/skills",
+        "intake",
+        "review",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-072": {
+      "changed_files_current": [
+        "core/phases/status.py",
+        "scripts/klc",
+        "tests/integration/test_klc072_dispatch.py",
+        "vscode-extension/src/klcReader.ts",
+        "vscode-extension/src/treeProvider.ts"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "scripts",
+        "tests/integration",
+        "vscode-extension/src"
+      ],
+      "old_modules": [
+        "core/phases",
+        "scripts",
+        "tests"
+      ]
+    },
+    "KLC-073": {
+      "changed_files_current": [
+        "core/agents/design-scout.md",
+        "core/agents/design.md",
+        "core/agents/discovery-lite.md",
+        "core/agents/discovery.md",
+        "core/agents/review.md",
+        "core/agents/test-planner.md",
+        "core/phases/intake.py",
+        "tests/test_intake_retrieval.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/agents",
+        "core/phases",
+        "tests"
+      ],
+      "old_modules": [
+        "core/agents",
+        "intake",
+        "review",
+        "tests"
+      ]
+    },
+    "KLC-074": {
+      "changed_files_current": [],
+      "new_modules_at_cutover": [],
+      "old_modules": []
+    },
+    "KLC-075": {
+      "changed_files_current": [
+        "core/phases/retrack.py",
+        "core/phases/scope_fix.py",
+        "core/skills/impl_plan_check.py",
+        "docs/process.md",
+        "scripts/klc",
+        "tests/integration/test_klc075_retrack_cas.py",
+        "tests/integration/test_klc075_scope_fix.py",
+        "tests/prompt_harness.py",
+        "tests/test_impl_plan_check.py"
+      ],
+      "new_modules_at_cutover": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests",
+        "tests/integration"
+      ],
+      "old_modules": [
+        "core/phases",
+        "core/skills",
+        "docs",
+        "scripts",
+        "tests"
+      ]
+    }
+  }
+}

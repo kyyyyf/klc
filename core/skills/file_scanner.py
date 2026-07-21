@@ -124,6 +124,53 @@ def _build_excludes_re(root: Path, profile_excludes: str) -> re.Pattern:
     return re.compile(combined)
 
 
+def _git_tracked_files(root: Path) -> list[str] | None:
+    """Repo-relative POSIX paths of every GIT-TRACKED file (`git ls-files`, which
+    already honours `.gitignore`). Returns None when *root* is not a git checkout or
+    git is unavailable, so callers can degrade. This is what makes the file universe
+    reproducible across machines: two checkouts at the same HEAD list the same set,
+    regardless of untracked working-tree junk."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return [p for p in r.stdout.split("\0") if p]
+
+
+def resolved_file_universe(root: Path, excludes_re: re.Pattern) -> tuple[list[str], str]:
+    """The authoritative scan/module file universe: GIT-TRACKED ∩ NOT-excluded, sorted.
+
+    (KLC-074 review HIGH-1/HIGH-2.) The universe is the git-tracked set (reproducible
+    across machines, no untracked junk) filtered by the SAME resolved excludes the
+    scan uses (baseline + profile ``excludes-regex`` + layout-A framework-root), so a
+    tracked-but-excluded path (e.g. a committed ``build/`` artifact, or the nested klc
+    framework) is dropped too.
+
+    Returns ``(files, source)`` where source is ``"git"`` (authoritative) or
+    ``"walk"`` (degrade: git unavailable → rglob the tree with the SAME excludes; a
+    best-effort fallback so a non-git project still scans, but NOT reproducible)."""
+    tracked = _git_tracked_files(root)
+    if tracked is not None:
+        return sorted(f for f in tracked if f and not excludes_re.search(f)), "git"
+    walked: list[str] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            rel = str(path.relative_to(root)).replace(os.sep, "/")
+        except ValueError:
+            continue
+        if excludes_re.search(rel):
+            continue
+        walked.append(rel)
+    return sorted(walked), "walk"
+
+
 def scan(root: Path) -> dict:
     profile = _resolve_profile_field("name") or "generic"
     profile_excludes = _resolve_profile_field("excludes-regex")
@@ -142,7 +189,6 @@ def scan(root: Path) -> dict:
     lang_files: dict[str, int] = {}
     lang_lines: dict[str, int] = {}
     dir_files: dict[str, int] = {}
-    files_rel: list[str] = []
 
     for path in root.rglob("*"):
         if not path.is_file():
@@ -153,7 +199,6 @@ def scan(root: Path) -> dict:
             continue
         if excludes_re.search(rel):
             continue
-        files_rel.append(rel)
         total_files += 1
 
         ext = _ext_of(rel)
@@ -229,15 +274,23 @@ def scan(root: Path) -> dict:
         )
         sys.exit(1)
 
+    # KLC-074 review: emit the AUTHORITATIVE file universe (git-tracked ∩ excludes) so
+    # modules_build clusters exactly the scan universe by construction — never a raw
+    # working-tree walk. `total_files`/`languages`/`directory_tree` keep their
+    # historical rglob-based counts (unchanged); `files_rel` is the reproducible list.
+    files_rel, files_rel_source = resolved_file_universe(root, excludes_re)
+
     return {
-        "root":           str(root),
-        "profile":        profile,
-        "total_files":    total_files,
-        "total_lines":    total_lines,
-        "languages":      languages,
-        "directory_tree": directory_tree,
-        "entry_points":   entry_points,
-        "source_roots":   source_roots,
+        "root":              str(root),
+        "profile":           profile,
+        "total_files":       total_files,
+        "total_lines":       total_lines,
+        "languages":         languages,
+        "directory_tree":    directory_tree,
+        "entry_points":      entry_points,
+        "source_roots":      source_roots,
+        "files_rel":         files_rel,
+        "files_rel_source":  files_rel_source,
     }
 
 

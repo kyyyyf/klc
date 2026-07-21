@@ -3,10 +3,12 @@
 
 Replaces the LLM `decompose` agent's *membership* decision with a deterministic,
 byte-reproducible clustering derived from the structural scan and (optionally) the
-import graph. The LLM (`decompose.md`, now demoted) only annotates the result with
-`name`(label)/`summary`/`keywords`; it never decides membership, edges, roles, or
-the `files` override map (planning_indexer.md §"Детерминированные данные —
-source of truth").
+import graph. KLC-074 CUT OVER to this build: `decompose.md` is fully RETIRED from
+the pipeline (init.py no longer runs it) — it is not demoted to an annotator, it is
+gone. Module `name` is the path-derived slug; membership, edges, roles, and the
+`files` override map are all deterministic. Any `summary`/`keywords` enrichment is a
+possible future follow-up over the deterministic set, NOT part of this pipeline
+(planning_indexer.md §"Детерминированные данные — source of truth").
 
 What it produces (the deterministic MODULE-LEVEL fields):
     {
@@ -32,9 +34,16 @@ is byte-identical on re-run (AC-3). `path` stays the canonical longest-prefix ke
 and `name` a stable slug (AC-4); no `id`, no `root_paths`.
 
 Clustering rule (deterministic):
-  - Candidate files = the union of import-graph node ids + edge endpoints across
-    languages (a real per-file listing) when a depgraph is given; otherwise the
-    top-level directories from structural.directory_tree (coarser, with a note).
+  - Candidate files = the union of (a) the import-graph node ids + edge endpoints
+    across languages and (b) the full tracked-file listing (`all_files`, KLC-074).
+    (a) alone only saw CODE files (Python/TS import nodes), so every non-code
+    directory — `docs/`, `core/agents/` (agent markdown), `config/` (yaml),
+    `core/templates/`, `klc-plugin/*` — produced NO module and its files ORPHANED
+    (the KLC-074 cut-over measured this over the real archive: 383 orphan touched-
+    file instances across 54 archived tickets). Feeding the full file listing makes
+    every directory that holds a tracked file a module, so those files resolve
+    instead of orphaning. When no `all_files` is given the old depgraph-only /
+    directory_tree behaviour is preserved (back-compat for the pure unit tests).
   - Each file is clustered by its immediate parent directory. One module per
     directory that directly contains at least one candidate file.
   - Module path = "<dir>/" (trailing slash → the resolver's raw-startswith needs
@@ -60,7 +69,12 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
-from core.shared.paths import klc_index_dir  # noqa: E402
+sys.path.insert(0, str(_file_dir))
+from core.shared.paths import klc_index_dir, project_root  # noqa: E402
+# KLC-074 review HIGH-1/HIGH-2: the module file universe is file_scanner's resolved
+# universe (git-tracked ∩ profile/framework/baseline excludes), NOT a raw os.walk, so
+# the module SET is byte-reproducible across machines and consistent with the scan.
+import file_scanner as _fs  # noqa: E402
 
 
 def _slug_from_path(dir_path: str) -> str:
@@ -86,8 +100,53 @@ def _candidate_files(depgraph: dict | None) -> list[str]:
     return sorted(files)
 
 
-def build_modules(structural: dict, depgraph: dict | None = None) -> dict:
+def module_file_universe(root: Path,
+                         structural: dict | None = None) -> tuple[list[str] | None, str]:
+    """The authoritative file universe fed to ``build_modules`` (KLC-074 review).
+
+    Sorted, git-tracked, and consistent with the structural scan BY CONSTRUCTION:
+
+      1. Primary — ``structural["files_rel"]`` when present. file_scanner already
+         resolved it (git-tracked ∩ profile/framework/baseline excludes), so consuming
+         it means the module SET cannot diverge from the scan universe.
+      2. Fallback — ``file_scanner.resolved_file_universe`` (``git ls-files`` filtered
+         by the SAME resolved excludes) when structural has no ``files_rel``.
+
+    NEVER a raw working-tree ``os.walk``: untracked/gitignored junk must not fabricate
+    modules (that would make two checkouts at the same HEAD compute different sets).
+
+    Returns ``(files, source)``. **``files`` distinguishes two very different cases
+    (KLC-074 review P2):**
+      - ``[]``   — the universe is legitimately EMPTY (e.g. a git repo whose only files
+                   are untracked/excluded). The caller must build ZERO modules, NOT
+                   fall back — falling back would re-fabricate modules from the very
+                   untracked/excluded files the universe dropped (reopening HIGH-1).
+      - ``None`` — the authoritative git-tracked universe could NOT be determined (no
+                   ``files_rel`` AND git unavailable, so only a non-reproducible walk is
+                   possible). The caller degrades to depgraph-only clustering."""
+    if structural and isinstance(structural.get("files_rel"), list):
+        # file_scanner resolved this (git-tracked ∩ excludes); [] here is legit-empty.
+        return sorted(f for f in structural["files_rel"] if f), "structural.files_rel"
+    profile_excludes = _fs._resolve_profile_field("excludes-regex")
+    excludes_re = _fs._build_excludes_re(root, profile_excludes)
+    files, src = _fs.resolved_file_universe(root, excludes_re)
+    if src != "git":
+        # git unavailable / not a checkout → only a raw walk was possible, which is not
+        # an authoritative git-tracked universe. Signal 'cannot determine' with None.
+        return None, f"resolved_file_universe:{src}(non-authoritative)"
+    return files, f"resolved_file_universe:{src}"
+
+
+def build_modules(structural: dict, depgraph: dict | None = None,
+                  all_files: list[str] | None = None) -> dict:
     """Deterministically cluster files into modules. Pure: no timestamp, no I/O.
+
+    ``all_files`` (KLC-074) is the full tracked-file listing gathered by ``main()``
+    (byte-sorted). When supplied it is unioned with the import-graph nodes so every
+    directory holding a tracked file becomes a module — non-code directories no
+    longer orphan. Passing the SAME ``all_files`` list makes the result byte-
+    identical on re-run (the pure-function contract, AC-3). When it is ``None`` the
+    old depgraph-only / directory_tree fallback is used unchanged.
 
     Returns the modules.json v2 object (membership fields only). See module
     docstring for the algorithm and the empty-`files`-map rationale.
@@ -95,12 +154,28 @@ def build_modules(structural: dict, depgraph: dict | None = None) -> dict:
     errors: list[str] = []
     notes: list[str] = []
 
-    files = _candidate_files(depgraph)
-    source = "depgraph"
-    if not files:
-        # Degrade: no import graph → fall back to the coarse top-level directory
-        # tree. This is honest but coarser; note it so the operator knows why the
-        # module set is shallow.
+    graph_files = _candidate_files(depgraph)
+    # KLC-074 review P2: `is not None` — an EMPTY authoritative universe ([]) means
+    # "zero modules", NOT "no universe → fall back". Only None (universe genuinely
+    # unavailable) falls through to the depgraph/directory_tree clustering below.
+    if all_files is not None:
+        # KLC-074 cut-over: cluster the FULL tracked-file listing so non-code dirs
+        # are covered. The listing is the AUTHORITATIVE git-tracked ∩ excludes
+        # universe, so it already contains every tracked, non-excluded code file.
+        # Depgraph import-graph nodes are therefore used only to INTERSECT — an
+        # untracked or scanner-excluded file that leaked into the import graph (e.g.
+        # a committed `build/` artifact, or an untracked `.py`) must NOT re-introduce
+        # a module the universe deliberately dropped (KLC-074 review HIGH-1/HIGH-2).
+        files = sorted(set(all_files))
+        source = "file_listing"
+    elif graph_files:
+        files = graph_files
+        source = "depgraph"
+    else:
+        # Degrade: no import graph AND no file listing → fall back to the coarse
+        # top-level directory tree. This is honest but coarser; note it so the
+        # operator knows why the module set is shallow.
+        files = []
         errors.append("depgraph absent/empty — clustering from structural."
                       "directory_tree (coarse, top-level directories only)")
         source = "directory_tree"
@@ -166,11 +241,26 @@ def build_modules(structural: dict, depgraph: dict | None = None) -> dict:
         for rf in root_files:
             files_map[rf] = {"primary_module": root_name}
 
-    if source == "depgraph":
+    if source in ("depgraph", "file_listing"):
         notes.append(
-            "membership is directory-level; finer file-module granularity and the "
-            "per-file `files` override/shared map require the deterministic "
-            "inventory skill (KLC-070)."
+            "membership is directory-level (KLC-074 cut-over: intentional — file-stem "
+            "modules need a non-reproducible semantic judgement); finer per-file "
+            "targeting is delivered by the KLC-070/071 file-level views (file_roles, "
+            "inventory, symbol_usage), a separate layer from the module SET."
+        )
+        # KLC-074 review MEDIUM-1: this deterministic build emits NO shared entries
+        # (`files[path].member_of` with primary_module=null), so file_to_module never
+        # returns is_shared=True and the shared-file branch in scope_delta.py (utility
+        # edits → drift/warning instead of expansion) is currently INERT. It re-arms
+        # only once the KLC-070 inventory feeds a real member_of map here. Consequently
+        # the scope-expansion guard is COARSER under directory-level modules (a ticket
+        # scoped to `core/skills` covers any edit under it). This is an accepted
+        # trade-off of the cut-over; a compensating file-level check is a follow-up,
+        # NOT silently dropped. See the KLC-074 design/retrospective.
+        notes.append(
+            "shared-file classification (member_of) is not emitted yet — the "
+            "scope_delta shared branch is inert until the KLC-070 inventory feeds it; "
+            "scope expansion is coarser at directory granularity (KLC-074 review)."
         )
 
     return {
@@ -192,6 +282,12 @@ def main(argv: list[str] | None = None) -> int:
                     default=klc_index_dir() / "depgraph.json")
     ap.add_argument("--out-modules", type=Path,
                     default=klc_index_dir() / "modules.json")
+    ap.add_argument("--root", type=Path, default=None,
+                    help="repo root for the file-universe resolution (KLC-074). "
+                         "Defaults to PROJECT_ROOT. Pass --no-walk to skip the "
+                         "full-file universe and fall back to depgraph-only clustering.")
+    ap.add_argument("--no-walk", action="store_true",
+                    help="skip the full-file universe (depgraph-only clustering).")
     args = ap.parse_args(argv)
 
     if not args.in_structural.exists():
@@ -214,7 +310,33 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(
                 f"modules_build: depgraph unreadable ({exc}); degrading\n")
 
-    result = build_modules(structural, depgraph)
+    # KLC-074: resolve the git-tracked, scanner-consistent file universe so non-code
+    # directories become modules instead of orphaning — without letting untracked junk
+    # fabricate modules. Degrade-not-fail: if resolution raises, fall back to
+    # depgraph-only clustering with a note rather than aborting.
+    all_files: list[str] | None = None
+    if not args.no_walk:
+        root = args.root or project_root()
+        try:
+            all_files, universe_src = module_file_universe(root, structural)
+        except OSError as exc:
+            sys.stderr.write(
+                f"modules_build: file-universe resolution of {root} failed ({exc}); "
+                f"degrading to depgraph-only clustering\n")
+            all_files, universe_src = None, "error"
+        if all_files is None:
+            # None = universe genuinely unavailable (see module_file_universe): degrade
+            # to depgraph-only. An EMPTY universe ([]) is NOT None — it flows through as
+            # zero modules (KLC-074 review P2).
+            sys.stderr.write(
+                f"modules_build: authoritative file universe unavailable "
+                f"({universe_src}); degrading to depgraph-only clustering\n")
+        else:
+            sys.stderr.write(
+                f"modules_build: file universe ({len(all_files)} files) "
+                f"from {universe_src}\n")
+
+    result = build_modules(structural, depgraph, all_files)
     # generated_at/git_sha live only at the top level of the written file so the
     # membership fields stay byte-identical across runs.
     payload = {
