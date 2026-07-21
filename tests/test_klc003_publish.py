@@ -1,12 +1,20 @@
 """KLC-003 — `klc publish` GitHub adapter: unit + read-only-invariant coverage.
 
-No real GitHub calls anywhere. Every `gh` invocation goes through a stubbed
-`run_gh` recorder so tests assert the EXACT argv constructed for each verdict
-(the KLC-057 "fake that hides behaviour" trap). The one live touch is
-`gh --version` as a safe sanity check; it creates/labels/comments nothing.
+SAFETY (H1): NO test may reach a real `gh`. Every unit test injects a
+`GhRecorder`; every verb-level test runs the phase IN-PROCESS with
+`publish_github.default_run_gh` monkeypatched to a recorder (a subprocess cannot
+be monkeypatched, and `gh` resolves its repo from the process CWD ignoring
+PROJECT_ROOT, so a real `gh` in a subprocess could mutate a live PR). The single
+end-to-end dispatch test shadows `gh` on PATH with a stub binary that always
+fails, so even that path provably cannot touch a real PR. The only live touch is
+`gh --version` (read-only; mutates nothing).
+
+`GhRecorder.has(*tokens)` asserts the tokens appear as a CONTIGUOUS subsequence
+of some recorded argv (adjacency), not merely present somewhere (L11).
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -27,24 +35,26 @@ import publish_github as pg  # noqa: E402
 class GhRecorder:
     """Records every gh argv and replays scripted (rc, stdout) responses.
 
-    `responses` maps a matcher (first two argv tokens, e.g. ('pr','list')) to a
-    (rc, stdout). Unmatched calls return (0, "") so action calls (label/comment)
-    succeed silently while their argv is still recorded for assertions.
+    `responses` maps `tuple(argv[:2])` to `(rc, stdout)`. Unmatched calls return
+    (0, "") so writes succeed silently while their argv is still recorded.
     """
     def __init__(self, responses=None):
         self.calls: list[list[str]] = []
         self.responses = responses or {}
 
     def __call__(self, argv):
-        self.calls.append(list(argv))
-        key = tuple(argv[:2])
-        return self.responses.get(key, (0, ""))
+        argv = list(argv)
+        self.calls.append(argv)
+        return self.responses.get(tuple(argv[:2]), (0, ""))
 
-    def argv_with(self, *tokens):
-        """Return the first recorded call containing all `tokens` in order-free."""
+    def has(self, *tokens):
+        """First recorded call containing `tokens` as a contiguous subsequence."""
+        toks = list(tokens)
+        n = len(toks)
         for c in self.calls:
-            if all(t in c for t in tokens):
-                return c
+            for i in range(len(c) - n + 1):
+                if c[i:i + n] == toks:
+                    return c
         return None
 
 
@@ -56,7 +66,7 @@ verdict: APPROVED
 
 ## Summary
 
-APPROVED. Zero blocking findings this pass.
+Zero blocking findings this pass.
 
 ## Verdict
 
@@ -71,7 +81,7 @@ verdict: CHANGES REQUESTED
 
 ## Summary
 
-Two blocking findings; changes requested.
+Two blocking findings this pass.
 
 ## Verdict
 
@@ -84,7 +94,46 @@ PR_LIST_JSON = json.dumps([
 ])
 
 
-# --- verdict parsing ----------------------------------------------------------
+# --- real j2 template rendering (codex P1: the PRIMARY real format) -----------
+
+def _render_j2(verdict: str) -> str:
+    """Render the ACTUAL review-report.md.j2 with a minimal context.
+
+    This produces the heading-inline `## Verdict: <verdict>` form that the
+    review pipeline really emits — the form the previous parser silently missed.
+    """
+    from jinja2 import Environment, FileSystemLoader, StrictUndefined
+    env = Environment(
+        loader=FileSystemLoader(str(FW_ROOT / "core" / "templates")),
+        undefined=StrictUndefined, keep_trailing_newline=True,
+        trim_blocks=True, lstrip_blocks=True,
+    )
+    tpl = env.get_template("review-report.md.j2")
+    return tpl.render(
+        timestamp="2026-07-21T00:00:00Z", spec_path="spec.md",
+        reviewers=[{"label": "internal", "total": 0, "blocking": 0,
+                    "skipped": False}],
+        external=None,
+        blocking_issues="None", non_blocking_issues="None",
+        out_of_scope_issues="None",
+        verdict=verdict, adrs=[], tier_classification=None,
+        sentinel_matches=None,
+    )
+
+
+def test_parse_real_j2_verdict_approved():
+    rendered = _render_j2("APPROVED")
+    assert "## Verdict: APPROVED" in rendered  # sanity: heading-inline form
+    assert pg.parse_verdict(rendered) == pg.APPROVED
+
+
+def test_parse_real_j2_verdict_changes_requested():
+    rendered = _render_j2("CHANGES REQUESTED")
+    assert "## Verdict: CHANGES REQUESTED" in rendered
+    assert pg.parse_verdict(rendered) == pg.CHANGES_REQUESTED
+
+
+# --- verdict parsing: all forms + reject-wins + case ---------------------------
 
 def test_parse_verdict_frontmatter_approved():
     assert pg.parse_verdict("---\nverdict: APPROVED\n---\n") == pg.APPROVED
@@ -95,9 +144,10 @@ def test_parse_verdict_frontmatter_changes():
         == pg.CHANGES_REQUESTED
 
 
-def test_parse_verdict_section_only():
-    txt = "# r\n\n## Verdict\n\nThe code is APPROVED.\n"
-    assert pg.parse_verdict(txt) == pg.APPROVED
+def test_parse_verdict_heading_inline():
+    assert pg.parse_verdict("## Verdict: APPROVED\n") == pg.APPROVED
+    assert pg.parse_verdict("## Verdict: CHANGES REQUESTED\n") \
+        == pg.CHANGES_REQUESTED
 
 
 def test_parse_verdict_bare_line():
@@ -105,14 +155,36 @@ def test_parse_verdict_bare_line():
         == pg.CHANGES_REQUESTED
 
 
-def test_parse_verdict_reject_wins_when_both_present():
-    txt = "## Verdict\nwas APPROVED earlier but now CHANGES REQUESTED\n"
-    assert pg.parse_verdict(txt) == pg.CHANGES_REQUESTED
+def test_parse_verdict_section_body():
+    assert pg.parse_verdict("# r\n\n## Verdict\n\nThe code is APPROVED.\n") \
+        == pg.APPROVED
+
+
+def test_parse_verdict_lowercase_and_approved_variants():
+    assert pg.parse_verdict("## Verdict: approved") == pg.APPROVED
+    assert pg.parse_verdict("---\nverdict: Approval granted\n---") == pg.APPROVED
+
+
+def test_parse_verdict_reject_wins_across_all_forms():
+    # bare line APPROVED + section CHANGES REQUESTED (fresh M3)
+    assert pg.parse_verdict(
+        "VERDICT APPROVED\n## Verdict\nCHANGES REQUESTED\n"
+    ) == pg.CHANGES_REQUESTED
+    # frontmatter APPROVED + heading-inline CHANGES REQUESTED
+    assert pg.parse_verdict(
+        "---\nverdict: APPROVED\n---\n## Verdict: CHANGES REQUESTED\n"
+    ) == pg.CHANGES_REQUESTED
+    # heading-inline APPROVED + a stray reject token elsewhere
+    assert pg.parse_verdict(
+        "## Verdict: APPROVED\n\n(previously rejected)\n"
+    ) == pg.CHANGES_REQUESTED
 
 
 def test_parse_verdict_none_when_absent():
     assert pg.parse_verdict("# report\n\nno verdict here\n") is None
     assert pg.parse_verdict("") is None
+    # a declaration that names neither outcome → None, never a default APPROVED
+    assert pg.parse_verdict("## Verdict: PENDING\n") is None
 
 
 # --- verdict → action mapping -------------------------------------------------
@@ -139,13 +211,10 @@ def test_publish_approved_exact_argv():
     res = pg.publish("KLC-003", APPROVED_REPORT, gh)
     assert res.published and res.pr_number == 42 and res.verdict == pg.APPROVED
 
-    # label add on the resolved PR number, correct label name
-    assert gh.argv_with("pr", "edit", "42", "--add-label", "review:approved")
-    assert gh.argv_with("label", "create", "review:approved")
-    # summary comment on the PR
-    assert gh.argv_with("pr", "comment", "42", "--body")
-    # APPROVED sets NO commit status
-    assert gh.argv_with("api") is None
+    assert gh.has("pr", "edit", "42", "--add-label", "review:approved")
+    assert gh.has("label", "create", "review:approved")
+    assert gh.has("pr", "comment", "42", "--body")
+    # APPROVED sets NO commit status (no statuses api anywhere)
     assert not any("statuses" in " ".join(c) for c in gh.calls)
 
 
@@ -156,43 +225,58 @@ def test_publish_changes_exact_argv():
     res = pg.publish("KLC-003", CHANGES_REPORT, gh)
     assert res.published and res.verdict == pg.CHANGES_REQUESTED
 
-    assert gh.argv_with("pr", "edit", "42", "--add-label",
-                        "review:changes-requested")
-    # failing commit status on the head SHA via gh api, exact payload
-    api = gh.argv_with("api")
-    assert api is not None
-    assert api[1] == "repos/{owner}/{repo}/statuses/abc123"
-    assert "state=failure" in api
-    assert "context=klc/review" in api
-    # comment posted too
-    assert gh.argv_with("pr", "comment", "42", "--body")
+    assert gh.has("pr", "edit", "42", "--add-label", "review:changes-requested")
+    # failing commit status on the head SHA via gh api, exact payload (adjacency)
+    assert gh.has("api", "repos/{owner}/{repo}/statuses/abc123")
+    assert gh.has("-f", "state=failure")
+    assert gh.has("-f", "context=klc/review")
+    assert gh.has("pr", "comment", "42", "--body")
 
 
-def test_comment_body_carries_summary():
+def test_comment_body_carries_summary_and_marker():
     gh = GhRecorder({("pr", "list"): (0, PR_LIST_JSON)})
     pg.publish("KLC-003", CHANGES_REPORT, gh)
-    comment = gh.argv_with("pr", "comment", "42", "--body")
+    comment = gh.has("pr", "comment", "42", "--body")
     body = comment[comment.index("--body") + 1]
-    assert "changes requested" in body.lower()
-    assert "CHANGES REQUESTED" in body  # header attribution
+    assert "two blocking findings" in body.lower()
+    assert "CHANGES REQUESTED" in body            # attribution header
+    assert "<!-- klc:review:KLC-003 -->" in body  # dedupe marker (M5)
+
+
+# --- comment dedupe: edit an existing marked comment (M5) ---------------------
+
+def test_comment_dedupe_edits_existing_comment():
+    marker = "<!-- klc:review:KLC-003 -->"
+    comments = json.dumps([{"id": 555, "body": f"stale body\n{marker}"}])
+    gh = GhRecorder({
+        ("pr", "list"): (0, PR_LIST_JSON),
+        ("api", "repos/{owner}/{repo}/issues/42/comments"): (0, comments),
+    })
+    res = pg.publish("KLC-003", APPROVED_REPORT, gh)
+    assert res.published and "comment:updated" in res.actions
+    # PATCH the existing comment id, NOT a fresh pr comment
+    assert gh.has("api", "--method", "PATCH",
+                  "repos/{owner}/{repo}/issues/comments/555")
+    assert gh.has("pr", "comment") is None
 
 
 # --- PR resolution ------------------------------------------------------------
 
 def test_resolve_pr_from_list_matches_ticket_branch():
     gh = GhRecorder({("pr", "list"): (0, PR_LIST_JSON)})
-    pr = pg.resolve_pr("KLC-003", gh)
-    assert pr is not None and pr.number == 42 and pr.head_sha == "abc123"
-    # the list argv shape
+    res = pg.resolve_pr("KLC-003", gh)
+    assert res.reason == "ok" and res.pr.number == 42
+    assert res.pr.head_sha == "abc123"
     assert gh.calls[0][:4] == ["pr", "list", "--state", "open"]
 
 
 def test_resolve_pr_branch_override_uses_pr_view():
-    pr_json = json.dumps({"number": 7, "url": "u", "state": "OPEN",
-                          "headRefName": "custom", "headRefOid": "deadbeef"})
-    gh = GhRecorder({("pr", "view"): (0, pr_json)})
-    pr = pg.resolve_pr("KLC-003", gh, branch="custom")
-    assert pr is not None and pr.number == 7 and pr.head_sha == "deadbeef"
+    prj = json.dumps({"number": 7, "url": "u", "state": "OPEN",
+                      "headRefName": "custom", "headRefOid": "deadbeef"})
+    gh = GhRecorder({("pr", "view"): (0, prj)})
+    res = pg.resolve_pr("KLC-003", gh, branch="custom")
+    assert res.reason == "ok" and res.pr.number == 7
+    assert res.pr.head_sha == "deadbeef"
     assert gh.calls[0][:3] == ["pr", "view", "custom"]
 
 
@@ -200,7 +284,8 @@ def test_resolve_pr_no_match_when_branch_differs():
     other = json.dumps([{"number": 9, "url": "u", "state": "OPEN",
                          "headRefName": "feature/klc-999-x", "headRefOid": "z"}])
     gh = GhRecorder({("pr", "list"): (0, other)})
-    assert pg.resolve_pr("KLC-003", gh) is None
+    res = pg.resolve_pr("KLC-003", gh)
+    assert res.pr is None and res.reason == "none"
 
 
 def test_branch_matches_ignores_leading_zeros_and_case():
@@ -209,23 +294,85 @@ def test_branch_matches_ignores_leading_zeros_and_case():
     assert not pg._branch_matches_ticket("feature/klc-30-x", "KLC-003")
 
 
+# --- M2: closed / merged PR is a clean no-op in BOTH paths --------------------
+
+def test_closed_pr_view_path_is_noop():
+    prj = json.dumps({"number": 7, "url": "u", "state": "MERGED",
+                      "headRefName": "custom", "headRefOid": "z"})
+    gh = GhRecorder({("pr", "view"): (0, prj)})
+    res = pg.resolve_pr("KLC-003", gh, branch="custom")
+    assert res.pr is None and res.reason == "closed"
+
+
+def test_closed_pr_list_path_is_noop():
+    j = json.dumps([{"number": 42, "url": "u", "state": "CLOSED",
+                     "headRefName": "feature/klc-003-x", "headRefOid": "a"}])
+    gh = GhRecorder({("pr", "list"): (0, j)})
+    res = pg.resolve_pr("KLC-003", gh)
+    assert res.pr is None and res.reason == "closed"
+
+
+# --- M6: ambiguous multi-PR match no-ops rather than guessing -----------------
+
+def test_ambiguous_multi_pr_is_noop():
+    j = json.dumps([
+        {"number": 42, "url": "u", "state": "OPEN",
+         "headRefName": "feature/klc-003-a", "headRefOid": "a"},
+        {"number": 43, "url": "u", "state": "OPEN",
+         "headRefName": "feature/klc-3-b", "headRefOid": "b"},
+    ])
+    gh = GhRecorder({("pr", "list"): (0, j)})
+    res = pg.resolve_pr("KLC-003", gh)
+    assert res.pr is None and res.reason == "ambiguous"
+
+
+# --- L7: malformed JSON never raises ------------------------------------------
+
+def test_resolve_pr_non_dict_element_does_not_raise():
+    gh = GhRecorder({("pr", "list"): (0, "[1, 2, \"x\"]")})
+    res = pg.resolve_pr("KLC-003", gh)
+    assert res.pr is None and res.reason == "none"
+
+
+def test_resolve_pr_garbage_json_is_unavailable():
+    gh = GhRecorder({("pr", "list"): (0, "not json{")})
+    res = pg.resolve_pr("KLC-003", gh)
+    assert res.pr is None and res.reason == "unavailable"
+
+
+# --- L9: --branch override for a different ticket is refused ------------------
+
+def test_branch_override_mismatch_refuses_without_touching_gh():
+    gh = GhRecorder()
+    res = pg.resolve_pr("KLC-003", gh, branch="feature/klc-999-x")
+    assert res.pr is None and res.reason == "branch-mismatch"
+    assert gh.calls == []  # short-circuits before any gh call
+
+
+def test_branch_override_non_convention_is_allowed():
+    prj = json.dumps({"number": 7, "url": "u", "state": "OPEN",
+                      "headRefName": "hotfix", "headRefOid": "z"})
+    gh = GhRecorder({("pr", "view"): (0, prj)})
+    res = pg.resolve_pr("KLC-003", gh, branch="hotfix")
+    assert res.reason == "ok" and res.pr.number == 7
+
+
 # --- degrade paths (AC-4) -----------------------------------------------------
 
 def test_degrade_no_open_pr_is_noop():
     gh = GhRecorder({("pr", "list"): (0, "[]")})
     res = pg.publish("KLC-003", APPROVED_REPORT, gh)
     assert res.published is False
-    # only the resolution call happened; no label/comment/api publish argv
-    assert not gh.argv_with("pr", "edit")
-    assert not gh.argv_with("pr", "comment")
-    assert not gh.argv_with("label", "create")
+    assert not gh.has("pr", "edit")
+    assert not gh.has("pr", "comment")
+    assert not gh.has("label", "create")
 
 
 def test_degrade_gh_absent_rc127_is_noop():
     gh = GhRecorder({("pr", "list"): (127, "")})
     res = pg.publish("KLC-003", APPROVED_REPORT, gh)
     assert res.published is False
-    assert not gh.argv_with("pr", "edit")
+    assert not gh.has("pr", "edit")
 
 
 def test_degrade_gh_list_error_is_noop():
@@ -234,12 +381,39 @@ def test_degrade_gh_list_error_is_noop():
     assert res.published is False
 
 
-def test_degrade_no_verdict_is_noop():
+def test_degrade_no_verdict_is_noop_without_resolving():
     gh = GhRecorder({("pr", "list"): (0, PR_LIST_JSON)})
     res = pg.publish("KLC-003", "# report\nno verdict\n", gh)
     assert res.published is False
-    # resolution is never even attempted without a verdict
-    assert gh.calls == []
+    assert gh.calls == []  # resolution never attempted without a verdict
+
+
+# --- M4 / codex P2a: write failures are not reported as success ---------------
+
+def test_publish_partial_when_label_add_fails():
+    gh = GhRecorder({("pr", "list"): (0, PR_LIST_JSON),
+                     ("pr", "edit"): (1, "HTTP 403")})
+    res = pg.publish("KLC-003", APPROVED_REPORT, gh)
+    assert res.published is False
+    assert "label:review:approved" in res.failures
+    assert "partial" in res.message.lower()
+
+
+def test_publish_partial_when_comment_fails():
+    gh = GhRecorder({("pr", "list"): (0, PR_LIST_JSON),
+                     ("pr", "comment"): (1, "HTTP 403")})
+    res = pg.publish("KLC-003", APPROVED_REPORT, gh)
+    assert res.published is False
+    assert "comment" in res.failures
+
+
+def test_publish_partial_when_status_fails():
+    gh = GhRecorder({("pr", "list"): (0, PR_LIST_JSON),
+                     ("api", "repos/{owner}/{repo}/statuses/abc123"):
+                         (1, "HTTP 422")})
+    res = pg.publish("KLC-003", CHANGES_REPORT, gh)
+    assert res.published is False
+    assert any(f.startswith("status") for f in res.failures)
 
 
 def test_default_run_gh_missing_binary_maps_to_127(monkeypatch):
@@ -250,7 +424,7 @@ def test_default_run_gh_missing_binary_maps_to_127(monkeypatch):
     assert rc == 127 and out == ""
 
 
-# --- read-only invariant via the real verb -----------------------------------
+# --- read-only invariant via the real verb, IN-PROCESS with a stubbed gh ------
 
 def _bootstrap(root: Path, ticket: str, *, report: str | None) -> Path:
     tdir = root / ".klc" / "tickets" / ticket
@@ -265,39 +439,78 @@ def _bootstrap(root: Path, ticket: str, *, report: str | None) -> Path:
     return mp
 
 
-def _run(args, root):
-    return subprocess.run([sys.executable, str(KLC), *args],
-                          capture_output=True, text=True,
-                          env={**os.environ, "PROJECT_ROOT": str(root)})
+def _load_phase():
+    """Import core/phases/publish.py in-process under a unique module name."""
+    spec = importlib.util.spec_from_file_location(
+        "klc_phase_publish_test", FW_ROOT / "core" / "phases" / "publish.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def test_publish_verb_is_read_only_meta_unchanged(tmp_path):
-    # No PR exists in the tmp repo, so this exercises the degrade path end-to-end
-    # through scripts/klc while asserting meta.json is byte-identical afterward.
+def test_publish_verb_is_read_only_and_uses_stubbed_gh(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     mp = _bootstrap(tmp_path, "KLC-003", report=APPROVED_REPORT)
     before = mp.read_bytes()
-    r = _run(["publish", "KLC-003"], tmp_path)
-    assert r.returncode == 0, r.stderr
+
+    gh = GhRecorder({("pr", "list"): (0, PR_LIST_JSON)})
+    monkeypatch.setattr(pg, "default_run_gh", gh)  # verb can NOT reach real gh
+
+    rc = _load_phase().run(["KLC-003"])
+    assert rc == 0
     assert mp.read_bytes() == before, "publish must not mutate meta.json"
+    # provably routed through the injected boundary (no real gh invoked)
+    assert gh.has("pr", "edit", "42", "--add-label", "review:approved")
 
 
-def test_publish_verb_no_report_is_clean_noop(tmp_path):
+def test_publish_verb_no_report_is_clean_noop(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     mp = _bootstrap(tmp_path, "KLC-003", report=None)
     before = mp.read_bytes()
-    r = _run(["publish", "KLC-003"], tmp_path)
-    assert r.returncode == 0, r.stderr
-    assert "nothing to publish" in r.stdout.lower()
+    gh = GhRecorder()
+    monkeypatch.setattr(pg, "default_run_gh", gh)
+
+    rc = _load_phase().run(["KLC-003"])
+    assert rc == 0
+    assert gh.calls == []  # never reached gh
+    assert "nothing to publish" in capsys.readouterr().out.lower()
     assert mp.read_bytes() == before
 
 
-def test_publish_verb_unknown_ticket_errors(tmp_path):
+def test_publish_verb_unknown_ticket_errors(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     (tmp_path / ".klc").mkdir()
-    r = _run(["publish", "NOPE-999"], tmp_path)
-    assert r.returncode == 1
-    assert "unknown ticket" in r.stderr.lower()
+    gh = GhRecorder()
+    monkeypatch.setattr(pg, "default_run_gh", gh)
+    rc = _load_phase().run(["NOPE-999"])
+    assert rc == 1
+    assert gh.calls == []  # never reached gh
 
 
-# --- light live sanity (safe; no writes) --------------------------------------
+# --- end-to-end dispatch (scripts/klc → phase) with a STUB gh on PATH ---------
+
+def test_dispatch_end_to_end_cannot_touch_real_gh(tmp_path):
+    """Drive the real `klc publish` verb through scripts/klc, but shadow `gh`
+    on PATH with a stub that always fails — proving the dispatch wiring reaches
+    the adapter and degrades, with NO possibility of hitting a real PR."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake_gh = bindir / "gh"
+    fake_gh.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+    fake_gh.chmod(0o755)
+
+    mp = _bootstrap(tmp_path, "KLC-003", report=APPROVED_REPORT)
+    before = mp.read_bytes()
+    env = {**os.environ, "PROJECT_ROOT": str(tmp_path),
+           "PATH": f"{bindir}:{os.environ.get('PATH', '')}"}
+    r = subprocess.run([sys.executable, str(KLC), "publish", "KLC-003"],
+                       capture_output=True, text=True, env=env, cwd=str(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert "no-op" in r.stdout.lower() or "gh unavailable" in r.stdout.lower()
+    assert mp.read_bytes() == before
+
+
+# --- light live sanity (safe; read-only; no writes) ---------------------------
 
 def test_gh_version_is_safe_sanity_only():
     try:

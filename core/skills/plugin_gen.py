@@ -121,6 +121,7 @@ def generate_agents(
 
 _LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
+    "publish",
 )
 
 
@@ -138,6 +139,7 @@ def _generate_commands(output_dir: Path) -> list[Path]:
         "jump":   "Jump the ticket to a specific phase",
         "abort":  "Cancel current work and return to the previous ack state",
         "step":   "Show or advance the current build step",
+        "publish": "Publish the review verdict to the ticket's GitHub PR",
     }
 
     for verb in _LIFECYCLE_CMDS:
