@@ -3,8 +3,9 @@
 
 This module is the forge-facing half of `klc publish`. Given a ticket's
 `review-report.md`, it resolves the ticket's GitHub PR and publishes the review
-result: a verdict label, a summary comment, and (on CHANGES REQUESTED) a failing
-commit status on the PR head SHA.
+result: a verdict label, a summary comment (deduplicated across re-runs via a
+hidden marker), and — on CHANGES REQUESTED — a failing commit status on the PR
+head SHA.
 
 Design notes (why it looks like this):
 
@@ -12,15 +13,28 @@ Design notes (why it looks like this):
   `run_gh(argv) -> (rc, stdout)`. Production uses a `subprocess.run` default;
   tests inject a recorder so they can assert the EXACT argv constructed for each
   verdict (the KLC-057 "fake that hides behaviour" trap: never assert merely
-  "gh was called").
-- **Degrade-not-fail (AC-4).** No open PR, `gh` absent, not authenticated, or a
-  non-GitHub context is a CLEAN no-op: log one line, return a `Result` with
-  `published=False`, never raise. Mirrors the KLC-076 Jira-sentinel precedent.
+  "gh was called"). NOTHING in this module or its tests may reach a real `gh`.
+- **Degrade-not-fail (AC-4).** No open PR, `gh` absent, not authenticated, a
+  non-GitHub context, a closed/merged PR, or an ambiguous multi-PR match is a
+  CLEAN no-op: it returns a `Result` with `published=False` and never raises.
+  The library itself never raises for a forge/context problem — the verb's
+  outer `except` is belt-and-suspenders, not the contract. Mirrors the KLC-076
+  Jira-sentinel precedent.
+- **Write-failure detection.** Every mutating `gh` call's rc is checked; an
+  action is only reported in `Result.actions` when it actually succeeded (rc 0),
+  and any failure is surfaced in `Result.failures` with `published=False`. A
+  read-only token that cannot write, or a comment that fails after the label
+  landed, is NEVER reported as success.
 - **Commit status, not check-run (AC-2).** Check-runs need a GitHub App token;
   the user `gh` token can only write commit statuses. A `failure` status with
   context `klc/review` renders as a red check on the PR.
 - **`gh api` placeholder substitution.** `{owner}`/`{repo}` are resolved by `gh`
-  from the current repo, so the status call needs no manual repo lookup.
+  from the current repo, so the status/comment API calls need no manual repo
+  lookup.
+- **Conservative verdict parsing.** `parse_verdict` is deliberately reject-wins
+  across the WHOLE document: if any "changes requested" token appears anywhere,
+  the verdict is CHANGES REQUESTED regardless of any APPROVED token. This can
+  only ever err toward NOT publishing an approval — it never falsely approves.
 """
 from __future__ import annotations
 
@@ -41,6 +55,10 @@ STATUS_CONTEXT = "klc/review"
 
 # gh output fields we request for a PR (headRefOid is the head SHA for AC-2).
 _PR_JSON_FIELDS = "number,url,state,headRefName,headRefOid"
+
+# Hidden HTML-comment marker embedded in the PR comment body so a re-run can find
+# and edit the previous comment instead of posting a duplicate (M5).
+_MARKER_TMPL = "<!-- klc:review:{ticket} -->"
 
 GhRunner = Callable[[list[str]], "tuple[int, str]"]
 
@@ -65,88 +83,92 @@ def default_run_gh(argv: list[str]) -> tuple[int, str]:
 
 # --- verdict parsing ----------------------------------------------------------
 
-_FRONTMATTER_RE = re.compile(
-    r"^\s*verdict\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE
+# Recognized *declaration* forms — presence of at least one tells us a verdict
+# was actually stated (vs. incidental prose). All are case-insensitive.
+#
+#  1. Heading-inline `## Verdict: <V>` — the PRIMARY real format emitted by
+#     core/templates/review-report.md.j2 (`## Verdict: {{ verdict }}`).
+#  2. Bare trailing `VERDICT <V>` line — the review.md machine contract.
+#  3. Frontmatter `verdict: <V>` — the ticket-artifact form (KLC-021 et al.).
+#  4. Heading-then-body `## Verdict\n<body>` — a hand-written section form.
+_HEADING_INLINE_RE = re.compile(
+    r"^\s*#{1,6}\s*Verdict\s*:\s*(\S.*?)\s*$", re.IGNORECASE | re.MULTILINE
 )
 _VERDICT_LINE_RE = re.compile(
-    r"^\s*VERDICT\s+(.+?)\s*$", re.IGNORECASE | re.MULTILINE
+    r"^\s*VERDICT\s+(\S.*?)\s*$", re.IGNORECASE | re.MULTILINE
 )
-_VERDICT_SECTION_RE = re.compile(
-    r"##\s+Verdict\s*\n(.*?)(?=\n##|\Z)", re.DOTALL | re.IGNORECASE
+_FRONTMATTER_RE = re.compile(
+    r"^\s*verdict\s*:\s*(\S.*?)\s*$", re.IGNORECASE | re.MULTILINE
 )
-_APPROVE_RE = re.compile(r"\b(APPROVED|PASS|approve|clean)\b")
+_HEADING_SECTION_RE = re.compile(
+    r"^\s*#{1,6}\s*Verdict\s*$\n(.*?)(?=\n#{1,6}\s|\Z)",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+
+_APPROVE_RE = re.compile(r"\bapprov\w*\b", re.IGNORECASE)
 _REJECT_RE = re.compile(
-    r"\b(CHANGES[_ ]REQUESTED|NEEDS[_ ]FIX|REQUEST[_ ]CHANGES|REJECTED)\b",
+    r"\b(?:changes[\s_-]+requested|needs[\s_-]+fix"
+    r"|request[\s_-]+changes|rejected)\b",
     re.IGNORECASE,
 )
 
 
-def _classify(blob: str) -> Optional[str]:
-    """Map a text blob to APPROVED / CHANGES_REQUESTED / None. Reject wins."""
-    if not blob:
-        return None
-    has_reject = bool(_REJECT_RE.search(blob))
-    has_approve = bool(_APPROVE_RE.search(blob))
-    if has_reject:
-        return CHANGES_REQUESTED
-    if has_approve:
-        return APPROVED
-    return None
+def _has_verdict_declaration(text: str) -> bool:
+    """True when the report states a verdict in any recognized form."""
+    return bool(
+        _HEADING_INLINE_RE.search(text)
+        or _VERDICT_LINE_RE.search(text)
+        or _FRONTMATTER_RE.search(text)
+        or _HEADING_SECTION_RE.search(text)
+    )
 
 
 def parse_verdict(report_text: str) -> Optional[str]:
     """Extract the review verdict from a `review-report.md`.
 
-    Robust to all three forms the review contract can emit:
-      1. YAML frontmatter `verdict: APPROVED`.
-      2. a `## Verdict` section.
-      3. a bare `VERDICT <APPROVED|CHANGES REQUESTED>` line.
-    Returns "APPROVED", "CHANGES_REQUESTED", or None when no verdict is present.
-    Reject always wins over approve when both appear (safety-first: a report that
-    mentions changes-requested must never publish an approval).
+    Robust to every form the review pipeline emits:
+      1. heading-inline `## Verdict: APPROVED` (the j2 template — PRIMARY);
+      2. a bare trailing `VERDICT <APPROVED|CHANGES REQUESTED>` line;
+      3. YAML frontmatter `verdict: ...`;
+      4. a `## Verdict` heading followed by a body.
+
+    Returns "APPROVED", "CHANGES_REQUESTED", or None. Rules:
+      - A verdict must be *declared* in one of the forms above; incidental prose
+        never triggers a verdict (no declaration → None → the verb no-ops).
+      - TRUE reject-wins across the WHOLE document: if any "changes requested"
+        token appears anywhere, the result is CHANGES_REQUESTED regardless of any
+        APPROVED token. APPROVED is returned only when an approve token is
+        present AND no reject token appears anywhere. This is deliberately
+        conservative — it can only err toward not approving, never toward a false
+        approval (fresh M3 + codex P1 + L8).
     """
     if not report_text:
         return None
+    if not _has_verdict_declaration(report_text):
+        return None
 
-    # Precedence 1: an explicit VERDICT line is the review contract's machine
-    # output — most authoritative.
-    m = _VERDICT_LINE_RE.search(report_text)
-    if m:
-        v = _classify(m.group(1))
-        if v:
-            return v
-
-    # Precedence 2: frontmatter `verdict:` key.
-    m = _FRONTMATTER_RE.search(report_text)
-    if m:
-        v = _classify(m.group(1))
-        if v:
-            return v
-
-    # Precedence 3: the `## Verdict` section body.
-    m = _VERDICT_SECTION_RE.search(report_text)
-    if m:
-        v = _classify(m.group(1))
-        if v:
-            return v
-
+    if _REJECT_RE.search(report_text):
+        return CHANGES_REQUESTED
+    if _APPROVE_RE.search(report_text):
+        return APPROVED
+    # A declaration existed but named neither outcome (e.g. "## Verdict: PENDING").
     return None
 
 
 def extract_summary(report_text: str, *, verdict: Optional[str] = None) -> str:
     """Build the PR-comment body from the report's `## Summary` section.
 
-    Falls back to the `## Verdict` section, then to a one-line verdict statement.
-    Always prefixed with an attribution line so the comment is self-describing on
-    the PR.
+    Falls back to the `## Verdict` section, then to a one-line statement. Always
+    prefixed with an attribution header so the comment is self-describing on the
+    PR. The hidden dedupe marker is appended by `publish`, not here.
     """
     body = ""
-    m = re.search(r"##\s+Summary\s*\n(.*?)(?=\n##|\Z)", report_text,
-                  re.DOTALL | re.IGNORECASE)
+    m = re.search(r"^\s*#{1,6}\s*Summary\s*$\n(.*?)(?=\n#{1,6}\s|\Z)",
+                  report_text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
     if m and m.group(1).strip():
         body = m.group(1).strip()
     else:
-        m = _VERDICT_SECTION_RE.search(report_text)
+        m = _HEADING_SECTION_RE.search(report_text)
         if m and m.group(1).strip():
             body = m.group(1).strip()
 
@@ -191,8 +213,19 @@ def verdict_action(verdict: str) -> Action:
 # --- PR resolution ------------------------------------------------------------
 
 def _ticket_number(ticket: str) -> Optional[str]:
-    """Return the numeric part of a ticket id (e.g. 'KLC-003' -> '3')."""
+    """Return the normalized numeric part of a ticket id ('KLC-003' -> '3')."""
     m = re.search(r"-0*(\d+)\s*$", ticket)
+    return m.group(1) if m else None
+
+
+def _branch_ticket_number(branch: str) -> Optional[str]:
+    """Return the normalized ticket number a feature branch names, or None.
+
+    `feature/klc-003-x` and `feature/KLC-3-x` both yield '3'. A branch that does
+    not follow the convention yields None (the caller then trusts the operator's
+    explicit `--branch` choice).
+    """
+    m = re.match(r"^feature/klc-0*(\d+)(?:-|$)", branch or "", re.IGNORECASE)
     return m.group(1) if m else None
 
 
@@ -205,8 +238,7 @@ def _branch_matches_ticket(head_ref: str, ticket: str) -> bool:
     num = _ticket_number(ticket)
     if not num:
         return False
-    pat = re.compile(rf"^feature/klc-0*{num}(?:-|$)", re.IGNORECASE)
-    return bool(pat.match(head_ref or ""))
+    return _branch_ticket_number(head_ref) == num
 
 
 @dataclass
@@ -217,44 +249,25 @@ class PullRequest:
     head_ref: str
     head_sha: str
 
+    def is_open(self) -> bool:
+        return (self.state or "").upper() == "OPEN"
 
-def resolve_pr(ticket: str, run_gh: GhRunner,
-               branch: Optional[str] = None) -> Optional[PullRequest]:
-    """Resolve the ticket's open GitHub PR, or None (clean no-op) if there isn't
-    one / this is not a GitHub context.
 
-    - `branch` override → `gh pr view <branch>`.
-    - otherwise → `gh pr list --state open` filtered by the ticket's feature
-      branch convention.
-    Any `gh` failure (rc != 0, including gh-absent rc 127, not-authed, non-forge)
-    returns None — never raises.
+@dataclass
+class PRResolution:
+    """Outcome of resolving a ticket to its GitHub PR.
+
+    `pr` is set only on `reason == "ok"`. Every other reason is a clean no-op
+    with an explanatory `detail`.
     """
-    if branch:
-        rc, out = run_gh(["pr", "view", branch, "--json", _PR_JSON_FIELDS])
-        if rc != 0 or not out.strip():
-            return None
-        try:
-            data = json.loads(out)
-        except json.JSONDecodeError:
-            return None
-        return _pr_from_json(data)
-
-    rc, out = run_gh(["pr", "list", "--state", "open", "--json", _PR_JSON_FIELDS])
-    if rc != 0 or not out.strip():
-        return None
-    try:
-        prs = json.loads(out)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(prs, list):
-        return None
-    for data in prs:
-        if _branch_matches_ticket(data.get("headRefName", ""), ticket):
-            return _pr_from_json(data)
-    return None
+    pr: Optional[PullRequest]
+    reason: str          # ok | none | unavailable | closed | ambiguous | branch-mismatch
+    detail: str = ""
 
 
 def _pr_from_json(data: dict) -> Optional[PullRequest]:
+    if not isinstance(data, dict):
+        return None
     try:
         return PullRequest(
             number=int(data["number"]),
@@ -267,60 +280,201 @@ def _pr_from_json(data: dict) -> Optional[PullRequest]:
         return None
 
 
+def resolve_pr(ticket: str, run_gh: GhRunner,
+               branch: Optional[str] = None) -> PRResolution:
+    """Resolve the ticket's open GitHub PR. Always returns a `PRResolution`;
+    never raises.
+
+    - `branch` override → `gh pr view <branch>`. If the override names a DIFFERENT
+      ticket's feature branch, refuse (branch-mismatch) so a typo cannot publish
+      to the wrong PR (L9).
+    - otherwise → `gh pr list --state open`, keep the PRs whose head ref matches
+      the ticket convention; >1 match → ambiguous no-op (M6).
+    A non-OPEN PR is a `closed` no-op in BOTH paths (M2). Any `gh` failure
+    (rc != 0, incl. gh-absent rc 127, not-authed, non-forge) → `unavailable`.
+    """
+    if branch:
+        override_num = _branch_ticket_number(branch)
+        tnum = _ticket_number(ticket)
+        if override_num is not None and tnum is not None and override_num != tnum:
+            return PRResolution(
+                None, "branch-mismatch",
+                f"--branch {branch!r} names ticket #{override_num}, "
+                f"not {ticket}",
+            )
+        rc, out = run_gh(["pr", "view", branch, "--json", _PR_JSON_FIELDS])
+        if rc != 0:
+            return PRResolution(None, "unavailable",
+                                "gh could not view the branch PR")
+        if not out.strip():
+            return PRResolution(None, "none")
+        try:
+            data = json.loads(out)
+        except json.JSONDecodeError:
+            return PRResolution(None, "unavailable", "unparseable gh output")
+        pr = _pr_from_json(data)
+        if pr is None:
+            return PRResolution(None, "unavailable", "unexpected gh payload")
+        if not pr.is_open():
+            return PRResolution(None, "closed",
+                                f"PR #{pr.number} is {pr.state}")
+        return PRResolution(pr, "ok")
+
+    rc, out = run_gh(["pr", "list", "--state", "open", "--json", _PR_JSON_FIELDS])
+    if rc != 0:
+        return PRResolution(None, "unavailable",
+                            "gh unavailable / not a GitHub context")
+    if not out.strip():
+        return PRResolution(None, "none")
+    try:
+        prs = json.loads(out)
+    except json.JSONDecodeError:
+        return PRResolution(None, "unavailable", "unparseable gh output")
+    if not isinstance(prs, list):
+        return PRResolution(None, "unavailable", "unexpected gh payload")
+
+    matches: list[PullRequest] = []
+    for data in prs:
+        if not isinstance(data, dict):
+            continue  # L7: never raise on a malformed element
+        if _branch_matches_ticket(data.get("headRefName", ""), ticket):
+            pr = _pr_from_json(data)
+            if pr is not None:
+                matches.append(pr)
+
+    open_matches = [p for p in matches if p.is_open()]
+    if not open_matches:
+        # matched-but-closed vs. no-match-at-all: both are clean no-ops.
+        return PRResolution(None, "closed" if matches else "none")
+    if len(open_matches) > 1:
+        nums = ", ".join(f"#{p.number}" for p in open_matches)
+        return PRResolution(None, "ambiguous",
+                            f"multiple open PRs match {ticket}: {nums}")
+    return PRResolution(open_matches[0], "ok")
+
+
 # --- the publish operation ----------------------------------------------------
 
 @dataclass
 class Result:
-    """Outcome of a publish attempt. `published` is False for every no-op."""
+    """Outcome of a publish attempt.
+
+    published — True only when a PR was resolved AND every attempted write
+                succeeded. Any no-op or partial/failed write → False.
+    actions   — writes that actually succeeded (rc 0).
+    failures  — writes that were attempted but failed (rc != 0).
+    """
     published: bool
     message: str
     verdict: Optional[str] = None
     pr_number: Optional[int] = None
     actions: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+
+
+_NOOP_MESSAGE = {
+    "none": "no open GitHub PR for this ticket (or non-GitHub context)",
+    "unavailable": "gh unavailable / not a GitHub context",
+    "closed": "the matching PR is not OPEN (merged/closed)",
+    "ambiguous": "multiple open PRs match this ticket — refusing to guess",
+    "branch-mismatch": "the --branch override names a different ticket",
+}
+
+
+def _find_existing_comment_id(ticket: str, pr_number: int,
+                              run_gh: GhRunner) -> Optional[int]:
+    """Return the id of a prior KLC review comment on the PR, or None (M5).
+
+    Matches the hidden marker in the comment body. Any gh failure → None (fall
+    back to posting a fresh comment); never raises.
+    """
+    marker = _MARKER_TMPL.format(ticket=ticket)
+    rc, out = run_gh(
+        ["api", f"repos/{{owner}}/{{repo}}/issues/{pr_number}/comments"]
+    )
+    if rc != 0 or not out.strip():
+        return None
+    try:
+        comments = json.loads(out)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(comments, list):
+        return None
+    for c in comments:
+        if isinstance(c, dict) and marker in (c.get("body") or ""):
+            cid = c.get("id")
+            if isinstance(cid, int):
+                return cid
+    return None
 
 
 def publish(ticket: str, report_text: str, run_gh: GhRunner,
             branch: Optional[str] = None) -> Result:
     """Publish the review verdict in `report_text` to the ticket's GitHub PR.
 
-    Degrade-not-fail: every failure to act is a clean no-op Result with
+    Degrade-not-fail: every failure to resolve/act is a clean `Result` with
     `published=False`; this function never raises for a forge/context problem.
     """
     verdict = parse_verdict(report_text)
     if verdict is None:
         return Result(False, "no parseable verdict in review-report.md — no-op")
 
-    pr = resolve_pr(ticket, run_gh, branch=branch)
-    if pr is None:
+    res = resolve_pr(ticket, run_gh, branch=branch)
+    if res.pr is None:
+        base = _NOOP_MESSAGE.get(res.reason, "no PR resolved")
+        detail = f" ({res.detail})" if res.detail else ""
         return Result(False,
-                      "no open GitHub PR for this ticket (or non-GitHub "
-                      "context) — no-op; local report stays authoritative",
+                      f"{base}{detail} — no-op; local report stays authoritative",
                       verdict=verdict)
+    pr = res.pr
 
     action = verdict_action(verdict)
     performed: list[str] = []
+    failures: list[str] = []
 
-    # AC-1/AC-2: label (create idempotently, then add). Label-create failures
-    # (already exists) are swallowed — the add is what matters.
+    # AC-1/AC-2: label. Create idempotently (already-exists is expected → rc
+    # ignored); the ADD is the write whose rc matters.
     color = "0E8A16" if verdict == APPROVED else "D93F0B"
     run_gh(["label", "create", action.label, "--color", color,
             "--description", "KLC review verdict"])
-    run_gh(["pr", "edit", str(pr.number), "--add-label", action.label])
-    performed.append(f"label:{action.label}")
+    rc, _ = run_gh(["pr", "edit", str(pr.number), "--add-label", action.label])
+    (performed if rc == 0 else failures).append(f"label:{action.label}")
 
     # AC-2: failing commit status on the PR head SHA.
-    if action.status_state is not None and pr.head_sha:
-        run_gh(["api", f"repos/{{owner}}/{{repo}}/statuses/{pr.head_sha}",
-                "-f", f"state={action.status_state}",
-                "-f", f"context={STATUS_CONTEXT}",
-                "-f", "description=KLC review requested changes"])
-        performed.append(f"status:{action.status_state}")
+    if action.status_state is not None:
+        if pr.head_sha:
+            rc, _ = run_gh(
+                ["api", f"repos/{{owner}}/{{repo}}/statuses/{pr.head_sha}",
+                 "-f", f"state={action.status_state}",
+                 "-f", f"context={STATUS_CONTEXT}",
+                 "-f", "description=KLC review requested changes"]
+            )
+            (performed if rc == 0 else failures).append(
+                f"status:{action.status_state}")
+        else:
+            failures.append("status:no-head-sha")
 
-    # AC-3: summary comment.
-    body = extract_summary(report_text, verdict=verdict)
-    run_gh(["pr", "comment", str(pr.number), "--body", body])
-    performed.append("comment")
+    # AC-3: summary comment, deduplicated via the hidden marker (M5).
+    marker = _MARKER_TMPL.format(ticket=ticket)
+    body = f"{extract_summary(report_text, verdict=verdict)}\n\n{marker}"
+    existing = _find_existing_comment_id(ticket, pr.number, run_gh)
+    if existing is not None:
+        rc, _ = run_gh(
+            ["api", "--method", "PATCH",
+             f"repos/{{owner}}/{{repo}}/issues/comments/{existing}",
+             "-f", f"body={body}"]
+        )
+        (performed if rc == 0 else failures).append("comment:updated")
+    else:
+        rc, _ = run_gh(["pr", "comment", str(pr.number), "--body", body])
+        (performed if rc == 0 else failures).append("comment")
 
+    if failures:
+        return Result(False,
+                      f"partial publish to PR #{pr.number}: "
+                      f"failed [{', '.join(failures)}]",
+                      verdict=verdict, pr_number=pr.number,
+                      actions=performed, failures=failures)
     return Result(True,
                   f"published {verdict} to PR #{pr.number}",
                   verdict=verdict, pr_number=pr.number, actions=performed)
