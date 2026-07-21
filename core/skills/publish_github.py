@@ -113,8 +113,34 @@ _REJECT_RE = re.compile(
 )
 
 
+def _classify_token(value: str) -> Optional[str]:
+    """Classify a single declared verdict value. Reject-wins within the value."""
+    if _REJECT_RE.search(value):
+        return CHANGES_REQUESTED
+    if _APPROVE_RE.search(value):
+        return APPROVED
+    return None
+
+
+def _structured_verdicts(text: str) -> list[str]:
+    """Return the raw values of all STRUCTURED verdict declarations.
+
+    Structured = the machine-contract forms whose value sits right after the
+    marker: heading-inline `## Verdict: <V>`, the trailing `VERDICT <V>` line,
+    and frontmatter `verdict: <V>`. The `## Verdict`-heading-then-body section is
+    deliberately NOT structured — its body is prose (handled by the tier-2
+    fallback), so a stray phrase in it can never override a machine field.
+    """
+    return (
+        _HEADING_INLINE_RE.findall(text)
+        + _VERDICT_LINE_RE.findall(text)
+        + _FRONTMATTER_RE.findall(text)
+    )
+
+
 def _has_verdict_declaration(text: str) -> bool:
-    """True when the report states a verdict in any recognized form."""
+    """True when the report states a verdict in any recognized form (incl. the
+    prose `## Verdict` section) — the gate for the tier-2 fallback."""
     return bool(
         _HEADING_INLINE_RE.search(text)
         or _VERDICT_LINE_RE.search(text)
@@ -126,32 +152,49 @@ def _has_verdict_declaration(text: str) -> bool:
 def parse_verdict(report_text: str) -> Optional[str]:
     """Extract the review verdict from a `review-report.md`.
 
-    Robust to every form the review pipeline emits:
-      1. heading-inline `## Verdict: APPROVED` (the j2 template — PRIMARY);
-      2. a bare trailing `VERDICT <APPROVED|CHANGES REQUESTED>` line;
-      3. YAML frontmatter `verdict: ...`;
-      4. a `## Verdict` heading followed by a body.
+    Two-tier precedence so an authoritative machine field is never overridden by
+    incidental body prose (codex P2 over-reach fix), while staying conservative:
 
-    Returns "APPROVED", "CHANGES_REQUESTED", or None. Rules:
-      - A verdict must be *declared* in one of the forms above; incidental prose
-        never triggers a verdict (no declaration → None → the verb no-ops).
-      - TRUE reject-wins across the WHOLE document: if any "changes requested"
-        token appears anywhere, the result is CHANGES_REQUESTED regardless of any
-        APPROVED token. APPROVED is returned only when an approve token is
-        present AND no reject token appears anywhere. This is deliberately
-        conservative — it can only err toward not approving, never toward a false
-        approval (fresh M3 + codex P1 + L8).
+    Tier 1 — STRUCTURED declarations are authoritative. Collect every value from
+    the machine-contract forms (heading-inline `## Verdict: <V>` — the j2
+    template's PRIMARY form; the trailing `VERDICT <V>` line; frontmatter
+    `verdict:`). If ANY structured declaration exists, decide from the structured
+    set ONLY, reject-wins AMONG them: any structured CHANGES REQUESTED ⇒
+    CHANGES_REQUESTED; else a structured APPROVED ⇒ APPROVED; else None (e.g.
+    `## Verdict: PENDING`). Body prose is ignored in this tier — so
+    `## Verdict: APPROVED` followed by "no changes requested" stays APPROVED.
+
+    Tier 2 — fallback ONLY when no structured declaration exists. If a prose
+    `## Verdict` section is present, do the conservative whole-document reject-
+    wins scan (any reject token ⇒ CHANGES_REQUESTED; else an approve token ⇒
+    APPROVED). Incidental prose with no verdict declaration at all ⇒ None.
+
+    Both tiers can only ever err toward NOT approving — never a false APPROVED
+    (fresh M3 + codex P1/P2 + L8). Returns "APPROVED", "CHANGES_REQUESTED", or
+    None.
     """
     if not report_text:
         return None
+
+    # Tier 1: structured declarations win outright.
+    structured = _structured_verdicts(report_text)
+    if structured:
+        classified = [_classify_token(v) for v in structured]
+        if CHANGES_REQUESTED in classified:
+            return CHANGES_REQUESTED
+        if APPROVED in classified:
+            return APPROVED
+        return None  # declared but named neither outcome (e.g. "PENDING")
+
+    # Tier 2: no structured field — fall back to a whole-document prose scan,
+    # but only when a `## Verdict` section actually declares the intent to state
+    # a verdict (incidental prose never triggers one).
     if not _has_verdict_declaration(report_text):
         return None
-
     if _REJECT_RE.search(report_text):
         return CHANGES_REQUESTED
     if _APPROVE_RE.search(report_text):
         return APPROVED
-    # A declaration existed but named neither outcome (e.g. "## Verdict: PENDING").
     return None
 
 
@@ -381,27 +424,60 @@ _NOOP_MESSAGE = {
 }
 
 
+def _parse_comment_listing(out: str) -> list[dict]:
+    """Parse a `gh api` comment listing into a flat list of comment dicts.
+
+    Robust to both shapes that reach us:
+      - JSONL — one object per line — from `gh api --paginate --jq ...` spanning
+        every page (the real path; codex P2);
+      - a single JSON array — an unpaginated / single-page response.
+    Malformed lines are skipped; never raises.
+    """
+    out = out.strip()
+    if not out:
+        return []
+    # A single top-level JSON value (array or object) parses whole.
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        data = None
+    if isinstance(data, list):
+        return [c for c in data if isinstance(c, dict)]
+    if isinstance(data, dict):
+        return [data]
+    # Otherwise treat as JSONL (multiple top-level objects, one per line).
+    result: list[dict] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            result.append(obj)
+    return result
+
+
 def _find_existing_comment_id(ticket: str, pr_number: int,
                               run_gh: GhRunner) -> Optional[int]:
     """Return the id of a prior KLC review comment on the PR, or None (M5).
 
-    Matches the hidden marker in the comment body. Any gh failure → None (fall
-    back to posting a fresh comment); never raises.
+    Matches the hidden marker in the comment body. `--paginate` walks EVERY page
+    of comments (codex P2 — otherwise a marker beyond the first page is missed
+    and a duplicate is posted); `--jq` reduces each to `{id, body}`. Any gh
+    failure → None (fall back to posting a fresh comment); never raises.
     """
     marker = _MARKER_TMPL.format(ticket=ticket)
     rc, out = run_gh(
-        ["api", f"repos/{{owner}}/{{repo}}/issues/{pr_number}/comments"]
+        ["api", f"repos/{{owner}}/{{repo}}/issues/{pr_number}/comments",
+         "--paginate", "--jq", ".[] | {id: .id, body: .body}"]
     )
     if rc != 0 or not out.strip():
         return None
-    try:
-        comments = json.loads(out)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(comments, list):
-        return None
-    for c in comments:
-        if isinstance(c, dict) and marker in (c.get("body") or ""):
+    for c in _parse_comment_listing(out):
+        if marker in (c.get("body") or ""):
             cid = c.get("id")
             if isinstance(cid, int):
                 return cid
