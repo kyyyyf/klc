@@ -23,7 +23,19 @@ REQUIRED_STEP_FIELDS = (
     "Goal", "VERIFY", "COMMIT", "Affected", "Interfaces", "Expected", "Code sketch"
 )
 
-_NOT_APPLICABLE_RE = re.compile(r"(?i)\bred:.*not applicable")
+# RED-marker parser kept in lock-step with phase_completion.py:413 (commit
+# 9069f1f), STRUCTURE and all: match the FIRST `RED:` line only and test its
+# captured remainder for "not applicable" — never a whole-body `.*` scan (which
+# would let an unrelated prose line reading "…red: … not applicable" wrongly
+# exempt a genuine-RED step). `\**` tolerates markdown emphasis between `RED` and
+# the colon, so `RED:`, `**RED:**` and `**RED**:` all parse identically.
+_RED_LINE_RE = re.compile(r"(?i)\bRED\**:(.+)")
+
+
+def _red_not_applicable(body: str) -> bool:
+    """True iff the FIRST `RED:` line marks the step as not applicable."""
+    m = _RED_LINE_RE.search(body)
+    return bool(m and "not applicable" in m.group(1).lower())
 _CODE_FENCE_RE = re.compile(r"```[a-z]*\n([\s\S]+?)```")
 _ANY_FENCE_RE = re.compile(r"```[^\n]*\n[\s\S]*?```")
 
@@ -65,7 +77,7 @@ def impl_plan_violations(text: str) -> list[str]:
         # content inside code sketches (e.g. # Code sketch: or TODO) does not
         # falsely satisfy or trigger checks.
         body_outside_fences = _ANY_FENCE_RE.sub("", body)
-        _not_applicable = _NOT_APPLICABLE_RE.search(body_outside_fences)
+        _not_applicable = _red_not_applicable(body_outside_fences)
         for field in REQUIRED_STEP_FIELDS:
             if field == "Code sketch" and _not_applicable:
                 continue

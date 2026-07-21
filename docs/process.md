@@ -95,7 +95,42 @@ klc init [--scan-only|--auto|--finalize]
 klc update [--regen] [--force]
 klc jira-sync [--dry-run]      # flush Jira push queue
 klc jira-sync status           # queue size + oldest entry age
+klc scope-fix <key> (--modules a,b,c | --add a,b | --remove a,b) [--reason ...]
 ```
+
+### Post-archive scope correction — `klc scope-fix`
+
+`meta.affected_modules` records a ticket's planning slice. During work it is
+corrected at `ack` (each `ack` runs a `state_tx` that commits and CAS-pushes the
+ticket subtree). Once a ticket is **archived** no further `ack` runs, so an
+edit to the slice — for example dropping a scope-guard entry that was widened
+only temporarily — has no `state_tx` to sweep it and would otherwise need a
+manual `klc-state` commit + push.
+
+`klc scope-fix` is the first-class, durable path. It edits `affected_modules`
+inside the **same** `acquire_lock → state_tx` envelope every state write uses,
+so feature-ON the correction is committed and CAS-pushed to the bound upstream
+immediately (a peer sees it with no ack), and feature-OFF it is a plain local
+write (no lock, no git).
+
+**Archived-only.** `scope-fix` refuses any non-archived ticket (it prints a
+message pointing you back to `ack`). `affected_modules` is enforcement input —
+it drives the scope-expansion hard-fail at `ack` — so while a ticket is live the
+slice must be corrected at `ack` (update `affected_modules` rather than fighting
+it), where the change rides `ack`'s own `state_tx` and holder discipline. Only
+after archive is there no `ack` left to sweep the edit; that is the gap this verb
+fills. Because an archived ticket holds no holder, `scope-fix` — like `jira sync
+--apply` — takes no holder authorization; the archived gate is what closes the
+authority hole. Three mutually-exclusive modes:
+
+- `--modules a,b,c` — replace the slice with exactly this set.
+- `--add a,b` — union the listed modules into the slice.
+- `--remove a,b` — drop the listed modules from the slice.
+
+Malformed lists (an empty entry from a stray/trailing comma) are rejected before
+any write; module names unknown to `modules.json` are a non-fatal advisory (the
+index may be absent or stale). Every correction is recorded as a `scope-fix`
+entry in `meta.phase_history`.
 
 ---
 

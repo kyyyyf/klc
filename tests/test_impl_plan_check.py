@@ -119,6 +119,71 @@ def test_single_step_parser_delegates(tmp_path):
     assert result[1] == {"step": 2, "red_not_applicable": False}
 
 
+# ---------------------------------------------------------------------------
+# KLC-075 defect-3: impl_plan_check must tolerate the `**RED**:` emphasis form
+# identically to phase_completion (asterisks BETWEEN `RED` and the colon).
+# ---------------------------------------------------------------------------
+
+_NA_EMPHASIS_STEP = (
+    "## step-1 — prompt-only change\n"
+    "**Goal:** update the agent prompt\n"
+    "**RED**: not applicable — prompt/doc change\n"  # asterisks BEFORE the colon
+    "**GREEN:** edit the prompt\n"
+    "**VERIFY:** `pytest tests/ -q`\n"
+    "**Expected:** 1 passed\n"
+    "**COMMIT:** `KLC-000 step-1: prompt`\n"
+    "**Affected:** core/agents/x.md\n"
+    "**Interfaces:** none — no new signatures\n"
+    "**Depends-on:** none\n"
+)
+
+
+def test_red_emphasis_form_exempts_code_sketch():
+    """`**RED**: not applicable` (asterisks before the colon) must exempt the
+    code-sketch requirement, matching phase_completion's tolerant parser."""
+    vs = impl_plan_violations(_NA_EMPHASIS_STEP)
+    assert not any("code sketch" in v.lower() for v in vs), vs
+
+
+def test_red_plain_and_wrapped_forms_still_exempt():
+    """The pre-existing `RED: not applicable` and `**RED:** not applicable`
+    forms must keep exempting the code sketch (no regression)."""
+    plain = _NA_EMPHASIS_STEP.replace(
+        "**RED**: not applicable", "RED: not applicable")
+    wrapped = _NA_EMPHASIS_STEP.replace(
+        "**RED**: not applicable", "**RED:** not applicable")
+    for text in (plain, wrapped):
+        vs = impl_plan_violations(text)
+        assert not any("code sketch" in v.lower() for v in vs), (text, vs)
+
+
+# KLC-075 FIX-5: the exemption must mirror phase_completion's STRUCTURE — inspect
+# only the FIRST `RED:` line, not the whole body. A step with a GENUINE RED plus
+# an unrelated prose line that coincidentally reads "red: ... not applicable"
+# must NOT be exempted.
+_COINCIDENTAL_RED_PROSE_STEP = (
+    "## step-1 — real behaviour work\n"
+    "**Goal:** add the widget colour toggle\n"
+    "**RED:** add test_widget_turns_red failing first\n"  # GENUINE red — needs code
+    "**GREEN:** implement the toggle\n"
+    "**VERIFY:** `pytest tests/ -q`\n"
+    "**Expected:** 1 passed\n"
+    "**COMMIT:** `KLC-000 step-1: widget`\n"
+    "**Affected:** widget.py\n"
+    "**Interfaces:** none — no new signatures\n"
+    "**Notes:** the widget turns red: not applicable when disabled\n"  # coincidental prose
+    # deliberately NO code-sketch fence
+)
+
+
+def test_coincidental_red_prose_not_exempted():
+    """A genuine-RED step must still require a code sketch even when an unrelated
+    prose line happens to contain 'red: ... not applicable' — the exemption only
+    inspects the first `RED:` line (mirrors phase_completion)."""
+    vs = impl_plan_violations(_COINCIDENTAL_RED_PROSE_STEP)
+    assert any("code sketch" in v.lower() for v in vs), vs
+
+
 def test_plan_template_renders_gate_passing():
     """Any remaining impl-plan template must render a gate-passing skeleton."""
     templates_dir = _FW_ROOT / "core" / "templates"

@@ -26,7 +26,7 @@ from core.skills.spec_selfreview import PLACEHOLDER_TOKENS  # noqa: E402
 from core.skills.spec_structure import has_min_approaches  # noqa: E402
 from core.skills.impl_plan_check import (  # noqa: E402
     REQUIRED_STEP_FIELDS,
-    _NOT_APPLICABLE_RE,
+    _red_not_applicable,
     _CODE_FENCE_RE,
     _has_code_sketch,
     parse_impl_plan_steps,
