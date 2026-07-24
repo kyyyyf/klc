@@ -29,6 +29,7 @@ sys.path.insert(0, str(SKILLS))
 from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
+import epic_deps as _edeps  # noqa: E402
 import identity  # noqa: E402
 import holder  # noqa: E402
 import state_sync  # noqa: E402
@@ -152,6 +153,11 @@ def run(argv: list[str]) -> int:
         # HolderConflictError subclasses RuntimeError → must precede the catch-all.
         hid = e.holder.get("id") if e.holder else "?"
         sys.stderr.write(f"klc jump: target phase held by {hid}\n")
+        return 1
+    except _edeps.BlockedError as be:
+        # KLC-077: the target phase has an unmet dependency edge. An operator
+        # escape hatch must not silently bypass the gate — refuse (no --force yet).
+        sys.stderr.write(f"klc jump: {be.edge.message()}\n")
         return 1
     except (state_sync.RetryExhaustedError,
             state_sync.RebaseConflictError,

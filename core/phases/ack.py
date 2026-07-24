@@ -19,6 +19,7 @@ sys.path.insert(0, str(SKILLS))
 from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
+import epic_deps as _edeps  # noqa: E402
 from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
 import phase_completion  # noqa: E402
 import scope_delta as _sd  # noqa: E402
@@ -269,6 +270,12 @@ def run(argv: list[str]) -> int:
                         ident = {"id": identity.current(),
                                  "machine": socket.gethostname()}
                         holder.release_holder(args.ticket, ident)
+            except _edeps.BlockedError as be:
+                # KLC-077: applying this pick would advance INTO a :work phase
+                # with an unmet dependency edge; the guard fired inside the tx
+                # (post-pull). Feature-ON the tx rolled the advance back. Refuse.
+                sys.stderr.write(f"klc ack: {be.edge.message()}\n")
+                return 1
             except state_sync.StaleStateError:
                 sys.stderr.write(
                     "klc ack: remote state advanced since you started — "

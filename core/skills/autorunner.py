@@ -52,6 +52,7 @@ for _p in (_SKILLS, _PHASES):
 
 import lifecycle as _lc          # noqa: E402
 import phases as _ph             # noqa: E402
+import epic_deps as _edeps       # noqa: E402  KLC-077 BlockedError → clean pause
 import budget as _budget         # noqa: E402
 import state_feature             # noqa: E402
 import build_orchestrator        # noqa: E402
@@ -330,6 +331,12 @@ def run(ticket: str, *, dispatch=None, cap: int | None = None) -> RunResult:
             # A lingering :ack state (rare in the auto path) — advance it.
             _lc.advance_to_next(ticket)
             _log(ticket, f"advanced {pid}:ack → {_lc.current_state(ticket)}")
+    except _edeps.BlockedError as be:
+        # KLC-077: the epic dependency guard fired on a :work entry (e.g. the
+        # lingering-:ack advance above, or any advance_to_next path). This is a
+        # CLEAN PAUSE like a decision gate — stop without advancing and name the
+        # blocker, NOT a fail-closed crash.
+        return _pause(ticket, trace, last_pid, be.edge.message())
     except Exception as exc:  # fail-closed: never crash — pause and log
         return _pause(ticket, trace, last_pid,
                       f"unexpected error — paused fail-closed: {exc!r}")

@@ -547,6 +547,33 @@ def _reset_budgets(meta: dict) -> None:
             budgets[k] = 0
 
 
+# --- epic dependency guard (KLC-077) -----------------------------------------
+
+def enter_work_guard(ticket: str, target_phase_id: str,
+                     read_upstream=None) -> None:
+    """The SINGLE `:work`-entry choke point for epic dependencies (KLC-077).
+
+    Called right before any operation writes a ticket to `<target_phase_id>:work`
+    (`advance_to_next`, the explicit-jump branch of `apply_ack`, and `jump`).
+    Because those operations run INSIDE the verb's `state_tx` — i.e. AFTER the
+    pull — the upstream meta this reads is synced, so the unblock/re-block
+    decision is never made on pre-pull-stale state (the false-unblock TOCTOU).
+
+    Raises `epic_deps.BlockedError` when an unmet `blocked_by` edge gates the
+    target phase. A pure no-op for a ticket with no `blocked_by` (existing
+    non-epic tickets are completely unaffected). Reading stays read-only.
+    """
+    import epic_deps as _ed
+    meta = read_meta(ticket)
+    if not meta.get("blocked_by"):
+        return
+    reader = read_upstream if read_upstream is not None \
+        else _ed.default_upstream_reader()
+    blocked = _ed.is_blocked(meta, target_phase_id, reader)
+    if blocked is not None:
+        raise _ed.BlockedError(blocked)
+
+
 # --- operations ---------------------------------------------------------------
 
 def advance_to_next(ticket: str, *, note: str = "") -> str:
@@ -581,6 +608,10 @@ def advance_to_next(ticket: str, *, note: str = "") -> str:
         _record_skipped(ticket, nxt.id, nxt.condition or "")
         candidate_pid = nxt.id
 
+    # KLC-077: block entering the next phase's :work if a dependency edge is
+    # unmet. Runs before the set_state write (post-pull inside state_tx), so
+    # nothing is stranded and the decision uses synced upstream state.
+    enter_work_guard(ticket, nxt.id)
     set_state(ticket, nxt.id, _ph.STATE_WORK, event="advance", note=note)
     return _ph.format_state(nxt.id, _ph.STATE_WORK)
 
@@ -628,15 +659,32 @@ def apply_ack(ticket: str, pick_id: int | None) -> str:
             opts = ", ".join(f"{pk.id}={pk.label}" for pk in phase.picks)
             raise ValueError(f"unknown pick {pick_id} for {pid}; options: {opts}")
 
+    # KLC-077 P1-B: for an EXPLICIT jump-pick INTO a :work phase (e.g. review
+    # "request-changes" → build:work, observe "regression" → build:work), the
+    # dependency guard must run BEFORE any side effect — the pick_records_to
+    # write, the `<pid>:ack`, and especially `pick.supersede` (which moves
+    # artifacts). Feature-ON state_tx would roll those back, but feature-OFF has
+    # no rollback, so a blocked jump-pick must raise while the ticket is still
+    # byte-unchanged. (goto "next" is guarded inside advance_to_next; that path
+    # has no supersede and rests at `<pid>:ack`, a valid re-runnable state.)
+    if pick.goto not in ("next", _ph.STATE_ARCHIVED):
+        _tgt_id, _tgt_state = _ph.parse_state(pick.goto)
+        if _tgt_state == _ph.STATE_WORK:
+            enter_work_guard(ticket, _tgt_id)
+
     # Record pick if configured.
     if phase.pick_records_to:
         meta[phase.pick_records_to] = pick.label
         write_meta(ticket, meta)
 
     # Move to `<pid>:ack` first (so the ack is auditable even if the
-    # subsequent goto immediately overwrites it).
+    # subsequent goto immediately overwrites it). The pick is recorded as a
+    # STRUCTURED field (KLC-077 LOW-3) so condition_holds can detect
+    # regression/rollback without substring-scanning the free-text note.
+    _pick_extra = {"pick": {"id": pick.id, "label": pick.label}}
     set_state(ticket, pid, _ph.STATE_ACK,
-              event="ack", note=f"pick={pick.id}:{pick.label}")
+              event="ack", note=f"pick={pick.id}:{pick.label}",
+              extra=_pick_extra)
 
     # Supersede if requested.
     if pick.supersede:
@@ -650,13 +698,14 @@ def apply_ack(ticket: str, pick_id: int | None) -> str:
                   event="ack", note=f"pick={pick.label}")
         return _ph.STATE_ARCHIVED
 
-    # Explicit <phase>:<state> jump.
+    # Explicit <phase>:<state> jump. The dependency guard for a :work target
+    # already ran ABOVE (P1-B), before the ack/supersede side effects.
     tgt_id, tgt_state = _ph.parse_state(pick.goto)
     meta = read_meta(ticket)
     _reset_budgets(meta)
     write_meta(ticket, meta)
     set_state(ticket, tgt_id, tgt_state,
-              event="ack-jump", note=f"pick={pick.label}")
+              event="ack-jump", note=f"pick={pick.label}", extra=_pick_extra)
     return pick.goto
 
 
@@ -712,6 +761,12 @@ def jump(ticket: str, target_phase: str, *, dry_run: bool = False) -> dict:
     }
     if dry_run:
         return plan
+
+    # KLC-077: jump also ENTERS a :work phase, so gate it (before any supersede
+    # or budget reset, so a blocked jump strands nothing). An operator escape
+    # hatch must not silently bypass the dependency gate; a `--force` override is
+    # a possible later addition, not now.
+    enter_work_guard(ticket, target_phase)
 
     if to_supersede:
         supersede_phases(ticket, to_supersede)

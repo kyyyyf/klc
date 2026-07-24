@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills"))
 import identity  # noqa: E402
 import holder  # noqa: E402
 import lifecycle as _lc  # noqa: E402
+import phases as _ph  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
 from artefacts import acquire_lock, LockedError  # noqa: E402
@@ -204,6 +205,14 @@ def run(argv: list[str]) -> int:
                     dest="jira_description",
                     help="description source when Jira issue exists: "
                          "klc (default), jira, or both")
+    ap.add_argument("--epic", default=None,
+                    help="epic ROOT ticket key (KLC-077): tags this ticket as a "
+                         "member; the root points at itself")
+    ap.add_argument("--blocked-by", action="append", default=None,
+                    dest="blocked_by",
+                    help="repeatable dependency edge "
+                         "'<KEY>@<point>[:<cond>]#<downstream-phase>' "
+                         "(KLC-077); e.g. KLC-077@integrated:passed#build")
     ap.add_argument("ticket", help="Jira-style ticket key, e.g. PROJ-4502")
     ap.add_argument("description", nargs="*",
                     help="description words (any position; quote if it contains options)")
@@ -269,6 +278,37 @@ def run(argv: list[str]) -> int:
     route = _classify_route(desc, args.kind or "unknown")
     route_hint = route["hint"]
 
+    # KLC-077 — epic dependency edges. Parse/validate BEFORE any ticket is
+    # created, so a malformed spec hard-fails (rc 2) and writes nothing. The
+    # downstream `phase` must be a real phase (hard-fail on a typo); if it is not
+    # in THIS ticket's current track it is only WARNED (track can change post-
+    # intake, so a dead edge is a caution, not an error) — LOW-4.
+    blocked_by_edges: list[dict] = []
+    if args.blocked_by:
+        import epic_deps as _edeps
+        ph = _ph.load_phases()
+        known_phase_ids = {p.id for p in ph.ordered}
+        track_phase_ids = {p.id for p in ph.track_phases(route_hint)}
+        for spec in args.blocked_by:
+            try:
+                edge = _edeps.parse_edge(spec, self_key=args.ticket)
+            except ValueError as e:
+                sys.stderr.write(f"klc intake: {e}\n")
+                return 2
+            if edge["phase"] not in known_phase_ids:
+                sys.stderr.write(
+                    f"klc intake: bad --blocked-by {spec!r}: unknown downstream "
+                    f"phase {edge['phase']!r} (not in config/phases.yml)\n"
+                )
+                return 2
+            if edge["phase"] not in track_phase_ids:
+                sys.stderr.write(
+                    f"klc intake: ⚠ --blocked-by {spec!r}: edge phase "
+                    f"{edge['phase']!r} is not in track {route_hint!r} — the edge "
+                    f"may never fire on this ticket (re-check after any retrack).\n"
+                )
+            blocked_by_edges.append(edge)
+
     meta = {
         "ticket":        args.ticket,
         "kind":          args.kind or "unknown",
@@ -292,6 +332,12 @@ def run(argv: list[str]) -> int:
         "clarify_required": route["confidence"] == "low",
         "metrics":       {"intake_ms": int((_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds() * 1000)},
     }
+    # KLC-077: only add the epic keys when the flags were given, so plain
+    # (non-epic) tickets keep byte-identical meta.json and are unaffected.
+    if args.epic:
+        meta["epic"] = args.epic
+    if blocked_by_edges:
+        meta["blocked_by"] = blocked_by_edges
     meta_body = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
 
     # KLC-057: multi-user uniqueness + holder, INSIDE the same per-ticket lock
