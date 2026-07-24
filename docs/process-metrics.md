@@ -1,9 +1,11 @@
 # Process metrics
 
-> **Note.** Capture points below named in terms of the old
-> phase-specific commands (`klc manual --continue`, etc.) are now
-> driven by the six-verb model (`klc next` / `klc ack --pick N`).
-> Metric names and semantics are unchanged.
+> **Note.** Capture points below named in terms of old phase-specific
+> commands (`klc manual --continue`, `klc discover`, `klc integrate pre/post`,
+> etc.) are historical. There are no such standalone verbs today — every
+> transition is driven by the lifecycle verbs (`klc ack --pick N` / `klc next`,
+> and their shortcuts). The metric names and semantics are unchanged; only the
+> "Source / writer" labels reflect the earlier per-phase command shape.
 
 Per-ticket metrics live in `.klc/tickets/<key>/meta.json:metrics`.
 Rollups live in `.klc/knowledge/process-metrics.json`.
@@ -84,7 +86,11 @@ Sources:
   (external reviewer does). No pricing math.
 - `ci.*` — populated when CI posts run data into
   `.klc/tickets/<key>/ci-runs.jsonl`. No-op without CI wiring.
-- `rework.*` — count of phase-back jumps recorded by `klc back`.
+- `rework.*` — sourced from `meta.rework_count`, which `intake.py` initializes
+  (to `{}`) and which `metrics.py` and the `learn` conditional gate read. Note:
+  the current deterministic engine does **not** increment it on backward
+  transitions (no ack/jump/abort path writes it), so `rework.*` is effectively
+  empty today — an aspirational/historical field, not a populated metric.
 
 ## Rollup
 

@@ -48,7 +48,7 @@ All phases defined in `config/phases.yml`. `klc next` advances from
 
 | Phase id               | Tracks      | Agent prompt                      | Picks at `:ack-needed`                                    |
 |------------------------|-------------|-----------------------------------|------------------------------------------------------------|
-| `intake`               | XS S M L    | `core/agents/intake.md`           | 1 = confirm-route · 2 = force-full-discovery · 3 = force-xs-skip (XS only) |
+| `intake`               | XS S M L    | _(no agent; `klc intake` is deterministic — optional `intake-triage.md`)_ | 1 = confirm-route · 2 = force-full-discovery · 3 = force-xs-skip (XS only) |
 | `discovery-lite`       | XS S        | `core/agents/discovery-lite.md`   | 1 = approve · 2 = needs-rework · 3 = upgrade-to-full      |
 | `discovery`            | M L         | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
 | `acceptance-test-plan` | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
@@ -82,21 +82,40 @@ klc ship   <key> [--pick N]    # ack + next in one step
 klc step   <key> <N>           # regenerate minimal TDD step card (build only)
 klc work   <key>               # read-only: the next action (card/outputs/verify)
 klc jump   <phase> <key> [--yes]   # cross-cut to any phase :work
-klc abort  <key>               # cancel :work → previous :ack
+klc abort  <key>               # cancel current :work → previous :ack
+klc abort  <key> --cancel --reason "<why>"   # terminate to the `cancelled` terminal (KLC-076)
+klc run    <key> [--cap N] [--json]   # autonomous runner (single-user / feature-off)
+klc publish <key> [--branch B] # read-only: push the review verdict to the ticket's GitHub PR
+klc steal  <key> [--ttl-minutes M]    # take over a stale holder slot (TTL-gated)
+klc retrack <key> <XS|S|M|L> --reason "..."   # operator-only track change, audited
 ```
+
+`klc abort --cancel` is the terminate path for a ticket that will never ship. It
+moves the ticket to the terminal `cancelled` state (parallel to `archived` but
+NOT counted as completed work by metrics); `--reason` is required. `klc run` walks
+a ticket through the state machine on its own, auto-acking clean conditional gates
+and pausing at every decision gate / guardrail — see "Autonomous runner" below. It
+refuses when the multi-user state feature is ON. `klc publish` and `klc work` are
+strictly read-only (no phase advance, no meta write, no Jira drain).
 
 Operational (non-phase):
 ```
-klc board                      # kanban view
+klc board                      # kanban view across tickets
+klc board --epic <ROOT>        # epic-scoped view (state / ready set) — see docs/epics.md
 klc doctor                     # install health check
 klc metrics <key>              # per-ticket JSON
 klc metrics --rollup           # 30-day aggregate
 klc init [--scan-only|--auto|--finalize]
 klc update [--regen] [--force]
+klc state init [<remote>]      # materialize the klc-state branch as a .klc/ worktree
 klc jira-sync [--dry-run]      # flush Jira push queue
 klc jira-sync status           # queue size + oldest entry age
 klc scope-fix <key> (--modules a,b,c | --add a,b | --remove a,b) [--reason ...]
 ```
+
+Feature-level work (epics) groups ordinary tickets with dependency edges; the
+`klc board --epic <ROOT>` view and the "discuss a new feature" skill are covered
+in [`docs/epics.md`](epics.md).
 
 ### Post-archive scope correction — `klc scope-fix`
 
@@ -267,8 +286,8 @@ Run once per project, then automatically on each commit via the
 pre-commit hook.
 
 ```bash
-klc init --scan-only   # deterministic: file_scanner + dep_graph + .last-run
-klc init --auto        # + inventory / decompose / docgen agents (LLM)
+klc init --scan-only   # deterministic: file_scanner + dep_graph + modules_build + .last-run
+klc init --auto        # + inventory / docgen agents (LLM; annotation only)
 klc init --finalize    # record HEAD after running agents manually
 klc update             # git diff since .last-run → stale.json
 klc update --regen     # regenerate skeleton CLAUDE.md for stale modules

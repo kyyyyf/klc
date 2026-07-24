@@ -11,24 +11,29 @@ Start: Ticket in intake phase
   │
   ├─> Calculate total = complexity + uncertainty + risk + manual
   │
-  └─> Select track:
+  └─> Select track (thresholds from core/skills/track_classifier.TRACK_THRESHOLDS):
       │
-      ├─> total ≤ 3              → XS track (fast path)
-      ├─> total = 4-6            → S track
-      ├─> total = 7-10           → M track
-      └─> total ≥ 11             → L track
+      ├─> total ≤ 2              → XS track (fast path)
+      ├─> total = 3-5            → S track
+      ├─> total = 6-8            → M track
+      └─> total ≥ 9              → L track
 ```
+
+Guard invariants (`track_classifier.final_track`): any single axis = 3 floors the
+track at M; uncertainty = 3 together with total ≥ 7 forces L. The axis overrides
+are upward-only; a track *downgrade* below the intake floor is permitted only when
+it is dependency-safe (`is_downgrade_safe` — zero external dependents).
 
 ## Estimation dimensions
 
-Each dimension scores 0-5:
+Each dimension scores 0-3, so the total ranges 0-12:
 
-| Dimension | 0 | 1 | 2 | 3 | 4 | 5 |
-|-----------|---|---|---|---|---|---|
-| **Complexity** | Trivial | Simple | Moderate | Complex | Very complex | Extreme |
-| **Uncertainty** | Known solution | Minor unknowns | Some research | Significant unknowns | High uncertainty | Research-heavy |
-| **Risk** | No risk | Low | Moderate | High | Very high | Critical |
-| **Manual** | Fully automated | Minimal manual | Some manual | Significant manual | Mostly manual | Entirely manual |
+| Dimension | 0 | 1 | 2 | 3 |
+|-----------|---|---|---|---|
+| **Complexity** | Trivial | Simple | Moderate | Complex |
+| **Uncertainty** | Known solution | Minor unknowns | Some research | Significant unknowns |
+| **Risk** | No risk | Low | Moderate | High |
+| **Manual** | Fully automated | Minimal manual | Some manual | Significant manual |
 
 **Examples**:
 
@@ -45,10 +50,10 @@ Each dimension scores 0-5:
 
 | Track | Total | Phases | Typical duration | Example tickets |
 |-------|-------|--------|------------------|-----------------|
-| **XS** | ≤3 | intake → discovery → xs-build → review-lite → integrate → learn | 0.5-1 day | Typo fix, simple config change, add log statement |
-| **S** | 4-6 | intake → discovery-lite (spec+test-plan+impl-plan) → build → review → integrate → observe → learn | 1-3 days | New endpoint, refactor module, add feature flag |
-| **M** | 7-10 | intake → discovery → acceptance-test-plan → design (impl-plan w/ per-step tests) → build → review → manual → integrate → observe → learn | 3-7 days | Multi-module refactor, new subsystem, non-trivial algorithm |
-| **L** | ≥11 | intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn | 7-14 days | Architecture change, new service, large-scale migration |
+| **XS** | ≤2 | intake → discovery-lite → xs-build → review-lite → integrate → learn | 0.5-1 day | Typo fix, simple config change, add log statement |
+| **S** | 3-5 | intake → discovery-lite (spec+test-plan+impl-plan) → build → review → integrate → observe → learn | 1-3 days | New endpoint, refactor module, add feature flag |
+| **M** | 6-8 | intake → discovery → acceptance-test-plan → design (impl-plan w/ per-step tests) → build → review → manual → integrate → observe → learn | 3-7 days | Multi-module refactor, new subsystem, non-trivial algorithm |
+| **L** | ≥9 | intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn | 7-14 days | Architecture change, new service, large-scale migration |
 
 <!-- BEGIN GENERATED:tracks-thresholds -->
 | Track | Max total |
@@ -90,7 +95,7 @@ itself, even when the code change is genuinely small — retrack first
 ```
 intake:ack-needed → intake:ack
   ↓
-discovery:work → discovery:ack-needed → discovery:ack
+discovery-lite:work → discovery-lite:ack-needed → discovery-lite:ack
   ↓
 xs-build:work (combined build+test, no test-plan.md required)
   ↓
@@ -205,8 +210,9 @@ classifier and reads **blast-radius** (`modules.json` `depended_by`) so a
 foundational-module change is sized by what it breaks, not by description
 length. A short description means *under-specified*, not *simple*: on a
 short, low/medium-confidence ticket intake recommends the cheap
-`intake-triage` agent (or forcing full discovery). Downgrades are forbidden;
-upgrades are always allowed.
+`intake-triage` agent (or forcing full discovery). Upgrades from the intake floor
+are always allowed; a downgrade is allowed only when it is dependency-safe
+(`is_downgrade_safe`).
 
 ## When to override track
 

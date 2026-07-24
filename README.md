@@ -8,9 +8,12 @@ every turn. Two moving parts:
    map, per-module `CLAUDE.md`, dep graph, and stale tracker.
    Runs automatically via the pre-commit hook after each commit.
 
-2. **Ticket workflow** — dispatcher `scripts/klc` with eight verbs
-   (`intake / status / next / ack / ship / step / jump / abort`) that
-   drive a data-driven state machine defined in `config/phases.yml`.
+2. **Ticket workflow** — dispatcher `scripts/klc`. The lifecycle verbs
+   (`intake / status / next / ack / ship / step / work / jump / abort`) drive
+   a data-driven state machine defined in `config/phases.yml`; further verbs
+   (`run / publish / retrack / steal / scope-fix / jira-sync`, plus
+   `board --epic`) cover autonomy, forge publishing, and the epic layer. See
+   [`docs/process.md`](docs/process.md) for the full verb reference.
 
 Pure Python throughout. Runs on Linux, macOS, and Windows 11
 PowerShell from a fresh install with just `git`, `python`, and
@@ -91,8 +94,8 @@ cd /path/to/my-project
 alias klc='./.klc/bin/klc'   # or use the full shim path
 
 klc doctor                    # verify the install
-klc init --scan-only          # deterministic index (no LLM)
-klc init --auto               # + inventory / decompose / docgen agents
+klc init --scan-only          # deterministic index (no LLM; incl. modules_build)
+klc init --auto               # + inventory / docgen agents (annotation only)
 
 klc intake PROJ-123 --kind feature "short description"
 klc status PROJ-123
@@ -109,11 +112,13 @@ Tickets are classified on four axes (complexity / uncertainty / risk /
 manual, each 0–3). The total maps to a **track** (XS / S / M / L)
 which determines which phases are visited.
 
-**XS** (score 0–2): intake → xs-build → review-lite → integrate → learn
+**XS** (score 0–2): intake → discovery-lite → xs-build → review-lite → integrate → learn
 
-**S** (3–5): intake → discovery → acceptance-test-plan → build → review → integrate → observe → learn
+**S** (3–5): intake → discovery-lite → build → review → integrate → observe → learn
 
-**M / L** (6–12): adds design, detailed-test-plan, manual phases.
+**M** (6–8): intake → discovery → acceptance-test-plan → design → build → review → manual → integrate → observe → learn
+
+**L** (≥9): as M, plus a detailed-test-plan gate after design.
 
 See [`docs/process.md`](docs/process.md) for the full phase table,
 verbs, gate list, and build-loop details.
@@ -127,11 +132,18 @@ klc next   <key>
 klc ack    <key> [--pick N]
 klc ship   <key> [--pick N]       # ack + next atomically
 klc step   <key> <N>              # minimal TDD step card (build only)
+klc work   <key>                  # read-only: the next action
 klc jump   <phase> <key> [--yes]
-klc abort  <key>
-klc board
+klc abort  <key> [--cancel --reason "..."]   # cancel :work, or terminate to `cancelled`
+klc run    <key> [--cap N]        # autonomous runner (single-user / feature-off)
+klc publish <key>                 # push the review verdict to the ticket's GitHub PR
+klc retrack <key> <track> --reason "..."     # operator-only track change
+klc steal  <key>                  # take over a stale holder slot
+klc scope-fix <key> (--modules|--add|--remove ...)  # correct affected_modules
+klc board [--epic <ROOT>]         # kanban, or epic-scoped view
 klc doctor
 klc metrics <key> / --rollup
+klc jira-sync [--dry-run|status]
 klc init [--scan-only|--auto|--finalize]
 klc update [--regen] [--force]
 ```
@@ -200,3 +212,6 @@ klc/                           # framework repo
   artefact schema.
 - [`docs/process-metrics.md`](docs/process-metrics.md) — metric
   catalogue and rollups.
+- [`docs/epics.md`](docs/epics.md) — the epic / feature layer: grouping
+  tickets, dependency edges, `board --epic`, and the "discuss a new
+  feature" skill.

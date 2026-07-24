@@ -23,10 +23,10 @@ A file produced by a phase (e.g., `spec.md`, `test-plan.md`, `impl-plan.md`, `re
 A gate where a human decides whether to approve, request rework, or cancel the phase output. Triggered via `klc ack <KEY> --pick N`.
 
 **Rework**  
-Returning to the :work sub-phase after an ack decision of "needs-rework". Increments `meta.json:rework_count` for the phase.
+Returning to the :work sub-phase after an ack decision of "needs-rework" (or a `klc jump` / `klc abort` back-transition). The `meta.json:rework_count` field is initialized at intake and read by metrics and the `learn` gate, but the current deterministic engine does not increment it on these back-transitions, so it stays empty in practice (a historical/aspirational field).
 
 **Manual**  
-Work requiring human intervention. Estimated as a dimension (0-5) and tracked in `meta.json:estimate.manual`. M/L tickets include a dedicated manual phase.
+Work requiring human intervention. Estimated as a dimension (0-3) and tracked in `meta.json:estimate.manual`. M/L tickets include a dedicated manual phase.
 
 ## Ticket lifecycle
 
@@ -110,8 +110,10 @@ Git branch for a single ticket (e.g., `feature/KLC-006-documentation`). Created 
 **Fast-forward merge**  
 Git merge strategy requiring local branch to be rebased on remote main before push. Enforced by GitLab. Prevents non-linear history.
 
-**Remote (gl / gh)**  
-GitLab (`gl`) and GitHub (`gh`) remotes. Primary is `gl`, mirror is `gh`.
+**Remote (gh / origin)**  
+GitHub (`gh`) and GitLab (`origin`) remotes. GitHub `gh` is the canonical merge
+point; GitLab `origin/main` is kept as a `--ff-only` mirror. See
+[dual-remote-mr-pr-workflow.md](dual-remote-mr-pr-workflow.md).
 
 ## CLI commands
 
@@ -166,7 +168,7 @@ Checks raw.md has required sections (Goals/Problem or Context).
 
 ### Discovery
 **Estimate dimensions**  
-Complexity, uncertainty, risk, manual — each scored 0-5.
+Complexity, uncertainty, risk, manual — each scored 0-3 (total 0-12).
 
 **Track assignment**  
 Automatic based on total estimate, or manual override in meta.json.

@@ -241,8 +241,9 @@ see the full build history. Archived with the ticket.
 ### `manual-checklist.md`
 
 Emitted by `core/agents/manual-check.md`. Checkboxes match AC
-phrasing verbatim; no paraphrasing. Human ticks through; outcome
-recorded via `klc manual <key> --continue --outcome=<pass|fail>`.
+phrasing verbatim; no paraphrasing. Human ticks through; the outcome is
+recorded at the `manual` ack gate — `klc ack <key> --pick 1` (passed) or
+`--pick 2` (failed → back to `build:work`).
 
 ### `retrospective.md`
 
