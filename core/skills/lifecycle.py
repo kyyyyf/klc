@@ -576,6 +576,59 @@ def enter_work_guard(ticket: str, target_phase_id: str,
 
 # --- operations ---------------------------------------------------------------
 
+def resolve_next_work_phase(meta: dict) -> tuple[str | None, list[str]]:
+    """Pure, read-only resolution of where `advance_to_next` would go from an
+    `:ack` state: return `(entered_phase_id, skipped_phase_ids)`.
+
+    Walks forward from the current phase, SKIPPING each track-applicable phase
+    whose `condition` evaluates False — using the very same `Phase.should_run`
+    the live advance uses, so the two can never diverge on which phase is
+    entered. `entered_phase_id` is None when there is no further applicable phase
+    (advance would archive). Assumes `meta` is at an `:ack` state (callers that
+    must reject other states check that themselves)."""
+    pid, _st = _ph.parse_state(meta.get("phase", ""))
+    track = meta.get("track") or "M"
+    ph = _ph.load_phases()
+    skipped: list[str] = []
+    candidate_pid = pid
+    while True:
+        nxt = ph.next_phase(track, candidate_pid)
+        if nxt is None:
+            return (None, skipped)
+        if nxt.should_run(meta):
+            return (nxt.id, skipped)
+        skipped.append(nxt.id)   # condition false -> this phase is skipped
+        candidate_pid = nxt.id
+
+
+def next_work_phase(meta: dict) -> str | None:
+    """The phase id whose `:work` the ticket's next `ack`/`next` would ACTUALLY
+    enter, honoring conditional-phase skips. None when the ticket is terminal,
+    already inside a `:work` phase, or at the last applicable phase (advance
+    would archive).
+
+    Both `:ack` and `:ack-needed` resolve to the next entered `:work` phase: an
+    `ack` at `:ack-needed` with a `goto:next` pick auto-advances straight into
+    that phase's `:work` (KLC-048), and `enter_work_guard` fires on that path —
+    so the imminent gate is the same as from `:ack`. Only `<P>:work` (already
+    inside a work phase) has no imminent `:work` entry.
+
+    Read-only. Shared with the epic view (KLC-078) so the board's blocked/ready
+    classification uses exactly the phase `klc next`/`ack` will enter — not the
+    raw `next_phase`, which would mis-report a skipped phase as the gate."""
+    cur = meta.get("phase", "")
+    if _ph.is_terminal(cur):
+        return None
+    try:
+        _pid, st = _ph.parse_state(cur)
+    except ValueError:
+        return None
+    if st == _ph.STATE_WORK:
+        return None  # already inside a work phase — no imminent :work entry
+    entered, _skipped = resolve_next_work_phase(meta)
+    return entered
+
+
 def advance_to_next(ticket: str, *, note: str = "") -> str:
     """Move from `<X>:ack` to the next track-applicable phase's `:work`.
     Phases whose `condition` evaluates to False are skipped automatically
@@ -590,30 +643,24 @@ def advance_to_next(ticket: str, *, note: str = "") -> str:
         raise ValueError(
             f"advance_to_next: current state is {cur!r}; expected an :ack state"
         )
-    track = meta.get("track") or "M"
-    ph = _ph.load_phases()
 
-    # Walk forward, skipping phases whose condition is not met.
-    candidate_pid = pid
-    while True:
-        nxt = ph.next_phase(track, candidate_pid)
-        if nxt is None:
-            set_state(ticket, _ph.STATE_ARCHIVED, _ph.STATE_ARCHIVED,
-                      event="advance", note=note or "terminal")
-            return _ph.STATE_ARCHIVED
-        meta = read_meta(ticket)
-        if nxt.should_run(meta):
-            break
-        # Skip this phase — record it.
-        _record_skipped(ticket, nxt.id, nxt.condition or "")
-        candidate_pid = nxt.id
+    # Same resolution the epic view uses — one source of truth for skips.
+    entered, skipped = resolve_next_work_phase(meta)
+    ph = _ph.load_phases()
+    for sk in skipped:
+        _record_skipped(ticket, sk, ph.by_id(sk).condition or "")
+
+    if entered is None:
+        set_state(ticket, _ph.STATE_ARCHIVED, _ph.STATE_ARCHIVED,
+                  event="advance", note=note or "terminal")
+        return _ph.STATE_ARCHIVED
 
     # KLC-077: block entering the next phase's :work if a dependency edge is
     # unmet. Runs before the set_state write (post-pull inside state_tx), so
     # nothing is stranded and the decision uses synced upstream state.
-    enter_work_guard(ticket, nxt.id)
-    set_state(ticket, nxt.id, _ph.STATE_WORK, event="advance", note=note)
-    return _ph.format_state(nxt.id, _ph.STATE_WORK)
+    enter_work_guard(ticket, entered)
+    set_state(ticket, entered, _ph.STATE_WORK, event="advance", note=note)
+    return _ph.format_state(entered, _ph.STATE_WORK)
 
 
 def _record_skipped(ticket: str, phase_id: str, reason: str) -> None:

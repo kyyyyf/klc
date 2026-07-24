@@ -402,6 +402,38 @@ def format_state(phase_id: str, state: str) -> str:
     return f"{phase_id}:{state}"
 
 
+# Position ordering within a track: work < ack-needed < ack per phase, and
+# `archived` past every real phase-state. This is THE single ordering formula,
+# shared by epic_deps.reached() (the upstream "reached the point" milestone
+# check) and epic_view (the downstream "has entered this phase's :work" check),
+# so the epic view and the live `:work` enforcement can never silently desync
+# on ordering (KLC-078 LOW-1). One formula, one rank map.
+_POSITION_STATE_RANK = {STATE_WORK: 0, STATE_ACK_NEEDED: 1, STATE_ACK: 2}
+POSITION_ARCHIVED = 10 ** 6
+
+
+def position(track: str, phase_state: str) -> int | None:
+    """A comparable integer position for `phase_state` within `track`.
+
+    Returns None when the position is unresolvable/meaningless:
+      - `cancelled` (terminated early — reaches no real milestone);
+      - a phase not applicable to the track;
+      - a malformed state string.
+    `archived` returns `POSITION_ARCHIVED`, past every real phase-state."""
+    if phase_state == STATE_ARCHIVED:
+        return POSITION_ARCHIVED
+    if phase_state == STATE_CANCELLED:
+        return None
+    try:
+        pid, st = parse_state(phase_state)
+    except ValueError:
+        return None
+    seq = [p.id for p in load_phases().track_phases(track)]
+    if pid not in seq:
+        return None
+    return seq.index(pid) * 3 + _POSITION_STATE_RANK.get(st, 0)
+
+
 # --- CLI for debugging --------------------------------------------------------
 
 def _main(argv: list[str]) -> int:

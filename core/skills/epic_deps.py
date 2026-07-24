@@ -46,16 +46,6 @@ POINTS = ("design-accepted", "integrated", "archived")
 # as not-holding (safe: blocks and asks for a human) — but rejected at intake.
 CONDITIONS = ("passed",)
 
-# `<phase>:<state>` positions inside a track: work < ack-needed < ack.
-_STATE_ORDER = {
-    _ph.STATE_WORK: 0,
-    _ph.STATE_ACK_NEEDED: 1,
-    _ph.STATE_ACK: 2,
-}
-# `archived` sits past every real phase-state; `cancelled` is a dead-end that
-# reaches no real milestone (see _position()).
-_ARCHIVED_POS = 10 ** 6
-
 # STRUCTURED phase_history signals that taint a `passed` condition (LOW-3): the
 # entry's `event` type and the recorded `pick.label` — never a substring scan of
 # the free-text `note` (which over-blocks "regression tests" and under-blocks a
@@ -74,7 +64,13 @@ def _entry_pick_label(entry: dict) -> str | None:
     written BEFORE that field existed, falls back to the recognised legacy note
     shape only — `pick=<id>:<label>` or `pick=<label>` (P1-A) — NOT an arbitrary
     substring scan, so a benign note ("added regression tests") never taints.
+
+    A non-dict entry (hand-edited/corrupt meta) yields None rather than raising,
+    so a single malformed phase_history record can never crash the resolver
+    (and therefore never crash the epic view or the `:work` guard).
     """
+    if not isinstance(entry, dict):
+        return None
     pick = entry.get("pick")
     if isinstance(pick, dict):
         return pick.get("label")
@@ -130,26 +126,11 @@ def point_to_phase_state(point: str, upstream_track: str) -> str:
 # --- position + reached() -----------------------------------------------------
 
 def _position(track: str, phase_state: str) -> int | None:
-    """A comparable integer position for `phase_state` within `track`.
-
-    Returns None when the position is unresolvable/meaningless:
-      - `cancelled` (terminated early — reaches no real milestone);
-      - a phase not applicable to the track;
-      - a malformed state string.
-    `archived` returns a sentinel past every real phase-state.
-    """
-    if phase_state == _ph.STATE_ARCHIVED:
-        return _ARCHIVED_POS
-    if phase_state == _ph.STATE_CANCELLED:
-        return None
-    try:
-        pid, st = _ph.parse_state(phase_state)
-    except ValueError:
-        return None
-    seq = [p.id for p in _ph.load_phases().track_phases(track)]
-    if pid not in seq:
-        return None
-    return seq.index(pid) * 3 + _STATE_ORDER.get(st, 0)
+    """Thin alias for `phases.position` — the ONE shared ordering formula
+    (KLC-078 LOW-1). Kept as a module-local name so the rest of this file (and
+    its tests) read naturally; it delegates so the view and enforcement can
+    never desync on ordering."""
+    return _ph.position(track, phase_state)
 
 
 def reached(upstream_meta: dict, point: str) -> bool:
@@ -188,6 +169,8 @@ def condition_holds(cond: str, upstream_meta: dict) -> bool:
     if upstream_meta.get("regression_observed") == 1:
         return False
     for entry in upstream_meta.get("phase_history") or []:
+        if not isinstance(entry, dict):
+            continue  # corrupt/hand-edited record — skip, never crash (LOW/M-3)
         if (entry.get("event") or "") in _TAINT_EVENTS:
             return False
         if _entry_pick_label(entry) in _TAINT_PICK_LABELS:
