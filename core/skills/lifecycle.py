@@ -547,6 +547,60 @@ def _reset_budgets(meta: dict) -> None:
             budgets[k] = 0
 
 
+# --- rework accounting (KLC-081) ---------------------------------------------
+
+def _bump_rework(meta: dict, phase_id: str) -> None:
+    """Increment `meta.rework_count[phase_id]` by 1, preserving the map.
+
+    `rework_count[phase]` = number of times THAT phase's work had to be redone.
+    The map (initialized to `{}` at intake) is never clobbered — a bump adds to
+    any existing counts across the ticket's whole life. This is called ONLY on a
+    genuine backward/rework transition, so a ticket that never moves backward
+    keeps `rework_count == {}` and a byte-identical happy path.
+
+    The mutation lands in the same `meta.json` the transition writes, so it rides
+    the caller's `state_tx` automatically: durable + CAS-pushed feature-ON, a pure
+    local write feature-OFF. No new coordination path is introduced.
+    """
+    rc = meta.get("rework_count")
+    if not isinstance(rc, dict):
+        rc = {}
+        meta["rework_count"] = rc
+    try:
+        prior = int(rc.get(phase_id, 0) or 0)
+    except (TypeError, ValueError):
+        # A corrupt/non-numeric prior (hand-edited meta, legacy) must never abort
+        # the transition — the docstring promises tolerance. Fall back to 0.
+        prior = 0
+    rc[phase_id] = prior + 1
+
+
+# The ack picks that constitute REWORK — a bounce/reject that re-does a phase's
+# work. This is a SEMANTIC classification, not a positional one: raw direction
+# cannot separate a same-phase `needs-rework` (design:ack-needed → design:work)
+# from the legitimate `learn` `extract-to-claudemd` second pass (also same-phase,
+# learn:ack-needed → learn:work), and `supersede` cannot either (most
+# `needs-rework` picks carry none). So the signal has to be the pick's rework
+# semantics. Enumerated from EVERY earlier-or-same `:work`-goto pick in
+# config/phases.yml and centralized here (auditable, not scattered); keep in sync
+# with phases.yml pick labels.
+#   COUNT (redo a phase):   needs-rework, request-changes, regression, failed,
+#                           revise-impl-plan
+#   do NOT count:           extract-to-claudemd (learn 2nd pass, keeps prior
+#                           output); upgrade-to-full / upgrade-to-S (cross-track
+#                           route escalation); force-full-discovery /
+#                           force-xs-skip (forward route); rollback (observe →
+#                           learn, forward) — all of these are route changes, not
+#                           a redo of already-done work.
+_REWORK_PICK_LABELS = frozenset({
+    "needs-rework",
+    "request-changes",
+    "regression",
+    "failed",
+    "revise-impl-plan",
+})
+
+
 # --- epic dependency guard (KLC-077) -----------------------------------------
 
 def enter_work_guard(ticket: str, target_phase_id: str,
@@ -750,6 +804,17 @@ def apply_ack(ticket: str, pick_id: int | None) -> str:
     tgt_id, tgt_state = _ph.parse_state(pick.goto)
     meta = read_meta(ticket)
     _reset_budgets(meta)
+    # KLC-081: a REWORK pick — one that re-does a phase's work (needs-rework,
+    # request-changes, regression, failed, revise-impl-plan) — bumps the
+    # re-entered phase's count. Gated on the pick's rework SEMANTICS, not raw
+    # direction: a same-phase `needs-rework` (design → design:work) and the
+    # legitimate `learn` `extract-to-claudemd` self-loop are both same-phase
+    # goto:work, so only the label set distinguishes the bounce from the second
+    # pass. Route/forward picks (force-full-discovery, upgrade-to-S, rollback)
+    # are not in the set, so the happy path stays {}. Counted in this SAME
+    # meta.json write so it rides the caller's state_tx alongside the transition.
+    if tgt_state == _ph.STATE_WORK and pick.label in _REWORK_PICK_LABELS:
+        _bump_rework(meta, tgt_id)
     write_meta(ticket, meta)
     set_state(ticket, tgt_id, tgt_state,
               event="ack-jump", note=f"pick={pick.label}", extra=_pick_extra)
@@ -819,6 +884,13 @@ def jump(ticket: str, target_phase: str, *, dry_run: bool = False) -> dict:
         supersede_phases(ticket, to_supersede)
     meta = read_meta(ticket)
     _reset_budgets(meta)
+    # KLC-081: a backward (or same-phase) jump re-enters an earlier phase whose
+    # work must be redone. `to_supersede` is non-empty EXACTLY for such jumps
+    # (it holds tgt..cur inclusive only when tgt_idx <= cur_idx); a forward jump
+    # supersedes nothing and is not rework. Count one rework event keyed to the
+    # re-entered target phase, in this same meta.json write (rides state_tx).
+    if to_supersede:
+        _bump_rework(meta, target_phase)
     write_meta(ticket, meta)
     set_state(ticket, target_phase, _ph.STATE_WORK,
               event="jump", note=f"from={cur}")
@@ -850,6 +922,12 @@ def abort(ticket: str) -> str:
     # Reset budgets.
     meta = read_meta(ticket)
     _reset_budgets(meta)
+    # KLC-081: abort scraps the CURRENT phase's :work — its artefacts were just
+    # superseded above and the phase must be redone once the ticket advances back
+    # into it. That is rework of `cur_pid`. Count it in this same meta.json write
+    # so it rides the caller's state_tx. (cancel(), by contrast, is terminal — the
+    # ticket is never redone — and deliberately does NOT bump.)
+    _bump_rework(meta, cur_pid)
     write_meta(ticket, meta)
 
     if prev is None:

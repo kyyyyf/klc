@@ -23,7 +23,7 @@ A file produced by a phase (e.g., `spec.md`, `test-plan.md`, `impl-plan.md`, `re
 A gate where a human decides whether to approve, request rework, or cancel the phase output. Triggered via `klc ack <KEY> --pick N`.
 
 **Rework**  
-Returning to the :work sub-phase after an ack decision of "needs-rework" (or a `klc jump` / `klc abort` back-transition). The `meta.json:rework_count` field is initialized at intake and read by metrics and the `learn` gate, but the current deterministic engine does not increment it on these back-transitions, so it stays empty in practice (a historical/aspirational field).
+Returning to the :work sub-phase after an ack decision of "needs-rework" (or a `klc jump` / `klc abort` back-transition). The `meta.json:rework_count` field is a `{phase: count}` map, initialized to `{}` at intake and read by metrics and the `learn` gate. The engine increments it on every backward/rework transition (KLC-081): a needs-rework / request-changes ack pick that sends work back into an earlier phase, a backward `klc jump`, and `klc abort` — each bumps the count for the phase whose work has to be redone. A ticket with no backward moves keeps `rework_count == {}`.
 
 **Manual**  
 Work requiring human intervention. Estimated as a dimension (0-3) and tracked in `meta.json:estimate.manual`. M/L tickets include a dedicated manual phase.

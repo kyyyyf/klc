@@ -86,11 +86,22 @@ Sources:
   (external reviewer does). No pricing math.
 - `ci.*` — populated when CI posts run data into
   `.klc/tickets/<key>/ci-runs.jsonl`. No-op without CI wiring.
-- `rework.*` — sourced from `meta.rework_count`, which `intake.py` initializes
-  (to `{}`) and which `metrics.py` and the `learn` conditional gate read. Note:
-  the current deterministic engine does **not** increment it on backward
-  transitions (no ack/jump/abort path writes it), so `rework.*` is effectively
-  empty today — an aspirational/historical field, not a populated metric.
+- `rework.*` — sourced from `meta.rework_count` (a `{phase: count}` map), which
+  `intake.py` initializes to `{}` and which `metrics.py` and the `learn`
+  conditional gate read. The lifecycle engine increments it on every backward /
+  rework transition (KLC-081): a needs-rework / request-changes ack pick that
+  sends work back into an earlier phase, a backward `klc jump`, and `klc abort`.
+  Each bumps `rework_count[phase]` for the phase whose work has to be redone (the
+  re-entered phase for an ack pick or jump; the scrapped current phase for an
+  abort). The ack path counts only genuine REWORK picks (`needs-rework`,
+  `request-changes`, `regression`, `failed`, `revise-impl-plan`) — not the
+  `learn` `extract-to-claudemd` self-loop, which is a legitimate second pass. The
+  increment rides the transition's own state write, so it is durable and
+  CAS-pushed feature-ON. A ticket with no backward moves keeps `rework_count
+  == {}`, so `rework.*` is non-empty **iff** rework actually happened. Caveat:
+  cross-track escalations (`upgrade-to-full`, `upgrade-to-S`) and the forward
+  `observe` `rollback` → `learn` pick scrap or skip work but are treated as
+  **route changes, not rework**, so `rework.*` intentionally does not count them.
 
 ## Rollup
 
