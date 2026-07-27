@@ -1,68 +1,78 @@
-# Branch-first development → MR/PR → two remote mains (GitHub + GitLab)
+# Two remotes: origin is the real history, gh is a clean public mirror
 
-This repo has **two** remotes that must both end up with an identical `main`:
+This repo has **two** remotes that play **different roles** — they are *not* two
+peers holding an identical `main`:
 
-- `gh`  → GitHub  (`github.com/kyyyyf/klc`)
-- `origin` → GitLab (`gitlab.example.com/developer/klc`)
+- `origin` → GitLab (`gitlab.example.com/e_konchikov/klc`) — the **real
+  history** and the active development remote. All branches, MRs, review, and CI
+  live here. It legitimately carries the operator's real identity and internal host
+  references.
+- `gh` → GitHub (`github.com/kyyyyf/klc`) — a **clean public mirror**. Since the
+  2026-07-21 history scrub it is a *re-authored, content-scrubbed* lineage: every
+  commit re-authored to the public GitHub identity, every internal reference
+  removed. It is refreshed by force-push, and it takes **no pull requests**.
 
-## The problem this solves
+Because gh is re-authored and scrubbed, the two `main` branches hold the **same
+content under different identity and history**. They are **intentionally
+divergent** — not fast-forwards of each other. This is deliberate, so do not try to
+reconcile them.
 
-If you merge the **GitLab MR** and the **GitHub PR** *independently*, each forge
-creates its **own merge commit** — same file content, different SHA. The two
-`main`s then diverge, and the next push is rejected (non-fast-forward). We hit
-this repeatedly (KLC-052, r4-hardening) and had to reconcile with a manual merge.
+## Why the old model is gone
 
-**Rule: a change is merged on ONE forge only; the other main is fast-forwarded
-to match. Never click "merge" on both.**
+An earlier version of this doc said "merge on one forge, `--ff-only` mirror the
+other, identical mains." That is **dead**. A `--ff-only` mirror is impossible once
+gh is a re-authored lineage — the commits have different SHAs and different
+authors by construction — and asserting identical mains would contradict the rule
+that the public mirror must be scrubbed. See the constitution principles
+`divergent-public-mirror` and `public-mirror-no-internal-refs`
+(`docs/constitution.md`).
 
 ## The workflow (per ticket / change)
 
-1. **Branch** off the latest `main`:
-   `git checkout main && git pull <canonical> && git checkout -b feature/klc-0NN-<slug>`
-2. **Develop** on the branch (TDD, commits).
-3. **Push the branch to BOTH remotes** so both forges can show it:
-   `git push -u gh feature/klc-0NN-<slug> && git push origin feature/klc-0NN-<slug>`
-4. **Open MR (GitLab) + PR (GitHub)** from that branch — for review/CI/visibility
-   on both forges.
-5. **Merge on the canonical forge ONLY** (pick one and stick to it — see below).
-   That advances `<canonical>/main` via the forge's merge commit.
-6. **Mirror `main` to the other remote** (fast-forward, no second merge commit):
-   ```
-   git fetch <canonical>
-   git checkout main && git merge --ff-only <canonical>/main
-   git push <other> main            # fast-forward; both mains now identical SHA
-   ```
-   The other forge's PR/MR then shows as merged (its branch commits are in `main`)
-   or is closed manually — do NOT click merge on it.
-7. Delete the feature branch on both remotes when done.
-
-## Canonical forge — **GitHub `gh`** (decided 2026-07-16)
-
-The merge point for every change is **GitHub `gh`**: merge the **PR** there.
-GitLab `origin/main` is then always a `--ff-only` mirror of `gh/main`. The
-invariant is "exactly one forge merges (gh), the other (origin) is `--ff-only`
-mirrored." Never click merge on the GitLab MR — it exists for review/CI only.
-
-## One-liner mirror helper
-
-After merging the PR on GitHub (`gh`):
+```text
+1. Branch off the latest origin/main:
+     git checkout main && git pull origin && git checkout -b feature/klc-0NN-<slug>
+2. Develop on the branch (TDD, commits) — never on main directly (branch-first).
+3. Push the branch to origin and open a Merge Request there:
+     git push -u origin feature/klc-0NN-<slug>
+4. Review + CI happen on the origin MR. Merge the MR on origin.
+     origin/main now carries the real, un-scrubbed change.
+5. Refresh the public mirror gh from origin/main via the scrub+re-author step
+     (a filtered, re-authored force-push). NOT a merge, NOT a PR.
+6. Delete the feature branch on origin when done.
 ```
-CANON=gh OTHER=origin; \
-git fetch "$CANON" && git checkout main && git merge --ff-only "$CANON"/main && git push "$OTHER" main
+
+## Publishing to gh (the scrub + re-author step)
+
+The public mirror is produced by rewriting `origin/main` into a scrubbed,
+re-authored lineage and force-pushing it to `gh/main`. The scrub must:
+
+- **Re-author every commit** to the public GitHub identity (kyyyyf / a noreply
+  address) — no internal email domain reaches gh.
+- **Scrub internal references** from content — the internal git host and the
+  corporate email domain must not appear anywhere in `gh/main`.
+
+The denylist of internal tokens lives HERE, in the origin-side mirror tooling — it
+is deliberately NOT committed into the constitution (`config/constitution.yml` /
+`docs/constitution.md`), because a denylist committed onto the surface it guards
+both ships those internal tokens to the public mirror and self-trips any gh-side
+grep against its own denylist file. So `public-mirror-no-internal-refs` is a
+`review` principle in the constitution, and this tooling is what enforces it.
+
+Verify after publishing, using the tooling's denylist (the same tokens the scrub
+`--replace-text` targets):
+
+```text
+git grep -iE "<internal-token-denylist>" gh/main                       # -> exit 1
+git log gh/main --format="%ae%n%ce" | grep -iE "<internal-token-denylist>" # -> exit 1
 ```
-If `--ff-only` refuses, the mains already diverged (someone merged on both) —
-reconcile once with `git merge <other>/main` (identical trees → clean), push
-both, and resume the discipline.
+
+Both must find nothing. A hit means the scrub missed something and the public
+mirror is leaking — fix the scrub and re-push.
 
 ## Bookkeeping vs code
 
-Pure `.klc/` lifecycle bookkeeping (phase acks, retrospectives) that is not part
-of a reviewable code change may continue to be committed on `main` and pushed to
-both remotes directly (fast-forward) — it carries no diff worth an MR/PR and
-stays consistent as long as it is only ever pushed, never forge-merged.
-
-## Why not merge locally + push both?
-
-That works (and is what we did for the epic) and keeps mains consistent, but it
-bypasses forge review/CI. Branch-first + single-forge-merge + mirror keeps the
-MR/PR review trail **and** identical mains.
+Pure `.klc/` lifecycle bookkeeping (phase acks, retrospectives) that is not part of
+a reviewable code change may be committed on `origin/main` directly — it carries no
+diff worth an MR. Everything with a code diff goes through a branch and an MR
+(`branch-first`).

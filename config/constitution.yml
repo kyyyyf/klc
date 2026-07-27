@@ -1,0 +1,157 @@
+# constitution.yml — KLC's few, mandatory, checkable, stable principles.
+#
+# This is the MACHINE-CONSUMABLE form of docs/constitution.md. It is a
+# CHECKLIST, not a rule engine: it names each principle with a stable id so
+# downstream tooling can reference it, but it enforces nothing on its own.
+#
+# Consumed by:
+#   - core/skills/constitution.py         (tiny loader; reads this via _yaml.parse)
+#   - KLC-083 spec self-check             (references principles by id; runs the
+#                                          deterministic ones as mechanical gates
+#                                          using the check_* predicate fields below)
+#   - KLC-084 independent spec reviewer   (an LLM agent loads the whole list as a
+#                                          conformance checklist; the review ones
+#                                          are judgment calls it must assess)
+#
+# Lockstep invariant (asserted by tests/test_constitution.py):
+#   every id here appears as an anchor in docs/constitution.md and vice-versa.
+#
+# Each principle:
+#   id         stable slug (kebab-case), never renamed once shipped
+#   category   architecture | boundary | process | product | governance
+#   check      deterministic  -> mechanically verifiable; carries an executable
+#                                predicate (check_* fields below) a gate can run
+#              review         -> a judgment call an agent (084) must assess
+#   status     upheld    -> the code currently satisfies this principle
+#              open-gap  -> a mandatory target NOT yet met; 083 expect-fails/skips
+#                           it rather than treat it as a permanent false RED
+#   statement  one checkable line; the narrative and evidence live in the .md
+#
+# Deterministic entries additionally carry a machine-readable predicate so 083
+# does not have to reconstruct it from prose:
+#   check_target   what tree/ref the predicate runs against (e.g. gh, code-branch)
+#   check_command  the exact command; expected result described in check_expect
+#   check_tokens   the denylist of substrings (for a content/authorship grep)
+#   check_pattern  the path/line pattern (for a tracked-file grep)
+#   check_expect   the passing outcome (e.g. "no matches")
+#
+# This file changes only by an explicit decision (see governance below).
+
+principles:
+  # --- architecture: the structural invariants ------------------------------
+  - id: single-source-of-truth
+    category: architecture
+    check: review
+    status: upheld
+    statement: "There is exactly one resolver, parser, or state machine per concern; a view reuses the lifecycle resolvers and never re-derives their logic."
+
+  - id: state-writes-ride-state-tx
+    category: architecture
+    check: review
+    status: upheld
+    statement: "Every write to shared klc-state rides the per-ticket state_tx envelope; no verb touches git directly and no new coordination primitive is introduced."
+
+  - id: single-dependency-choke-point
+    category: architecture
+    check: review
+    status: upheld
+    statement: "The blocked_by dependency gate is enforced at exactly one choke point (enter_work_guard), immediately before a work-entry write and inside state_tx on post-pull state."
+
+  - id: degrade-not-fail
+    category: architecture
+    check: review
+    status: upheld
+    statement: "Absent or optional context is a clean no-op, never a crash: the feature-off path is a pure pass-through, a ticket with no dependency is an untouched guard, and an unreadable upstream never crashes the view."
+
+  - id: decide-on-synced-state
+    category: architecture
+    check: review
+    status: upheld
+    statement: "Every validation and decision runs against post-pull (synced) state; a decision computed before the pull is rejected by the stale-guard rather than applied to stale state."
+
+  - id: epic-is-a-computed-view
+    category: architecture
+    check: review
+    status: upheld
+    statement: "An epic is a read-only computed view whose state is a pure function of its member phases; it is never stored as a second lifecycle entity."
+
+  # --- boundary: what must never leak or be overwritten ---------------------
+  - id: klc-state-not-tracked-on-main
+    category: boundary
+    check: deterministic
+    status: upheld
+    check_target: code-branch
+    check_pattern: "^.klc/"
+    check_command: 'git ls-tree -r --name-only HEAD | grep -E "^[.]klc/"'
+    check_expect: "no matches (exit 1)"
+    statement: "Per-project lifecycle state under .klc is never tracked on the code branch; the shipped framework tree carries no .klc entries."
+
+  - id: no-autocommit-of-user-wip
+    category: boundary
+    check: review
+    status: upheld
+    statement: "The state machine only ever commits ticket bookkeeping under .klc on the klc-state branch; it never stages or commits the user's source working tree."
+
+  # NOTE: this is a `review` principle on purpose. Its mechanical enforcement (a
+  # denylist grep of the mirror content + authorship) lives ORIGIN-SIDE in the
+  # mirror tooling (the scrub `--replace-text` denylist + the verify greps run at
+  # mirror time), NOT as a check shipped in this file. A deterministic denylist
+  # cannot safely live on the surface it guards: committed here it would both ship
+  # the internal tokens onto the public mirror and self-trip the grep against its
+  # own denylist file. So the constitution STATES the invariant; the tooling ENFORCES it.
+  - id: public-mirror-no-internal-refs
+    category: boundary
+    check: review
+    status: upheld
+    statement: "The public mirror carries no internal-only identifier (internal git host or corporate email domain) in its content or authorship; its commits are re-authored to the public identity, while the origin remote keeps the real history. Mechanical enforcement lives origin-side in the mirror tooling, not in a check shipped here."
+
+  - id: divergent-public-mirror
+    category: boundary
+    check: review
+    status: upheld
+    statement: "Review and merge happen on origin (GitLab) via MRs; gh (GitHub) is a clean public mirror updated by re-authored force-push with no PRs, so the two mains are intentionally divergent lineages, never fast-forward mirrors of each other."
+
+  # --- process: how work is validated ---------------------------------------
+  - id: branch-first
+    category: process
+    check: review
+    status: upheld
+    statement: "Implementation work happens on a feature branch off main; code changes are never committed directly to main, only pure .klc bookkeeping is."
+
+  - id: mandatory-independent-review
+    category: process
+    check: review
+    status: upheld
+    statement: "Every M or L change gets a fresh non-fork plus external independent review before its review-report, with a scoped re-review of each fix delta."
+
+  - id: real-substrate-gate-for-coordination
+    category: process
+    check: review
+    status: upheld
+    statement: "A coordination or data ticket is gated by a real-substrate fuzz or property test over a design-pass envelope, not by an incremental review-and-fix loop."
+
+  - id: tests-verify-real-behavior
+    category: process
+    check: review
+    status: upheld
+    statement: "Tests exercise the real emitter, parser, or template on real substrate; they never hand-roll a fixture that merely restates the expected output."
+
+  - id: rigor-scales-by-track
+    category: process
+    check: review
+    status: upheld
+    statement: "Process rigor scales by track: XS is the fast path, and heavier review and gates fire on M or L and on escalation signals, never uniformly."
+
+  # --- product: the deliberate non-goals ------------------------------------
+  - id: no-dependency-on-unmerged-code
+    category: product
+    check: review
+    status: upheld
+    statement: "A ticket depends only on integrated (merged) upstreams via blocked_by; it never stacks on an unmerged branch."
+
+  # --- governance: how this document itself changes -------------------------
+  - id: constitution-changes-by-decision
+    category: governance
+    check: review
+    status: upheld
+    statement: "This constitution changes only by an explicit, recorded decision; principles stay few, mandatory, checkable, and stable."

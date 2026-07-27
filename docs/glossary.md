@@ -111,8 +111,10 @@ Git branch for a single ticket (e.g., `feature/KLC-006-documentation`). Created 
 Git merge strategy requiring local branch to be rebased on remote main before push. Enforced by GitLab. Prevents non-linear history.
 
 **Remote (gh / origin)**  
-GitHub (`gh`) and GitLab (`origin`) remotes. GitHub `gh` is the canonical merge
-point; GitLab `origin/main` is kept as a `--ff-only` mirror. See
+GitHub (`gh`) and GitLab (`origin`) remotes. GitLab `origin` is the real history
+and the dev/review/merge remote (via MRs); GitHub `gh` is a clean public mirror
+refreshed by a re-authored, scrubbed force-push, so the two mains are
+intentionally divergent lineages — not fast-forward mirrors. See
 [dual-remote-mr-pr-workflow.md](dual-remote-mr-pr-workflow.md).
 
 ## CLI commands

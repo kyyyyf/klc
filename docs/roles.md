@@ -88,8 +88,9 @@ This document describes the roles involved in the klc ticket lifecycle and what 
 **Context**:
 - Operates within project root (PROJECT_ROOT env var)
 - Works with git branches (feature branches per ticket)
-- Manages two remotes: gh (GitHub, canonical merge point) and origin (GitLab,
-  `--ff-only` mirror) — see docs/dual-remote-mr-pr-workflow.md
+- Manages two remotes: origin (GitLab, real history — dev/review/merge via MRs)
+  and gh (GitHub, clean public mirror refreshed by re-authored/scrubbed
+  force-push; intentionally divergent) — see docs/dual-remote-mr-pr-workflow.md
 
 ## Summary table
 
