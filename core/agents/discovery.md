@@ -121,8 +121,8 @@ risk_tags: [<user-facing|data|security|migration>, ...]
 ...
 
 ## Acceptance Criteria
-1. AC-1: Given ..., when ..., then ...
-2. AC-2: ...
+1. AC-1: <Subject> · <Action> · <Object> · <Condition>
+2. AC-2: <Subject> · <Action> · <Object> · <Condition>
 
 ## Non-goals
 ...
@@ -154,6 +154,43 @@ Every assertion about the code is a `FACT` with `src=file:line
 verified=<today>`. Every guess is an `ASSUMPTION` with `if-false=...`.
 Never paraphrase a `FACT` from a module CLAUDE.md without re-
 verifying — just link to it.
+
+**Acceptance criteria — SAOC form (mandatory, KLC-083).** Write every
+`AC-N` as four segments separated by a middle dot `·` (U+00B7), the WHOLE AC on
+ONE line (the checker cannot associate a wrapped continuation line with the id):
+
+```text
+AC-1: the parser · rejects · an AC lacking four parts · when the segment count != 4
+```
+
+* **Subject** — the actor/component the requirement is about.
+* **Action** — the observable verb it performs.
+* **Object** — what the action operates on or produces.
+* **Condition** — the verifiable trigger or outcome (`when …` / `then …`).
+  It must name something checkable, not a vague quality ("works correctly").
+
+Keep each part free of a literal `·` — there is no escaping, so a middle dot
+inside a part over-splits the AC; reword instead. Splitting the AC this way makes
+it objectively checkable. At ack the deterministic self-check
+(`core/skills/spec_selfcheck.py`) RUNS over the spec and SURFACES a non-SAOC AC as
+a warning (it does not hard-fail it — the format rolls out gradually); it BLOCKS
+only on the objective defects below.
+
+**Unknowns — `[NEEDS CLARIFICATION]` markers (mandatory, KLC-083).** When an
+answer is genuinely a human decision (scope boundary, tradeoff, ambiguous
+intent), flag it INLINE with an explicit marker rather than guessing:
+
+```text
+[NEEDS CLARIFICATION: should the gate hard-fail on WHAT-not-HOW, or only surface it?]
+```
+
+An open marker in a requirement section (Acceptance Criteria, Open questions,
+Constraints) is an unresolved question by definition: it makes the human-question
+list complete and systematic, and the self-check gate BLOCKS ack while one remains
+(it must not silently pass). Resolve each one — answer it inline and delete the
+marker — before acking, or route it to the decision gate. An operator who is
+knowingly deferring a marker can ack past it by setting `meta.deferred_markers`
+(the marker is then surfaced as a warning, not silenced).
 
 ### 3. Track classification
 

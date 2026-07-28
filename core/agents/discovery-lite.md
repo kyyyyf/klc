@@ -38,8 +38,8 @@ risk_tags: [<user-facing|data|security|migration>, ...]
 <One sentence. What does this change accomplish?>
 
 ## Acceptance Criteria
-- [ ] <AC-1: specific, testable>
-[- [ ] <AC-2 if needed>]
+- [ ] AC-1: <Subject> · <Action> · <Object> · <Condition>
+[- [ ] AC-2: <Subject> · <Action> · <Object> · <Condition>]
 
 ## Affected
 <module-name>: <file-or-symbol, src=path:line — LSP-verified, mandatory>
@@ -72,6 +72,19 @@ total: <sum, must be ≤2 for XS or ≤5 for S>
    `data`, `security`, `migration`. Use `[]` for pure tooling/config
    changes. The framework reads this field to decide whether `observe`
    runs — do not omit it.
+6a. **AC in SAOC form (KLC-083).** Write the WHOLE `AC-N` on one line as four
+   segments separated by a middle dot `·` (U+00B7):
+   `AC-1: <Subject> · <Action> · <Object> · <Condition>`. The Condition must
+   be verifiable (a `when …`/`then …` you can observe), not a vague quality.
+   Keep each part free of a literal `·` (no escaping — it would over-split).
+   At ack the self-check gate RUNS and SURFACES a non-SAOC AC as a warning
+   (even on the XS light path); it does not hard-fail the format.
+6b. **Unknowns → `[NEEDS CLARIFICATION]` (KLC-083).** For XS this is rare
+   (trivial/reversible), but if a real ambiguity is a human decision, flag it
+   inline in a requirement section: `[NEEDS CLARIFICATION: <question>]`. An open
+   marker BLOCKS ack — it must not silently pass — so resolve it (answer inline,
+   delete the marker) before acking. An operator knowingly deferring one can ack
+   past it via `meta.deferred_markers` (it is then surfaced, not silenced).
 7. **Blast-radius check (cheap).** Before finalizing the Estimate, glance
    at `modules.json` `depended_by` for each Affected module. If a
    foundational module (large fan-in / many dependents) is touched, a

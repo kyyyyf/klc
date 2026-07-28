@@ -244,6 +244,13 @@ and confirmed failing **before** its implementation code.
 If validation reveals scope that wasn't in the spec, add a
 `[!CONFLICT C-NNN]` to `design/options.md` before writing the plan.
 
+**Preserve the spec's SAOC ACs (KLC-083).** When you restate or map an
+acceptance criterion (e.g. into a test row or a step's `Expected`), keep it in
+the spec's `<Subject> · <Action> · <Object> · <Condition>` form — do not
+paraphrase it back into loose prose. If you find an `[NEEDS CLARIFICATION]`
+marker still open in `spec.md`, the spec is not ready: stop and route it to the
+decision gate rather than silently designing past the unknown.
+
 **Self-review before emit.** After drafting `impl-plan.md` and before
 emitting the draft signal, scan every `## step-N` block and fix any
 violations in-place:

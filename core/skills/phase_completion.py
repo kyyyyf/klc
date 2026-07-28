@@ -22,6 +22,7 @@ import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
 import spec_selfreview as _spec_selfreview  # noqa: E402
+import spec_selfcheck as _spec_selfcheck  # noqa: E402
 import spec_structure as _spec_structure  # noqa: E402
 import impl_plan_check as _impl_plan_check  # noqa: E402
 import plan_quality as _plan_quality  # noqa: E402
@@ -175,6 +176,18 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
         v = _sr[0]
         return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
 
+    # Spec self-check gate (KLC-083): RUN the full deterministic gate at ack. It
+    # BLOCKS only on rep.blocking — unresolved [NEEDS CLARIFICATION] markers and
+    # duplicate AC ids (objective defects). Format / testability / WHAT-not-HOW /
+    # contradiction / completeness and the constitution checklist are SURFACED as
+    # warn-only advisories (returned in the message), so legacy pre-SAOC specs are
+    # not hard-failed (rigor-scales-by-track). An operator can ack past a
+    # KNOWINGLY-deferred marker by setting meta.deferred_markers (mirrors the
+    # KLC-027 retrack escape hatch); the deferred marker is then surfaced, not silenced.
+    _block, _spec_warnings = _spec_quality_gate(spec_text, meta)
+    if _block:
+        return False, _block
+
     # Approaches+pick gate (KLC-032): M/L discovery must record ≥2 approaches and a pick in spec.md.
     if not _spec_structure.has_min_approaches(spec_text):
         return False, "spec.md: fewer than 2 approaches — Socratic protocol requires ≥2 before pick"
@@ -186,9 +199,10 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
     # read-only callers (remind) pass persist=False and leave meta.json untouched.
     if persist:
         _sync_risk_tags(ticket)
+    _advisories = list(_spec_warnings)
     if _spec_structure.has_decompose_signal(spec_text):
-        return True, "DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building"
-    return True, ""
+        _advisories.append("DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building")
+    return True, "; ".join(_advisories)
 
 
 def can_complete_acceptance_test_plan(ticket: str) -> tuple[bool, str]:
@@ -264,6 +278,31 @@ def _sync_risk_tags(ticket: str) -> None:
         )
     except Exception:
         pass  # non-fatal: risk_tags will just be absent
+
+
+def _spec_quality_gate(spec_text: str, meta: dict) -> tuple[str, list[str]]:
+    """Run the KLC-083 spec self-check for the ack path.
+
+    Returns (block_message, warn_lines). `block_message` is non-empty only when a
+    BLOCK finding survives (unresolved markers — unless meta.deferred_markers is
+    set — and duplicate AC ids). Everything else, plus any deferred marker, is
+    returned as warn-only advisory lines. Degrade-safe: the self-check never
+    raises, but a defensive guard keeps a surprise from ever failing an ack.
+    """
+    track = meta.get("track", "")
+    try:
+        rep = _spec_selfcheck.self_check(spec_text, track)
+    except Exception:
+        return "", []  # degrade-not-fail: a self-check crash never blocks ack
+    defer = bool(meta.get("deferred_markers"))
+    blocking = [f for f in rep.blocking if not (f.dimension == "markers" and defer)]
+    block_msg = f"spec.md self-check: {blocking[0].message}" if blocking else ""
+    warnings = _spec_selfcheck.warn_lines(rep)
+    if defer:
+        for f in rep.blocking:
+            if f.dimension == "markers":
+                warnings.append(f"spec-self-check[markers:deferred]: {f.message}")
+    return block_msg, warnings
 
 
 def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -350,6 +389,13 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
         v = _sr[0]
         return False, f"spec.md self-review: {v['class']} at offset {v['offset']} — fix before ack"
 
+    # Spec self-check gate (KLC-083): RUN the full deterministic gate at ack.
+    # BLOCKS only on unresolved [NEEDS CLARIFICATION] markers and duplicate AC ids;
+    # the rest is surfaced as warn-only advisories (see can_complete_discovery).
+    _spec_block, _spec_warnings = _spec_quality_gate(text, meta)
+    if _spec_block:
+        return False, _spec_block
+
     # Approaches+pick gate (KLC-032): S-track must have ≥2 approaches and a recorded pick.
     # XS is exempt (short tasks don't require a formal options artifact).
     if track == "S":
@@ -381,7 +427,7 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
     # KLC-062: gated to the persisting (ack) path; read-only callers skip the write.
     if persist:
         _sync_risk_tags(ticket)
-    _advisories = []
+    _advisories = list(_spec_warnings)
     if _spec_structure.has_decompose_signal(text):
         _advisories.append("DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building")
     if _spec_structure.has_upgrade_m_signal(text):
