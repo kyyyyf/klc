@@ -296,6 +296,40 @@ Before writing the completion signal, scan `spec.md` for violations and fix them
 A spec carrying any of the above will fail the mechanical self-review gate
 (`spec_selfreview.scan_spec`) and block the discovery ack.
 
+## Independent spec review (expected on M/L — surfaced, not blocking, KLC-084)
+
+Your self-review has the same blind spot the code author has before the mandatory
+code reviewer: you validate the spec against your OWN intent, so you cannot see
+where it drifted from `raw.md`, contradicts the current code, or silently decided
+a genuinely-human call. So before the spec phase completes, an **independent**
+spec reviewer is spawned — fresh, with no build context — exactly as the code
+reviewer is spawned before `review-report.md`, only shifted LEFT onto the spec.
+Like the code reviewer, it is *fail-open*: it surfaces and records, it does not
+gate the ack.
+
+- **Who spawns it**: the orchestrator / autorunner (like the code reviewer). You
+  do not make the LLM call yourself; you finish the spec and the review fires
+  around it. The reviewer prompt is `core/agents/spec-reviewer.md`.
+- **Track scaling**: full on M/L, cascade on S, skipped on XS. At the spec phase
+  the only escalation signal available is a **risk tag** (user-facing / data /
+  security / migration / coordination) — there is no diff yet, so sentinel /
+  scope-expansion signals do not fire here. The gate is
+  `spec_review.should_run(track, signals)`.
+- **Two outputs**: the reviewer writes `spec-review.md` carrying `findings[]`
+  (objective — it decides) and `decisions_to_confirm[]` (subjective — it never
+  adjudicates; each carries a recommended answer). At ack the plumbing
+  `core/skills/spec_review.py` parses that file and, into THIS discovery ack's
+  advisory lines — the existing `decision`-level gate the operator already signs
+  off at — it **routes `decisions_to_confirm[]`** (each leading with the
+  recommendation) AND **surfaces a collapsed `findings[]` count** (e.g.
+  `spec-review: 3 finding(s) recorded (1 high) — assess before build`). It records
+  the findings to `spec-review-findings.json`, which the **build agent
+  (`core/agents/impl.md`) reads and assesses** (fix / won't-fix) before writing
+  code. No new human gate is added; the review elevates and records, it does not
+  block the ack.
+- **Degrade-not-fail**: if the reviewer output is absent on a review-expected
+  track, ack surfaces a single degraded note and still completes.
+
 ## Completion signal
 
 Stdout, on success:

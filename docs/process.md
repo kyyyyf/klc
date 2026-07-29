@@ -842,6 +842,69 @@ This is the planning analog of the mandatory code-reviewer required before `revi
 Findings block ack until resolved; the gate (`unresolved_api_refs`) is mechanical; the rest is
 judgment confirmed by the audit.
 
+### Independent spec review (KLC-084)
+
+The mandatory code reviewer validates code against the spec **as written**, so a
+flawed spec is a structural blind spot — "correctly built the wrong thing" is
+never caught. KLC-084 shifts that same discipline LEFT: at the **spec phase** an
+**independent** reviewer (fresh, no build context, `core/agents/spec-reviewer.md`)
+reviews `spec.md` before the phase completes, exactly as the code reviewer runs
+before `review-report.md`. The orchestrator/autorunner spawns it (not a hard-coded
+LLM call in the state machine); the plumbing is `core/skills/spec_review.py`.
+
+Like the code reviewer it is **fail-open**: it surfaces and records, it does not
+block the ack. It emits **two** classes, and keeping them apart is what makes it
+low-noise:
+
+```text
+findings[]              OBJECTIVE, the reviewer decides -> to be fixed:
+                        infidelity to raw.md · code-contradiction · constitution
+                        violation · untestable/ambiguous AC · internal contradiction.
+                        Recorded to spec-review-findings.json AND surfaced at the
+                        ack as a collapsed count ("N finding(s) recorded (M high)
+                        — assess before build"). The BUILD agent (core/agents/
+                        impl.md) reads that file and assesses each (fix/won't-fix)
+                        before writing code, exactly as review-report assesses the
+                        code reviewer's findings.
+decisions_to_confirm[]  SUBJECTIVE, the HUMAN decides -> scope · tradeoff ·
+                        ambiguous-intent. Each carries a RECOMMENDED answer
+                        ("lead with a recommendation"). The reviewer NEVER
+                        adjudicates these; the plumbing ROUTES them into the
+                        discovery/design ack's advisory lines — the EXISTING
+                        `decision`-level gate — so the operator resolves them
+                        there. No new human gate is introduced.
+```
+
+Both halves therefore reach a consumer: the OBJECTIVE findings a human at the ack
+(count) and the implementer at build (assessment); the SUBJECTIVE decisions the
+operator at the ack decision gate.
+
+Anchors the reviewer checks against (reused single sources, not rebuilt): the
+**constitution** via the KLC-082 reader (`core/skills/constitution.py`), the
+**KLC-083 self-check** surfaced findings (`spec_selfcheck.py`), and the **current
+code** (LSP) for feasibility / non-contradiction. Only correctness of intent has
+no anchor → it becomes a `decisions_to_confirm[]`.
+
+**Track scaling** (`spec_review.should_run`): full on M/L, cascade on S, skipped
+on XS. At the spec phase the only escalation signal available is a **risk tag**
+(user-facing / data / security / migration / coordination) — there is no diff yet,
+so the sentinel / scope-expansion signals from `review_cascade` do not fire here
+(`should_run` still accepts them, for callers such as KLC-085's later gates that
+do have a diff). **Read-only safety**: the advisory probe used by `klc remind` /
+gate-policy signal collection (`persist=False`) surfaces the same lines WITHOUT
+writing `spec-review-findings.json`; only the persisting ack path records.
+**Degrade-not-fail**: absent constitution / self-check / reviewer output — or a
+valid-JSON-but-wrong-shape verdict block — degrades to a surfaced note; the phase
+still completes.
+
+**Generic seam (KLC-085 reuse)**: `spec_review.py` is parameterised by a
+`ReviewKind` descriptor — reviewer prompt · artifact · output file **and its own
+`finding_categories` / `decision_topics`**. `validate()` reads the vocabulary FROM
+the active kind and `route_decisions()` labels advisories with `kind.name`, so the
+test-plan reviewer (KLC-085) reuses the same parse / validate / route / record /
+track-scale plumbing with its OWN classes (uncovered-ac, weak-assertion, …) and a
+`test-plan-review[…]` label — no second copy, no validator fork.
+
 ---
 
 ## Gate-policy layer (KLC-045)

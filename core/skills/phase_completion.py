@@ -23,6 +23,7 @@ import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
 import spec_selfreview as _spec_selfreview  # noqa: E402
 import spec_selfcheck as _spec_selfcheck  # noqa: E402
+import spec_review as _spec_review  # noqa: E402
 import spec_structure as _spec_structure  # noqa: E402
 import impl_plan_check as _impl_plan_check  # noqa: E402
 import plan_quality as _plan_quality  # noqa: E402
@@ -202,6 +203,7 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
     _advisories = list(_spec_warnings)
     if _spec_structure.has_decompose_signal(spec_text):
         _advisories.append("DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building")
+    _advisories += _spec_review_advisories(ticket, persist)
     return True, "; ".join(_advisories)
 
 
@@ -278,6 +280,38 @@ def _sync_risk_tags(ticket: str) -> None:
         )
     except Exception:
         pass  # non-fatal: risk_tags will just be absent
+
+
+def _spec_review_advisories(ticket: str, persist: bool) -> list[str]:
+    """Surface an independent spec reviewer's outputs at ack (KLC-084).
+
+    Routes the reviewer's `decisions_to_confirm[]` into the SAME advisory stream
+    the operator already reads at the discovery/design ack — a `decision`-level
+    gate — so the human resolves them there, and surfaces a collapsed count of the
+    OBJECTIVE `findings[]` so that primary output is not silent. No new gate is
+    introduced. Findings are recorded to disk for the build phase to assess, but
+    ONLY on the persisting ack path: `persist` is threaded into `consume` so a
+    read-only probe (`klc remind` / gate-policy signal collection) surfaces without
+    writing. Track-scaled and degrade-safe: absent reviewer output on a
+    review-expected track surfaces one note; on a skip/no-signal track it is
+    silent; nothing here ever fails the ack.
+
+    Reads meta read-only (KLC-062: an advisory probe must not persist a legacy
+    phase migration). Only `risk_tags` is available as an escalation signal at the
+    spec phase — there is no diff yet (so no sentinel/scope-expansion signal), so
+    those are left to callers that have them via `spec_review.should_run`.
+    """
+    try:
+        meta = _lc.read_meta_ro(ticket)
+        ticket_dir = klc_ticket_meta_file(ticket).parent
+        track = meta.get("track", "")
+        signals = {"risk_tags": meta.get("risk_tags") or []}
+        advisories, _findings = _spec_review.consume(
+            ticket_dir, track, signals, persist=persist
+        )
+        return advisories
+    except Exception:
+        return []  # degrade-not-fail: the review seam never blocks an ack
 
 
 def _spec_quality_gate(spec_text: str, meta: dict) -> tuple[str, list[str]]:
@@ -432,6 +466,7 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
         _advisories.append("DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building")
     if _spec_structure.has_upgrade_m_signal(text):
         _advisories.append("DISCOVERY_LITE_UPGRADE_M: scope exceeds S — re-route via 'klc retrack <KEY> M'")
+    _advisories += _spec_review_advisories(ticket, persist)
     return True, "; ".join(_advisories)
 
 

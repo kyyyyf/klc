@@ -214,6 +214,27 @@ Before writing the completion signal, scan `spec.md` for violations and fix them
 A spec carrying any of the above will fail the mechanical self-review gate
 (`spec_selfreview.scan_spec`) and block the discovery-lite ack.
 
+## Independent spec review (S = cascade, KLC-084)
+
+The independent spec reviewer (`core/agents/spec-reviewer.md`) that is expected on
+M/L discovery **cascades** on the S track: it is skipped by default and fires only
+when an escalation signal is present. At the spec phase that signal is a **risk
+tag** — user-facing / data / security / migration / coordination — since there is
+no diff yet (so sentinel / scope-expansion signals do not fire here). This applies
+the `review_cascade` precedent so a trivial S ticket pays nothing, while a risky
+one still gets the fresh, no-context review. The gate is
+`spec_review.should_run(track, signals)`.
+
+When it fires, it behaves exactly as on M/L: the orchestrator (not you) spawns it,
+it writes `spec-review.md` with `findings[]` (objective) and
+`decisions_to_confirm[]` (subjective, each with a recommended answer). At ack,
+`spec_review.py` routes the `decisions_to_confirm[]` into this discovery-lite ack's
+advisory lines — the existing `decision`-level gate — surfaces a collapsed
+`findings[]` count there, and records the findings to `spec-review-findings.json`,
+which the build agent (`core/agents/impl.md`) reads and assesses (fix / won't-fix)
+before writing code. Degrade-safe and fail-open: absent output when a review was
+expected surfaces one note and still passes.
+
 ## Test-coverage discipline
 
 Every impl-plan step that describes a CLI, gate, or wired behaviour must map to a test at the

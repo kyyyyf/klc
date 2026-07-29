@@ -95,6 +95,32 @@ the reviewer and the retrospective agent read it.
    `meta.json.budgets.red_test_fix_attempts` each time. When the
    counter hits `3` the phase stops and escalates.
 
+## Assess the independent spec-review findings (before any code, KLC-084)
+
+The independent spec reviewer (`core/agents/spec-reviewer.md`) recorded its
+OBJECTIVE `findings[]` to **`spec-review-findings.json`** in the ticket directory
+at the spec phase. These are the spec-layer analog of the mandatory code
+reviewer's findings — and, like those, you must **assess** them, not ignore them.
+This is what stops "correctly built the wrong thing": a finding says the spec
+itself drifted from `raw.md`, contradicts the current code, violates a
+constitution principle, or has an untestable AC.
+
+At the START of build, before writing any code:
+
+1. If `spec-review-findings.json` exists, read it. Each entry has
+   `id · category · severity · detail · ref · suggested_fix`.
+2. For EACH finding, record an assessment in `build-log.md` — **fix** (the spec
+   defect is real; note how the build accounts for it, or raise a `[!CONFLICT]`
+   if the spec must change first) or **won't-fix** (with a one-line reason). This
+   mirrors the review-report assessment of the code reviewer's findings.
+3. A `high`-severity finding that is neither fixed nor consciously waived is a
+   stop-and-ask: raise a `[!QUESTION]` / `[!CONFLICT]` rather than building past it.
+4. Absent file → nothing to assess (the reviewer did not run for this track, or
+   its output degraded); proceed. Do not fabricate findings.
+
+Record the assessment block under the current build-log step so retrospective can
+see the spec-review findings were handled, not dropped.
+
 ## Plan validation (before writing any code)
 
 Before touching a single file, verify the current step against this
