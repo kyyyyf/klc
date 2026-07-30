@@ -1,0 +1,31 @@
+id,name,category,description,output_pattern
+first-principles,First Principles,core,"Strip away assumptions and rebuild from fundamental truths.",assumptions → truths → new approach
+5-whys,5 Whys,core,"Ask why repeatedly to drill from a symptom down to the root cause.",why chain → root cause → solution
+socratic,Socratic Questioning,core,"Targeted questions that surface hidden assumptions and guide discovery.",questions → revelations → understanding
+second-order,Second-Order Thinking,core,"Trace cascading downstream effects beyond the immediate outcome.",action → consequences → second-order effects → choice
+inversion,Inversion,core,"Ask what would guarantee failure to reveal obstacles and blind spots.",goal → invert → failure paths → avoidance
+problem-decomposition,Problem Decomposition,core,"Split a tangled problem into independent sub-problems and reassemble.",whole → parts → solutions → reassembly
+steelman,Steelmanning,core,"Build the strongest form of the opposing view before responding.",opposing view → strongest form → honest rebuttal
+abstraction-laddering,Abstraction Laddering,framing,"Move up (why) for strategy or down (how) for tactics to solve at the right altitude.",concrete ↔ abstract → right level
+reframe-question,Reframe the Question,framing,"Challenge whether the stated problem is the real problem.",stated problem → reframe → true problem
+stakeholder-lens,Stakeholder Lens Rotation,framing,"Adopt each stakeholder world-view in turn to find overlooked needs.",perspective A → B → C → gaps found
+map-not-territory,Map Is Not the Territory,framing,"Treat any model as lossy and check where it diverges from reality.",model → reality check → divergences
+pre-mortem,Pre-mortem,risk,"Imagine the launch has already failed, then work back to the causes.",failure scenario → causes → prevention
+failure-mode-analysis,Failure Mode Analysis,risk,"Enumerate how each component could fail and guard each mode.",components → failures → prevention
+assumption-audit,Assumption Audit,risk,"List every assumption, rate by confidence and impact, stress-test the weakest.",list → rate → stress-test → shore up
+identify-risks,Identify Potential Risks,risk,"Brainstorm what could go wrong across every category.",categories → risks → mitigations
+critical-challenge,Challenge from Critical Perspective,risk,"Play devil's advocate to stress-test an idea against groupthink.",assumptions → challenges → strengthening
+scamper,SCAMPER,creative,"Apply seven lenses: substitute, combine, adapt, modify, put, eliminate, reverse.",S → C → A → M → P → E → R
+reverse-engineering,Reverse Engineering,creative,"Work backwards from the desired outcome to the implementation path.",end state → steps backward → path forward
+what-if,What If Scenarios,creative,"Explore alternative realities to surface possibilities and implications.",scenarios → implications → insights
+constraint-injection,Constraint Injection,creative,"Add an artificial limitation to force novel solutions.",add constraint → forced creativity → evaluate
+subtraction,Subtraction,creative,"Improve by deliberately removing elements instead of adding them.",current state → what to remove → simplified result
+stakeholder-round-table,Stakeholder Round Table,collaboration,"Convene personas with competing interests to find a balanced solution.",perspectives → synthesis → alignment
+six-thinking-hats,Six Thinking Hats,collaboration,"Rotate six modes: facts, feelings, caution, optimism, creativity, process.",white → red → black → yellow → green → blue
+expert-panel,Expert Panel Review,collaboration,"Assemble domain experts for deep specialised review.",expert views → consensus → recommendations
+delphi-method,Delphi Method,collaboration,"Collect independent estimates, reveal, revise, converge without anchoring.",estimates → reveal → revise → converge
+architecture-decision-records,Architecture Decision Records,technical,"Propose and debate architectural options with explicit trade-offs.",options → trade-offs → decision → rationale
+edge-case-sweep,Boundary & Edge Case Sweep,technical,"Test the extremes: zeros, nulls, maximums, and type mismatches.",inputs → boundaries → edge cases → failures found
+red-team-blue-team,Red Team vs Blue Team,technical,"Adversarial attack-defend pass to find and harden vulnerabilities.",defense → attack → hardening
+source-triangulation,Source Triangulation,technical,"Require three independent source types before accepting a claim.",claim → source A → B → C → confidence
+occams-razor,Occam's Razor,technical,"Find the simplest sufficient explanation and cut needless complexity.",options → simplification → selection
