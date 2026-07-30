@@ -1,0 +1,110 @@
+# coverage-taxonomy.yml — KLC's requirements-coverage checklist (the E-01 anchor).
+#
+# This is the MACHINE-CONSUMABLE form of docs/coverage-taxonomy.md. Like the
+# constitution, it is a CHECKLIST, not a rule engine: it names each coverage
+# category with a stable id so downstream tooling can reference it, but it
+# enforces nothing on its own. Deciding whether a draft spec covers a category
+# is the consumer's job.
+#
+# Consumed by (later tickets — nothing reads it yet):
+#   - core/skills/coverage_taxonomy.py   (the ONE reader; reads this via _yaml.parse)
+#   - E-02 elicitation skill (KLC-088)   (scans a draft spec Clear/Partial/Missing
+#                                          against these categories)
+#   - E-05 coverage gate (KLC-089)       (asks whether each track-mandatory category
+#                                          is at least Partial, using the min_track floors)
+#
+# Lockstep invariant (asserted by tests/test_coverage_taxonomy.py):
+#   every id here appears as a `### `<id>`` anchor in docs/coverage-taxonomy.md
+#   and vice-versa.
+#
+# Each category:
+#   id           stable slug (kebab-case), never renamed once shipped — E-02/E-05
+#                reference categories by id, so a rename is a breaking change
+#   name         human-readable title
+#   description  one line naming what the category interrogates
+#   min_track    XS | S | M | L — the lightest track at which coverage of this
+#                category is expected (the floor). A consumer asks a category only
+#                when the ticket's track is at or above this floor.
+#   sub_checks   the concrete facets a consumer scans within the category
+#
+# The non-functional category additionally carries `sub_characteristics`: the
+# eight ISO/IEC 25010 product-quality characteristics, so the otherwise-vague
+# "non-functional" bucket has a named sub-taxonomy.
+#
+# Provenance: the ten categories are spec-kit's `/clarify` coverage taxonomy
+# adopted verbatim in meaning; the NFR expansion is ISO/IEC 25010. Adversarial /
+# abuse concerns live as a sub_check under `edge-failure` (and security under
+# `nfr`), NOT as an eleventh top-level category (see spec Q-001).
+#
+# This file changes only by an explicit decision, like the constitution.
+
+schema_version: 1
+categories:
+  - id: functional-scope
+    name: Functional Scope & Behavior
+    description: Core user goals, success criteria, explicit out-of-scope, and actor roles.
+    min_track: XS
+    sub_checks: [core-goals, success-criteria, out-of-scope, actor-roles]
+
+  - id: domain-data-model
+    name: Domain & Data Model
+    description: Entities, attributes, relationships, identity, lifecycle states, and scale.
+    min_track: S
+    sub_checks: [entities, attributes, relationships, identity-uniqueness, lifecycle-states, data-scale]
+
+  - id: interaction-ux
+    name: Interaction & UX
+    description: Primary user flows, inputs and outputs, error and empty states, and accessibility.
+    min_track: S
+    sub_checks: [primary-flows, inputs-outputs, error-states, empty-states, accessibility]
+
+  - id: nfr
+    name: Non-Functional Quality Attributes
+    description: Quality attributes expanded via ISO/IEC 25010's eight characteristics, with measurable targets.
+    min_track: M
+    sub_checks: [measurable-targets, observability]
+    sub_characteristics:
+      - functional-suitability
+      - performance-efficiency
+      - compatibility
+      - usability
+      - reliability
+      - security
+      - maintainability
+      - portability
+
+  - id: integration-external
+    name: Integration & External Dependencies
+    description: External services, data contracts, failure modes of dependencies, and versioning.
+    min_track: M
+    sub_checks: [external-apis, data-contracts, dependency-failure-modes, versioning]
+
+  - id: edge-failure
+    name: Edge Cases & Failure Handling
+    description: Boundary conditions, error handling, adversarial and abuse cases, and recovery.
+    min_track: S
+    sub_checks: [boundary-conditions, error-handling, abuse-adversarial, recovery-rollback]
+
+  - id: constraints-tradeoffs
+    name: Constraints & Tradeoffs
+    description: Technical and business constraints, explicit tradeoffs, and load-bearing assumptions.
+    min_track: M
+    sub_checks: [technical-constraints, business-constraints, explicit-tradeoffs, assumptions]
+
+  - id: terminology
+    name: Terminology & Definitions
+    description: Defined terms, consistent naming, and a glossary that removes ambiguity.
+    min_track: M
+    sub_checks: [defined-terms, consistent-naming, glossary]
+
+  - id: completion-signals
+    name: Completion Signals
+    description: Done criteria and acceptance signals that say when the work is finished.
+    min_track: XS
+    sub_checks: [done-criteria, acceptance-signals]
+
+  - id: misc-placeholders
+    name: Miscellaneous & Placeholders
+    description: Open questions, TODO markers, and unresolved placeholders left in the draft.
+    min_track: XS
+    sub_checks: [open-questions, todo-markers, placeholders]
