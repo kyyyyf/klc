@@ -197,6 +197,37 @@ Every AC describing a CLI, gate, or wired behaviour must map to a test at the **
 on bad input) plus a **fail-closed test** (unavailable or missing input is rejected, not silently
 passed). These are acceptance signals, not formalities — write the RED test first.
 
+## Independent coverage review (KLC-085, M/L before the phase completes)
+
+Your acceptance plan is checked by a **fresh, independent** reviewer — the
+mandatory-external-reviewer discipline shifted onto the TEST-PLAN, reusing KLC-084's
+generic independent-artifact-review seam one artifact further LEFT. On M/L the
+`test-plan-reviewer` agent (`core/agents/test-plan-reviewer.md`) runs before the
+acceptance-test-plan phase completes; on S it cascades (fires on escalation
+signals); XS skips it. Its anchor is the spec's SAOC ACs, and it checks **coverage
+DESIGN** only — every AC maps to a real planned test, no happy-path-only plan, no
+tautological/faked (weak-assertion) test, and every gate/reject AC has a negative
+case. Whether a test is actually implemented / not-faked in code stays the code
+reviewer's job.
+
+The reviewer writes its verdict to `test-plan-review.md` as two output classes: the
+OBJECTIVE `findings[]` (categories `uncovered-ac` / `weak-assertion` /
+`missing-edge-case`, which you assess and fix) and the SUBJECTIVE
+`decisions_to_confirm[]` (topics `coverage-depth` / `risk-prioritization`, routed to
+the human at the ack decision gate). Both are surfaced at ack — warn-only, never a
+new blocking gate.
+
+A DETERMINISTIC pre-pass also runs at ack and SURFACES its own coverage findings as
+warn-only advisories (it never hard-fails — an uncovered AC is already a
+phase-failure above):
+
+```
+python3 core/skills/testplan_review.py --ticket <KEY> --track <TRACK>
+```
+
+Read its `coverage_map` and surfaced findings, then close every hole (map the
+uncovered AC, add the missing edge/negative row) before emitting your signal.
+
 ## Self-review before emit (M-track detailed mode)
 
 After enriching `impl-plan.md` with `**Tests:**` blocks (M-track detailed

@@ -24,6 +24,7 @@ import track_classifier as _tc  # noqa: E402
 import spec_selfreview as _spec_selfreview  # noqa: E402
 import spec_selfcheck as _spec_selfcheck  # noqa: E402
 import spec_review as _spec_review  # noqa: E402
+import testplan_review as _testplan_review  # noqa: E402
 import spec_structure as _spec_structure  # noqa: E402
 import impl_plan_check as _impl_plan_check  # noqa: E402
 import plan_quality as _plan_quality  # noqa: E402
@@ -207,8 +208,15 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
     return True, "; ".join(_advisories)
 
 
-def can_complete_acceptance_test_plan(ticket: str) -> tuple[bool, str]:
+def can_complete_acceptance_test_plan(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check if acceptance-test-plan phase artifacts are complete.
+
+    Args:
+        persist: when True (default, the ack path) the independent-reviewer seam
+            records its findings to `test-plan-review-findings.json`. Read-only
+            callers (`klc remind`, gate-policy advisory) pass False so the check
+            surfaces the same advisories but writes NOTHING (KLC-062 discipline).
+            The deterministic coverage gate never writes, so it is unaffected.
 
     Returns:
         (success, error_message)
@@ -249,8 +257,23 @@ def can_complete_acceptance_test_plan(ticket: str) -> tuple[bool, str]:
     except OSError as e:
         return False, f"Cannot read test-plan.md: {e}"
 
+    # Independent test-plan coverage review (KLC-085): RUN the deterministic
+    # adversarial-coverage gate and SURFACE its findings as warn-only advisories —
+    # like the code reviewer's findings, NOT a new blocking gate (the epic forbids
+    # one; an uncovered AC is already a phase-failure via the test-planner). It maps
+    # each spec SAOC AC to a planned test and flags uncovered ACs / happy-path-only
+    # plans / gate-ACs missing a negative test. Track-scaled (XS skip, S coverage-
+    # only, M/L full) and degrade-safe inside the skill, so it never fails an ack.
+    _advisories = _testplan_coverage_gate(ticket)
+
+    # Independent test-plan reviewer (KLC-085 reusing KLC-084's seam): surface the
+    # fresh reviewer's routed decisions_to_confirm + a collapsed findings count at
+    # the SAME ack decision gate. Warn-only / fail-open, exactly like the spec
+    # reviewer at discovery ack. Threads `persist` so a read-only probe writes nothing.
+    _advisories += _testplan_review_advisories(ticket, persist)
+
     # All checks passed
-    return True, ""
+    return True, "; ".join(_advisories)
 
 
 def _sync_risk_tags(ticket: str) -> None:
@@ -307,6 +330,50 @@ def _spec_review_advisories(ticket: str, persist: bool) -> list[str]:
         track = meta.get("track", "")
         signals = {"risk_tags": meta.get("risk_tags") or []}
         advisories, _findings = _spec_review.consume(
+            ticket_dir, track, signals, persist=persist
+        )
+        return advisories
+    except Exception:
+        return []  # degrade-not-fail: the review seam never blocks an ack
+
+
+def _testplan_coverage_gate(ticket: str) -> list[str]:
+    """Run the KLC-085 independent test-plan coverage review for the ack path.
+
+    Returns warn-only advisory lines (never blocks — mirrors the code reviewer,
+    adds no new gate). The review is track-scaled and degrade-safe inside the
+    skill; a defensive guard here keeps any surprise from ever failing an ack.
+    """
+    try:
+        rep = _testplan_review.run(ticket)
+        return _testplan_review.warn_lines(rep)
+    except Exception:
+        return []  # degrade-not-fail: a coverage-review crash never blocks ack
+
+
+def _testplan_review_advisories(ticket: str, persist: bool) -> list[str]:
+    """Surface the INDEPENDENT test-plan reviewer's outputs at the ack (KLC-085).
+
+    The exact analogue of `_spec_review_advisories`, one artifact further right:
+    it reuses KLC-084's generic seam (via `testplan_review.consume`, bound to
+    `TEST_PLAN_REVIEW`) to route the reviewer's `decisions_to_confirm[]` into the
+    SAME advisory stream the operator already reads at ack — a `decision`-level
+    gate — and to surface a collapsed count of the OBJECTIVE `findings[]`. No new
+    gate is introduced. Findings are recorded to disk for the build phase to assess
+    ONLY on the persisting ack path: `persist` is threaded into `consume`, so a
+    read-only probe (`klc remind` / gate-policy) surfaces WITHOUT writing
+    `test-plan-review-findings.json` (KLC-062 discipline). Track-scaled and
+    degrade-safe inside the seam; nothing here ever fails the ack.
+
+    This is separate from `_testplan_coverage_gate`, which runs 085's own
+    DETERMINISTIC coverage heuristics. Both are surfaced, neither blocks.
+    """
+    try:
+        meta = _lc.read_meta_ro(ticket)
+        ticket_dir = klc_ticket_meta_file(ticket).parent
+        track = meta.get("track", "")
+        signals = {"risk_tags": meta.get("risk_tags") or []}
+        advisories, _findings = _testplan_review.consume(
             ticket_dir, track, signals, persist=persist
         )
         return advisories
@@ -560,10 +627,11 @@ def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[b
         ticket: ticket key (e.g., "KLC-001")
         phase_id: phase identifier (e.g., "discovery", "build")
         persist: when True (default, ack path) discovery completion may persist
-            side effects (risk_tags sync, floor-guard audit). Read-only callers
-            (`klc remind`, gate-policy advisory) pass False so the check never
-            writes meta.json (KLC-062 AC-1). Non-discovery phases never write, so
-            the flag is a no-op for them.
+            side effects (risk_tags sync, floor-guard audit) and the
+            acceptance-test-plan reviewer seam records its findings. Read-only
+            callers (`klc remind`, gate-policy advisory) pass False so the check
+            never writes (KLC-062 AC-1). Phases without a persisting side effect
+            (build, generic) treat the flag as a no-op.
 
     Returns:
         (success, error_message)
@@ -575,7 +643,7 @@ def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[b
         return can_complete_discovery_lite(ticket, persist=persist)
 
     if phase_id == "acceptance-test-plan":
-        return can_complete_acceptance_test_plan(ticket)
+        return can_complete_acceptance_test_plan(ticket, persist=persist)
 
     if phase_id == "build":
         return can_complete_build(ticket)
