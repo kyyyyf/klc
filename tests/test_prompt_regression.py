@@ -93,17 +93,24 @@ def test_discovery_lite_lacks_socratic_sentinel():
     from tests.prompt_harness import _FW_ROOT
     txt = (_FW_ROOT / "core/agents/discovery-lite.md").read_text(encoding="utf-8")
     low = txt.lower()
-    assert "one question at a time" in low
+    # KLC-090 (AC-5) reconciled the ask step to batch-2–4; the old
+    # one-question-at-a-time rule is intentionally gone.
+    assert ("2-4" in txt) or ("2–4" in txt)
+    assert "askuserquestion" in low
     assert ("2-3 approaches" in low) or ("2–3 approaches" in low)
 
 
 def test_discovery_prompts_have_socratic_step():
-    """AC-1/AC-5 (KLC-032): both discovery prompts must have the Socratic protocol markers."""
+    """AC-1/AC-5 (KLC-032, ask-step reconciled by KLC-090): both discovery prompts
+    must have the Socratic protocol markers — explore-first, the batch-2–4 ask, and
+    the present-approaches step."""
     from tests.prompt_harness import _FW_ROOT
     for name in ("discovery-lite.md", "discovery.md"):
         txt = (_FW_ROOT / "core/agents" / name).read_text(encoding="utf-8")
         low = txt.lower()
-        assert "one question at a time" in low, f"{name}: missing 'one question at a time'"
+        # KLC-090 (AC-5 / C-002) replaced one-question-at-a-time with batch-2–4.
+        assert ("2-4" in txt) or ("2–4" in txt), f"{name}: missing batch-2–4 ask rule"
+        assert "askuserquestion" in low, f"{name}: batch ask must use AskUserQuestion"
         assert "explore" in low, f"{name}: missing 'explore' (context-first step)"
         assert ("2-3 approaches" in low) or ("2–3 approaches" in low), (
             f"{name}: missing approach count"
@@ -303,10 +310,10 @@ _SOCRATIC_FIXTURE_PATH = H._FW_ROOT / "tests" / "fixtures" / "klc-034-socratic-i
 _SIMULATE_FIRST_TURN = """\
 You are a discovery-lite agent following the Socratic sub-protocol below.
 Given the ticket description, produce ONLY your first conversational response.
-Follow the instructions exactly: use AskUserQuestion for exactly ONE question,
+Follow the instructions exactly: use ONE AskUserQuestion call carrying a BATCH of
+2–4 related questions ordered by Impact × Uncertainty (recommended option first),
 or — if context already answers all unknowns — begin the approaches step.
-Do NOT write any artifact, do NOT ask multiple questions, do NOT batch.
-This is a single-turn simulation of your first reply.
+Do NOT write any artifact. This is a single-turn simulation of your first reply.
 
 ## Socratic sub-protocol (from discovery-lite.md)
 
@@ -316,15 +323,18 @@ This is a single-turn simulation of your first reply.
 
 {fixture}
 
-Your first response (one question only, or approaches if all unknowns are resolved):
+Your first response (one AskUserQuestion batch of 2–4 questions, or approaches if all unknowns are resolved):
 """
 
 _ONE_QUESTION_JUDGE_RUBRIC = """\
-Does the following first agent response ask exactly ONE question (not batching
-multiple questions in a single response)?
+Does the following first agent response ask its questions as a SINGLE batch of 2–4
+related questions (per KLC-090's reconciled batch rule), rather than a single
+serial question or an unbounded flood?
 
-PASS if: the response contains exactly one distinct question and defers the rest.
-FAIL if: it batches 2 or more questions, or asks none when genuine unknowns exist.
+PASS if: the response puts 2–4 distinct related questions in one batch (or asks
+none when genuine unknowns are already resolved and moves to approaches).
+FAIL if: it asks only one question when several material unknowns remain, or floods
+more than ~5 questions at once.
 
 Agent first response to score:
 """
@@ -353,7 +363,9 @@ def _run_first_turn(simulate_prompt: str) -> str:
 
 
 def test_one_question_at_a_time_judge_fixture():
-    """AC-5 (KLC-034): judge scores an actual simulated agent first turn; skips without key."""
+    """AC-5 (KLC-034, reconciled to batch-2–4 by KLC-090): judge scores an actual
+    simulated agent first turn — it must batch 2–4 questions in one AskUserQuestion
+    call, not ask serially. Skips without an API key."""
     if not H.judge_available():
         pytest.skip(f"judge API key ({H._judge_api_key_env()}) not set")
 
@@ -375,7 +387,7 @@ def test_one_question_at_a_time_judge_fixture():
     rubric = _ONE_QUESTION_JUDGE_RUBRIC + "\n" + first_response
     result = H.judge(first_response, rubric)
     assert result["pass"], (
-        f"agent's first turn batches questions: {result['reason']}\n\nFirst response:\n{first_response}"
+        f"agent's first turn did not batch 2–4 questions: {result['reason']}\n\nFirst response:\n{first_response}"
     )
 
 

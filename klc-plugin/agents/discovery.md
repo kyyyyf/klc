@@ -37,6 +37,32 @@ hover                    — inspect type / doc
 This is cheaper than reading a static symbol dump and gives you the
 real, current signature.
 
+## Planning slice (read first, KLC-073)
+
+Before loading the broad context bundle, read
+`.klc/tickets/<KEY>/retrieval_trace.json` — the deterministic planning
+slice intake built from this ticket's description (planning_indexer.md
+§"Фазовая интеграция и authority"). Use it to bound what you open:
+
+- `files_to_read_first` / `files_likely_to_edit` — open these before any
+  broad scan; they are the retriever's ranked candidate files.
+- `tests_to_read_or_run` — the tests directly mapped to that slice.
+- `conditional_neighbors[]` (each has `module_name` + `condition`) — open
+  a neighbour module only when its stated `condition` holds.
+- `stop_rules` — honour them: do not expand context past graph depth 1
+  without a reason you record in `spec.md`.
+- `affected_modules_hint` — the retriever's **advisory** scope proposal.
+- `unknown_or_ambiguous_modules` — files the retriever could not place in
+  a module; you MUST resolve each (include or explicitly exclude) before
+  writing `meta.affected_modules`.
+
+**Authority (planning_indexer.md §Authority).** The trace is a *hint*, not
+truth — you are the authority for scope. `affected_modules_hint` only
+*seeds* `meta.affected_modules` / `spec.md` «Affected modules», which you
+own and `ack` freezes; it never overrides them. When the trace is
+`status:"unavailable"` (planning views not built) or `confidence:"low"`,
+fall back to the full context bundle below.
+
 Reachable on demand but expensive:
 - `.klc/tickets/archive/<KEY>/retrospective.md` — lessons from past
   tickets you deem relevant. Read only those 40-related.md flagged.
@@ -100,11 +126,15 @@ risk_tags: [<user-facing|data|security|migration>, ...]
 ...
 
 ## Acceptance Criteria
-1. AC-1: Given ..., when ..., then ...
-2. AC-2: ...
+1. AC-1: <Subject> · <Action> · <Object> · <Condition>
+2. AC-2: <Subject> · <Action> · <Object> · <Condition>
 
 ## Non-goals
 ...
+
+## Assumptions
+- <coverage-dimension>: <the reasonable default you inferred>
+- <coverage-dimension>: <the reasonable default you inferred>
 
 ## Constraints
 
@@ -133,6 +163,108 @@ Every assertion about the code is a `FACT` with `src=file:line
 verified=<today>`. Every guess is an `ASSUMPTION` with `if-false=...`.
 Never paraphrase a `FACT` from a module CLAUDE.md without re-
 verifying — just link to it.
+
+**Acceptance criteria — SAOC form (mandatory, KLC-083).** Write every
+`AC-N` as four segments separated by a middle dot `·` (U+00B7), the WHOLE AC on
+ONE line (the checker cannot associate a wrapped continuation line with the id):
+
+```text
+AC-1: the parser · rejects · an AC lacking four parts · when the segment count != 4
+```
+
+* **Subject** — the actor/component the requirement is about.
+* **Action** — the observable verb it performs.
+* **Object** — what the action operates on or produces.
+* **Condition** — the verifiable trigger or outcome (`when …` / `then …`).
+  It must name something checkable, not a vague quality ("works correctly").
+
+Keep each part free of a literal `·` — there is no escaping, so a middle dot
+inside a part over-splits the AC; reword instead. Splitting the AC this way makes
+it objectively checkable. At ack the deterministic self-check
+(`core/skills/spec_selfcheck.py`) RUNS over the spec and SURFACES a non-SAOC AC as
+a warning (it does not hard-fail it — the format rolls out gradually); it BLOCKS
+only on the objective defects below.
+
+**Unknowns — `[NEEDS CLARIFICATION]` markers (mandatory, KLC-083).** When an
+answer is genuinely a human decision (scope boundary, tradeoff, ambiguous
+intent), flag it INLINE with an explicit marker rather than guessing:
+
+```text
+[NEEDS CLARIFICATION: should the gate hard-fail on WHAT-not-HOW, or only surface it?]
+```
+
+An open marker in a requirement section (Acceptance Criteria, Open questions,
+Constraints) is an unresolved question by definition: it makes the human-question
+list complete and systematic, and the self-check gate BLOCKS ack while one remains
+(it must not silently pass). Resolve each one — answer it inline and delete the
+marker — before acking, or route it to the decision gate. An operator who is
+knowingly deferring a marker can ack past it by setting `meta.deferred_markers`
+(the marker is then surfaced as a warning, not silenced).
+
+**Coverage elicitation — run mid-draft, before you finalize (mandatory).** You
+know HOW to ask, but completeness is by luck unless you interrogate a systematic
+checklist of WHAT to ask. The merged elicitation engine (`core/skills/elicitation.py`,
+KLC-088) supplies that checklist. Once you have a rough draft of `spec.md`, run the
+engine on it BEFORE finalizing — you call the skill yourself, mid-phase (this is
+*agent-calls-skill*, not an orchestrator run around the phase; the post-hoc
+spec-reviewer already covers the finished spec):
+
+```text
+python3 core/skills/elicitation.py --file <path-to-your-draft-spec.md> --track <track> [--risk-tags <tags>]
+```
+
+Pass the ticket's `risk_tags` via `--risk-tags <tags>` (comma-separated, e.g.
+`--risk-tags data,security`) whenever they are non-empty. Source them from the
+`risk_tags:` you are recording in your DRAFT `spec.md` frontmatter — that is where
+they live during discovery (do NOT read them from `meta.json`: the ack step
+`phase_completion._sync_risk_tags` only copies `risk_tags` from the `spec.md`
+frontmatter into `meta.json` LATER, at discovery ack, so the meta field is still
+empty while you are drafting). Fall back to `meta.json` only on a re-run after ack,
+when it is already populated. A risk tag boosts the Impact of its aligned coverage
+dimension (e.g. `data` → `domain-data-model`, `security` → `nfr`), so a risk-aligned
+gap is routed as a decision or a marker instead of being downgraded to a silent
+`## Assumptions` line — the boost is unreachable if you omit the flag. Omit
+`--risk-tags` when `risk_tags` is empty (behaviour is then identical).
+
+It prints one JSON object (the return value of `elicitation.elicit(draft, track)`,
+or `elicitation.elicit(draft, track, signals={"risk_tags": [...]})` with the flag):
+- `coverage[]` — each mandatory category as `{"id", "status"}`, status Clear / Partial / Missing.
+- `questions[]` — the prioritised, track-capped candidate questions (`interrogative`,
+  `score`, `recommended`), ordered by Impact × Uncertainty. These become what you ASK.
+- `markers[]` — `[NEEDS CLARIFICATION (<category>): …]` strings for genuine unknowns
+  with NO safe default. Paste each into the relevant requirement section verbatim.
+- `decisions[]` — `decision_to_confirm` objects (each carries a `recommended`
+  answer). These are the DEFAULTABLE gaps: a defensible default exists, so they are
+  non-blocking by design.
+- `assumptions[]` — `- <category>: <default>` lines.
+
+**These are TRANSIENT CLI output — they do NOT auto-flow into any gate.** The ack
+decision gate (`spec_review.consume`) only consumes `decisions_to_confirm[]` from a
+PERSISTED reviewer artifact (`spec-review.md` / `spec-review-findings.json`); it never
+parses this elicitation output, so anything you do not write down simply disappears.
+RECORD each output into `spec.md` yourself, mapping it to the RIGHT spec form (the
+discovery gate `can_complete_discovery` BLOCKS on an open `[NEEDS CLARIFICATION]`
+marker, but NOT on a plain `[!QUESTION]`):
+
+- `markers[]` → an inline `[NEEDS CLARIFICATION]` marker. No safe default exists, so
+  blocking is correct: the open marker BLOCKS the ack until the human resolves it.
+- `decisions[]` → a NON-BLOCKING `[!QUESTION Q-NNN]` item carrying the `recommended`
+  default in its body (the "Surface QUESTIONs" step below surfaces it at the decision
+  gate the human signs off at). Do **not** add `blocks=discovery` — a plain
+  `[!QUESTION]` only SURFACES, whereas `blocks=discovery` would force a STOP. And do
+  **not** record a defaultable decision as `[NEEDS CLARIFICATION]`: that marker BLOCKS
+  the ack and is reserved for `markers[]` only.
+- `assumptions[]` → `## Assumptions` lines.
+
+Also turn `questions[]` into the batch you put to the operator (see the Socratic
+sub-protocol below). **Guess-by-default (`## Assumptions` rule):** for every
+Partial / Missing dimension the engine did not escalate, infer a reasonable default
+and record it as an `## Assumptions` line — the assumption stands. Escalate a
+dimension to a `[NEEDS CLARIFICATION]` marker or a `decision_to_confirm` ONLY when
+its impact × ambiguity is high (the engine already applies this split; honour its
+routing). **Degrade-not-fail:** an empty engine result means "no coverage gaps to
+surface" — an empty draft, absent taxonomy, or unknown track yields an empty result,
+never an exception. Treat an empty result as clean, never as a phase error.
 
 ### 3. Track classification
 
@@ -206,18 +338,44 @@ discovery.
 
 ## Socratic sub-protocol (S and up)
 
-Before finalizing `spec.md`, work through these four steps in order:
+**Anti-authoring discipline (read first).** You are a coach, not a quiz-master:
+**coach, don't quiz.** This is elicitation, **not direction** — hand the pen back
+to the requester and draw out THEIR intent; do **not** invent the requester's
+intent or author the answers for them. Your job is to surface what is unknown and
+let the human decide, not to decide for them.
+
+**Frame the Goals section via 5 Whys and Impact Mapping.** Do not accept the surface
+ask at face value: apply **5 Whys** to trace the request down to the real underlying
+goal, then use **Impact Mapping** to lay the goal out as **Goal → Actors → Impacts**
+(who must behave differently, and what change in their behaviour delivers the goal).
+Write the resulting bounded goal into the `## Goals` section.
+
+This is a **draft-then-refine loop**, not "ask everything before any draft exists":
+the coverage question queue only comes into being AFTER you have a rough draft to
+run the engine on. So work through these steps in order, before finalizing `spec.md`:
 
 1. **Explore context first.** Thoroughly read all inputs (raw.md, CLAUDE.md, related
    tickets, module docs) before forming any opinion on approach.
-2. **Ask one question at a time.** Use the `AskUserQuestion` tool — exactly one
-   question per call — and wait for the answer before asking the next. If context
-   already answers every material unknown, skip questioning and go straight to the
-   approaches step. Never batch questions.
-3. **Present 2-3 approaches with explicit trade-offs.** For each candidate: name,
+2. **Draft a rough `spec.md`, then run coverage elicitation on it.** Write an interim
+   draft (best-effort goals / ACs / constraints / affected, plus your `risk_tags:` in
+   the frontmatter), then run `python3 core/skills/elicitation.py --file <draft> --track <track>
+   [--risk-tags <tags>]` on it (see the "Coverage elicitation" section above). This
+   produces the coverage question queue and the routed markers / decisions /
+   assumptions — the basis for the next step.
+3. **Ask in batches of 2–4 (reconciles `config/clarify.yml: style: batch`).** Use
+   the `AskUserQuestion` tool to put **2–4 related questions per call** (or FEWER — down to one — when fewer material questions remain; never invent filler to reach two) — the
+   coverage-elicitation `questions[]` queue is already ordered by Impact ×
+   Uncertainty, so ask in that order, capped (roughly the engine's track cap: ~3 on
+   S, ~5 on M/L), the **recommended** option first, and adapt across calls as
+   answers come in. Fold the answers plus the routed `markers[]` / `decisions[]` /
+   `assumptions[]` back into the draft (per the "Coverage elicitation" mapping). If
+   context already answers every material unknown, skip questioning and go straight to
+   the approaches step. (This replaces the old one-question-at-a-time rule, which was a
+   chat-CLI limitation; AskUserQuestion batches natively.)
+4. **Present 2-3 approaches with explicit trade-offs.** For each candidate: name,
    one-line summary, pros, cons. Record the shortlist (brief labels) in `spec.md`;
    full pros/cons detail goes in `design/options.md`.
-4. **Record the pick.** After operator selection, add a `Picked:` line in `spec.md`
+5. **Record the pick.** After operator selection, add a `Picked:` line in `spec.md`
    (the approaches detail lives in `design/options.md`):
    ```
    Picked: <approach name> — <reason>
@@ -226,6 +384,23 @@ Before finalizing `spec.md`, work through these four steps in order:
 When the request spans multiple independent subsystems, emit `DISCOVERY_DECOMPOSE`
 in `spec.md` before the completion signal so the operator can decompose or upgrade
 the track.
+
+## Optional deepening — technique picker (M/L only)
+
+When a coverage dimension stays genuinely hard after the batch above, you MAY offer
+the operator a named elicitation technique from the catalog (`config/elicitation-techniques.csv`,
+surfaced through `core/skills/elicitation_techniques.py`, KLC-087). This is a
+**hard track-gate**: call `elicitation_techniques.should_offer(track, flagged_ambiguity)`
+first — it returns True only on **M and L** (this is the `discovery.md` M/L path), or
+when you pass `flagged_ambiguity=True` for a real, explicitly-flagged ambiguity. When
+it returns True, call `elicitation_techniques.pick(context, n=5)` to draw a handful of
+context-relevant techniques and PRESENT them to the operator as candidates.
+
+**Never apply a technique without an explicit human "yes".** The picker is
+**selection only** — there is deliberately **no apply/run** entry point in the module
+(the picker only selects; it never executes) — so a surfaced technique is used only
+after the operator agrees. Do not auto-apply, and do not imply the module runs it for
+you.
 
 ## Self-review before emitting
 
@@ -237,6 +412,40 @@ Before writing the completion signal, scan `spec.md` for violations and fix them
 
 A spec carrying any of the above will fail the mechanical self-review gate
 (`spec_selfreview.scan_spec`) and block the discovery ack.
+
+## Independent spec review (expected on M/L — surfaced, not blocking, KLC-084)
+
+Your self-review has the same blind spot the code author has before the mandatory
+code reviewer: you validate the spec against your OWN intent, so you cannot see
+where it drifted from `raw.md`, contradicts the current code, or silently decided
+a genuinely-human call. So before the spec phase completes, an **independent**
+spec reviewer is spawned — fresh, with no build context — exactly as the code
+reviewer is spawned before `review-report.md`, only shifted LEFT onto the spec.
+Like the code reviewer, it is *fail-open*: it surfaces and records, it does not
+gate the ack.
+
+- **Who spawns it**: the orchestrator / autorunner (like the code reviewer). You
+  do not make the LLM call yourself; you finish the spec and the review fires
+  around it. The reviewer prompt is `core/agents/spec-reviewer.md`.
+- **Track scaling**: full on M/L, cascade on S, skipped on XS. At the spec phase
+  the only escalation signal available is a **risk tag** (user-facing / data /
+  security / migration / coordination) — there is no diff yet, so sentinel /
+  scope-expansion signals do not fire here. The gate is
+  `spec_review.should_run(track, signals)`.
+- **Two outputs**: the reviewer writes `spec-review.md` carrying `findings[]`
+  (objective — it decides) and `decisions_to_confirm[]` (subjective — it never
+  adjudicates; each carries a recommended answer). At ack the plumbing
+  `core/skills/spec_review.py` parses that file and, into THIS discovery ack's
+  advisory lines — the existing `decision`-level gate the operator already signs
+  off at — it **routes `decisions_to_confirm[]`** (each leading with the
+  recommendation) AND **surfaces a collapsed `findings[]` count** (e.g.
+  `spec-review: 3 finding(s) recorded (1 high) — assess before build`). It records
+  the findings to `spec-review-findings.json`, which the **build agent
+  (`core/agents/impl.md`) reads and assesses** (fix / won't-fix) before writing
+  code. No new human gate is added; the review elevates and records, it does not
+  block the ack.
+- **Degrade-not-fail**: if the reviewer output is absent on a review-expected
+  track, ack surfaces a single degraded note and still completes.
 
 ## Completion signal
 

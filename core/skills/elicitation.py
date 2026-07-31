@@ -767,9 +767,22 @@ if __name__ == "__main__":  # pragma: no cover - CLI smoke
     ap = argparse.ArgumentParser(description="elicitation engine (E-02)")
     ap.add_argument("--file", required=True)
     ap.add_argument("--track", default="M")
+    # Optional risk_tags (the ticket's meta.json risk_tags), comma-separated. When
+    # present they are threaded into `elicit(..., signals=...)` so a risk-aligned
+    # coverage gap (e.g. domain-data-model on a `data` ticket, nfr on `security`)
+    # gets its Impact boost and routes as a decision/marker instead of a silent
+    # assumption. Absent → signals=None, identical to the pre-flag behaviour. The
+    # JSON output shape is unchanged either way.
+    ap.add_argument("--risk-tags", default=None,
+                    help="comma-separated risk_tags (e.g. data,security); during discovery source from the draft spec.md frontmatter, not meta.json (empty until ack)")
     args = ap.parse_args()
     text = Path(args.file).read_text(encoding="utf-8")
-    result = elicit(text, args.track)
+    signals = None
+    if args.risk_tags:
+        tags = [t.strip() for t in args.risk_tags.split(",") if t.strip()]
+        if tags:
+            signals = {"risk_tags": tags}
+    result = elicit(text, args.track, signals=signals)
     print(json.dumps({
         "coverage": [{"id": c.id, "status": c.status} for c in result.coverage],
         "questions": [
