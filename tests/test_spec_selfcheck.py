@@ -297,3 +297,191 @@ def test_gate_adapter_blocks_on_marker():
 def test_gate_adapter_passes_clean_spec():
     ok, _ = sc.gate(_GOOD_SPEC, "M")
     assert ok
+
+
+# === KLC-089 (E-05) — coverage dimension + vague-adjective blocklist =========
+
+import elicitation as _elic  # noqa: E402  (the E-02 scan seam the coverage dim reads)
+
+
+def _cov(cat_id, status):
+    """A CategoryCoverage double, built through the real elicitation dataclass so
+    the tests read the same status vocabulary the seam emits (single-source)."""
+    return _elic.CategoryCoverage(id=cat_id, status=status)
+
+
+# --- step-1: the coverage dimension (calls scan_coverage, SURFACE, degrade) ---
+
+def test_coverage_calls_scan_coverage(monkeypatch):
+    # AC-1 / AC-8: the dimension derives its findings ONLY from what
+    # elicitation.scan_coverage returns — proving it reads the E-02 scan rather
+    # than re-implementing the classifier or re-parsing the taxonomy.
+    seen = {}
+
+    def fake_scan(text, track):
+        seen["args"] = (text, track)
+        return [_cov("edge-failure", _elic.MISSING)]
+
+    monkeypatch.setattr(_elic, "scan_coverage", fake_scan)
+    findings = sc._check_coverage("some spec body", "S")
+    assert seen["args"] == ("some spec body", "S")
+    assert any(f.dimension == "coverage" and f.ref == "edge-failure"
+               and "edge-failure" in f.message for f in findings)
+
+
+def test_coverage_surfaces_missing_never_blocks(monkeypatch):
+    # AC-2 / AC-3: every Missing mandatory category is SURFACEd, never BLOCKed.
+    monkeypatch.setattr(
+        _elic, "scan_coverage",
+        lambda text, track: [_cov("nfr", _elic.MISSING),
+                             _cov("edge-failure", _elic.MISSING)])
+    findings = sc._check_coverage("body", "S")
+    assert findings  # both Missing categories surfaced
+    assert all(f.severity == sc.SURFACE for f in findings)
+    assert not any(f.severity == sc.BLOCK for f in findings)
+    assert {f.ref for f in findings} == {"nfr", "edge-failure"}
+
+
+def test_coverage_degrades_when_elicitation_unavailable(monkeypatch):
+    # AC-5: when the scan raises, the dimension yields exactly ONE degraded
+    # SURFACE note and swallows the exception (so self_check's other dimensions,
+    # dispatched independently, still run — never a crashed ack).
+    def boom(text, track):
+        raise RuntimeError("taxonomy gone")
+
+    monkeypatch.setattr(_elic, "scan_coverage", boom)
+    findings = sc._check_coverage("body", "M")
+    assert len(findings) == 1
+    note = findings[0]
+    assert note.dimension == "coverage"
+    assert note.severity == sc.SURFACE
+    assert "degrad" in note.message.lower() or "unavailable" in note.message.lower()
+
+
+def test_coverage_degrades_when_scan_returns_malformed(monkeypatch):
+    # AC-5 (LOW-1 hardening): a MALFORMED scan return — not only a raise — must
+    # also degrade to exactly one SURFACE note and never propagate out of
+    # _check_coverage / self_check. Two shapes exercise the comprehension guard:
+    # a non-iterable (None → TypeError) and an element lacking .status/.id
+    # (AttributeError). Both must be caught INSIDE _check_coverage's try.
+    class _Bad:  # an element with neither .status nor .id
+        pass
+
+    for bad_return in (None, [_Bad()]):
+        monkeypatch.setattr(_elic, "scan_coverage", lambda text, track, _r=bad_return: _r)
+        # direct: exactly one degraded SURFACE note, no exception
+        findings = sc._check_coverage("body", "M")
+        assert len(findings) == 1
+        assert findings[0].dimension == "coverage"
+        assert findings[0].severity == sc.SURFACE
+        # end to end: self_check still completes, coverage never blocks, other
+        # dimensions still run
+        rep = sc.self_check(_GOOD_SPEC, "M")
+        cov = [f for f in rep.findings if f.dimension == "coverage"]
+        assert len(cov) == 1 and cov[0].severity == sc.SURFACE
+        assert rep.ok
+        assert any(f.dimension != "coverage" for f in rep.findings)
+
+
+# --- step-2: vague-adjective blocklist folded into `testability` -------------
+
+def _spec_with_ac(ac_line: str) -> str:
+    """A minimal but well-formed spec carrying one SAOC acceptance criterion."""
+    return (
+        "## Goals\nProvide a gate.\n\n"
+        "## Acceptance Criteria\n"
+        f"1. {ac_line}\n\n"
+        "## Estimate\ntotal: 4\n"
+    )
+
+
+def _vague_findings(rep):
+    return [f for f in rep.surfaced
+            if f.dimension == "testability" and "vague adjective" in f.message]
+
+
+def test_vague_adjective_surfaced_whole_word():
+    # AC-6: a blocklisted quality adjective used with no measurable criterion is
+    # SURFACEd by the testability dimension.
+    spec = _spec_with_ac(
+        "AC-1: the system · is · secure · when it processes external requests")
+    rep = sc.self_check(spec, "M")
+    vague = _vague_findings(rep)
+    assert any("secure" in f.message and f.ref == "AC-1" for f in vague)
+    assert all(f.severity == sc.SURFACE for f in vague)
+
+
+def test_vague_adjective_substring_not_flagged():
+    # AC-7: whole-word matching — `secure` fires, but the substring inside
+    # `security` (a different word) must NOT.
+    spec = _spec_with_ac(
+        "AC-1: the system · passes · a security review · when it is audited")
+    rep = sc.self_check(spec, "M")
+    assert _vague_findings(rep) == []
+
+
+def test_vague_adjective_quantified_not_flagged():
+    # A blocklisted adjective backed by a measurable criterion (a number in the
+    # AC body) is a specified quality, not an asserted one → left quiet.
+    spec = _spec_with_ac(
+        "AC-1: the API · responds · fast (p95 under 200ms) · when it is queried")
+    rep = sc.self_check(spec, "M")
+    assert _vague_findings(rep) == []
+
+
+# --- step-3: registry + track gating + ack integration ----------------------
+
+def _cov_findings(rep):
+    return [f for f in rep.findings if f.dimension == "coverage"]
+
+
+def test_coverage_off_on_xs_active_on_s(monkeypatch):
+    # AC-4: the coverage dimension is HEAVY — gated OFF on XS, active on S. Even
+    # with a Missing category available, XS surfaces nothing from coverage.
+    monkeypatch.setattr(
+        _elic, "scan_coverage",
+        lambda text, track: [_cov("edge-failure", _elic.MISSING)])
+    xs = sc.self_check(_GOOD_SPEC, "XS")
+    s = sc.self_check(_GOOD_SPEC, "S")
+    assert _cov_findings(xs) == []
+    assert any(f.ref == "edge-failure" for f in _cov_findings(s))
+    assert all(f.severity == sc.SURFACE for f in _cov_findings(s))
+
+
+def test_coverage_partial_surfaced_on_m_not_s(monkeypatch):
+    # AC-4: a Partial category is left quiet on the light track (S) but surfaced
+    # on M/L — the track-scaling is a real bound decided inside _check_coverage.
+    monkeypatch.setattr(
+        _elic, "scan_coverage",
+        lambda text, track: [_cov("interaction-ux", _elic.PARTIAL)])
+    s = sc.self_check(_GOOD_SPEC, "S")
+    m = sc.self_check(_GOOD_SPEC, "M")
+    assert _cov_findings(s) == []
+    assert any(f.ref == "interaction-ux" for f in _cov_findings(m))
+
+
+def test_coverage_degrade_keeps_other_dimensions(monkeypatch):
+    # AC-5 end-to-end: when the scan raises, self_check yields exactly one degraded
+    # coverage SURFACE note AND every other dimension still runs (never blocks).
+    def boom(text, track):
+        raise RuntimeError("taxonomy gone")
+
+    monkeypatch.setattr(_elic, "scan_coverage", boom)
+    rep = sc.self_check(_GOOD_SPEC, "M")
+    cov = _cov_findings(rep)
+    assert len(cov) == 1 and cov[0].severity == sc.SURFACE
+    assert any(f.dimension != "coverage" for f in rep.findings)  # others ran
+    assert rep.ok  # coverage never blocks, degraded or not
+
+
+def test_coverage_finding_reaches_ack_warn_lines(monkeypatch):
+    # AC-3 (end to end): a Missing coverage category reaches the ack path's warn
+    # lines as an advisory and NEVER the block message — warn-only, end to end.
+    import phase_completion as pc  # noqa: E402  (the real ack call site)
+
+    monkeypatch.setattr(
+        _elic, "scan_coverage",
+        lambda text, track: [_cov("edge-failure", _elic.MISSING)])
+    block_msg, warn_lines = pc._spec_quality_gate(_GOOD_SPEC, {"track": "S"})
+    assert block_msg == ""  # coverage never blocks the ack
+    assert any("coverage" in line and "edge-failure" in line for line in warn_lines)

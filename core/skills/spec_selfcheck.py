@@ -31,7 +31,9 @@ SURFACE note and every other dimension still runs. The gate never crashes a phas
 
 Track scaling: XS runs the LIGHT set (format + markers + constitution surfacing).
 S/M/L run the FULL set (adds testability, WHAT-not-HOW, contradiction,
-completeness). XS pays only the cheap format/marker cost.
+completeness, and coverage). XS pays only the cheap format/marker cost. The
+coverage dimension (KLC-089) scales further inside itself: Missing-only on S,
+Missing plus Partial on M/L.
 """
 from __future__ import annotations
 
@@ -57,7 +59,7 @@ SURFACE = "surface"
 
 # Track sets. LIGHT is the XS floor; FULL adds the heavier consistency checks.
 _LIGHT = {"format", "markers", "constitution"}
-_HEAVY = {"testability", "what-not-how", "contradiction", "completeness"}
+_HEAVY = {"testability", "what-not-how", "contradiction", "completeness", "coverage"}
 
 # The [NEEDS CLARIFICATION] marker (spec-kit convention). Any occurrence that
 # survives in the spec is an UNRESOLVED question by definition — the author
@@ -82,6 +84,21 @@ _REQUIREMENT_HEADINGS = (
     ("open question", "open questions"),
     ("constraint",),
 )
+
+# Vague-adjective blocklist (KLC-089 / E-05, borrowed from spec-kit's /analyze).
+# An acceptance criterion that PROMISES a quality — the system will be `fast`,
+# `secure`, … — without a measurable criterion is asserting a quality rather than
+# specifying one. Matching is WHOLE-WORD (leading + trailing `\b`) so `secure`
+# does not fire inside `security` and `fast` does not fire inside `steadfast`
+# (C-004). This is a deliberate, distinct addition to spec_saoc's condition-only
+# `_VAGUE_TOKENS` check — both may flag `intuitive`, and that overlap is intended.
+_VAGUE_ADJECTIVES = ("fast", "scalable", "secure", "intuitive", "robust",
+                     "performant", "reliable")
+_VAGUE_ADJ_RE = re.compile(r"\b(" + "|".join(_VAGUE_ADJECTIVES) + r")\b", re.IGNORECASE)
+# A digit anywhere in the AC body is a cheap "quantified" signal — a measurable
+# criterion is present, so the asserted quality is treated as specified and left
+# quiet (e.g. `fast (p95 < 200ms)`).
+_MEASURABLE_RE = re.compile(r"\d")
 
 # WHAT-not-HOW cues: implementation detail smuggled into a requirement section.
 _HOW_CUES = (
@@ -251,6 +268,16 @@ def _check_testability(text: str) -> list[Finding]:
         weak = _saoc.weak_condition(ac.condition)
         if weak:
             out.append(Finding("testability", SURFACE, f"{ac.id}: {weak}", ref=ac.id))
+        # Vague-adjective blocklist (KLC-089): a whole-AC-body quality adjective
+        # with no measurable criterion nearby is surfaced. Whole-word only, and
+        # skipped when the body already carries a number (a quantified target).
+        if not _MEASURABLE_RE.search(ac.body):
+            for m in _VAGUE_ADJ_RE.finditer(ac.body):
+                out.append(Finding(
+                    "testability", SURFACE,
+                    f"{ac.id}: unquantified vague adjective {m.group(1)!r} — "
+                    f"add a measurable criterion",
+                    ref=ac.id))
     return out
 
 
@@ -324,6 +351,56 @@ def _check_completeness(text: str) -> list[Finding]:
     return out
 
 
+def _check_coverage(text: str, track: str) -> list[Finding]:
+    """Coverage dimension (HEAVY-style, warn-only — KLC-089 / E-05).
+
+    Surfaces the track-mandatory taxonomy categories the E-02 scan leaves
+    under-covered, so a draft spec that skipped a dimension the track requires is
+    advised on (never failed) at ack. Single-source (C-001): the categories and
+    their Clear / Partial / Missing classification are read ONLY through
+    `elicitation.scan_coverage` (which itself reads `coverage_taxonomy.for_track`);
+    this function re-parses nothing and re-implements no scan.
+
+    Track-scaling (C-003) is decided HERE from the track passed in: on S only
+    Missing categories are surfaced (a Partial dimension is thin but present, so
+    it stays quiet on the light track), while on M and L Partial categories are
+    surfaced too. XS never reaches here — `coverage` is a HEAVY dimension, gated
+    off on XS by `_active_dimensions`.
+
+    Degrade-not-fail (C-002), mirroring `_check_constitution`: `elicitation` is
+    imported lazily so its absence degrades HERE. The ENTIRE seam interaction —
+    the import, the `scan_coverage` call, AND the result comprehension — lives
+    inside the try (exactly like `_check_constitution`, whose comment reads "The
+    comprehension MUST live inside the try"): so ANY failure of the seam degrades
+    to the single SURFACE note, whether it RAISES or returns something MALFORMED
+    (None, a non-iterable, or an element lacking `.status`/`.id`, which would
+    raise TypeError/AttributeError only when the comprehension touches it). Every
+    OTHER dimension (dispatched independently by `self_check`) still runs. NEVER
+    emits a BLOCK: an under-covered spec is a completeness signal for the author
+    and the independent reviewer, not an objective authoring defect.
+    """
+    try:
+        import elicitation as _elic  # lazy so absence degrades HERE, not at import
+        coverage = _elic.scan_coverage(text, track)
+        t = (track or "").strip().upper()
+        # S surfaces Missing only; M / L (and any non-S track that reaches here)
+        # also surface Partial. The status strings are the elicitation vocabulary.
+        flag = {"Missing"} if t == "S" else {"Missing", "Partial"}
+        # The comprehension MUST live inside the try: a malformed seam return
+        # (None, a non-list, or an element missing `.status`/`.id`) raises only
+        # HERE, and degrade-not-fail (C-002) requires that to become the single
+        # note, never a crash of the whole self-check.
+        return [
+            Finding("coverage", SURFACE,
+                    f"track-mandatory category {c.id!r} is {c.status} — consider covering it",
+                    ref=c.id)
+            for c in coverage if c.status in flag
+        ]
+    except Exception as exc:  # ImportError, scan failure, OR a malformed return
+        return [Finding("coverage", SURFACE,
+                        f"coverage scan unavailable ({exc!r}); completeness surfacing degraded")]
+
+
 def _check_constitution() -> tuple[list[Finding], list[dict]]:
     """Surface the constitution REVIEW-principle checklist (degrade-safe).
 
@@ -377,6 +454,8 @@ def self_check(text: str, track: str | None = None) -> Report:
         report.findings += _check_contradiction(text)
     if "completeness" in active:
         report.findings += _check_completeness(text)
+    if "coverage" in active:
+        report.findings += _check_coverage(text, report.track)
     if "constitution" in active:
         con_findings, checklist = _check_constitution()
         report.findings += con_findings
