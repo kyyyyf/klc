@@ -18,12 +18,48 @@ orchestrating prompt for phase 3.
 - `00-spec.md`
 - `10-test-plan.md`
 - `20-related-adrs.md` (optional)
+- `.klc/index/module_edges.json` — ranked, evidence-backed module
+  edges (KLC-071). **Preferred** source for the dependency-impact step:
+  read this before falling back to the raw `depgraph`, because each edge
+  already carries `evidence_count`, `confidence`, `edge_types`, and
+  `expand_by_default`. Degrade to `depgraph` when absent.
+- `.klc/index/symbol_usage.json` — per-symbol impact radius (KLC-071):
+  `used_by` (consumers with module + `usage_type`), `tested_by`, and
+  `change_risk`. Use it to size a public-symbol change instead of a
+  manual graph walk. Degrades to file-level `usage_type:"import"` /
+  `confidence:"low"` when no callgraph was built — treat low-confidence
+  usage as a hint, not a complete list.
 - `.klc/index/depgraph.json` — `import_graphs.<lang>` (authoritative
-  module/file dependency edges). Read on demand.
+  file-level dependency edges). Fallback when `module_edges.json` is
+  absent. Read on demand.
 - `.klc/index/modules.json` — module → path map for resolving
   `affected_modules`.
+- `.klc/tickets/<KEY>/retrieval_trace.json` (if present, KLC-073) — the
+  deterministic planning slice intake built for this ticket. Its
+  `files_to_read_first` / `files_likely_to_edit` are the ranked candidate
+  files to open first; `tests_to_read_or_run` are the directly-mapped
+  tests for that slice; `conditional_neighbors[]` (each with `module_name`
+  + `condition`) are neighbour modules to pull in when their condition
+  holds; `stop_rules` bound how far to expand. Skip it when absent or
+  `status:"unavailable"`.
 - On demand: `core/skills/context-loader.py` for module CLAUDE.md
   bundles.
+
+**Planning-slice discipline (KLC-071, KLC-073).** Before reading broad
+project context, read `.klc/tickets/<KEY>/retrieval_trace.json` and start
+from its `files_to_read_first` / `files_likely_to_edit`; run the
+dependency-impact step (1a) over those files plus the `module_edges`
+neighbours. Also consume the trace's own `conditional_neighbors[]`: for
+each, evaluate its `condition` and, when it holds, include that
+`module_name` in the slice and its dependency-impact analysis — these
+neighbours can come from retriever logic (e.g. shared-file membership),
+not only from `module_edges`, so do not rely on `module_edges` alone.
+Consume `tests_to_read_or_run` as the starting test set for the affected
+files. Honour the trace `stop_rules`: do not expand beyond graph depth 1
+(`module_edges` neighbours) unless the implementation plan requires it, or
+a `conditional_neighbors` entry's condition holds. When an option adds a file
+outside that slice, state the reason in the option. Fall back to the views
+below when the trace is absent or `status:"unavailable"`.
 
 ## Model handoff guard
 
@@ -86,13 +122,21 @@ can be reflected in every option's `Affected files` / `Risks` instead of
 being discovered at review.
 
 1. For each module in `meta.json.affected_modules`, read
-   `depgraph.import_graphs.<lang>.edges` and list:
+   `module_edges.json` (KLC-071) — its `edges[]` already give ranked
+   `depends_on` neighbours with `evidence_count` / `confidence` /
+   `edge_types`. Expand the `expand_by_default` / high-confidence
+   neighbours first. Fall back to `depgraph.import_graphs.<lang>.edges`
+   only when `module_edges.json` is absent. List:
    - **downstream** — modules/files this one imports (what the change
      may break that it relies on);
    - **upstream (dependents)** — modules/files that import this one
      (who breaks if its public API changes).
-2. Verify the touched public symbols with LSP `findReferences` to
-   confirm the real call sites, not just module-level edges.
+2. For a public-symbol change, read `symbol_usage.json` for the touched
+   symbols (`<file>::<name>`): its `used_by` consumers, `tested_by`
+   tests, and `change_risk` size the blast radius directly. Then confirm
+   with LSP `findReferences` — the symbol_usage `used_by` is a starting
+   set (and only file-level when no callgraph exists), not the final
+   word.
 3. Record findings in `design/options.md` under a short
    `## Dependency impact` section:
    - dependents that must keep compiling / passing tests,
@@ -129,6 +173,56 @@ Each option MUST include:
 - **Estimate** (S/M/L/XL hours).
 
 Write to `design/options.md`. Mark one as `recommended: true`.
+
+### 1b. SA realization (from the finalized SAOC spec)
+
+The design phase is the SA (solution-architecture) layer: it CONSUMES the
+finalized SAOC `spec.md` produced by the BA layer (discovery) and expresses its
+TECHNICAL realization by construction, not by luck. Produce the following in
+`design/options.md` for the recommended option (and carry each into
+`impl-plan.md` where a step needs it):
+
+- **Data models.** For each entity the change adds or touches: its fields, its
+  relationships to other entities, its identity / uniqueness key, and its
+  lifecycle / state transitions. Verify any existing entity or schema symbol
+  via LSP before citing it.
+- **API contracts.** The interfaces / signatures the change EXPOSES or CALLS.
+  Name the interface only in `options.md` (names only — the hard rule below);
+  confirm the full signature via LSP (`goToDefinition` / `hover` /
+  `workspaceSymbol`) before citing an existing one.
+- **Error handling & idempotency.** For each new or changed interface: its
+  failure modes, its retries, its idempotency key, and its delivery semantics
+  (at-least-once / at-most-once). State how a retried or duplicated call stays
+  safe.
+- **Decision tables.** For each COMBINATORIC acceptance criterion (its
+  Condition combines two or more independent inputs), write a decision table:
+  one column per input, a final column for the expected outcome, and one row per
+  input combination. This makes the combinatoric AC's testability explicit —
+  each row is a candidate test row for `test-plan.md`.
+
+### 1c. Design invariants (spine)
+
+Record each DURABLE design decision as a spine invariant. A `D-NNN` DECISION
+item and the ADR carry the RATIONALE (the "why"); the spine records the
+DECISION itself as a rule, so it is not silently "fixed" back on the next edit.
+
+Add a `## Design invariants (spine)` section to the existing `design/options.md`
+artifact (do NOT create a new file — reuse `options.md`, per C-005). Each
+invariant is a block cross-linked to the `D-NNN` DECISION item it hardens (the
+same items indexed by `python3 core/skills/items.py index`), and carries three
+fields:
+
+```text
+## Design invariants (spine)
+
+- **D-NNN**
+  - **Binds:** what this invariant governs.
+  - **Prevents:** what it rules out.
+  - **Rule:** the invariant itself, stated as a rule.
+```
+
+State the DECISION, not its rationale — the rationale already lives in the
+`D-NNN` item and the ADR. Do not invent a new artifact for these invariants.
 
 ### 2. ADR trigger
 
@@ -204,6 +298,23 @@ and confirmed failing **before** its implementation code.
 
 If validation reveals scope that wasn't in the spec, add a
 `[!CONFLICT C-NNN]` to `design/options.md` before writing the plan.
+
+**Preserve the spec's SAOC ACs (KLC-083).** When you restate or map an
+acceptance criterion (e.g. into a test row or a step's `Expected`), keep it in
+the spec's `<Subject> · <Action> · <Object> · <Condition>` form — do not
+paraphrase it back into loose prose. If you find an `[NEEDS CLARIFICATION]`
+marker still open in `spec.md`, the spec is not ready: stop and route it to the
+decision gate rather than silently designing past the unknown.
+
+**Consume, don't re-elicit (SA/BA separation).** The design phase is the SA
+(solution-architecture) layer; the BA (business-analysis) layer is discovery,
+which already finalized the SAOC `spec.md`. You CONSUME that finalized spec — you
+do NOT re-open or re-elicit requirements. If you find a genuine requirements gap
+(missing or contradictory intent, not a design choice you are entitled to make),
+route it BACK rather than authoring the intent yourself: raise a `[!QUESTION]`
+(or, when `spec.md` still has an open `[NEEDS CLARIFICATION]` marker, stop and
+send it to the decision gate, per the rule above). Do NOT silently author the
+missing intent — that is the BA layer's call, not the SA layer's.
 
 **Self-review before emit.** After drafting `impl-plan.md` and before
 emitting the draft signal, scan every `## step-N` block and fix any

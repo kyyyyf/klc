@@ -169,6 +169,56 @@ Each option MUST include:
 
 Write to `design/options.md`. Mark one as `recommended: true`.
 
+### 1b. SA realization (from the finalized SAOC spec)
+
+The design phase is the SA (solution-architecture) layer: it CONSUMES the
+finalized SAOC `spec.md` produced by the BA layer (discovery) and expresses its
+TECHNICAL realization by construction, not by luck. Produce the following in
+`design/options.md` for the recommended option (and carry each into
+`impl-plan.md` where a step needs it):
+
+- **Data models.** For each entity the change adds or touches: its fields, its
+  relationships to other entities, its identity / uniqueness key, and its
+  lifecycle / state transitions. Verify any existing entity or schema symbol
+  via LSP before citing it.
+- **API contracts.** The interfaces / signatures the change EXPOSES or CALLS.
+  Name the interface only in `options.md` (names only — the hard rule below);
+  confirm the full signature via LSP (`goToDefinition` / `hover` /
+  `workspaceSymbol`) before citing an existing one.
+- **Error handling & idempotency.** For each new or changed interface: its
+  failure modes, its retries, its idempotency key, and its delivery semantics
+  (at-least-once / at-most-once). State how a retried or duplicated call stays
+  safe.
+- **Decision tables.** For each COMBINATORIC acceptance criterion (its
+  Condition combines two or more independent inputs), write a decision table:
+  one column per input, a final column for the expected outcome, and one row per
+  input combination. This makes the combinatoric AC's testability explicit —
+  each row is a candidate test row for `test-plan.md`.
+
+### 1c. Design invariants (spine)
+
+Record each DURABLE design decision as a spine invariant. A `D-NNN` DECISION
+item and the ADR carry the RATIONALE (the "why"); the spine records the
+DECISION itself as a rule, so it is not silently "fixed" back on the next edit.
+
+Add a `## Design invariants (spine)` section to the existing `design/options.md`
+artifact (do NOT create a new file — reuse `options.md`, per C-005). Each
+invariant is a block cross-linked to the `D-NNN` DECISION item it hardens (the
+same items indexed by `python3 core/skills/items.py index`), and carries three
+fields:
+
+```text
+## Design invariants (spine)
+
+- **D-NNN**
+  - **Binds:** what this invariant governs.
+  - **Prevents:** what it rules out.
+  - **Rule:** the invariant itself, stated as a rule.
+```
+
+State the DECISION, not its rationale — the rationale already lives in the
+`D-NNN` item and the ADR. Do not invent a new artifact for these invariants.
+
 ### 2. ADR trigger
 
 Emit `ADR_NEEDED=yes|no` at the end of options.md. Trigger on any of:
@@ -250,6 +300,16 @@ the spec's `<Subject> · <Action> · <Object> · <Condition>` form — do not
 paraphrase it back into loose prose. If you find an `[NEEDS CLARIFICATION]`
 marker still open in `spec.md`, the spec is not ready: stop and route it to the
 decision gate rather than silently designing past the unknown.
+
+**Consume, don't re-elicit (SA/BA separation).** The design phase is the SA
+(solution-architecture) layer; the BA (business-analysis) layer is discovery,
+which already finalized the SAOC `spec.md`. You CONSUME that finalized spec — you
+do NOT re-open or re-elicit requirements. If you find a genuine requirements gap
+(missing or contradictory intent, not a design choice you are entitled to make),
+route it BACK rather than authoring the intent yourself: raise a `[!QUESTION]`
+(or, when `spec.md` still has an open `[NEEDS CLARIFICATION]` marker, stop and
+send it to the decision gate, per the rule above). Do NOT silently author the
+missing intent — that is the BA layer's call, not the SA layer's.
 
 **Self-review before emit.** After drafting `impl-plan.md` and before
 emitting the draft signal, scan every `## step-N` block and fix any
