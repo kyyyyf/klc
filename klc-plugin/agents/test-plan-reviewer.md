@@ -52,7 +52,7 @@ Read all of these before writing anything. Any that are absent → note it and d
 
 ## The two output classes
 
-### `findings[]` — OBJECTIVE, you decide → to be assessed at build
+### `findings[]` — OBJECTIVE, you decide → assessed at build by `core/agents/impl.md`
 
 An issue you can anchor against the spec's ACs and adjudicate. Every finding is one
 of these three categories (this list is closed; it matches the plumbing schema on
@@ -72,6 +72,14 @@ of these three categories (this list is closed; it matches the plumbing schema o
   AC (Action = reject/deny/block/validate/degrade/…) needs a **negative** test (the
   gate bites on bad input) and, where the AC implies it, a **boundary** and a
   **degrade/fail-closed** case.
+
+Your `findings[]` do not stop here: the plumbing records them to
+`test-plan-review-findings.json` in the ticket directory, and the BUILD agent
+(`core/agents/impl.md`) reads that file at the start of build and assesses EACH
+finding fix/won't-fix in `build-log.md` — with a high-severity finding left
+unaddressed raised as a stop-and-ask (KLC-093). This is symmetric with how the spec
+reviewer's `spec-review-findings.json` is assessed at build, so "assessed at build" is
+a real, wired consumer — not a promise into the void.
 
 ### `decisions_to_confirm[]` — SUBJECTIVE, the HUMAN decides
 

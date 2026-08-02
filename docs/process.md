@@ -905,6 +905,17 @@ test-plan reviewer (KLC-085) reuses the same parse / validate / route / record /
 track-scale plumbing with its OWN classes (uncovered-ac, weak-assertion, …) and a
 `test-plan-review[…]` label — no second copy, no validator fork.
 
+**Build-time assessment of test-plan-review findings (KLC-093)**: the test-plan
+reviewer's OBJECTIVE `findings[]` are recorded to `test-plan-review-findings.json`
+via the same seam. The BUILD agent (`core/agents/impl.md`) reads that file too — right
+beside `spec-review-findings.json` — and assesses each finding (fix/won't-fix) in
+`build-log.md` before writing code, with the same high-severity-unaddressed →
+stop-and-ask rule and the same degrade-when-absent behaviour. The schema is identical
+(`id · category · severity · detail · ref · suggested_fix`), so it is the same assess
+logic for both files, symmetric with how `review-report` assesses the code reviewer's
+findings. This closes the loop: the reviewer's "assessed at build" promise now has a
+real consumer.
+
 ---
 
 ## Gate-policy layer (KLC-045)

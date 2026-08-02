@@ -100,14 +100,23 @@ the reviewer and the retrospective agent read it.
    `meta.json.budgets.red_test_fix_attempts` each time. When the
    counter hits `3` the phase stops and escalates.
 
-## Assess the independent spec-review findings (before any code, KLC-084)
+## Assess the independent review findings (before any code — spec-review + test-plan-review)
+
+Two independent planning-layer reviewers may have recorded OBJECTIVE `findings[]`
+to the ticket directory before build: the spec reviewer (KLC-084) and the test-plan
+reviewer (KLC-085). Both are the planning-layer analog of the mandatory code
+reviewer's findings — and, like those, you must **assess** each, not ignore them.
+The two finding files share ONE identical schema
+(`id · category · severity · detail · ref · suggested_fix`, `severity ∈
+high|medium|low`), so you assess them with the SAME logic — there is no second
+parser and no different discipline for the two files.
+
+### spec-review findings — `spec-review-findings.json`
 
 The independent spec reviewer (`core/agents/spec-reviewer.md`) recorded its
 OBJECTIVE `findings[]` to **`spec-review-findings.json`** in the ticket directory
-at the spec phase. These are the spec-layer analog of the mandatory code
-reviewer's findings — and, like those, you must **assess** them, not ignore them.
-This is what stops "correctly built the wrong thing": a finding says the spec
-itself drifted from `raw.md`, contradicts the current code, violates a
+at the spec phase. This is what stops "correctly built the wrong thing": a finding
+says the spec itself drifted from `raw.md`, contradicts the current code, violates a
 constitution principle, or has an untestable AC.
 
 At the START of build, before writing any code:
@@ -123,8 +132,27 @@ At the START of build, before writing any code:
 4. Absent file → nothing to assess (the reviewer did not run for this track, or
    its output degraded); proceed. Do not fabricate findings.
 
-Record the assessment block under the current build-log step so retrospective can
-see the spec-review findings were handled, not dropped.
+### test-plan-review findings — `test-plan-review-findings.json`
+
+The independent test-plan reviewer (`core/agents/test-plan-reviewer.md`) recorded
+its OBJECTIVE `findings[]` to **`test-plan-review-findings.json`** in the ticket
+directory at the acceptance-test-plan phase — its prompt calls them "to be assessed
+at build", and you are that consumer. Assess them with the SAME rigor as the
+spec-review findings (identical schema, identical discipline):
+
+1. If `test-plan-review-findings.json` exists, read it. Each entry has
+   `id · category · severity · detail · ref · suggested_fix` (category ∈
+   `uncovered-ac` / `weak-assertion` / `missing-edge-case`).
+2. For EACH finding, record an assessment in `build-log.md` — **fix** (the coverage
+   gap is real; note how the build accounts for it — e.g. the missing negative /
+   boundary / edge test is added) or **won't-fix** (with a one-line reason).
+3. A `high`-severity finding that is neither fixed nor consciously waived is a
+   stop-and-ask: raise a `[!QUESTION]` / `[!CONFLICT]` rather than building past it.
+4. Absent file → nothing to assess (most XS/S tickets skip test-plan review — it is
+   an M/L cascade); proceed. Do not fabricate findings.
+
+Record both assessment blocks under the current build-log step so retrospective can
+see the spec-review AND test-plan-review findings were handled, not dropped.
 
 ## Plan validation (before writing any code)
 
