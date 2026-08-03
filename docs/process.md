@@ -916,6 +916,27 @@ logic for both files, symmetric with how `review-report` assesses the code revie
 findings. This closes the loop: the reviewer's "assessed at build" promise now has a
 real consumer.
 
+**Independent impl-plan review (KLC-094 · V-01)**: the trilogy's third and last
+shift-left reviewer, one artifact further LEFT again — onto `impl-plan.md`. A fresh,
+adversarial reviewer (`core/agents/impl-plan-reviewer.md`) reads the plan against the
+spec's SAOC ACs **and** the recorded `spec-review-findings.json`, and emits the same
+two output classes through the SAME generic seam bound to a new descriptor
+(`implplan_review.IMPL_PLAN_REVIEW`) — OBJECTIVE `findings[]`
+(`missing-step` · `wrong-sequencing` · `untestable-step` · `unaddressed-ac` ·
+`infeasible-red-green`) and SUBJECTIVE `decisions_to_confirm[]` (`sequencing-tradeoff`
+· `scope`). No forked parser, validator, or gate: `implplan_review.py` carries only
+the descriptor and a thin `consume` wrapper (the impl-plan already has a
+DETERMINISTIC gate — `impl_plan_check` + `plan_quality` — that blocks on mechanical
+defects at the ack; this adds only the independent JUDGMENT above it). The seam is
+wired at the ack that FINALIZES `impl-plan.md` — `can_complete_discovery_lite` on S,
+the design phase (via the generic completion path, when impl-plan.md is a phase
+output) on M/L — and threads `persist` so a read-only probe surfaces the advisories
+without writing. The BUILD agent (`core/agents/impl.md`) reads
+`impl-plan-review-findings.json` right beside the spec-review and test-plan-review
+files and assesses each finding (fix/won't-fix) in `build-log.md`, with the same
+high-severity-unaddressed → stop-and-ask rule and the same degrade-when-absent
+behaviour — one symmetric discipline for THREE reviewers.
+
 ---
 
 ## Gate-policy layer (KLC-045)

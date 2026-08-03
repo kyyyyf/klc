@@ -364,6 +364,36 @@ Every impl-plan step that describes a CLI, gate, or wired behaviour must map to 
 missing input is rejected, not silently passed). Write these tests before writing the step
 GREEN — they are the acceptance signal, not a formality.
 
+## Independent impl-plan review (M/L, KLC-094)
+
+Your `impl-plan.md` is checked by a **fresh, independent** reviewer — the
+mandatory-external-reviewer discipline shifted onto the implementation PLAN, reusing
+KLC-084's generic independent-artifact-review seam one artifact further LEFT again
+(after the spec and the test-plan). On M/L this review runs **full** and always
+fires; on S it cascades on an escalation signal; XS produces no `impl-plan.md` and is
+skipped. The gate is `implplan_review` bound through `spec_review.should_run(track,
+signals)`.
+
+The orchestrator (not you) spawns the `impl-plan-reviewer` agent
+(`core/agents/impl-plan-reviewer.md`) after `impl-plan.md` is drafted and before the
+design phase completes. Its anchors are the spec's SAOC ACs **and** the recorded
+`spec-review-findings.json`, and it checks **plan DESIGN** only: every AC maps to a
+step that builds it, the steps are in a feasible order, and each behaviour step
+carries a verifiable RED outcome. It writes its verdict to `impl-plan-review.md` as
+two output classes — the OBJECTIVE `findings[]` (categories `missing-step` /
+`wrong-sequencing` / `untestable-step` / `unaddressed-ac` / `infeasible-red-green`)
+and the SUBJECTIVE `decisions_to_confirm[]` (topics `sequencing-tradeoff` / `scope`,
+each with a recommended answer).
+
+At the design ack, `implplan_review.consume` routes the `decisions_to_confirm[]` into
+this ack's advisory lines — the existing `decision`-level gate — surfaces a collapsed
+`findings[]` count, and records the findings to `impl-plan-review-findings.json`,
+which the build agent (`core/agents/impl.md`) reads and assesses (fix / won't-fix)
+before writing code. Warn-only and fail-open: it never adds a new blocking gate, and
+absent reviewer output when a review was expected surfaces one degrade note and still
+passes. This is the mechanical DETERMINISTIC plan gate's judgment counterpart —
+`impl_plan_check` + `plan_quality` already block on structural defects at the ack.
+
 ## Hard rules
 
 - No signatures inside `options.md` or `impl-plan.md` on public_api —

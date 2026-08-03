@@ -95,16 +95,16 @@ the reviewer and the retrospective agent read it.
    `meta.json.budgets.red_test_fix_attempts` each time. When the
    counter hits `3` the phase stops and escalates.
 
-## Assess the independent review findings (before any code — spec-review + test-plan-review)
+## Assess the independent review findings (before any code — spec-review + test-plan-review + impl-plan-review)
 
-Two independent planning-layer reviewers may have recorded OBJECTIVE `findings[]`
-to the ticket directory before build: the spec reviewer (KLC-084) and the test-plan
-reviewer (KLC-085). Both are the planning-layer analog of the mandatory code
-reviewer's findings — and, like those, you must **assess** each, not ignore them.
-The two finding files share ONE identical schema
-(`id · category · severity · detail · ref · suggested_fix`, `severity ∈
+Three independent planning-layer reviewers may have recorded OBJECTIVE `findings[]`
+to the ticket directory before build: the spec reviewer (KLC-084), the test-plan
+reviewer (KLC-085), and the impl-plan reviewer (KLC-094). All three are the
+planning-layer analog of the mandatory code reviewer's findings — and, like those,
+you must **assess** each, not ignore them. The three finding files share ONE identical
+schema (`id · category · severity · detail · ref · suggested_fix`, `severity ∈
 high|medium|low`), so you assess them with the SAME logic — there is no second
-parser and no different discipline for the two files.
+parser and no different discipline for the three files.
 
 ### spec-review findings — `spec-review-findings.json`
 
@@ -146,8 +146,33 @@ spec-review findings (identical schema, identical discipline):
 4. Absent file → nothing to assess (most XS/S tickets skip test-plan review — it is
    an M/L cascade); proceed. Do not fabricate findings.
 
-Record both assessment blocks under the current build-log step so retrospective can
-see the spec-review AND test-plan-review findings were handled, not dropped.
+### impl-plan-review findings — `impl-plan-review-findings.json`
+
+The independent impl-plan reviewer (`core/agents/impl-plan-reviewer.md`) recorded its
+OBJECTIVE `findings[]` to **`impl-plan-review-findings.json`** in the ticket directory
+at the ack that finalized `impl-plan.md` (discovery-lite on S, the design phase on
+M/L) — the third and last of the shift-left planning reviewers (V-01). Its findings
+say the PLAN itself is unsound: a step is missing, a step depends on a later one, a
+step has no verifiable RED, an AC/spec-review-finding is unaddressed, or a step's
+RED-before-GREEN cannot hold. Assess them with the SAME rigor as the spec-review and
+test-plan-review findings (identical schema, identical discipline):
+
+1. If `impl-plan-review-findings.json` exists, read it. Each entry has
+   `id · category · severity · detail · ref · suggested_fix` (category ∈
+   `missing-step` / `wrong-sequencing` / `untestable-step` / `unaddressed-ac` /
+   `infeasible-red-green`).
+2. For EACH finding, record an assessment in `build-log.md` — **fix** (the plan
+   defect is real; note how the build accounts for it — e.g. the missing step is
+   built, the sequencing corrected via a `[!DECISION]`) or **won't-fix** (with a
+   one-line reason).
+3. A `high`-severity finding that is neither fixed nor consciously waived is a
+   stop-and-ask: raise a `[!QUESTION]` / `[!CONFLICT]` rather than building past it.
+4. Absent file → nothing to assess (XS produces no impl-plan.md, and S runs the
+   review only on a cascade signal); proceed. Do not fabricate findings.
+
+Record all three assessment blocks under the current build-log step so retrospective
+can see the spec-review, test-plan-review AND impl-plan-review findings were handled,
+not dropped.
 
 ## Plan validation (before writing any code)
 

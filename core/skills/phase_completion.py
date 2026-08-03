@@ -25,6 +25,7 @@ import spec_selfreview as _spec_selfreview  # noqa: E402
 import spec_selfcheck as _spec_selfcheck  # noqa: E402
 import spec_review as _spec_review  # noqa: E402
 import testplan_review as _testplan_review  # noqa: E402
+import implplan_review as _implplan_review  # noqa: E402
 import spec_structure as _spec_structure  # noqa: E402
 import impl_plan_check as _impl_plan_check  # noqa: E402
 import plan_quality as _plan_quality  # noqa: E402
@@ -381,6 +382,40 @@ def _testplan_review_advisories(ticket: str, persist: bool) -> list[str]:
         return []  # degrade-not-fail: the review seam never blocks an ack
 
 
+def _implplan_review_advisories(ticket: str, persist: bool) -> list[str]:
+    """Surface the INDEPENDENT impl-plan reviewer's outputs at the ack (KLC-094).
+
+    The THIRD binding of KLC-084's generic seam — the exact analogue of
+    `_spec_review_advisories` / `_testplan_review_advisories`, one artifact further
+    right. It reuses the seam (via `implplan_review.consume`, bound to
+    `IMPL_PLAN_REVIEW`) to route the reviewer's `decisions_to_confirm[]` into the
+    SAME advisory stream the operator already reads at the ack that finalizes
+    `impl-plan.md` — a `decision`-level gate — and to surface a collapsed count of
+    the OBJECTIVE `findings[]`. No new gate is introduced. Findings are recorded to
+    `impl-plan-review-findings.json` for the build agent (`core/agents/impl.md`) to
+    assess ONLY on the persisting ack path: `persist` is threaded into `consume`, so
+    a read-only probe (`klc remind` / gate-policy) surfaces WITHOUT writing (KLC-062
+    discipline). Track-scaled (M/L full, S cascade-on-signal, XS skip — and XS
+    produces no impl-plan.md) and degrade-safe inside the seam; nothing here ever
+    fails the ack.
+
+    Reads meta read-only (an advisory probe must not persist a legacy phase
+    migration). Wired at BOTH acks that finalize impl-plan.md: discovery-lite (S) and
+    the design phase (M/L, via `_can_complete_generic` when impl-plan.md is an output).
+    """
+    try:
+        meta = _lc.read_meta_ro(ticket)
+        ticket_dir = klc_ticket_meta_file(ticket).parent
+        track = meta.get("track", "")
+        signals = {"risk_tags": meta.get("risk_tags") or []}
+        advisories, _findings = _implplan_review.consume(
+            ticket_dir, track, signals, persist=persist
+        )
+        return advisories
+    except Exception:
+        return []  # degrade-not-fail: the review seam never blocks an ack
+
+
 def _spec_quality_gate(spec_text: str, meta: dict) -> tuple[str, list[str]]:
     """Run the KLC-083 spec self-check for the ack path.
 
@@ -534,6 +569,10 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
     if _spec_structure.has_upgrade_m_signal(text):
         _advisories.append("DISCOVERY_LITE_UPGRADE_M: scope exceeds S — re-route via 'klc retrack <KEY> M'")
     _advisories += _spec_review_advisories(ticket, persist)
+    # Independent impl-plan reviewer (KLC-094): discovery-lite is the ack that
+    # FINALIZES impl-plan.md for the S track, so surface the reviewer's outputs here,
+    # symmetric with the spec reviewer above. Track-scaled + degrade-safe in the seam.
+    _advisories += _implplan_review_advisories(ticket, persist)
     return True, "; ".join(_advisories)
 
 
@@ -651,11 +690,17 @@ def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[b
     # Generic check: every output declared in phases.yml must exist and
     # be non-empty.  Phases with no declared outputs pass immediately
     # (e.g. integrate, observe).
-    return _can_complete_generic(ticket, phase_id)
+    return _can_complete_generic(ticket, phase_id, persist=persist)
 
 
-def _can_complete_generic(ticket: str, phase_id: str) -> tuple[bool, str]:
-    """Check that all phases.yml outputs exist and are non-empty."""
+def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
+    """Check that all phases.yml outputs exist and are non-empty.
+
+    `persist` is threaded through so the independent impl-plan reviewer seam
+    (KLC-094) can record its findings on the ack path and stay read-only on an
+    advisory probe — it is a no-op for phases whose outputs do not include
+    impl-plan.md.
+    """
     try:
         ph = _ph.load_phases()
         phase = ph.by_id(phase_id)
@@ -675,6 +720,7 @@ def _can_complete_generic(ticket: str, phase_id: str) -> tuple[bool, str]:
 
     # Plan-completeness gate (KLC-036): if impl-plan.md is an output of this phase,
     # it must have no violations.
+    _advisories: list[str] = []
     if "impl-plan.md" in phase.outputs:
         _impl_plan_path = ticket_dir / "impl-plan.md"
         _impl_plan_text = _impl_plan_path.read_text(encoding="utf-8")
@@ -684,8 +730,14 @@ def _can_complete_generic(ticket: str, phase_id: str) -> tuple[bool, str]:
         _api_refs = _plan_quality.unresolved_api_refs(_impl_plan_text)
         if _api_refs:
             return False, f"impl-plan.md: {_api_refs[0]}"
+        # Independent impl-plan reviewer (KLC-094): this phase (design, on M/L) is the
+        # ack that FINALIZES impl-plan.md, so surface the fresh reviewer's routed
+        # decisions_to_confirm + a collapsed findings count at this ack — the same
+        # decision gate, warn-only / fail-open, exactly like the spec reviewer at the
+        # discovery ack. Threads `persist` so a read-only probe writes nothing.
+        _advisories += _implplan_review_advisories(ticket, persist)
 
-    return True, ""
+    return True, "; ".join(_advisories)
 
 
 if __name__ == "__main__":

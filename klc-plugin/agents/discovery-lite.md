@@ -336,6 +336,30 @@ which the build agent (`core/agents/impl.md`) reads and assesses (fix / won't-fi
 before writing code. Degrade-safe and fail-open: absent output when a review was
 expected surfaces one note and still passes.
 
+## Independent impl-plan review (S = cascade, KLC-094)
+
+For the S track, discovery-lite also produces `impl-plan.md`, so it is the ack that
+FINALIZES the plan — and the independent impl-plan reviewer
+(`core/agents/impl-plan-reviewer.md`) applies here too, the third instance of the
+same seam (after the spec and, on M/L, the test-plan). Like the spec reviewer above
+it **cascades** on S: skipped by default, fired only on an escalation signal. As with
+the spec reviewer above, the only signal available here is a **risk tag** (user-facing
+/ data / security / migration / coordination) — the plan is finalized before any code
+diff, so the scope-expansion / sentinel signals do not fire at this phase. The gate is
+`spec_review.should_run(track, signals)` via `implplan_review`.
+
+When it fires, the orchestrator (not you) spawns it; it reads `impl-plan.md` against
+the spec's SAOC ACs **and** `spec-review-findings.json`, and writes
+`impl-plan-review.md` with `findings[]` (objective — `missing-step` /
+`wrong-sequencing` / `untestable-step` / `unaddressed-ac` / `infeasible-red-green`)
+and `decisions_to_confirm[]` (subjective — `sequencing-tradeoff` / `scope`, each with
+a recommended answer). At this discovery-lite ack, `implplan_review.consume` routes
+the decisions into the advisory lines, surfaces a collapsed `findings[]` count, and
+records `impl-plan-review-findings.json`, which the build agent
+(`core/agents/impl.md`) reads and assesses (fix / won't-fix) before writing code.
+Warn-only, degrade-safe, fail-open — never a new blocking gate (the DETERMINISTIC
+`impl_plan_check` + `plan_quality` gate already blocks structural plan defects here).
+
 ## Test-coverage discipline
 
 Every impl-plan step that describes a CLI, gate, or wired behaviour must map to a test at the
