@@ -606,7 +606,8 @@ def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
     return out
 
 
-def can_complete_build(ticket: str, repo: Path | None = None) -> tuple[bool, str]:
+def can_complete_build(ticket: str, repo: Path | None = None, *,
+                       persist: bool = True) -> tuple[bool, str]:
     """Check if build phase artifacts are complete.
 
     Requires build-log.md to exist, be non-empty, and contain an ## Evidence
@@ -616,6 +617,12 @@ def can_complete_build(ticket: str, repo: Path | None = None) -> tuple[bool, str
     in impl-plan.md (KLC-039).  Steps marked ``RED: not applicable`` are exempt.
     Pass *repo* to override the git repository used for commit attribution
     (defaults to the current working directory).
+
+    ``persist`` distinguishes the real ack path (True) from a read-only probe
+    (False: ``klc remind`` / gate-policy advisory collection on every prompt). On
+    the probe path the AC-coverage arm runs only the STATIC classification and
+    spawns NO pytest (KLC-095 FIX-2) — a per-prompt probe must not execute the
+    ticket's tests. The completability decision is otherwise identical.
     """
     import re as _re
     import tdd_order as _tdd_order
@@ -656,7 +663,31 @@ def can_complete_build(ticket: str, repo: Path | None = None) -> tuple[bool, str
         if not ok:
             return False, f"TDD order: {reason}"
 
-    return True, ""
+    # AC→implemented-test coverage gate (KLC-095, V-02): the execution double of
+    # the KLC-085 plan-time coverage check. Each SAOC AC must map to a REAL,
+    # collected, passing implemented test. An objective miss (no implemented test
+    # at all) BLOCKS on M/L — symmetric to the tdd_order branch above — unless the
+    # operator set meta.deferred_ac_coverage; drift / weak signals / S-misses /
+    # degradation SURFACE as advisories threaded into the success message. The
+    # guard keeps degrade-not-fail: a coverage-check crash never blocks the ack.
+    advisories: list[str] = []
+    try:
+        import ac_test_coverage as _acov
+        track = (_lc.read_meta_ro(ticket) or {}).get("track", "")
+        # run_tests=persist: the scoped pytest runs only on the real ack path; the
+        # read-only probe does the static classification with no pytest (FIX-2).
+        rep = _acov.check(ticket, track, repo, run_tests=persist)
+        if rep.block_reason:
+            return False, f"AC coverage: {rep.block_reason}"
+        advisories += _acov.warn_lines(rep)
+    except Exception as e:
+        # degrade-not-fail: a coverage-check surprise never BLOCKS the ack — but it must
+        # be OBSERVABLE (a silently-skipped gate could ack an M/L build with operators
+        # unaware AC coverage never ran), so surface a degraded advisory (Codex P2).
+        advisories.append(
+            f"ac-coverage: check did not run — {type(e).__name__} (AC coverage unverified)")
+
+    return True, "; ".join(advisories)
 
 
 def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -669,8 +700,9 @@ def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[b
             side effects (risk_tags sync, floor-guard audit) and the
             acceptance-test-plan reviewer seam records its findings. Read-only
             callers (`klc remind`, gate-policy advisory) pass False so the check
-            never writes (KLC-062 AC-1). Phases without a persisting side effect
-            (build, generic) treat the flag as a no-op.
+            never writes (KLC-062 AC-1). For build, persist=False additionally
+            keeps the AC-coverage arm from spawning pytest (KLC-095 FIX-2); the
+            generic phases treat the flag as a no-op.
 
     Returns:
         (success, error_message)
@@ -685,7 +717,7 @@ def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[b
         return can_complete_acceptance_test_plan(ticket, persist=persist)
 
     if phase_id == "build":
-        return can_complete_build(ticket)
+        return can_complete_build(ticket, persist=persist)
 
     # Generic check: every output declared in phases.yml must exist and
     # be non-empty.  Phases with no declared outputs pass immediately
