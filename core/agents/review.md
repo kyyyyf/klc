@@ -108,6 +108,19 @@ S/M/L (XS uses `review-lite`). Policy:
 Unattended runner (`RUN_LOCAL_SUBAGENTS=1` + `REVIEW_RUNNER` set): do not
 ask — follow `config/reviewers.yml` and record the cascade decision.
 
+### 1b. Independent drift review (KLC-099 / drift-check D-04)
+
+Alongside the code reviewers, spawn the **fresh drift-reviewer**
+(`core/agents/drift-reviewer.md`) — the SUBJECTIVE judgment complement to KLC-098's
+deterministic scope/step drift. It reads the built diff + the ticket's recorded
+`[!DECISION D-nnn]` items + `spec.md`, and writes its two-sink verdict to
+`drift-review.md` (findings[] + decisions_to_confirm[]). This is what the **integrate
+ack** consumes (via `drift_review.consume` → `_drift_review_advisories`); without this
+spawn, `drift-review.md` never exists and that consume path is inert. Track-scaled like
+the other independent reviewers (full M/L, cascade-on-signal S, skip XS) and fail-open —
+it surfaces and records, it never blocks. Spawn it FRESH (a non-fork subagent), exactly as
+the mandatory code reviewer is spawned here.
+
 If the operator chooses full review, force the multi-agent path even when
 cascade would allow cheap. Record `review_depth: cheap|full` and
 `full_review_offered: true|false` in the report frontmatter.

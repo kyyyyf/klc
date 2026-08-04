@@ -31,6 +31,7 @@ import impl_plan_check as _impl_plan_check  # noqa: E402
 import plan_quality as _plan_quality  # noqa: E402
 import drift_check as _drift  # noqa: E402  (KLC-098: report-only drift-check core)
 import module_membership as _mm  # noqa: E402  (KLC-098: file→module resolver, KLC-066)
+import drift_review as _drift_review  # noqa: E402  (KLC-099: DRIFT_CHECK ReviewKind seam)
 
 
 def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -851,6 +852,27 @@ def _drift_advisories(ticket: str, persist: bool) -> list[str]:
                 pass
 
 
+def _drift_review_advisories(ticket: str, persist: bool) -> list[str]:
+    """Surface the INDEPENDENT drift-reviewer's outputs at the integrate ack (KLC-099).
+
+    The FOURTH binding of KLC-084's seam — the judgment complement to KLC-098's
+    deterministic `_drift_advisories`. Delegates to `drift_review.consume` (bound to
+    DRIFT_CHECK), which routes the reviewer's `decisions_to_confirm[]` + a collapsed
+    findings count into the ack's advisory lines and records findings to
+    `drift-review-findings.json` ONLY when `persist` is True (a read-only probe surfaces
+    without writing). Fail-open / surface-only: never blocks, and any error degrades to a
+    single note — the seam's degrade-not-fail plus this guard mean it never raises."""
+    try:
+        tdir = klc_ticket_meta_file(ticket).parent
+        meta = _lc.read_meta_ro(ticket)
+        adv, _ = _drift_review.consume(
+            tdir, meta.get("track"), {"risk_tags": meta.get("risk_tags") or []}, persist=persist
+        )
+        return adv
+    except Exception as exc:  # noqa: BLE001 — surface-only: never propagate / never block
+        return [f"drift-review: skipped — {type(exc).__name__}"]
+
+
 def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check that all phases.yml outputs exist and are non-empty.
 
@@ -865,11 +887,12 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
     except (KeyError, Exception) as exc:
         return False, f"cannot load phase definition for {phase_id!r}: {exc}"
 
-    # Integrate drift-check advisory (KLC-098). MUST sit BEFORE the empty-outputs
-    # early return — integrate declares `outputs: []`, so the advisory would be
-    # unreachable after it. Surface-only: always returns a completable (True, …).
+    # Integrate drift advisories (KLC-098 deterministic + KLC-099 judgment). MUST sit
+    # BEFORE the empty-outputs early return — integrate declares `outputs: []`, so the
+    # advisory would be unreachable after it. Surface-only: always a completable (True, …).
     if phase_id == "integrate":
-        return True, "; ".join(_drift_advisories(ticket, persist))
+        _adv = _drift_advisories(ticket, persist) + _drift_review_advisories(ticket, persist)
+        return True, "; ".join(_adv)
 
     if not phase.outputs:
         return True, ""
