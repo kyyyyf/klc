@@ -240,6 +240,7 @@ Rules:
 **Expected:** <expected output of the VERIFY command, e.g. `1 passed`>
 **COMMIT:** `<KEY> step-1: <subject>`
 **Affected files:** `<path/to/file.py>`, …
+**Addresses:** <OPTIONAL, KLC-097 — the ACs this step closes, e.g. `AC-1, AC-3`; omit if none. Never required, never blocks.>
 **Interfaces:** <signatures added or changed; or `none`>
 **Depends on:** none / step-N
 **Code sketch:**

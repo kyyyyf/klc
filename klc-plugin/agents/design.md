@@ -259,6 +259,10 @@ logical commit. Each step MUST contain, in this order:
 - **COMMIT**: proposed commit subject, prefixed `<ticket-key> step-N:`.
 - **Affected files**: concrete paths. Unknown paths require an
   `[!ASSUMPTION]` or `[!QUESTION]`, never a guess.
+- **Addresses** (OPTIONAL, KLC-097): the ACs this step closes, e.g.
+  `Addresses: AC-1, AC-3`. Omit when the step closes none. Declaring it lets tooling
+  trace an AC → step → files (the drift-check AC↔code bridge); it is never a required
+  field and never blocks the gate.
 - **Interfaces**: function/method signatures added or changed, or `none`.
 - **Depends on**: earlier `step-K` ids this step needs, or `none`.
 - **Code sketch**: a non-empty fenced block showing the key change.

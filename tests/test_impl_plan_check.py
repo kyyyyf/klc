@@ -191,3 +191,95 @@ def test_plan_template_renders_gate_passing():
     assert stale == [], (
         f"Stale templates must be removed (AC-5): {[p.name for p in stale]}"
     )
+
+
+# ---------------------------------------------------------------- KLC-097: step→AC bridge
+
+_PLAN_WITH_ADDRESSES = (
+    "## step-1 — first\n"
+    "**Goal:** do first\n"
+    "**Addresses:** AC-1, AC-3\n"
+    "**RED:** add test_first fails first\n"
+    "**VERIFY:** pytest\n"
+    "**Expected:** 1 passed\n"
+    "**COMMIT:** KLC-000 step-1: first\n"
+    "**Affected:** a.py\n"
+    "**Interfaces:** none\n"
+    "**Code sketch:**\n```python\npass\n```\n"
+    "## step-2 — second\n"
+    "**Goal:** do second\n"
+    "**RED:** add test_second fails first\n"
+    "**VERIFY:** pytest\n"
+    "**Expected:** 1 passed\n"
+    "**COMMIT:** KLC-000 step-2: second\n"
+    "**Affected:** b.py\n"
+    "**Interfaces:** none\n"
+    "**Code sketch:**\n```python\npass\n```\n"
+)
+
+
+def test_addresses_parsed_when_present():
+    """AC-1: a step's `Addresses:` line becomes an `addresses` list of AC-ids."""
+    import impl_plan_check as _ipc
+    steps = _ipc.parse_impl_plan_steps(_PLAN_WITH_ADDRESSES)
+    assert steps[0]["addresses"] == ["AC-1", "AC-3"]
+
+
+def test_addresses_empty_when_absent():
+    """AC-2: a step with no `Addresses:` line gets an empty list, not an error."""
+    import impl_plan_check as _ipc
+    steps = _ipc.parse_impl_plan_steps(_PLAN_WITH_ADDRESSES)
+    assert steps[1]["addresses"] == []
+
+
+def test_addresses_multiple_acs():
+    """AC-3: every AC-<n> token on the line is extracted via the shared _AC_ID_RE."""
+    import impl_plan_check as _ipc
+    plan = "## step-1 — x\n**Addresses:** AC-2 and AC-10, AC-4\n**Goal:** g\n"
+    steps = _ipc.parse_impl_plan_steps(plan)
+    assert steps[0]["addresses"] == ["AC-2", "AC-10", "AC-4"]
+
+
+def test_no_addresses_still_passes_violations():
+    """AC-5: `Addresses` is not a required field — a plan without it still validates."""
+    import impl_plan_check as _ipc
+    violations = _ipc.impl_plan_violations(_SAMPLE_PLAN)
+    assert not any("Addresses" in v for v in violations)
+
+
+def test_step_ac_map_total():
+    """AC-4: step_ac_map is a TOTAL map — every step-id present, [] when none declared."""
+    import impl_plan_check as _ipc
+    plan = (
+        "## step-1 — a\n**Addresses:** AC-2\n**Goal:** g\n"
+        "## step-2 — b\n**Goal:** g\n"
+    )
+    assert _ipc.step_ac_map(plan) == {"step-1": ["AC-2"], "step-2": []}
+
+
+def test_step_ac_map_empty_for_undeclared():
+    """AC-4: a plan where no step declares Addresses maps every step to []."""
+    import impl_plan_check as _ipc
+    m = _ipc.step_ac_map(_SAMPLE_PLAN)
+    assert set(m) == {"step-1", "step-2"}
+    assert all(v == [] for v in m.values())
+
+
+def test_addresses_ignores_fenced_decoy():
+    """Review MEDIUM/P2 (both reviewers): an `Addresses:` line inside a code fence
+    is example content, NOT step metadata — fences are stripped before matching."""
+    import impl_plan_check as _ipc
+    plan = (
+        "## step-1 — x\n**Goal:** g\n"
+        "**Code sketch:**\n```python\nAddresses: AC-42\naddresses: dict = f(AC-99)\n```\n"
+    )
+    steps = _ipc.parse_impl_plan_steps(plan)
+    assert steps[0]["addresses"] == []
+
+
+def test_addresses_dedup():
+    """Review LOW: duplicate AC-ids are de-duplicated, order preserved (a set per step)."""
+    import impl_plan_check as _ipc
+    plan = "## step-1 — x\n**Addresses:** AC-1, AC-1, AC-2\n**Goal:** g\n"
+    steps = _ipc.parse_impl_plan_steps(plan)
+    assert steps[0]["addresses"] == ["AC-1", "AC-2"]

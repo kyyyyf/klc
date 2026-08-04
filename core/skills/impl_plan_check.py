@@ -46,18 +46,52 @@ def _has_code_sketch(body: str) -> bool:
     return m is not None and bool(m.group(1).strip())
 
 
+# Optional `Addresses: AC-n[, AC-m]` line — declares which ACs a step closes
+# (KLC-097 bridge). OPTIONAL and tolerant: absent means "not declared", never an
+# error, and it is NOT a REQUIRED_STEP_FIELD, so no existing impl-plan is invalidated.
+_ADDRESSES_RE = re.compile(r"(?im)^\s*[-*]?\s*\*{0,2}Addresses\*{0,2}:\s*(.+)$")
+
+
+def _parse_addresses(body: str) -> list[str]:
+    """Extract AC-ids from a step's optional `Addresses:` line; [] when absent.
+
+    Fences are stripped FIRST (same reason `impl_plan_violations` does it): an
+    `Addresses: AC-…` line inside a code sketch / config snippet is example content,
+    not step metadata, and must not fabricate an AC→step link (review MEDIUM/P2).
+    Duplicate AC-ids are de-duplicated order-preservingly — the mapping is a set of
+    ACs per step (review LOW). Reuses testplan_review._AC_ID_RE (the single AC-id
+    class), imported lazily to avoid any module-load import cycle."""
+    m = _ADDRESSES_RE.search(_ANY_FENCE_RE.sub("", body))
+    if not m:
+        return []
+    import testplan_review as _tpr  # noqa: E402 — lazy: single-source AC-id regex
+    return list(dict.fromkeys(_tpr._AC_ID_RE.findall(m.group(1))))
+
+
+def step_ac_map(text: str) -> dict[str, list[str]]:
+    """TOTAL map of every step-id → its addressed AC-ids ([] when the step declares
+    none — KLC-097). A total map hands a consumer (the future drift-check AC↔code
+    arrow) a complete step inventory so undeclared steps are visible, not lost."""
+    return {s["id"]: s["addresses"] for s in parse_impl_plan_steps(text)}
+
+
 def parse_impl_plan_steps(text: str) -> list[dict]:
-    """Split impl-plan markdown into steps keyed by '## step-N — title'."""
+    """Split impl-plan markdown into steps keyed by '## step-N — title'.
+
+    Each step dict carries `id`, `title`, `body`, and `addresses` (the AC-ids from
+    an optional `Addresses:` line, [] when the step declares none — KLC-097)."""
     pattern = re.compile(r"(?m)^##\s+(step-\d+)\s*[—-]\s*(.+)$")
     matches = list(pattern.finditer(text))
     steps = []
     for i, m in enumerate(matches):
         start = m.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[start:end]
         steps.append({
             "id": m.group(1),
             "title": m.group(2).strip(),
-            "body": text[start:end],
+            "body": body,
+            "addresses": _parse_addresses(body),
         })
     return steps
 
