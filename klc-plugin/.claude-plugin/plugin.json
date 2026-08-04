@@ -1,0 +1,7 @@
+{
+  "name": "klc",
+  "displayName": "klc — ticket lifecycle",
+  "version": "0.1.0",
+  "description": "Thin adapter that wraps the klc CLI as native Claude Code slash commands, subagents, and skills. Drives a ticket through its lifecycle (intake → discovery → build → review → integrate → archive) with TDD-ordered, track-scaled gates. No MCP server — shells out to the klc binary via Bash.",
+  "keywords": ["klc", "ticket", "lifecycle", "tdd", "workflow", "orchestration"]
+}

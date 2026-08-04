@@ -1,6 +1,6 @@
 ---
-description: Confirm phase work is done (optionally with --pick N)
-argument-hint: <TICKET-ID> [options]
+description: Confirm phase work is done (optionally with --pick N or --auto for gate-policy)
+argument-hint: <TICKET-ID> [--pick N] [--auto]
 allowed-tools: [Bash]
 ---
 
