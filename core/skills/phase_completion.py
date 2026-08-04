@@ -29,6 +29,8 @@ import implplan_review as _implplan_review  # noqa: E402
 import spec_structure as _spec_structure  # noqa: E402
 import impl_plan_check as _impl_plan_check  # noqa: E402
 import plan_quality as _plan_quality  # noqa: E402
+import drift_check as _drift  # noqa: E402  (KLC-098: report-only drift-check core)
+import module_membership as _mm  # noqa: E402  (KLC-098: file→module resolver, KLC-066)
 
 
 def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -725,6 +727,130 @@ def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[b
     return _can_complete_generic(ticket, phase_id, persist=persist)
 
 
+def _git(args: list[str], repo=None) -> str:
+    """Run a read-only git command; empty string on any failure (never raises)."""
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["git"] + args, cwd=str(repo) if repo else None,
+            capture_output=True, text=True, timeout=10,
+        )
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _load_modules() -> dict:
+    """Read .klc/index/modules.json ($PROJECT_ROOT-aware); {"modules": []} on failure."""
+    import json
+    from core.shared.paths import klc_index_dir
+    try:
+        d = json.loads((klc_index_dir() / "modules.json").read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {"modules": d}
+    except Exception:
+        return {"modules": []}
+
+
+def _committed(repo=None) -> tuple[set, set]:
+    """Return (committed MODULE names, committed PATHS) for the branch vs origin/main
+    (merge-base), used to restrict drift to the ticket's COMMITTED change — an
+    uncommitted operator WIP is thus never surfaced (KLC-096 retrospective C-001).
+    Merge-base unavailable → (set(), set()) (surface nothing); never raises."""
+    if repo is None:
+        # Run git in the PROJECT_ROOT checkout, not the caller's cwd — an installed
+        # `klc` shim launched elsewhere would otherwise get an empty committed set and
+        # silently suppress all committed drift (codex P2; CLAUDE.md PROJECT_ROOT rule).
+        try:
+            from core.shared.paths import project_root
+            repo = project_root()
+        except Exception:
+            repo = None
+    base = _git(["merge-base", "HEAD", "origin/main"], repo) or _git(["merge-base", "HEAD", "main"], repo)
+    if not base:
+        return set(), set()
+    out = _git(["diff", "--name-only", base, "HEAD"], repo)
+    paths = {p for p in out.split("\n") if p.strip() and not p.startswith(".klc/")}
+    modules_data = _load_modules()
+    mods: set = set()
+    for p in paths:
+        r = _mm.file_to_module(p, modules_data)
+        if r.get("primary_module"):
+            mods.add(r["primary_module"])
+        else:
+            # Shared file (no primary): scope_delta reports shared drift by member
+            # module, so include member_of or the module arrow suppresses it (codex P2).
+            mods.update(r.get("member_of") or [])
+    return mods, paths
+
+
+def _drift_advisories(ticket: str, persist: bool) -> list[str]:
+    """Surface the drift-check report (KLC-096) at the integrate ack (KLC-098 D-03).
+
+    Surface-only and degrade-not-fail: any failure degrades to a single advisory
+    note; this NEVER blocks and NEVER raises. Scope-drift is restricted to the
+    COMMITTED branch diff — drifted modules by NAME∩NAME, orphan files by PATH∩PATH —
+    so an uncommitted WIP never surfaces. `persist=True` writes drift-report.json (via
+    write_report — the ONLY writer); a read-only probe (persist=False) computes the
+    report without writing. Track-scaled: full on M/L, cascade-on-signal on S
+    (a coordination/risk-tag signal), skip on XS. Fail-OPEN: an unknown/unreadable
+    track runs, since surfacing is safe."""
+    # Track-scale first. FAIL-OPEN: any error — a malformed/non-string track, an
+    # unreadable meta — falls through to RUNNING (surfacing is safe and never blocks), so
+    # the should_run call cannot raise past the never-raise guarantee (review MEDIUM/C-002).
+    try:
+        _meta = _lc.read_meta_ro(ticket)
+        _track = _meta.get("track")
+        _skip = bool(_track) and not _spec_review.should_run(
+            _track, {"risk_tags": _meta.get("risk_tags") or []}
+        )
+    except Exception:
+        _skip = False
+    if _skip:
+        return []  # XS skip / S without an escalation signal
+
+    # A read-only probe (persist=False, e.g. `klc remind` / gate-policy) must persist
+    # NOTHING — but drift_check.compare → scope_delta.compare → _lc.read_meta can migrate
+    # a legacy-phase meta as a side effect. Snapshot meta and restore it after the probe
+    # so the read-only guarantee holds regardless of a downstream brick's side effects.
+    # The snapshot read is guarded too (a TOCTOU delete/permission error must not raise).
+    _meta_path = klc_ticket_meta_file(ticket)
+    try:
+        _meta_snap = _meta_path.read_bytes() if (not persist and _meta_path.exists()) else None
+    except Exception:
+        _meta_snap = None
+    try:
+        # persist=True → write_report persists drift-report.json; persist=False →
+        # compare computes without writing the report (KLC-062 read-only-probe discipline).
+        rep = _drift.write_report(ticket) if persist else _drift.compare(ticket)
+        scope = dict(rep.get("scope_drift") or {})
+        steps = rep.get("step_without_commit") or {}
+        mods, paths = _committed()
+        surfaced_mods = [m for m in (scope.get("drifted_modules") or []) if m in mods]
+        surfaced_orphans = [o for o in (scope.get("orphan_files") or []) if o in paths]
+
+        lines: list[str] = []
+        if scope.get("skipped"):
+            lines.append(f"drift scope skipped: {scope['skipped']}")
+        if surfaced_mods:
+            lines.append(f"scope-drift modules: {', '.join(sorted(surfaced_mods))}")
+        if surfaced_orphans:
+            lines.append(f"scope-drift orphan files: {', '.join(sorted(surfaced_orphans))}")
+        if steps.get("skipped"):
+            lines.append(f"step-commit check skipped: {steps['skipped']}")
+        if steps.get("flagged"):
+            lines.append(f"steps without a commit: {', '.join(steps['flagged'])}")
+        return lines
+    except Exception as exc:  # noqa: BLE001 — surface-only: never propagate / never block
+        return [f"drift-check: skipped — {type(exc).__name__} (unverified)"]
+    finally:
+        if _meta_snap is not None:
+            try:
+                if _meta_path.read_bytes() != _meta_snap:
+                    _meta_path.write_bytes(_meta_snap)
+            except Exception:
+                pass
+
+
 def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check that all phases.yml outputs exist and are non-empty.
 
@@ -738,6 +864,12 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
         phase = ph.by_id(phase_id)
     except (KeyError, Exception) as exc:
         return False, f"cannot load phase definition for {phase_id!r}: {exc}"
+
+    # Integrate drift-check advisory (KLC-098). MUST sit BEFORE the empty-outputs
+    # early return — integrate declares `outputs: []`, so the advisory would be
+    # unreachable after it. Surface-only: always returns a completable (True, …).
+    if phase_id == "integrate":
+        return True, "; ".join(_drift_advisories(ticket, persist))
 
     if not phase.outputs:
         return True, ""
