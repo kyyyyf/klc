@@ -99,15 +99,13 @@ class RunResult:
 def _cap() -> int:
     env = os.environ.get("KLC_AUTORUN_CAP")
     if env and env.strip().isdigit():
-        return int(env.strip())
-    cfg = framework_root() / "config" / "budgets.yml"
-    try:
-        for line in cfg.read_text(encoding="utf-8").splitlines():
-            m = re.match(r"\s*consecutive_auto_transitions\s*:\s*(\d+)", line)
-            if m:
-                return int(m.group(1))
-    except OSError:
-        pass
+        return int(env.strip())  # env stays ABOVE the settings file
+    # KLC-100: resolve via the settings loader. project_legacy=False keeps the cap's
+    # legacy layer framework-only (no project budgets.yml — spec-review F-5).
+    import settings as _settings
+    v = _settings.autorun_cap()
+    if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+        return v
     return _DEFAULT_CAP
 
 

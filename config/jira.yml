@@ -105,8 +105,16 @@ artifacts:
 # Legacy push path (used by core/skills/jira_sync.py)
 # Kept for backward compatibility; new code uses status_mapping above.
 # ---------------------------------------------------------------------------
+# DEPRECATED (KLC-100): legacy key, still LIVE — read by intake.py._load_jira_url.
+# Superseded by status_mapping above; do NOT delete until jira_sync.py / intake.py
+# are migrated onto status_mapping.
 url_template: "https://jira.example.com/browse/{key}"
 
+# DEPRECATED (KLC-100): legacy push path, still LIVE — jira_sync.build_plan /
+# push_to_jira read sync.enabled / sync.phase_to_status / sync.transport, and
+# core/skills/lifecycle.py imports them. This whole `sync:` block duplicates the
+# fase->status table in status_mapping above; do NOT delete until jira_sync.py is
+# migrated onto status_mapping.
 sync:
   enabled: false
   transport: rest

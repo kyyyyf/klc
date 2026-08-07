@@ -97,6 +97,9 @@ def run(argv: list[str]) -> int:
     # --- config seeds ------------------------------------------------------
     _seed(config_dir / "profile.yml", f"profile: {args.profile}\n",
           force=args.force)
+    # KLC-100: seed the operational front door, all knobs commented (so resolution
+    # falls through to the legacy files — zero behavior change until uncommented).
+    _seed(config_dir / "settings.yml", _SETTINGS_SEED, force=args.force)
     _copy_if_missing(fw / "config" / "ticket-id.yml",
                      config_dir / "ticket-id.yml",
                      force=args.force)
@@ -194,6 +197,23 @@ def _shim_source_ps1(fw: Path, project: Path) -> str:  # noqa: ARG001 project un
         "& python \"$env:KLC_FW\\scripts\\klc\" @args\n"
         "exit $LASTEXITCODE\n"
     )
+
+
+_SETTINGS_SEED = (
+    "# settings.yml — operational front door (SYSTEM knobs you flip).\n"
+    "# Every knob is COMMENTED OUT; while commented the legacy file applies\n"
+    "# (profile.yml / jira.yml / clarify.yml / budgets.yml). Uncomment to override.\n"
+    "# `klc doctor` validates the keys below.\n"
+    "\n"
+    "# profile: ue                                # active profile (default: ue)\n"
+    "# jira:\n"
+    "#   enabled: false                           # Jira mirror on/off (default: false)\n"
+    "#   mode: mirror                             # mirror | managed (default: mirror)\n"
+    "# clarify:\n"
+    "#   style: batch                             # batch | serial (default: batch)\n"
+    "# autorun:\n"
+    "#   consecutive_auto_transitions: 20         # klc run runaway cap (default: 20)\n"
+)
 
 
 def _seed(dst: Path, body: str, *, force: bool) -> None:

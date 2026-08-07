@@ -40,19 +40,32 @@ def project_root() -> Path:
 
 
 def _profile_selector() -> tuple[str, Path]:
-    """Locate the active profile name. Per-project override
-    ($PROJECT_ROOT/.klc/config/profile.yml) takes precedence over the
-    framework-level default (config/profile.yml)."""
+    """Locate the active profile name via the settings loader (KLC-100).
+
+    The loader's interleaved ladder resolves the profile from
+    settings.yml / profile.yml across the project and framework scopes, so a
+    profile set in settings.yml is honored here (and by every runtime reader
+    that funnels through this resolver). The returned path is best-effort, for
+    diagnostics only."""
+    import settings as _settings  # sibling in core/skills (on sys.path)
+
+    name = _settings.profile()
+    if name:
+        for cfg in (
+            project_root() / ".klc" / "config" / "settings.yml",
+            project_root() / ".klc" / "config" / "profile.yml",
+            framework_root() / "config" / "settings.yml",
+            framework_root() / "config" / "profile.yml",
+        ):
+            if cfg.exists():
+                return name, cfg
+        return name, framework_root() / "config" / "settings.yml"
+
     per_project = project_root() / ".klc" / "config" / "profile.yml"
     framework_default = framework_root() / "config" / "profile.yml"
-    for cfg in (per_project, framework_default):
-        if cfg.exists():
-            name = (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get("profile")
-            if name:
-                return name, cfg
     sys.stderr.write(
-        f"profile-resolve: no profile.yml with a `profile:` key found "
-        f"(checked {per_project} and {framework_default})\n"
+        f"profile-resolve: no profile with a `profile:` key found "
+        f"(checked settings.yml and {per_project}, {framework_default})\n"
     )
     sys.exit(1)
 

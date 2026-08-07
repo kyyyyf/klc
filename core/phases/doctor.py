@@ -91,13 +91,12 @@ def _profile_manifest() -> list[str]:
         import yaml
     except ImportError:
         return ["pyyaml not installed (pip install pyyaml)"]
-    prof_cfg = CONFIG / "profile.yml"
-    if not prof_cfg.exists():
-        return [f"{prof_cfg} missing"]
-    data = yaml.safe_load(prof_cfg.read_text()) or {}
-    name = data.get("profile")
+    import settings as _settings  # KLC-100: resolve the ACTIVE profile via the loader
+
+    name = _settings.profile()  # settings.yml → project/framework profile.yml → None
     if not name:
-        return [f"{prof_cfg}: no profile key"]
+        # F-5: keep an explicit no-profile error rather than defaulting to "generic".
+        return [f"{CONFIG / 'settings.yml'} / profile.yml: no profile set"]
     manifest = framework_root() / "profiles" / name / "manifest.yml"
     if not manifest.exists():
         return [f"profile {name!r}: {manifest} missing"]

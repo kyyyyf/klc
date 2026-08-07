@@ -34,6 +34,7 @@ KNOWN_SCHEMAS = {
         "prompt_input_limits",   # legacy: per-track token limits
         "soft_limits",           # warn only — run proceeds
         "hard_limits",           # block — dispatch refused
+        "consecutive_auto_transitions",  # autorunner runaway cap (read by autorunner._cap)
     },
     "models.yml": {
         "version",      # schema version
@@ -124,6 +125,78 @@ def validate_file(config_path: Path) -> list[str]:
     except Exception as e:
         warnings.append(f"{filename}: failed to parse: {e}")
 
+    return warnings
+
+
+# KLC-100: settings.yml is validated by this dedicated, None-tolerant pass rather
+# than the generic validate_file() path — a fully-commented settings.yml parses to
+# None and MUST NOT be flagged "root must be a dictionary" (impl-review F-3). Keys
+# are dotted so a NESTED typo (e.g. jira.enabld) is caught, not silently no-op'd.
+_SETTINGS_SCHEMA = {
+    "profile": ("str", None),
+    "jira.enabled": ("bool", None),
+    "jira.mode": ("enum", {"mirror", "managed"}),
+    "clarify.style": ("enum", {"batch", "serial"}),
+    "autorun.consecutive_auto_transitions": ("posint", None),
+}
+
+
+def _flatten_settings(data: dict, prefix: str = ""):
+    for key, value in data.items():
+        dotted = f"{prefix}{key}"
+        if isinstance(value, dict):
+            yield from _flatten_settings(value, prefix=f"{dotted}.")
+        else:
+            yield dotted, value
+
+
+def _check_settings_type(dotted: str, value: Any, spec: tuple) -> str | None:
+    kind, extra = spec
+    if kind == "str" and not isinstance(value, str):
+        return f"settings.yml: {dotted} must be a string (got {type(value).__name__})"
+    if kind == "bool" and not isinstance(value, bool):
+        return f"settings.yml: {dotted} must be true or false"
+    if kind == "enum" and value not in extra:
+        return f"settings.yml: {dotted}={value!r} invalid; use one of {sorted(extra)}"
+    if kind == "posint" and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
+        return f"settings.yml: {dotted} must be a positive integer"
+    return None
+
+
+def validate_settings(config_dir: Path | None = None) -> list[str]:
+    """Validate config/settings.yml (KLC-100 AC-9).
+
+    None-tolerant: an absent OR fully-commented settings.yml (parses to None) is
+    valid and returns []. Otherwise flags unknown keys (top-level AND nested) and
+    type/enum mismatches for each known knob.
+    """
+    if config_dir is None:
+        config_dir = _p.framework_root() / "config"
+    path = config_dir / "settings.yml"
+    if not path.exists():
+        return []
+    # Parse with core.shared.yaml (the SAME parser settings.py reads this file
+    # with) rather than pyyaml — deterministic on these small files and immune to
+    # a bare-`yaml` sys.modules shadow (core/shared on the path) that would strip
+    # safe_load and turn a valid file into a spurious "failed to parse" warning.
+    from core.shared.yaml import parse as _shared_parse
+    try:
+        data = _shared_parse(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 — surface as a warning, never raise
+        return [f"settings.yml: failed to parse: {exc}"]
+    if data is None:
+        return []  # fully commented / empty — legacy fallback, valid (F-3)
+    if not isinstance(data, dict):
+        return ["settings.yml: root element must be a dictionary"]
+    warnings: list[str] = []
+    for dotted, value in _flatten_settings(data):
+        spec = _SETTINGS_SCHEMA.get(dotted)
+        if spec is None:
+            warnings.append(f"settings.yml: unknown key {dotted!r}")
+        else:
+            msg = _check_settings_type(dotted, value, spec)
+            if msg:
+                warnings.append(msg)
     return warnings
 
 
@@ -256,6 +329,7 @@ def validate_all(config_dir: Path | None = None) -> list[str]:
         file_warnings = validate_file(config_file)
         warnings.extend(file_warnings)
 
+    warnings.extend(validate_settings(config_dir))  # KLC-100: None-tolerant settings.yml pass
     warnings.extend(validate_phase_roles(config_dir))
     warnings.extend(validate_condition_syntax(config_dir))
 

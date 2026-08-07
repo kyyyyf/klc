@@ -122,8 +122,13 @@ def load(config_dir: Path | None = None) -> JiraConfig:
 
     cfg = _deep_merge(_load_yaml(fw_cfg), _load_yaml(proj_cfg))
 
-    enabled = bool(cfg.get("enabled", False))
-    mode = cfg.get("mode", "mirror")
+    # KLC-100: enabled/mode resolve through the settings loader (settings.yml first,
+    # then the legacy jira.yml), FORWARDING config_dir so the injection seam that
+    # jira_config.load(config_dir=X) relies on is honored (impl-review F-1).
+    _sys.path.insert(0, str(_project_root / "core" / "skills"))
+    import settings as _settings
+    enabled = bool(_settings.jira_enabled(config_dir))
+    mode = _settings.jira_mode(config_dir)
     if mode not in ("mirror", "managed"):
         raise JiraConfigError(f"jira.yml: mode must be 'mirror' or 'managed', got {mode!r}")
 

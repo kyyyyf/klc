@@ -1,0 +1,33 @@
+# settings.yml — the operational front door (SYSTEM knobs you flip).
+#
+# One place for the frequently-toggled operational settings, resolved by
+# core/skills/settings.py. Every knob below is COMMENTED OUT: while commented,
+# the framework falls back to the knob's legacy file (profile.yml / jira.yml /
+# clarify.yml / budgets.yml), so an install that has not migrated behaves
+# byte-for-byte as before. Uncomment a line here (or in the per-project
+# .klc/config/settings.yml, which takes precedence) to override.
+#
+# Resolution ladder for every knob (project layers before framework layers):
+#   .klc/config/settings.yml -> .klc/config/<legacy>.yml
+#   -> config/settings.yml   -> config/<legacy>.yml -> built-in default
+#
+# `klc doctor` validates the keys and value types below.
+
+# Active profile — selects profiles/<name>/{manifest,sgconfig,mcp}.yml
+# (language globs, semgrep config, MCP servers, reviewer manifest).
+# Legacy: config/profile.yml. Default: ue.
+# profile: ue
+
+# Jira mirror integration (optional). Legacy: config/jira.yml.
+# jira:
+#   enabled: false          # push klc phase -> Jira status on ack. Default: false.
+#   mode: mirror            # mirror (auto-push) | managed (manual sync). Default: mirror.
+
+# Interactive clarify-gate dialogue style. Legacy: config/clarify.yml.
+# clarify:
+#   style: batch            # batch (one grouped ask) | serial (one at a time). Default: batch.
+
+# Autonomous-runner runaway backstop (`klc run`). Legacy: config/budgets.yml.
+# The KLC_AUTORUN_CAP env var overrides this.
+# autorun:
+#   consecutive_auto_transitions: 20   # max consecutive auto transitions. Default: 20.

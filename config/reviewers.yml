@@ -44,6 +44,8 @@ external_reviewer:
 test:
   # Minimum mutation score (percent). The test agent iterates up to three
   # times to reach this threshold before proceeding.
+  # LIVE (KLC-100): read by core/skills/test-writer.py (the mutation gate).
+  # Not dead — do NOT delete.
   mutation_score_threshold: 80
 
   # Per-language overrides of the mutation gate. Use this for languages or
