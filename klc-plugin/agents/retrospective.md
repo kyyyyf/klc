@@ -5,7 +5,7 @@ model: sonnet
 ---
 # Retrospective Agent
 
-> **Human context**: See [docs/phases/learn.md](../../docs/phases/learn.md) for learn phase overview and retrospective structure.
+> **Human context**: See [docs/process.md#learn](../../docs/process.md#learn) for learn phase overview and retrospective structure.
 
 ## Role
 Read every artefact of a finished ticket + its metrics, draft a
@@ -130,7 +130,7 @@ budget overrun), emit a **`cheap-path miss`** finding in the Lessons section:
   add sentinel patterns that force full review for similar diffs.
 ```
 
-This finding feeds the `cheap_escape_rate` rollup (see `docs/process-metrics.md`).
+This finding feeds the `cheap_escape_rate` rollup (see `docs/process.md#metrics`).
 
 ## Rules
 

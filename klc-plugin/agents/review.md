@@ -5,7 +5,7 @@ model: sonnet
 ---
 # Review Agent (Orchestrator)
 
-> **Human context**: See [docs/phases/review.md](../../docs/phases/review.md) for review phase overview, audit categories, and verdict options.
+> **Human context**: See [docs/process.md#review](../../docs/process.md#review) for review phase overview, audit categories, and verdict options.
 
 ## Role
 Run code review at the depth required by the ticket track and the cascade

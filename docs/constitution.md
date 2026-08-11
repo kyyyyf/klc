@@ -209,7 +209,7 @@ the constitution is itself mirrored — a gh-side grep would find those tokens i
 its own denylist file and self-trip into a permanent false failure. A denylist
 cannot safely live on the surface it guards. So the constitution **states** the
 invariant; the origin-side tooling **enforces** it. See
-`docs/dual-remote-mr-pr-workflow.md` for the publish-and-verify step.
+`docs/process.md#dual-remote-workflow` for the publish-and-verify step.
 
 ### `divergent-public-mirror`
 
@@ -227,7 +227,7 @@ history*, and they are **intentionally divergent** — not fast-forwards of one
 another. The earlier "merge on one forge, `--ff-only` mirror the other, identical
 mains" model is dead: `--ff-only` mirroring cannot survive a re-authored lineage,
 and asserting identical mains would directly contradict `public-mirror-no-internal-refs`.
-`docs/dual-remote-mr-pr-workflow.md` describes the live workflow.
+`docs/process.md#dual-remote-workflow` describes the live workflow.
 
 ---
 
@@ -313,7 +313,7 @@ every change would tax the trivial ones and starve the risky ones.
   stacks on an unmerged branch.
 
 Dependencies are expressed as per-ticket `blocked_by` edges that clear only when
-the upstream reaches **integrated** (see the epic DAG in `docs/epics.md` and the
+the upstream reaches **integrated** (see the epic DAG in `docs/process.md#epics` and the
 KLC-082 epic plan: `KLC-083.build ← KLC-082 @ integrated`). A ticket therefore
 builds on merged code, never on an unmerged branch stack that could be rebased or
 abandoned under it. There is no central dependency manifest; the edges live on the

@@ -232,4 +232,4 @@ Invalid reasons:
 - Track determines phase sequence and gate rigor
 - Override only when process mismatch is clear
 
-For phase-specific details, see `docs/phases/<phase>.md`.
+For phase-specific details, see the per-phase sections in `docs/process.md`.

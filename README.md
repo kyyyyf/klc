@@ -87,6 +87,34 @@ python /opt/klc/scripts/install_deps.py --dev
 
 This installs mutation testing tools (mutmut, stryker, cargo-mutants, mull-runner).
 
+### 5. (Optional) Install the Claude Code plugin
+
+klc ships a thin Claude Code plugin that wraps every lifecycle verb as a native
+slash command (`/klc:intake`, `/klc:status`, `/klc:run`, …) and subagent. It has
+no MCP server — it shells out to the `klc` binary via Bash. Generate the deployed
+`agents/` directory from source, then install the plugin folder into Claude Code:
+
+```bash
+# From the klc repo root:
+python3 scripts/klc plugin-gen      # regenerate klc-plugin/agents/ from core/agents/
+# Then drag-and-drop klc-plugin/ into the CC plugins panel (or use the marketplace
+# install path when the plugin is published).
+```
+
+The generator resolves each phase's `model:` frontmatter from `config/models.yml`;
+no prompt content is duplicated by hand. Rerun `plugin-gen` after changing model
+roles or any `core/agents/*.md` prompt.
+
+### Configuration
+
+Framework config lives in `config/` (per-project overrides go in `.klc/config/` and
+win). The operational front door is `config/settings.yml` — one file for the SYSTEM
+knobs you flip most (profile, Jira on/off + mode, clarify style, the `klc run`
+autorun cap); each knob falls back to its legacy file when a key is absent, so an
+un-migrated install behaves byte-for-byte as before. The FUNCTIONAL files define the
+process itself (`phases.yml`, `constitution.yml`, `coverage-taxonomy.yml`, …). Run
+`klc doctor` to validate every config file.
+
 ## Quick start
 
 ```bash
@@ -206,12 +234,19 @@ klc/                           # framework repo
 
 ## Documentation
 
-- [`docs/process.md`](docs/process.md) — phases, tracks, verbs, gates,
-  build loop, inline item format.
-- [`docs/process-artifacts.md`](docs/process-artifacts.md) — per-file
-  artefact schema.
-- [`docs/process-metrics.md`](docs/process-metrics.md) — metric
-  catalogue and rollups.
-- [`docs/epics.md`](docs/epics.md) — the epic / feature layer: grouping
-  tickets, dependency edges, `board --epic`, and the "discuss a new
-  feature" skill.
+Three top-level docs — this README (usage / install), plus:
+
+- [`docs/process.md`](docs/process.md) — the single process & detailed-usage
+  reference: phases, tracks, verbs, gates, the build loop, inline item format,
+  roles, glossary, artifact schema, metrics, the epic layer (`board --epic` +
+  "discuss a new feature"), and the dual-remote workflow.
+- [`docs/architecture.md`](docs/architecture.md) — the key decisions and
+  cross-cutting invariants (prompt-driven design, the `ReviewKind` seam, git-CAS
+  ticket state, dual-remote, plugin-gen-as-derivation), mapping over `docs/adr/`
+  and the kept machine-coupled docs.
+
+The machine-coupled docs stay as their own single sources:
+[`docs/constitution.md`](docs/constitution.md),
+[`docs/coverage-taxonomy.md`](docs/coverage-taxonomy.md),
+[`docs/tracks.md`](docs/tracks.md), and
+[`docs/severity-rubric.md`](docs/severity-rubric.md).

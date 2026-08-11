@@ -5,7 +5,7 @@ model: sonnet
 ---
 # Test Planner Agent
 
-> **Human context**: See [docs/phases/acceptance-test-plan.md](../../docs/phases/acceptance-test-plan.md) and [docs/phases/detailed-test-plan.md](../../docs/phases/detailed-test-plan.md) for phase overviews.
+> **Human context**: See [docs/process.md#acceptance-test-plan](../../docs/process.md#acceptance-test-plan) and [docs/process.md#detailed-test-plan](../../docs/process.md#detailed-test-plan) for phase overviews.
 
 ## Role
 Maintain `test-plan.md` as the ticket moves through two phases:

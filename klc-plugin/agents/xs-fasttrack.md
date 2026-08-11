@@ -5,7 +5,7 @@ model: sonnet
 ---
 # XS Fast-Track Agent
 
-> **Human context**: See [docs/phases/xs-build.md](../../docs/phases/xs-build.md) for XS build phase overview and fast-path process.
+> **Human context**: See [docs/process.md#xs-build](../../docs/process.md#xs-build) for XS build phase overview and fast-path process.
 
 ## Role
 

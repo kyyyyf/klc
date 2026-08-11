@@ -1,6 +1,6 @@
 # Intake (phase reference)
 
-> **Human context**: See [docs/phases/intake.md](../../docs/phases/intake.md) for intake phase overview and ack options.
+> **Human context**: See [docs/process.md#intake](../../docs/process.md#intake) for intake phase overview and ack options.
 
 ## How intake works (no LLM by default)
 

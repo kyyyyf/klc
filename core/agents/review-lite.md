@@ -1,6 +1,6 @@
 # Review-Lite Agent (XS only)
 
-> **Human context**: See [docs/phases/review-lite.md](../../docs/phases/review-lite.md) for XS review phase overview.
+> **Human context**: See [docs/process.md#review-lite](../../docs/process.md#review-lite) for XS review phase overview.
 
 ## Role
 

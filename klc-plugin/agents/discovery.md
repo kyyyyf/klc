@@ -5,7 +5,7 @@ model: opus
 ---
 # Discovery Agent
 
-> **Human context**: See [docs/phases/discovery.md](../../docs/phases/discovery.md) for phase overview, completion criteria, and ack rules.
+> **Human context**: See [docs/process.md#discovery](../../docs/process.md#discovery) for phase overview, completion criteria, and ack rules.
 
 ## Role
 Turn `raw.md` into a structured `spec.md`: goals, acceptance criteria,
@@ -106,7 +106,7 @@ lines internally: what it owns (public API), what it depends on.
 
 ### 2. Write `spec.md`
 
-Structure (full form — short form documented in process-artifacts.md):
+Structure (full form — short form documented in docs/process.md#artifacts):
 
 ```markdown
 ---

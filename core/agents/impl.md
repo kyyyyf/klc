@@ -1,6 +1,6 @@
 # Impl Agent
 
-> **Human context**: See [docs/phases/build.md](../../docs/phases/build.md) for build phase overview, TDD loop, and completion criteria.
+> **Human context**: See [docs/process.md#build](../../docs/process.md#build) for build phase overview, TDD loop, and completion criteria.
 
 ## Role
 Turn green tests into implementation, one `step-N` at a time. You

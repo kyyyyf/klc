@@ -136,8 +136,16 @@ def compare(ticket: str) -> dict:
     #     graph; they resolve to no module and would otherwise land in
     #     unknown_files → expansion, hard-failing any ticket that touches a hook
     #     (KLC-102: the plugin-sync pre-commit step is such a legitimate edit).
+    #   - root `README.md` — a top-level project doc in no module; a legitimate
+    #     edit (e.g. a docs ticket) would otherwise land in unknown_files →
+    #     expansion (KLC-101). Only the ROOT README is dropped (exact match);
+    #     nested `<module>/README.md` stay in their module.
     _INFRA_PREFIXES = (".klc/", "hooks/")
-    changed_files = [f for f in changed_files if not f.startswith(_INFRA_PREFIXES)]
+    _INFRA_FILES = ("README.md",)
+    changed_files = [
+        f for f in changed_files
+        if not f.startswith(_INFRA_PREFIXES) and f not in _INFRA_FILES
+    ]
     if not changed_files:
         return {
             "planned": planned, "actual": [], "drift": [], "expansion": [],

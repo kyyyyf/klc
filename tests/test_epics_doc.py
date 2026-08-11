@@ -1,44 +1,52 @@
-"""KLC-080: docs/epics.md must exist and accurately describe the epic layer.
+"""KLC-101 (repoints KLC-080): the epic-layer guide was absorbed into the
+`## Epics` section of `docs/process.md` (it is no longer a standalone
+`docs/epics.md`).
 
-The guide is the user-facing entry for the KLC-077/078/079 epic feature. These
-are substring checks on the doc's OWN text — they pin its content and vocabulary
-(the `board --epic` view, the `--epic` / `--blocked-by` flags, the three
-dependency points, a link to the spec) so an accidental deletion or rename inside
-the doc is caught. They are not code-drift detection: they would still pass if a
-point were renamed in the code but not here. A separate check guards against the
-retired `decompose` indexing-agent phrasing reappearing (KLC-074 replaced it with
-the deterministic `modules_build`).
+These are substring checks on the section's OWN text — they pin its content and
+vocabulary (the `board --epic` view, the `--epic` / `--blocked-by` flags, the
+three dependency points, a link to the spec) so an accidental deletion or rename
+inside the doc is caught. They are not code-drift detection. A separate check
+guards against the retired `decompose` indexing-agent phrasing reappearing
+(KLC-074 replaced it with the deterministic `modules_build`).
 """
 from pathlib import Path
 
 # tests/test_epics_doc.py → parents[1] is the repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOCS = _REPO_ROOT / "docs"
-_EPICS = _DOCS / "epics.md"
+_PROCESS = _DOCS / "process.md"
 
 
-def test_epics_doc_exists():
-    assert _EPICS.is_file(), f"missing guide: {_EPICS}"
+def test_old_standalone_epics_doc_is_gone():
+    assert not (_DOCS / "epics.md").exists(), (
+        "docs/epics.md was absorbed into docs/process.md#epics and must be gone"
+    )
 
 
-def test_epics_doc_covers_the_view_and_flags():
-    text = _EPICS.read_text(encoding="utf-8")
+def test_process_doc_has_epics_section():
+    text = _PROCESS.read_text(encoding="utf-8")
+    assert "## Epics" in text, "docs/process.md must carry an ## Epics section"
+
+
+def test_epics_section_covers_the_view_and_flags():
+    text = _PROCESS.read_text(encoding="utf-8")
     for needle in ("board --epic", "--epic", "--blocked-by", "meta.epic",
                    "meta.blocked_by"):
-        assert needle in text, f"epics.md must document {needle!r}"
+        assert needle in text, f"process.md #epics must document {needle!r}"
 
 
-def test_epics_doc_lists_the_three_points():
-    text = _EPICS.read_text(encoding="utf-8")
+def test_epics_section_lists_the_three_points():
+    text = _PROCESS.read_text(encoding="utf-8")
     for point in ("design-accepted", "integrated", "archived"):
-        assert point in text, f"epics.md must document the point {point!r}"
-    assert "passed" in text, "epics.md must document the `passed` condition"
+        assert point in text, f"process.md #epics must document the point {point!r}"
+    assert "passed" in text, "process.md #epics must document the `passed` condition"
 
 
-def test_epics_doc_links_the_spec():
-    text = _EPICS.read_text(encoding="utf-8")
+def test_epics_section_links_the_spec():
+    text = _PROCESS.read_text(encoding="utf-8")
     assert "20260724_epic_feature_impl_plan.md" in text, (
-        "epics.md must link the epic spec (docs/20260724_epic_feature_impl_plan.md)"
+        "process.md #epics must link the epic spec "
+        "(docs/20260724_epic_feature_impl_plan.md)"
     )
 
 

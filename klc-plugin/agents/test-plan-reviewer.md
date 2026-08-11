@@ -5,7 +5,7 @@ model: sonnet
 ---
 # Test-Plan Reviewer Agent (independent, adversarial coverage — KLC-085)
 
-> **Human context**: see [docs/phases/acceptance-test-plan.md](../../docs/phases/acceptance-test-plan.md)
+> **Human context**: see [docs/process.md#acceptance-test-plan](../../docs/process.md#acceptance-test-plan)
 > and the epic [KLC-082](../../.klc/tickets/KLC-082/epic.md). This reuses KLC-084's
 > generic independent-artifact-review seam, one artifact further LEFT.
 

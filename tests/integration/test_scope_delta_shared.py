@@ -82,3 +82,15 @@ def test_hooks_infra_edit_is_not_expansion(monkeypatch, tmp_path):
                      planned=["intake"])
     assert d["expansion"] == []                       # hooks/ dropped, intake is planned
     assert "hooks/pre-commit" not in d.get("unknown_files", [])
+
+
+def test_root_readme_edit_is_not_expansion(monkeypatch, tmp_path):
+    """KLC-101: the root README.md is a top-level doc in no module — a legitimate
+    edit (e.g. a docs ticket) must not false-positive the review scope-guard as
+    expansion. Only the ROOT README is dropped; nested */README.md stay in their
+    module."""
+    d = _run_compare(monkeypatch, tmp_path,
+                     changed=["README.md", "core/phases/intake.py"],
+                     planned=["intake"])
+    assert d["expansion"] == []                       # root README dropped
+    assert "README.md" not in d.get("unknown_files", [])
