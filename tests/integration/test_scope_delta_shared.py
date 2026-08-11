@@ -71,3 +71,14 @@ def test_orphan_file_still_expansion(monkeypatch, tmp_path):
                      changed=["vendor/thing.py"], planned=["intake"])
     assert "vendor/thing.py" in d["unknown_files"]
     assert d["expansion"] == ["vendor/thing.py"]
+
+
+def test_hooks_infra_edit_is_not_expansion(monkeypatch, tmp_path):
+    """KLC-102: a git-hook edit is framework INFRA (like .klc/), not application
+    scope — it must be dropped before bucketing, so a legitimate hooks/ change
+    does not false-positive the review scope-guard as expansion."""
+    d = _run_compare(monkeypatch, tmp_path,
+                     changed=["hooks/pre-commit", "core/phases/intake.py"],
+                     planned=["intake"])
+    assert d["expansion"] == []                       # hooks/ dropped, intake is planned
+    assert "hooks/pre-commit" not in d.get("unknown_files", [])

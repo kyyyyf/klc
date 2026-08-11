@@ -35,6 +35,11 @@ sys.path.insert(0, str(FW))
 import plugin_gen as pg  # noqa: E402
 import phases as _phases  # noqa: E402
 
+# KLC-102: the drift-guard now covers the WHOLE plugin, not only agents.
+SKILLS_DIR = FW / "klc-plugin" / "skills"
+MANIFEST_PATH = FW / "klc-plugin" / ".claude-plugin" / "plugin.json"
+COMMANDS_DIR = FW / "klc-plugin" / "commands"
+
 
 def _agent_drift(committed_dir: Path) -> list[str]:
     """Regenerate all agents into a temp dir and return drift findings against
@@ -143,3 +148,142 @@ def test_phase_resolver_targets_committed_agent_copies() -> None:
         "phase_resolver would return agent_type=None for these phases because "
         "their regenerated plugin agent copy is missing:\n  " + "\n  ".join(unresolved)
     )
+
+
+# ===========================================================================
+# KLC-102 — whole-plugin drift guard: skills byte-exact, manifest byte-exact,
+# bespoke presence, skill-dir set-closure, and the command-desc byte-assert.
+# ===========================================================================
+
+def _skill_drift(committed_dir: Path) -> list[str]:
+    """Regenerate the SKILL_VERBS skills into a temp dir and return drift
+    findings against *committed_dir*. Empty list means fully in sync.
+
+    Each finding is ``MISSING: <verb>/SKILL.md`` or ``DRIFT: <verb>/SKILL.md``.
+    """
+    findings: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "skills"
+        pg.generate_skills(output_dir=out)
+        for v in sorted(pg.SKILL_VERBS):
+            gen = out / v / "SKILL.md"
+            dst = committed_dir / v / "SKILL.md"
+            if not dst.exists():
+                findings.append(f"MISSING: {v}/SKILL.md")
+            elif dst.read_bytes() != gen.read_bytes():
+                findings.append(f"DRIFT: {v}/SKILL.md")
+    return findings
+
+
+def _manifest_drift(committed_manifest: Path) -> list[str]:
+    """Regenerate the manifest into a temp dir and compare to
+    *committed_manifest*. Empty list means in sync."""
+    findings: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        gen = pg.generate_manifest(output_dir=Path(tmp))
+        if not committed_manifest.exists():
+            findings.append("MISSING: .claude-plugin/plugin.json")
+        elif committed_manifest.read_bytes() != gen.read_bytes():
+            findings.append("DRIFT: .claude-plugin/plugin.json")
+    return findings
+
+
+def _skill_dir_findings(dir_names: set[str]) -> list[str]:
+    """Set-closure check on an injectable set of skill-dir names: every dir must
+    belong to ``SKILL_VERBS ∪ BESPOKE_SKILLS``. Returns ``UNKNOWN: <d>`` for an
+    unguarded dir and ``MISSING: <d>`` for an expected dir that is absent."""
+    known = pg.SKILL_VERBS | pg.BESPOKE_SKILLS
+    return (
+        [f"UNKNOWN: {d}" for d in sorted(dir_names - known)]
+        + [f"MISSING: {d}" for d in sorted(known - dir_names)]
+    )
+
+
+def _committed_cmd_desc(md: Path) -> str:
+    """The ``description:`` value from a committed command stub."""
+    for line in md.read_text(encoding="utf-8").splitlines():
+        if line.startswith("description:"):
+            return line[len("description:"):].strip()
+    raise AssertionError(f"no description: line in {md}")
+
+
+def test_skills_in_sync() -> None:
+    """AC-5: every SKILL_VERBS ``skills/<verb>/SKILL.md`` matches the bytes
+    ``plugin_gen.generate_skills`` regenerates from source (extends KLC-092's
+    agents-byte guarantee to the passthrough skills)."""
+    drift = _skill_drift(SKILLS_DIR)
+    assert not drift, (
+        "klc-plugin/skills/ is out of sync — run "
+        "`python3 core/skills/plugin_gen.py` and commit. Offending:\n  "
+        + "\n  ".join(drift)
+    )
+
+
+def test_manifest_in_sync() -> None:
+    """AC-5: the committed ``.claude-plugin/plugin.json`` matches the bytes
+    ``generate_manifest`` emits."""
+    drift = _manifest_drift(MANIFEST_PATH)
+    assert not drift, (
+        "klc-plugin/.claude-plugin/plugin.json is out of sync — run "
+        "`python3 core/skills/plugin_gen.py` and commit. Offending:\n  "
+        + "\n  ".join(drift)
+    )
+
+
+def test_bespoke_skills_present() -> None:
+    """AC-6: each bespoke skill dir (run, discuss-feature) has a committed
+    SKILL.md, AND every committed skill dir belongs to
+    ``SKILL_VERBS ∪ BESPOKE_SKILLS`` (set-closure — no unguarded artifact,
+    C-002)."""
+    for b in pg.BESPOKE_SKILLS:
+        assert (SKILLS_DIR / b / "SKILL.md").exists(), (
+            f"bespoke skill {b}/SKILL.md is missing (presence-guarded)"
+        )
+    on_disk = {p.name for p in SKILLS_DIR.iterdir() if p.is_dir()}
+    assert _skill_dir_findings(on_disk) == [], (
+        "klc-plugin/skills/ set-closure violated (unknown or missing dir):\n  "
+        + "\n  ".join(_skill_dir_findings(on_disk))
+    )
+
+
+def test_hand_edited_skill_is_red() -> None:
+    """AC-6 negative arm: a hand-edited generated skill (byte diff) is reported
+    as DRIFT, so C-003 is mechanically enforced."""
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = Path(tmp) / "skills"
+        pg.generate_skills(output_dir=fake)
+        victim = sorted(pg.SKILL_VERBS)[0]
+        (fake / victim / "SKILL.md").write_text(
+            "hand-edited drift — not what plugin_gen emits\n", encoding="utf-8"
+        )
+        findings = _skill_drift(fake)
+        assert any(f"DRIFT: {victim}/SKILL.md" in f for f in findings), findings
+
+
+def test_deleted_bespoke_skill_is_red() -> None:
+    """review F-1 / AC-6: a MISSING bespoke skill dir (run removed) is reported,
+    not silently passed."""
+    on_disk = {p.name for p in SKILLS_DIR.iterdir() if p.is_dir()}
+    on_disk.discard("run")
+    findings = _skill_dir_findings(on_disk)
+    assert any("MISSING: run" in f for f in findings), findings
+
+
+def test_unknown_skill_dir_is_red() -> None:
+    """review D-2 / C-002 / AC-6: a committed skill dir not in
+    ``SKILL_VERBS ∪ BESPOKE_SKILLS`` fails the set-closure guard."""
+    findings = _skill_dir_findings(pg.SKILL_VERBS | pg.BESPOKE_SKILLS | {"rogue"})
+    assert any("UNKNOWN: rogue" in f for f in findings), findings
+
+
+def test_command_desc_matches_verb_specs_short() -> None:
+    """AC-4: for each shared verb, the committed ``commands/<verb>.md``
+    ``description:`` equals ``VERB_SPECS[verb]["short"]`` — the single byte
+    assertion that would have caught the live ``ack.md`` drift."""
+    shared = pg.SKILL_VERBS & set(pg._LIFECYCLE_CMDS)
+    for v in sorted(shared):
+        md = COMMANDS_DIR / f"{v}.md"
+        assert md.exists(), f"missing command stub {v}.md"
+        assert _committed_cmd_desc(md) == pg.VERB_SPECS[v]["short"], (
+            f"commands/{v}.md description drifts from VERB_SPECS[{v!r}]['short']"
+        )

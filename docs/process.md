@@ -1104,6 +1104,26 @@ block appended to every `core/agents/*.md`, regenerated into
 retry policy (`should_retry`): an unparseable/mismatched signal retries
 the same phase once; a second consecutive failure stops the loop.
 
+### Regenerating the plugin delivery layer (KLC-102)
+
+The whole `klc-plugin/` tree — agents, the 8 passthrough skills, the
+command stubs, and `.claude-plugin/plugin.json` — is derived from source
+by `plugin_gen.py`; nothing under `klc-plugin/` is hand-maintained
+(constraint C-002: no unguarded artifact). The single rule: after
+editing any `core/agents/*.md` prompt or the `VERB_SPECS`
+verb-dictionary in `core/skills/plugin_gen.py`, run `python3
+core/skills/plugin_gen.py` and commit the regenerated files. The rule is
+machine-checkable — the drift-guard `tests/test_plugin_agents_in_sync.py`
+reddens on any stale artifact, and the `hooks/pre-commit` step runs
+`plugin_gen.py --check-if-staged` (which scopes itself to staged plugin
+sources) and hard-fails the commit on drift. The bespoke skills `run` and
+`discuss-feature` are handwritten and only presence-guarded (constraint
+C-001). One manual caveat: changing a shared verb's `short` in `VERB_SPECS`
+regenerates that verb's `SKILL.md` but not its command stub (stubs are
+skip-if-exists), so the maintainer must hand-edit
+`klc-plugin/commands/<verb>.md` too; the drift-guard and pre-commit gate flag
+`CMD-DESC-DRIFT` until they do.
+
 ### Mandatory intake clarify gate
 
 `core/phases/intake.py` stamps `meta.json:clarify_required = true`

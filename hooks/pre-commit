@@ -53,6 +53,19 @@ if [ -n "$STAGED" ]; then
     [ "$fail" -eq 0 ] || exit 1
 fi
 
+# --- 1b. Plugin sync check (scoped — KLC-102 AC-7/AC-8) ---
+# Only fires when a plugin SOURCE is staged (core/agents/* or the plugin_gen
+# verb-dictionary). Scope + regenerate-into-temp + compare all live in the
+# python seam `plugin_gen.py --check-if-staged`: it computes the staged paths,
+# applies the SAME `plugin_sources_staged` predicate the unit tests exercise
+# (no grep re-implementation here — review LOW-1), and only then runs the
+# bounded check. Read-only; never restages a file. Hard-fails on drift so a
+# stale committed plugin cannot land.
+if ! python3 "$FW/core/skills/plugin_gen.py" --check-if-staged; then
+    echo "pre-commit: klc-plugin is out of sync with source — run: python3 core/skills/plugin_gen.py (then stage & recommit)" >&2
+    exit 1
+fi
+
 # --- 2. Deterministic index refresh (non-blocking) ---
 # Only runs when .klc/index/.last-run exists (i.e. after `klc init`).
 if [ -f "$REPO_ROOT/.klc/index/.last-run" ]; then

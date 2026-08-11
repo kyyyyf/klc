@@ -127,12 +127,17 @@ def compare(ticket: str) -> dict:
         }
 
     changed_files = _git_changed_files(project_root())
-    # Drop klc's own state directory: `.klc/` holds ticket metadata,
-    # the index, and reports — process state, never application scope.
-    # It is git-tracked and klc itself dirties it on every phase
-    # transition, so counting it would flag a false expansion on every
-    # review ack (it maps to the `.klc/tickets/` module).
-    changed_files = [f for f in changed_files if not f.startswith(".klc/")]
+    # Drop framework INFRA paths that are not application scope, so a legitimate
+    # infra edit does not false-positive the review scope-guard as expansion:
+    #   - `.klc/`  — klc's own state (ticket metadata, index, reports); klc
+    #     dirties it on every phase transition (it maps to the `.klc/tickets/`
+    #     module), so counting it would flag a false expansion on every review ack.
+    #   - `hooks/` — git hooks are delivery/process infra outside the module
+    #     graph; they resolve to no module and would otherwise land in
+    #     unknown_files → expansion, hard-failing any ticket that touches a hook
+    #     (KLC-102: the plugin-sync pre-commit step is such a legitimate edit).
+    _INFRA_PREFIXES = (".klc/", "hooks/")
+    changed_files = [f for f in changed_files if not f.startswith(_INFRA_PREFIXES)]
     if not changed_files:
         return {
             "planned": planned, "actual": [], "drift": [], "expansion": [],
