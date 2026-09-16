@@ -190,7 +190,10 @@ def test_cli_strict_not_failed_by_degraded_retrieval(tmp_path):
     rc = pv.main(["--in-modules", str(mp), "--in-inventory", str(inv),
                   "--in-retrieval", str(tr),
                   "--in-file-roles", str(tmp_path / "nope.json"),
-                  "--in-module-edges", str(tmp_path / "nope2.json"), "--strict"])
+                  "--in-module-edges", str(tmp_path / "nope2.json"),
+                  # KLC-105 follow-up: pin structural to a fixture-local absent path so the
+                  # universe check never reads the LIVE .klc/index/structural.json (test isolation).
+                  "--in-structural", str(tmp_path / "nope-structural.json"), "--strict"])
     assert rc == 0
 
 
