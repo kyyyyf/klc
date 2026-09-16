@@ -42,8 +42,9 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
-from core.shared.paths import framework_root, klc_ticket_dir, klc_index_dir  # noqa: E402
+from core.shared.paths import framework_root, klc_ticket_dir  # noqa: E402
 import phases as _ph  # noqa: E402
+from impl_plan_check import parse_impl_plan_steps, extract_step_fields  # noqa: E402
 
 
 class LockedError(RuntimeError):
@@ -252,19 +253,15 @@ def write_step_card(ticket: str, step: int, meta: dict,
     # --- extract goals+ACs from spec.md ---
     goals_block = _extract_goals_acs(tdir / "spec.md")
 
-    # --- extract current step from impl-plan.md ---
-    step_data = _extract_impl_step(tdir / "impl-plan.md", step)
-
-    # --- detect test run command ---
-    test_fw_file = klc_index_dir() / "test-framework.json"
-    run_command = "# see test-framework.json"
-    test_file = "# run the failing test added by the test agent"
-    if test_fw_file.exists():
-        try:
-            tf = json.loads(test_fw_file.read_text(encoding="utf-8"))
-            run_command = tf.get("run_command") or run_command
-        except (json.JSONDecodeError, OSError):
-            pass
+    # --- extract current step from impl-plan.md (KLC-113: the ONE parser —
+    # parse_impl_plan_steps + extract_step_fields, no second fork) ---
+    plan_path = tdir / "impl-plan.md"
+    plan_steps = (parse_impl_plan_steps(plan_path.read_text(encoding="utf-8"))
+                  if plan_path.exists() else [])
+    current_step = next((s for s in plan_steps if s["id"] == f"step-{step}"), None)
+    fields = (extract_step_fields(current_step["body"])
+              if current_step is not None else {})
+    step_title = current_step["title"] if current_step is not None else f"step-{step}"
 
     # --- impl role prompt: reference (compressed) or embed (inline) ---
     impl_prompt_path = fw / "core" / "agents" / "impl.md"
@@ -284,13 +281,13 @@ def write_step_card(ticket: str, step: int, meta: dict,
         kind=meta.get("kind") or "?",
         step=step,
         goals_block=goals_block,
-        step_title=step_data.get("title", f"step-{step}"),
-        step_description=step_data.get("description", ""),
-        step_files=step_data.get("files", []),
-        step_tests=step_data.get("tests", []),
-        step_rollback=step_data.get("rollback", ""),
-        test_file=test_file,
-        run_command=run_command,
+        step_title=step_title,
+        step_goal=fields.get("goal", ""),
+        step_affected=fields.get("affected", []),
+        step_red=fields.get("red", ""),
+        step_verify=fields.get("verify", ""),
+        step_commit=fields.get("commit", ""),
+        step_rollback=fields.get("rollback", ""),
         impl_prompt=impl_prompt,
         impl_prompt_ref=impl_prompt_ref,
     )
@@ -313,60 +310,6 @@ def _extract_goals_acs(spec_path: Path) -> str:
         if m:
             sections.append(f"{header}\n\n{m.group(1).strip()}")
     return "\n\n".join(sections) if sections else "_(could not parse spec.md)_"
-
-
-def _extract_impl_step(plan_path: Path, step: int) -> dict:
-    """Parse impl-plan.md and extract step-N data."""
-    if not plan_path.exists():
-        return {}
-    text = plan_path.read_text(encoding="utf-8")
-
-    # Match ## step-N — <title> block
-    m = re.search(
-        rf"^## step-{step}\s+[—–-]\s*(.+?)\n(.*?)(?=\n## step-|\Z)",
-        text, re.MULTILINE | re.DOTALL
-    )
-    if not m:
-        # Also try without separator (## step-N\n)
-        m = re.search(
-            rf"^## step-{step}\b(.+?)\n(.*?)(?=\n## step-|\Z)",
-            text, re.MULTILINE | re.DOTALL
-        )
-    if not m:
-        return {"title": f"step-{step}", "description": "_(step not found in impl-plan.md)_"}
-
-    title = m.group(1).strip()
-    body = m.group(2).strip()
-
-    # Extract Affected files
-    files: list[str] = []
-    fm = re.search(r"\*\*Affected files\*\*:?\s*\n((?:- `.+`\n?)+)", body)
-    if fm:
-        files = re.findall(r"`([^`]+)`", fm.group(1))
-
-    # Extract Expected tests
-    tests: list[str] = []
-    tm = re.search(r"\*\*Expected tests\*\*:?\s*\n((?:- `.+`\n?)+)", body)
-    if tm:
-        tests = re.findall(r"`([^`]+)`", tm.group(1))
-
-    # Extract Rollback
-    rollback = ""
-    rm = re.search(r"\*\*Rollback\*\*:?\s*(.+)", body)
-    if rm:
-        rollback = rm.group(1).strip()
-
-    # Description: body minus the sub-sections
-    desc = re.sub(r"\*\*(?:Affected files|Expected tests|Rollback)\*\*.*?(?=\n\*\*|\Z)",
-                  "", body, flags=re.DOTALL).strip()
-
-    return {
-        "title": title,
-        "description": desc,
-        "files": files,
-        "tests": tests,
-        "rollback": rollback,
-    }
 
 
 def _observe_checklist(ticket: str, meta: dict) -> str:

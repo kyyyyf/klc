@@ -11,6 +11,7 @@ Usage:
 """
 from __future__ import annotations
 
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -177,6 +178,47 @@ def generate_manifest(output_dir: Path | None = None) -> Path:
     return dest
 
 
+# Line-anchored, non-recursive {{include:<name>}} directive (KLC-113, D-001).
+# Anchored to a whole line so a prose mention of the syntax is never expanded
+# (KLC-104 lesson: an unanchored marker regex matches the marker's own
+# description in prose).
+_INCLUDE_RE = re.compile(r"(?m)^[ \t]*\{\{include:([a-z0-9][a-z0-9\-]*)\}\}[ \t]*$")
+
+
+def expand_includes(text: str, includes_dir: Path | None = None) -> str:
+    """Substitute each line-anchored ``{{include:name}}`` directive with the body
+    of ``<includes_dir>/<name>.md``. Non-recursive by design: a directive inside
+    an include body is left as literal text (KLC-113, D-001) — this is a single
+    substitution pass, not a template engine.
+
+    Args:
+        text: the source prompt text, before frontmatter is prepended.
+        includes_dir: directory holding the include bodies. Defaults to
+                      ``<fw_root>/core/agents/_includes``.
+
+    Returns:
+        *text* with every directive replaced by its include's body.
+
+    Raises:
+        ValueError: an unresolvable include name — raising loudly here is the
+                    point; a missing include must never ship as a literal
+                    directive string in a dispatched prompt.
+    """
+    if includes_dir is None:
+        includes_dir = framework_root() / "core" / "agents" / "_includes"
+
+    def _sub(m: re.Match) -> str:
+        name = m.group(1)
+        src = includes_dir / f"{name}.md"
+        if not src.exists():
+            raise ValueError(
+                f"plugin_gen: unknown include {name!r} (no such file: {src})"
+            )
+        return src.read_text(encoding="utf-8").rstrip("\n")
+
+    return _INCLUDE_RE.sub(_sub, text)
+
+
 def generate_agents(
     output_dir: Path | None = None,
     *,
@@ -243,7 +285,7 @@ def generate_agents(
         frontmatter = "\n".join(fm_lines)
 
         dest = output_dir / src.name
-        original = src.read_text(encoding="utf-8")
+        original = expand_includes(src.read_text(encoding="utf-8"))
         dest.write_text(frontmatter + original, encoding="utf-8")
         generated.append(dest)
 

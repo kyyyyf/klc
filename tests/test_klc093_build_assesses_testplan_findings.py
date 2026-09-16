@@ -30,6 +30,9 @@ _SKILLS = _FW_ROOT / "core" / "skills"
 _PROCESS = _FW_ROOT / "docs" / "process.md"
 _PLUGIN_IMPL = _FW_ROOT / "klc-plugin" / "agents" / "impl.md"
 
+sys.path.insert(0, str(_SKILLS))
+from plugin_gen import expand_includes  # noqa: E402
+
 # The independent test-plan reviewer's findings file — the REAL file the enriched
 # build prompt must name. `spec_review.record_findings` (via `testplan_review.consume`)
 # writes `{kind.name}-review-findings.json`; `TEST_PLAN_REVIEW.name == "test-plan"`.
@@ -38,7 +41,10 @@ _SPEC_FINDINGS_FILE = "spec-review-findings.json"
 
 
 def _read(path) -> str:
-    return path.read_text(encoding="utf-8")
+    """Read a prompt and expand any `{{include:name}}` directive (KLC-113):
+    the assertions below must see the DEPLOYED content — what
+    `generate_agents` actually ships — not an unresolved directive line."""
+    return expand_includes(path.read_text(encoding="utf-8"))
 
 
 def _assessment_section(text: str) -> str:

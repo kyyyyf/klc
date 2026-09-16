@@ -359,7 +359,13 @@ def test_reviewer_prompt_separates_the_two_sinks():
     # 084's spec-reviewer.md does — the FILE test-plan-review.md's last block is
     # the VERDICT (findings + decisions, no completion signal), and the CHAT
     # reply's last block is the run_signal completion JSON.
-    prompt = (_FW_ROOT / "core" / "agents" / "test-plan-reviewer.md").read_text(encoding="utf-8")
+    from plugin_gen import expand_includes  # noqa: E402
+    # KLC-113: the example JSON block moved into the shared, phase-agnostic
+    # `completion-signal` include (D-002) — expand it so the assertions see
+    # the DEPLOYED content, not an unresolved `{{include:...}}` directive.
+    prompt = expand_includes(
+        (_FW_ROOT / "core" / "agents" / "test-plan-reviewer.md").read_text(encoding="utf-8")
+    )
     low = prompt.lower()
     assert "test-plan-review.md" in low          # the verdict FILE
     assert "decisions_to_confirm" in low         # verdict carries decisions
@@ -368,11 +374,18 @@ def test_reviewer_prompt_separates_the_two_sinks():
     # The two sinks are explicitly named as distinct destinations.
     assert "chat" in low and "file" in low
     # A structurally valid completion signal that run_signal.parse_signal accepts
-    # must be documented in the prompt.
+    # must be documented in the prompt. The shared include's worked example is
+    # generic (D-002), so its `"phase"` value is illustrative rather than
+    # literally "acceptance-test-plan" — parse each block against its own
+    # declared phase rather than a hardcoded one.
     import run_signal as rs  # noqa: E402
     import re as _re
     blocks = _re.findall(r"```json\s*(\{[\s\S]*?\})\s*```", prompt)
-    parsed = [rs.parse_signal("```json\n" + b + "\n```", "acceptance-test-plan")
-              for b in blocks]
+    parsed = []
+    for b in blocks:
+        m = _re.search(r'"phase"\s*:\s*"([^"]+)"', b)
+        if m is None:
+            continue
+        parsed.append(rs.parse_signal("```json\n" + b + "\n```", m.group(1)))
     assert any(s is not None and s.next_action == "ack" for s in parsed), \
-        "prompt must document a parseable acceptance-test-plan completion signal"
+        "prompt must document a parseable completion signal"

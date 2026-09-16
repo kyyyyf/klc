@@ -18,16 +18,11 @@ produce the outputs listed at the bottom.
 
 **{{ step_title }}**
 
-{{ step_description }}
+{{ step_goal }}
 
-**Affected files**:
-{% for f in step_files %}
+**Affected**:
+{% for f in step_affected %}
 - `{{ f }}`
-{% endfor %}
-
-**Expected tests**:
-{% for t in step_tests %}
-- `{{ t }}`
 {% endfor %}
 {% if step_rollback %}
 
@@ -44,11 +39,17 @@ produce the outputs listed at the bottom.
 If any of these are missing for a behaviour-changing step, stop and add
 `[!QUESTION blocks=build]` to `impl-plan.md`; do not infer a new plan.
 
-### Failing test(s) to make green
+### RED — failing test(s) to make green
 
-`{{ test_file }}`
+{{ step_red }}
 
-Run with: `{{ run_command }}`
+### VERIFY — run before signalling success
+
+{{ step_verify }}
+
+### COMMIT — subject for the green commit
+
+{{ step_commit }}
 
 ---
 
@@ -79,7 +80,6 @@ _(impl.md not found — check that `core/agents/impl.md` exists)_
 - Full spec: `.klc/tickets/{{ ticket }}/spec.md`
 - Full test-plan: `.klc/tickets/{{ ticket }}/test-plan.md`
 - Module index: `.klc/index/modules.json`
-- Symbols: `.klc/index/symbols_by_module.json`
 
 Use LSP (`goToDefinition`, `findReferences`, `hover`, `workspaceSymbol`)
 for any symbol navigation — do not open full source files unless

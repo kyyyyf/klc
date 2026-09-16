@@ -162,21 +162,6 @@ CHAT  your reply        → its LAST block is the orchestrator COMPLETION SIGNAL
   completion signal — never put the completion signal in the file, never put the
   verdict in the chat.
 
-## Completion signal (orchestrator)
+Your deliverable is the file `spec-review.md`; the completion signal below belongs in your CHAT reply to the orchestrator, never in that file.
 
-Your deliverable is the file `spec-review.md`. Separately, end your CHAT reply to
-the orchestrator with exactly one fenced JSON object, as the LAST block in that
-reply (this is what `core.skills.run_signal.parse_signal` reads to classify the
-run — omit it and a successful review is treated as a failed/unparseable run):
-
-```json
-{"phase":"spec-review","signal":"done","artifacts":["spec-review.md"],"blocking_questions":[],"next_action":"ack"}
-```
-
-- `phase` — `"spec-review"`.
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — the file you wrote (`spec-review.md`), relative to the ticket dir.
-- `blocking_questions` — string[]; leave `[]` if none.
-- `next_action` — `"ack"`.
-
-This block is in your chat reply ONLY; `spec-review.md` still ends with the verdict.
+{{include:completion-signal}}

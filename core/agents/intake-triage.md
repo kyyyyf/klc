@@ -101,24 +101,4 @@ never reach this path — they park on the interactive phase instead
 - Do not invent missing facts — list them as questions for the human/discovery.
 - Stay cheap: one pass, no deep source reading.
 
-## Completion signal (orchestrator)
-
-In addition to any phase-specific signal above, end your final output
-with exactly one fenced JSON object, as the LAST block in your response:
-
-```json
-{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
-```
-
-- `phase` — the phase id you were dispatched for (your agent name after
-  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — paths you wrote, relative to the ticket directory.
-- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
-  entries are ignored by the orchestrator.
-- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
-- Optional: `"tokens":{"in":N,"out":N}`.
-
-This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
-next step without re-reading your artifacts. It does not replace any
-phase-specific signal line above — both are expected.
+{{include:completion-signal}}

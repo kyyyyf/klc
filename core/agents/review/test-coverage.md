@@ -7,9 +7,7 @@ invokes this reviewer after producing its initial test batch.
 
 ## Inputs (supplied verbatim)
 - `diff`, `spec`, `claude_md_context`.
-- Also reachable: `.klc/index/test-framework.json` (from the test
-  agent) and `config/reviewers.yml`
-  (`test.mutation_score_threshold`).
+- Also reachable: `config/reviewers.yml` (`test.mutation_score_threshold`).
 - `severity_rubric` — `config/severity-rubric.md` contents (Phase 1).
 - `rule_catalog` — this agent's `## Rules` section, extracted by the orchestrator.
 
@@ -166,8 +164,6 @@ file at `file:line` and confirm the gap is real**. Steps:
 
 ## Hard rules
 - Before emitting any finding, scan `.klc/knowledge/reviewer-allowlist.yml`. If an entry whose `reviewer` is this reviewer (or `*`) has a `pattern` that matches the finding title, downgrade severity to `INFO` and append `allowlisted: <reason>` to the title. The aggregator treats INFO as non-blocking, and the allowlist keeps recurring false positives from cluttering the verdict.
-- If `test-framework.json` is missing, flag at `CRITICAL` — the test agent
-  has not run.
 - Before demanding extra tests, verify the ones in the diff actually fail
   when the code is reverted (the test agent should have done this; if the
   report lacks the mutation survival list, flag at `HIGH`).

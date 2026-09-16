@@ -23,21 +23,11 @@ for _p in (str(_PROJECT_ROOT_DIR), str(_SKILLS)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from impl_plan_check import parse_impl_plan_steps  # noqa: E402
+from impl_plan_check import parse_impl_plan_steps, extract_step_fields  # noqa: E402
 from artefacts import _extract_goals_acs  # noqa: E402
 from _paths import klc_ticket_dir, framework_root  # noqa: E402
 
 _DEPENDS_RE = re.compile(r"(?im)^\s*-?\s*\*{0,2}Depends-on\*{0,2}:\s*(.+)$")
-_INTERFACES_RE = re.compile(
-    r"(?im)(\*{0,2}Interfaces\*{0,2}:.*?)(?=\n\s*[-*]?\s*\*{0,2}"
-    r"(?:Expected|VERIFY|COMMIT|Affected|Code sketch|Goal|Depends-on)\*{0,2}:|\Z)",
-    re.DOTALL,
-)
-_COMMIT_RE = re.compile(
-    r"(?im)(\*{0,2}COMMIT\*{0,2}:.*?)(?=\n\s*[-*]?\s*\*{0,2}"
-    r"(?:Affected|Interfaces|Expected|VERIFY|Goal|Code sketch|Depends-on)\*{0,2}:|\Z)",
-    re.DOTALL,
-)
 _DECISION_RE = re.compile(r"(?m)^.*\bDECISION\s+D-\d+\b.*$")
 _ANY_FENCE_RE = re.compile(r"```[^\n]*\n[\s\S]*?```")
 _STEP_REF_RE = re.compile(r"\bstep-(\d+)\b", re.IGNORECASE)
@@ -66,17 +56,16 @@ def _parse_depends(body: str) -> list[str]:
 
 
 def _interface_surface(step: dict) -> dict:
-    body = step["body"]
-    iface = ""
-    m = _INTERFACES_RE.search(body)
-    if m:
-        iface = m.group(1).strip()
-
-    commit = ""
-    m = _COMMIT_RE.search(body)
-    if m:
-        commit = m.group(1).strip()
-
+    """The Interfaces + COMMIT surface of a depended-on step, via the ONE
+    shared field extractor (KLC-113, D-003) — no second Interfaces/COMMIT
+    regex fork. Re-labelled here (not by `extract_step_fields`, which
+    returns bare values) so the brief still reads as a labelled surface,
+    matching this function's pre-KLC-113 output shape (C-005: a
+    de-duplication, not a behaviour change — the dependency's interface
+    signature and COMMIT subject must still appear in the rendered brief)."""
+    fields = extract_step_fields(step["body"])
+    iface = f"**Interfaces:** {fields['interfaces']}" if fields.get("interfaces") else ""
+    commit = f"**COMMIT:** {fields['commit']}" if fields.get("commit") else ""
     return {"id": step["id"], "title": step["title"], "interfaces": iface, "commit": commit}
 
 

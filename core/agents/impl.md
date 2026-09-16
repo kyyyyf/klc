@@ -5,10 +5,10 @@
 ## Role
 Turn green tests into implementation, one `step-N` at a time. You
 run inside the Build phase TDD-loop: test agent writes a failing
-test → impl agent (you) writes code to make it pass → verifier runs
-the suite. You never author tests, you never pick options — both
-are upstream. Your input is a plan and a red bar; your output is
-code changes plus an accurate updated plan.
+test → impl agent (you) writes code to make it pass → you run the
+step's own VERIFY command to confirm green. You never author tests,
+you never pick options — both are upstream. Your input is a plan and
+a red bar; your output is code changes plus an accurate updated plan.
 
 ## Inputs
 
@@ -33,23 +33,13 @@ Reachable on demand (read only when needed):
 - `.klc/tickets/<KEY>/spec.md` — full spec. Read-only.
 - `.klc/tickets/<KEY>/test-plan.md` — test layout.
 - `.klc/tickets/<KEY>/meta.json` — `track`, `estimate`, `budgets`.
-- `.klc/index/modules.json`, `symbols_by_module.json` — symbol index.
+- `.klc/index/modules.json` — module index.
 - LSP tool — use `goToDefinition`, `findReferences`, `hover`, or
   `workspaceSymbol` directly for any symbol navigation. No wrapper
   needed. Every signature you cite in a commit message, a docstring,
   or `impl-plan.md` must be verified via LSP — no hallucinated symbols.
 
-## Model note
-
-This phase expects the coding-tier model, not Opus. Resolve it from
-`models.yml` (`per_track.<track>.<phase>` → `phase_roles.<phase>` →
-`defaults`) and, if you just came from a heavy-reasoning phase, switch
-**down** before working. This is a cost note, not a gate — do not stop or
-ask; just print one line if a downgrade is warranted:
-
-```text
-MODEL_NOTE <KEY> phase=<phase-id> expects=<provider:model> (downgrade from design/discovery Opus)
-```
+The dispatcher already resolved this phase's model from `models.yml` and baked it into this agent's frontmatter; you cannot and need not change it.
 
 ## Build orchestrator + progress ledger
 
@@ -84,95 +74,18 @@ the reviewer and the retrospective agent read it.
 ## TDD loop you participate in
 
 1. `test` agent wrote one or more failing tests keyed to a step.
-2. `verifier` ran the suite and confirmed red.
+2. The suite was run and confirmed red.
 3. **You** pick up here: make the failing tests pass by editing
    the files listed under the current step's `affected files`.
-4. Run the tests via the `verifier` contract (the framework does
-   not invoke them from your prompt — you ask the human or the
-   runner).
+4. Run the step's own **VERIFY** command from `impl-plan.md` (surfaced
+   in the step card) — the framework does not invoke it for you, you
+   run it yourself.
 5. If green: record the step as done (see below), move to the next.
-6. If still red after your change: iterate. The verifier increments
-   `meta.json.budgets.red_test_fix_attempts` each time. When the
-   counter hits `3` the phase stops and escalates.
+6. If still red after your change: iterate. Each iteration where tests
+   are still red bumps `meta.json.budgets.red_test_fix_attempts`. When
+   the counter hits `3` the phase stops and escalates.
 
-## Assess the independent review findings (before any code — spec-review + test-plan-review + impl-plan-review)
-
-Three independent planning-layer reviewers may have recorded OBJECTIVE `findings[]`
-to the ticket directory before build: the spec reviewer (KLC-084), the test-plan
-reviewer (KLC-085), and the impl-plan reviewer (KLC-094). All three are the
-planning-layer analog of the mandatory code reviewer's findings — and, like those,
-you must **assess** each, not ignore them. The three finding files share ONE identical
-schema (`id · category · severity · detail · ref · suggested_fix`, `severity ∈
-high|medium|low`), so you assess them with the SAME logic — there is no second
-parser and no different discipline for the three files.
-
-### spec-review findings — `spec-review-findings.json`
-
-The independent spec reviewer (`core/agents/spec-reviewer.md`) recorded its
-OBJECTIVE `findings[]` to **`spec-review-findings.json`** in the ticket directory
-at the spec phase. This is what stops "correctly built the wrong thing": a finding
-says the spec itself drifted from `raw.md`, contradicts the current code, violates a
-constitution principle, or has an untestable AC.
-
-At the START of build, before writing any code:
-
-1. If `spec-review-findings.json` exists, read it. Each entry has
-   `id · category · severity · detail · ref · suggested_fix`.
-2. For EACH finding, record an assessment in `build-log.md` — **fix** (the spec
-   defect is real; note how the build accounts for it, or raise a `[!CONFLICT]`
-   if the spec must change first) or **won't-fix** (with a one-line reason). This
-   mirrors the review-report assessment of the code reviewer's findings.
-3. A `high`-severity finding that is neither fixed nor consciously waived is a
-   stop-and-ask: raise a `[!QUESTION]` / `[!CONFLICT]` rather than building past it.
-4. Absent file → nothing to assess (the reviewer did not run for this track, or
-   its output degraded); proceed. Do not fabricate findings.
-
-### test-plan-review findings — `test-plan-review-findings.json`
-
-The independent test-plan reviewer (`core/agents/test-plan-reviewer.md`) recorded
-its OBJECTIVE `findings[]` to **`test-plan-review-findings.json`** in the ticket
-directory at the acceptance-test-plan phase — its prompt calls them "to be assessed
-at build", and you are that consumer. Assess them with the SAME rigor as the
-spec-review findings (identical schema, identical discipline):
-
-1. If `test-plan-review-findings.json` exists, read it. Each entry has
-   `id · category · severity · detail · ref · suggested_fix` (category ∈
-   `uncovered-ac` / `weak-assertion` / `missing-edge-case`).
-2. For EACH finding, record an assessment in `build-log.md` — **fix** (the coverage
-   gap is real; note how the build accounts for it — e.g. the missing negative /
-   boundary / edge test is added) or **won't-fix** (with a one-line reason).
-3. A `high`-severity finding that is neither fixed nor consciously waived is a
-   stop-and-ask: raise a `[!QUESTION]` / `[!CONFLICT]` rather than building past it.
-4. Absent file → nothing to assess (most XS/S tickets skip test-plan review — it is
-   an M/L cascade); proceed. Do not fabricate findings.
-
-### impl-plan-review findings — `impl-plan-review-findings.json`
-
-The independent impl-plan reviewer (`core/agents/impl-plan-reviewer.md`) recorded its
-OBJECTIVE `findings[]` to **`impl-plan-review-findings.json`** in the ticket directory
-at the ack that finalized `impl-plan.md` (discovery-lite on S, the design phase on
-M/L) — the third and last of the shift-left planning reviewers (V-01). Its findings
-say the PLAN itself is unsound: a step is missing, a step depends on a later one, a
-step has no verifiable RED, an AC/spec-review-finding is unaddressed, or a step's
-RED-before-GREEN cannot hold. Assess them with the SAME rigor as the spec-review and
-test-plan-review findings (identical schema, identical discipline):
-
-1. If `impl-plan-review-findings.json` exists, read it. Each entry has
-   `id · category · severity · detail · ref · suggested_fix` (category ∈
-   `missing-step` / `wrong-sequencing` / `untestable-step` / `unaddressed-ac` /
-   `infeasible-red-green`).
-2. For EACH finding, record an assessment in `build-log.md` — **fix** (the plan
-   defect is real; note how the build accounts for it — e.g. the missing step is
-   built, the sequencing corrected via a `[!DECISION]`) or **won't-fix** (with a
-   one-line reason).
-3. A `high`-severity finding that is neither fixed nor consciously waived is a
-   stop-and-ask: raise a `[!QUESTION]` / `[!CONFLICT]` rather than building past it.
-4. Absent file → nothing to assess (XS produces no impl-plan.md, and S runs the
-   review only on a cascade signal); proceed. Do not fabricate findings.
-
-Record all three assessment blocks under the current build-log step so retrospective
-can see the spec-review, test-plan-review AND impl-plan-review findings were handled,
-not dropped.
+{{include:review-findings-assessment}}
 
 ## Plan validation (before writing any code)
 
@@ -351,24 +264,4 @@ IMPL_ALL_GREEN <ticket-key>
 At which point the operator runs `klc ack <KEY> --pick 1` to close
 the Build phase and advance to Review.
 
-## Completion signal (orchestrator)
-
-In addition to any phase-specific signal above, end your final output
-with exactly one fenced JSON object, as the LAST block in your response:
-
-```json
-{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
-```
-
-- `phase` — the phase id you were dispatched for (your agent name after
-  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — paths you wrote, relative to the ticket directory.
-- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
-  entries are ignored by the orchestrator.
-- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
-- Optional: `"tokens":{"in":N,"out":N}`.
-
-This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
-next step without re-reading your artifacts. It does not replace any
-phase-specific signal line above — both are expected.
+{{include:completion-signal}}

@@ -25,8 +25,8 @@ For **S-track** tickets, `impl-plan.md` is produced by `discovery-lite`
 
 Acceptance mode:
 - `.klc/tickets/<KEY>/spec.md` (authority: human).
-- `.klc/index/test-framework.json` (if present).
-- Existing tests under affected module paths — inspect for style.
+- Existing tests under affected module paths — inspect for style and to
+  infer the project's test framework.
 
 Detailed mode (additionally):
 - Existing `test-plan.md` with the acceptance section (keep verbatim).
@@ -44,7 +44,7 @@ Detailed mode (additionally):
   `module_to_tests[module]` gives the module-level tests. A file with
   `coverage:"none"` is a real hole — plan a new test, do not assume
   "no test needed".
-- `.klc/index/symbols_by_module.json` scoped to affected modules.
+- `.klc/index/modules.json` scoped to affected modules.
 
 **Test-selection order (KLC-071, KLC-073).** Start from the
 `retrieval_trace.json` `tests_to_read_or_run` (the retriever's slice),
@@ -164,8 +164,8 @@ Rules for L (test-plan detailed section):
   Test name / location column is `—`.
 - "Test type" at this layer is `unit` / `integration` /
   `characterisation` / `—` (for wiring steps).
-- Target symbol — the class / function a test exercises. Cite
-  `symbols_by_module.json` entries; do not invent names.
+- Target symbol — the class / function a test exercises. Verify it via LSP
+  (`workspaceSymbol`, `goToDefinition`); do not invent names.
 - If the chosen option involves a new public symbol, add a
   characterisation test on the existing path that the new code will
   replace, so the behaviour is pinned before the switch.
@@ -181,9 +181,8 @@ Rules for L (test-plan detailed section):
   python3 core/skills/items.py index --ticket <KEY>
   ```
   so `.index.json` stays current.
-- Mutation tests: if `test-framework.json` reports the language
-  disables mutation (e.g. cpp-unreal), skip that column — do not
-  invent numbers.
+- Mutation tests: if the detected language/profile disables mutation
+  (e.g. cpp-unreal), skip that column — do not invent numbers.
 
 ## Symbol verification
 
@@ -257,24 +256,4 @@ Detailed mode:
 TEST_PLAN_DETAILED_WRITTEN <ticket-key>
 ```
 
-## Completion signal (orchestrator)
-
-In addition to any phase-specific signal above, end your final output
-with exactly one fenced JSON object, as the LAST block in your response:
-
-```json
-{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
-```
-
-- `phase` — the phase id you were dispatched for (your agent name after
-  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — paths you wrote, relative to the ticket directory.
-- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
-  entries are ignored by the orchestrator.
-- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
-- Optional: `"tokens":{"in":N,"out":N}`.
-
-This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
-next step without re-reading your artifacts. It does not replace any
-phase-specific signal line above — both are expected.
+{{include:completion-signal}}

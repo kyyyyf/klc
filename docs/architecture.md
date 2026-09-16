@@ -70,12 +70,22 @@ to the public mirror and self-trip any gh-side grep. See
 
 The whole `klc-plugin/` tree — agents, passthrough skills, command stubs,
 `.claude-plugin/plugin.json` — is **derived** from source by
-`core/skills/plugin_gen.py`; nothing under `klc-plugin/` is hand-maintained. The
-deployed prompt `phase_resolver` serves is the PLUGIN copy, so a stale copy means
-an enrichment never runs. The rule is machine-checkable: after editing any
-`core/agents/*.md` or the verb dictionary, run `python3 core/skills/plugin_gen.py`;
-the drift-guard `tests/test_plugin_agents_in_sync.py` reddens on any stale artifact
-and the pre-commit `plugin_gen.py --check-if-staged` hard-fails the commit.
+`core/skills/plugin_gen.py`; nothing under `klc-plugin/` is hand-maintained. As
+of KLC-113 that derivation is a genuine transformation, not a verbatim copy: a
+`core/agents/*.md` source may carry a line-anchored `{{include:<name>}}`
+directive, and `generate_agents` expands it against
+`core/agents/_includes/<name>.md` while writing the plugin copy — the shared
+completion-signal contract and findings-assessment procedure exist once, in
+`_includes/`, and are inlined into every prompt that needs them at generation
+time. An unresolvable include name raises rather than shipping the literal
+directive. The deployed prompt `phase_resolver` serves is the PLUGIN copy
+(expanded), so a stale copy means an enrichment never runs. The rule is still
+machine-checkable, expansion included: after editing any `core/agents/*.md`
+(including `core/agents/_includes/`) or the verb dictionary, run
+`python3 core/skills/plugin_gen.py`; the drift-guard
+`tests/test_plugin_agents_in_sync.py` regenerates into a temp dir and reddens
+on any byte mismatch against the committed tree, and the pre-commit
+`plugin_gen.py --check-if-staged` hard-fails the commit.
 
 ---
 
@@ -93,7 +103,9 @@ posture; a new feature is expected to preserve all of them.
 - **no-fork.** Reuse the single source, never a private second copy. Membership
   resolves only through `module_membership.file_to_module`; review vocabularies
   live on the `ReviewKind`, not in the caller; the impl-plan step parser is one
-  regex. A second divergent copy is the recurring #1 risk.
+  function, `impl_plan_check.extract_step_fields` (KLC-113 — it replaced a
+  second, incompatible fork that used to live in `core/skills/artefacts.py`).
+  A second divergent copy is the recurring #1 risk.
 - **fail-open (advisory) vs fail-closed (gates).** The independent reviewers are
   fail-open: they surface and record, they never block the ack. The review
   cascade and gate-policy signals are fail-closed: "unavailable" is treated as

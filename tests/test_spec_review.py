@@ -419,7 +419,13 @@ def test_reviewer_prompt_instructs_both_sinks():
     Regression guard for the MEDIUM-2 over-correction that dropped the chat signal.
     """
     import run_signal
-    txt = (_FW_ROOT / "core/agents/spec-reviewer.md").read_text(encoding="utf-8")
+    from plugin_gen import expand_includes
+    # KLC-113: the example JSON block moved into the shared, phase-agnostic
+    # `completion-signal` include (D-002) — expand it so the assertions see
+    # the DEPLOYED content, not an unresolved `{{include:...}}` directive.
+    txt = expand_includes(
+        (_FW_ROOT / "core/agents/spec-reviewer.md").read_text(encoding="utf-8")
+    )
     low = txt.lower()
 
     # File sink: verdict is spec-review.md's last block.
@@ -434,10 +440,14 @@ def test_reviewer_prompt_instructs_both_sinks():
     # And the prompt's actual signal example must PARSE through run_signal — this
     # is what a dispatched reviewer's chat reply ends with; if it doesn't parse,
     # a successful review is misclassified as a failed run (the MEDIUM-2 breakage).
-    signal_block = re.search(r'\{"phase":\s*"spec-review".*?\}', txt, re.DOTALL)
-    assert signal_block, "no spec-review completion-signal example in the prompt"
+    # The shared include's worked example is generic (D-002), so its `"phase"`
+    # value is illustrative rather than literally "spec-review" — parse against
+    # whatever phase the example itself declares.
+    signal_block = re.search(r'\{"phase":\s*"[^"]+".*?\}', txt, re.DOTALL)
+    assert signal_block, "no completion-signal example in the prompt"
+    phase_m = re.search(r'"phase"\s*:\s*"([^"]+)"', signal_block.group(0))
     parsed = run_signal.parse_signal(f"```json\n{signal_block.group(0)}\n```",
-                                     "spec-review")
+                                     phase_m.group(1))
     assert parsed is not None and parsed.signal == "done"
 
     # The two are explicitly separated (chat vs file), not merged.

@@ -193,21 +193,17 @@ CHAT  your reply           → its LAST block is the orchestrator COMPLETION SIG
   the completion signal — never put the completion signal in the file, never put the
   verdict in the chat.
 
+Your deliverable is the file `test-plan-review.md`; the completion signal below belongs in your CHAT reply to the orchestrator, never in that file.
+
 ## Completion signal (orchestrator)
 
-Your deliverable is the file `test-plan-review.md`. Separately, end your CHAT reply to
-the orchestrator with exactly one fenced JSON object, as the LAST block in that reply
-(this is what `core.skills.run_signal.parse_signal` reads to classify the run — omit
-it and a successful review is treated as a failed/unparseable run):
+End with exactly one fenced JSON object, as the LAST block of your output:
 
 ```json
-{"phase":"acceptance-test-plan","signal":"done","artifacts":["test-plan-review.md"],"blocking_questions":[],"next_action":"ack"}
+{"phase":"design","signal":"done","artifacts":["design/options.md"],"blocking_questions":[],"next_action":"ack"}
 ```
 
-- `phase` — `"acceptance-test-plan"`.
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — the file you wrote (`test-plan-review.md`), relative to the ticket dir.
-- `blocking_questions` — string[]; leave `[]` if none.
-- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
-
-This block is in your chat reply ONLY; `test-plan-review.md` still ends with the verdict.
+`phase` — agent name minus `klc-`. `signal` — `done`|`blocked`|`failed`.
+`artifacts` — paths written, relative to ticket dir. `blocking_questions` —
+string[], `[]` if none. `next_action` — `ack`|`clarify`|`stop`. Optional:
+`"tokens":{"in":N,"out":N}`

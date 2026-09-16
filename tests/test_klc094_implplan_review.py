@@ -26,6 +26,7 @@ sys.path.insert(0, str(_FW_ROOT / "core" / "skills"))
 
 import spec_review as sr  # noqa: E402
 import implplan_review as ipr  # noqa: E402
+from plugin_gen import expand_includes  # noqa: E402
 
 _AGENTS = _FW_ROOT / "core" / "agents"
 _SKILLS = _FW_ROOT / "core" / "skills"
@@ -50,7 +51,10 @@ _SPEC_FINDINGS_FILE = "spec-review-findings.json"
 
 
 def _read(path) -> str:
-    return path.read_text(encoding="utf-8")
+    """Read a prompt and expand any `{{include:name}}` directive (KLC-113):
+    the assertions below must see the DEPLOYED content — what
+    `generate_agents` actually ships — not an unresolved directive line."""
+    return expand_includes(path.read_text(encoding="utf-8"))
 
 
 # ===========================================================================
@@ -198,13 +202,21 @@ def test_prompt_two_sinks_verdict_in_file_signal_in_chat():
     assert "completion signal" in low
     assert "chat" in low and "file" in low         # two distinct destinations named
     # A structurally valid completion signal that run_signal.parse_signal accepts
-    # under the reviewer's own phase must be documented in the prompt (and NOT be
-    # confused with the verdict block, which lacks the signal's required keys).
+    # must be documented in the prompt (and NOT be confused with the verdict
+    # block, which lacks the signal's required keys). KLC-113: the worked example
+    # now lives in the SHARED, phase-agnostic `completion-signal` include (D-002 —
+    # generic prose, not a per-prompt template), so its `"phase"` value is
+    # illustrative, not literally "impl-plan-review"; parse each block against
+    # its OWN declared phase rather than a hardcoded one.
     blocks = re.findall(r"```json\s*(\{[\s\S]*?\})\s*```", text)
-    parsed = [rs.parse_signal("```json\n" + b + "\n```", "impl-plan-review")
-              for b in blocks]
+    parsed = []
+    for b in blocks:
+        m = re.search(r'"phase"\s*:\s*"([^"]+)"', b)
+        if m is None:
+            continue
+        parsed.append(rs.parse_signal("```json\n" + b + "\n```", m.group(1)))
     assert any(s is not None and s.next_action == "ack" for s in parsed), (
-        "prompt must document a parseable impl-plan-review completion signal"
+        "prompt must document a parseable completion signal"
     )
 
 

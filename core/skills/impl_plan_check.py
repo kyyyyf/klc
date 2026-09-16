@@ -96,6 +96,81 @@ def parse_impl_plan_steps(text: str) -> list[dict]:
     return steps
 
 
+# --- single step-field extractor (KLC-113, AC-11/AC-12/AC-13) ----------------
+#
+# Promoted out of task_brief.py's tolerant Interfaces/COMMIT regexes (D-003)
+# and replaces core/skills/artefacts.py's separate `_extract_impl_step`
+# (which only matched one legacy bolded-plus-noun field spelling — dead
+# against every real plan, which writes `- Affected:` / `- RED:`). ONE
+# extractor, tolerant of both `- Field:` and `**Field**:`.
+
+_STEP_FIELD_NAMES = ("Goal", "RED", "GREEN", "VERIFY", "COMMIT", "Affected",
+                     "Interfaces", "Expected", "Rollback", "Depends on")
+
+# Two real historical field names need a generalised (not hardcoded-literal)
+# tolerance: 27 archived tickets (e.g. .klc/tickets/KLC-001/impl-plan.md)
+# spell "Affected" and "Expected" with a trailing noun ("files"/"tests"),
+# inline-value. Matching them via an optional-trailing-word fragment — never
+# a hardcoded legacy field-name literal — keeps AC-11's grep-for-legacy-regex
+# check clean while still parsing those plans with the SAME extractor.
+_OPTIONAL_WORD = {"Affected": r"(?:\s+[a-z]+)?", "Expected": r"(?:\s+[a-z]+)?"}
+
+
+def _step_field_fragment(name: str) -> str:
+    if name == "Depends on":
+        return r"Depends[ -]on"  # both spellings seen in real plans
+    return re.escape(name) + _OPTIONAL_WORD.get(name, "")
+
+
+_STEP_BOUNDARY_FRAGMENTS = [_step_field_fragment(n) for n in _STEP_FIELD_NAMES] + [
+    r"Code sketch", r"Addresses",
+]
+_STEP_NEXT = "|".join(_STEP_BOUNDARY_FRAGMENTS)
+
+
+def _split_paths(value: str) -> list[str]:
+    """Split an `Affected:` field value into individual paths. Tolerates a
+    backtick-wrapped list (`` `a.py`, `b.py` (new) ``, any punctuation
+    between entries) and a plain comma-separated list with a trailing
+    period (the real spelling `core/skills/x.py, tests/test_x.py.`)."""
+    if not value:
+        return []
+    backticked = re.findall(r"`([^`]+)`", value)
+    if backticked:
+        return [p.strip() for p in backticked if p.strip()]
+    paths = []
+    for part in value.rstrip(".").split(","):
+        part = re.sub(r"\([^)]*\)", "", part).strip()
+        if part:
+            paths.append(part)
+    return paths
+
+
+def extract_step_fields(body: str) -> dict:
+    """Read one step body into its declared fields, tolerating both the
+    ``- Field:`` and ``**Field**:`` spellings real plans use (and the two
+    legacy inline-value field names above). Fences are stripped first so a
+    code sketch cannot masquerade as step metadata.
+
+    Returns a dict with keys `goal`, `red`, `green`, `verify`, `commit`,
+    `affected` (list[str]), `interfaces`, `expected`, `rollback`,
+    `depends_on` — `""` (or `[]` for `affected`) when a field is absent.
+    """
+    clean = _ANY_FENCE_RE.sub("", body)
+    out: dict[str, object] = {}
+    for name in _STEP_FIELD_NAMES:
+        frag = _step_field_fragment(name)
+        rx = re.compile(
+            rf"(?ims)^[ \t]*[-*]?[ \t]*\*{{0,2}}{frag}\*{{0,2}}:\*{{0,2}}[ \t]*"
+            rf"(.+?)(?=\n[ \t]*[-*]?[ \t]*\*{{0,2}}(?:{_STEP_NEXT})\*{{0,2}}:|\Z)"
+        )
+        m = rx.search(clean)
+        key = name.lower().replace(" ", "_")
+        out[key] = m.group(1).strip() if m else ""
+    out["affected"] = _split_paths(out["affected"])
+    return out
+
+
 def impl_plan_violations(text: str) -> list[str]:
     """Return human-readable violations found in an impl-plan."""
     steps = parse_impl_plan_steps(text)

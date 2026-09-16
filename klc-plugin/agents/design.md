@@ -61,30 +61,7 @@ a `conditional_neighbors` entry's condition holds. When an option adds a file
 outside that slice, state the reason in the option. Fall back to the views
 below when the trace is absent or `status:"unavailable"`.
 
-## Model handoff guard
-
-This is a heavy-reasoning phase — it must run on the Opus-tier model.
-
-1. Read `.klc/tickets/<KEY>/meta.json` → `track`.
-2. Read `.klc/config/models.yml` if present, else `config/models.yml`.
-3. Resolve role in order: `per_track.<track>.<phase>` → `phase_roles.<phase>`
-   → `defaults`. Map role → `provider:model` via `roles`.
-4. Detect the host model when possible (`KLC_MODEL_*` env, the Claude Code
-   model indicator, this card's metadata).
-
-- Model **detectable & mismatched** → **stop before modifying files**:
-  ```text
-  MODEL_SWITCH_REQUIRED <KEY> phase=<phase-id> track=<track> required_role=<role> required_model=<provider:model> current_model=<provider:model>
-  ```
-  Wait for the operator to switch and re-run this prompt.
-- Model **not detectable** (e.g. Codex CLI) → print the required model
-  once and ask the operator to confirm this session already uses it
-  before continuing:
-  ```text
-  This phase expects <provider:model> (Opus-tier). Confirm this session is on it? [y/N]
-  ```
-- Unattended runner (`RUN_LOCAL_SUBAGENTS=1`) → do **not** ask; trust
-  `KLC_MODEL_*` (the runner already picked the model from `models.yml`).
+The dispatcher already resolved this phase's model from `models.yml` and baked it into this agent's frontmatter; you cannot and need not change it.
 
 ## Symbol verification
 
@@ -242,7 +219,7 @@ using `core/agents/adr.md` (invoke as a subroutine).
 ### 3. `impl-plan.md`
 
 Write an executable roadmap for the Build phase. Audience: the test
-agent, impl agent, verifier, and human operator. It must be short and
+agent, impl agent, and human operator. It must be short and
 runnable **without re-designing the ticket**.
 
 Step list with IDs `step-1`, `step-2`, ... — each step is exactly one
@@ -421,22 +398,13 @@ DESIGN_DONE <ticket-key>
 
 ## Completion signal (orchestrator)
 
-In addition to any phase-specific signal above, end your final output
-with exactly one fenced JSON object, as the LAST block in your response:
+End with exactly one fenced JSON object, as the LAST block of your output:
 
 ```json
-{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
+{"phase":"design","signal":"done","artifacts":["design/options.md"],"blocking_questions":[],"next_action":"ack"}
 ```
 
-- `phase` — the phase id you were dispatched for (your agent name after
-  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — paths you wrote, relative to the ticket directory.
-- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
-  entries are ignored by the orchestrator.
-- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
-- Optional: `"tokens":{"in":N,"out":N}`.
-
-This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
-next step without re-reading your artifacts. It does not replace any
-phase-specific signal line above — both are expected.
+`phase` — agent name minus `klc-`. `signal` — `done`|`blocked`|`failed`.
+`artifacts` — paths written, relative to ticket dir. `blocking_questions` —
+string[], `[]` if none. `next_action` — `ack`|`clarify`|`stop`. Optional:
+`"tokens":{"in":N,"out":N}`

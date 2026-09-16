@@ -11,8 +11,7 @@ Generate the `CLAUDE.md` documentation tree:
   `CLAUDE.md` ends up in `claude_md_context` on every review and task
   invocation, so length multiplies across runs. The templates enforce a
   15-symbol cap on `public_api` and a 10-item cap on `notes`; reviewers
-  that need more read `.klc/index/symbols_by_module.json` for the
-  module-scoped slice or use LSP `documentSymbol` directly.
+  that need more use LSP `documentSymbol` directly.
 - **Describe invariants, not code.** If it is visible in the code, don't
   repeat. If it isn't (why a boundary exists, why this pattern), record it.
 - **Link, don't copy.** Point at ADRs, entry files, the inventory.
@@ -93,24 +92,4 @@ DOCGEN_OK <count> file(s) written
 - Template missing — abort, name the expected path.
 - Module path absent on disk — warn and skip; continue.
 
-## Completion signal (orchestrator)
-
-In addition to any phase-specific signal above, end your final output
-with exactly one fenced JSON object, as the LAST block in your response:
-
-```json
-{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
-```
-
-- `phase` — the phase id you were dispatched for (your agent name after
-  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — paths you wrote, relative to the ticket directory.
-- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
-  entries are ignored by the orchestrator.
-- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
-- Optional: `"tokens":{"in":N,"out":N}`.
-
-This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
-next step without re-reading your artifacts. It does not replace any
-phase-specific signal line above — both are expected.
+{{include:completion-signal}}

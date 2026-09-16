@@ -7,11 +7,12 @@ Turn `raw.md` into a structured `spec.md`: goals, acceptance criteria,
 constraints, affected modules. Classify on four axes and pick the
 track. Surface every unknown as a `QUESTION` item, never invent.
 
-Supersedes the old `validator.md` responsibility. `validator.md` still
-exists as a subroutine you call to re-check spec completeness on
-revisions.
-
 ## Inputs (from the discovery-context bundle)
+
+This bundle (`00-raw.md` through `50-external-docs.md`) is pending KLC-112 —
+today only `raw.md` and whatever you read directly via LSP / file reads are
+actually available; treat the numbered names below as the bundle's intended
+shape, not as files you can assume exist yet.
 
 - `00-raw.md` — the user's description plus intake notes.
 - `10-root-CLAUDE.md` — project-level invariants.
@@ -20,8 +21,8 @@ revisions.
   overlap with `raw.md`. Skip the rest — you can always read them on
   demand if the top-3 prove insufficient.
 - `40-related.md` — up to N prior tickets with shared kind / modules.
-- `50-external-docs.md` — optional; pointers to external docs the
-  team declared in `.klc/config/discovery.yml`.
+- `50-external-docs.md` — optional; pointers to external docs the team
+  has declared for this project.
 
 Do **not** pre-load a symbol list. Use the LSP tool on demand:
 ```
@@ -67,30 +68,7 @@ Reachable on demand but expensive:
 - `.klc/index/depgraph.json` — `import_graphs.<lang>` when you need
   file-level edges beyond module granularity.
 
-## Model handoff guard
-
-This is a heavy-reasoning phase — it must run on the Opus-tier model.
-
-1. Read `.klc/tickets/<KEY>/meta.json` → `track`.
-2. Read `.klc/config/models.yml` if present, else `config/models.yml`.
-3. Resolve role in order: `per_track.<track>.<phase>` → `phase_roles.<phase>`
-   → `defaults`. Map role → `provider:model` via `roles`.
-4. Detect the host model when possible (`KLC_MODEL_*` env, the Claude Code
-   model indicator, this card's metadata).
-
-- Model **detectable & mismatched** → **stop before modifying files**:
-  ```text
-  MODEL_SWITCH_REQUIRED <KEY> phase=<phase-id> track=<track> required_role=<role> required_model=<provider:model> current_model=<provider:model>
-  ```
-  Wait for the operator to switch and re-run this prompt.
-- Model **not detectable** (e.g. Codex CLI) → print the required model
-  once and ask the operator to confirm this session already uses it
-  before continuing:
-  ```text
-  This phase expects <provider:model> (Opus-tier). Confirm this session is on it? [y/N]
-  ```
-- Unattended runner (`RUN_LOCAL_SUBAGENTS=1`) → do **not** ask; trust
-  `KLC_MODEL_*` (the runner already picked the model from `models.yml`).
+The dispatcher already resolved this phase's model from `models.yml` and baked it into this agent's frontmatter; you cannot and need not change it.
 
 ## Steps
 
@@ -453,24 +431,4 @@ DISCOVERY_SPEC_WRITTEN <ticket-key>
 After which the script's `--continue` step validates meta.json and
 bumps the phase to `discovery-pending-ack`.
 
-## Completion signal (orchestrator)
-
-In addition to any phase-specific signal above, end your final output
-with exactly one fenced JSON object, as the LAST block in your response:
-
-```json
-{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
-```
-
-- `phase` — the phase id you were dispatched for (your agent name after
-  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — paths you wrote, relative to the ticket directory.
-- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
-  entries are ignored by the orchestrator.
-- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
-- Optional: `"tokens":{"in":N,"out":N}`.
-
-This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
-next step without re-reading your artifacts. It does not replace any
-phase-specific signal line above — both are expected.
+{{include:completion-signal}}

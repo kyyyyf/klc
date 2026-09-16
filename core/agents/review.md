@@ -17,17 +17,7 @@ available.
 - `--external` (optional) — force-run the external reviewer (legacy; default-on for S+).
 - `--no-external` (optional) — skip the external reviewer even when default-on.
 
-## Model note
-
-This phase expects the coding-tier model, not Opus. Resolve it from
-`models.yml` (`per_track.<track>.<phase>` → `phase_roles.<phase>` →
-`defaults`) and, if you just came from a heavy-reasoning phase, switch
-**down** before working. This is a cost note, not a gate — do not stop or
-ask; just print one line if a downgrade is warranted:
-
-```text
-MODEL_NOTE <KEY> phase=<phase-id> expects=<provider:model> (downgrade from design/discovery Opus)
-```
+The dispatcher already resolved this phase's model from `models.yml` and baked it into this agent's frontmatter; you cannot and need not change it.
 
 ## Scratchpad (overflow and read-back)
 
@@ -258,24 +248,4 @@ aggregation still proceeds with `CHANGES REQUESTED`.
 - Retention policy (`reviewers.yml::reports.retention_*`) prunes old
   `pending-*/partials-*` and keeps only the N most-recent `review-*.md`.
 
-## Completion signal (orchestrator)
-
-In addition to any phase-specific signal above, end your final output
-with exactly one fenced JSON object, as the LAST block in your response:
-
-```json
-{"phase":"<phase-id>","signal":"done","artifacts":["path/relative/to/ticket/dir.md"],"blocking_questions":[],"next_action":"ack"}
-```
-
-- `phase` — the phase id you were dispatched for (your agent name after
-  the `klc-` prefix, e.g. `klc-design` -> `"design"`).
-- `signal` — `"done"` | `"blocked"` | `"failed"`.
-- `artifacts` — paths you wrote, relative to the ticket directory.
-- `blocking_questions` — string[]; leave `[]` if none. Blank/empty
-  entries are ignored by the orchestrator.
-- `next_action` — `"ack"` | `"clarify"` | `"stop"`.
-- Optional: `"tokens":{"in":N,"out":N}`.
-
-This is consumed by the `/klc:run` orchestrator (KLC-052) to decide the
-next step without re-reading your artifacts. It does not replace any
-phase-specific signal line above — both are expected.
+{{include:completion-signal}}
