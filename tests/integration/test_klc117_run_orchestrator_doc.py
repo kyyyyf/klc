@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""KLC-117 step-6 — AC-14: `/klc:run`'s SKILL.md documents reading the advisory
+artifact, not a joined string.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+FW_ROOT = Path(__file__).resolve().parents[2]
+SKILL = FW_ROOT / "klc-plugin" / "skills" / "run" / "SKILL.md"
+
+
+def test_run_skill_no_longer_documents_string_based_advisory_reading():
+    text = SKILL.read_text(encoding="utf-8")
+    normalised = " ".join(text.split())  # collapse markdown line-wrap whitespace
+    assert "ack-advisories.json" in normalised
+    assert "phase-history note for advisory detail" in normalised
+    # The orchestrator must not be told to parse the note/summary string for
+    # advisory content — it reads the artifact instead.
+    assert "parse the advisory string" not in normalised

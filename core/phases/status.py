@@ -27,6 +27,7 @@ import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import holder_display  # noqa: E402
 import artefacts as _artefacts  # noqa: E402  KLC-118: one card-path resolver
+import advisories as _advisories  # noqa: E402  KLC-117: read-only artifact display
 
 
 BOX_DONE      = "[✓]"  # ✓
@@ -81,9 +82,13 @@ def run(argv: list[str]) -> int:
                 f"klc status: meta.json:phase is unparseable: {phase_value!r}\n"
             )
             return 1
-        print(json.dumps({"ticket": args.ticket, "phase": phase_value,
-                          "track": track, "kind": kind,
-                          "phase_id": cur_pid, "state": cur_state}))
+        out = {"ticket": args.ticket, "phase": phase_value,
+              "track": track, "kind": kind,
+              "phase_id": cur_pid, "state": cur_state}
+        adv = _advisories.for_display(args.ticket, cur_pid)
+        if adv is not None:
+            out["advisories"] = adv
+        print(json.dumps(out))
         return 0
 
     print(f"{args.ticket}  track={track}  kind={kind}")
@@ -138,6 +143,15 @@ def run(argv: list[str]) -> int:
             print(f"  {BOX_CURRENT} {p.id:<22} ← now · {annotation}")
         else:
             print(f"  {BOX_EMPTY} {p.id}")
+
+    # Advisory records (KLC-117 AC-13): high/medium in full, the rest as a count.
+    adv = _advisories.for_display(args.ticket, cur_pid)
+    if adv and (adv["high"] or adv["medium"] or adv["other_count"]):
+        print()
+        for r in adv["high"] + adv["medium"]:
+            print(f"  [{r.get('severity', '?')}] {r.get('message', '')}")
+        if adv["other_count"]:
+            print(f"  ...and {adv['other_count']} more (see the phase's ack-advisories.json)")
 
     # Next-action hint.
     print()

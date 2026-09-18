@@ -119,6 +119,17 @@ def jira_mode(config_dir=None) -> str:
 HOOK_MODES = ("direct", "snippet", "disabled")
 
 
+def advisory_threshold() -> str:
+    """Severity at or above which the advisory gate signal is dirty (KLC-117
+    C-004). Rides the existing project-before-framework ladder. An unknown
+    value falls back to the built-in default rather than crashing resolution,
+    mirroring how every other knob degrades per-knob. No legacy file predates
+    this knob (mirrors `hook_mode`'s harmless probe against `profile.yml`)."""
+    value = resolve("advisory.threshold", legacy_file="profile.yml",
+                    legacy_key="advisory_threshold", default="medium")
+    return value if value in ("high", "medium", "low", "info") else "medium"
+
+
 def hook_mode():
     """Recorded pre-commit wiring mode, or None when install never recorded
     one (KLC-107 AC-17). No legacy file predates this knob."""

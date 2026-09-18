@@ -50,11 +50,21 @@ _REQUIRED_SIGNALS = (
     "route_confidence",
 )
 
+def _advisory_clean(value) -> bool:
+    """Clean only when we have a readable record set and nothing reaches the
+    threshold (KLC-117 AC-9). Absent / unreadable / malformed → DIRTY, matching
+    the module's fail-closed 'absent key = dirty' convention."""
+    if not isinstance(value, dict) or "records" not in value:
+        return False
+    import advisories as _adv
+    return not _adv.at_or_above(value["records"], value.get("threshold", "medium"))
+
+
 # A signal is clean only when present AND its checker passes; absent => dirty.
 # "N/A" is a clean sentinel used when a signal is not applicable for the current
 # phase (e.g. verdict before review has run — the artifact cannot exist yet).
 _CHECK = {
-    "advisory":        lambda v: not v,
+    "advisory":        _advisory_clean,
     "scope_expansion": lambda v: v is False,
     "sentinels":       lambda v: v is False,
     "mutation":        lambda v: v is False,
@@ -170,7 +180,9 @@ def collect_signals(ticket: str, phase_id: str) -> dict:
     """Assemble all seven gate signals for the given ticket and phase.
 
     Signal keys:
-      advisory         — str; empty string when clean
+      advisory         — dict | None; {"records": [...], "threshold": str} when the
+                         phase's advisory artifact was persisted and is readable;
+                         None when absent/unreadable (dirty — KLC-117 AC-9)
       scope_expansion  — bool; True when unplanned modules were touched
       sentinels        — bool; True when a sentinel was hit in the diff
       mutation         — bool; True when mutation_fix_attempts counter is at limit
@@ -180,19 +192,32 @@ def collect_signals(ticket: str, phase_id: str) -> dict:
 
     Any unavailable source yields a dirty value (fail-closed).
     """
-    import phase_completion as _pc
     import scope_delta as _sd
     import budget as _budget
     import lifecycle as _lc
+    import advisories as _adv
+    import settings as _settings
 
-    # advisory
+    # advisory (KLC-117): read the PERSISTED artifact rather than re-probing the
+    # gate. `collect_signals` has exactly one non-test call site
+    # (`core/phases/ack.py`'s `--auto` branch); read-only-by-construction (no
+    # second gate re-probe, no side effects). review-fix (MEDIUM): this is
+    # safe ONLY within a single `klc ack --auto` invocation where
+    # `ack.py`'s `if state == _ph.STATE_WORK:` block just called
+    # `can_complete(persist=True)` in the SAME process before recursing into
+    # this branch. It does NOT hold across separate invocations — if a ticket
+    # is already sitting at `<phase>:ack-needed` when `klc ack --auto` runs
+    # as a later, separate command, that block is skipped entirely and this
+    # reads whatever snapshot was persisted at the LAST transition into
+    # ack-needed, which can be stale if the underlying phase artifacts
+    # changed since without going back through `:work`.
     try:
-        # persist=False: this is an advisory probe only; it must not trigger the
-        # discovery risk_tags/audit write side effect (KLC-062). The real ack
-        # transition persists them.
-        _, advisory = _pc.can_complete(ticket, phase_id, persist=False)
+        envelope = _adv.read(ticket, phase_id)
+        advisory = ({"records": envelope.get("records", []),
+                    "threshold": _settings.advisory_threshold()}
+                   if envelope else None)
     except Exception:
-        advisory = "phase_completion_error"
+        advisory = None
 
     # scope_expansion
     try:
@@ -222,7 +247,7 @@ def collect_signals(ticket: str, phase_id: str) -> dict:
     verdict = "N/A" if phase_id in _PRE_REVIEW_PHASES else _read_verdict(ticket)
 
     sig: dict = {
-        "advisory":        advisory or "",
+        "advisory":        advisory,
         "scope_expansion": scope_expansion,
         "sentinels":       sentinels,
         "mutation":        mutation,

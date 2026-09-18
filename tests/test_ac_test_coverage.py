@@ -27,6 +27,7 @@ for _p in (str(_FW_ROOT), str(_FW_ROOT / "core" / "skills")):
         sys.path.insert(0, _p)
 
 import ac_test_coverage as acov  # noqa: E402
+import advisories as _adv  # noqa: E402  (KLC-117)
 
 
 # ---------------------------------------------------------------------------
@@ -780,7 +781,12 @@ def test_can_complete_build_surfaces_s_miss_and_drift(tmp_path, monkeypatch):
         _test_plan(("AC-2", "tests/test_gone.py::test_ac2_x")))
     ok, msg = can_complete_build("KLC-CB2")
     assert ok, f"S must not block, got {msg!r}"
-    assert "ac-coverage" in msg, msg
+    # KLC-117: msg is now the aggregator's summary; the advisory detail lives
+    # in the persisted artifact.
+    assert msg
+    envelope = _adv.read("KLC-CB2", "build")
+    assert envelope is not None
+    assert any(r["source"] == "ac-coverage" for r in envelope["records"])
 
 
 def test_can_complete_build_override_unblocks_ml_miss(tmp_path, monkeypatch):
@@ -799,7 +805,10 @@ def test_can_complete_build_override_unblocks_ml_miss(tmp_path, monkeypatch):
                             meta_extra={"deferred_ac_coverage": True})
     ok, msg = can_complete_build("KLC-CB3")
     assert ok, f"the override must lift the block, got {msg!r}"
-    assert "deferred" in msg.lower(), msg
+    assert msg
+    envelope = _adv.read("KLC-CB3", "build")
+    assert envelope is not None
+    assert any("deferred" in r["message"].lower() for r in envelope["records"])
 
 
 def test_can_complete_build_degrades_when_skill_raises(tmp_path, monkeypatch):
@@ -896,8 +905,11 @@ def test_can_complete_build_surfaces_when_coverage_check_raises(tmp_path, monkey
     monkeypatch.setattr(acov, "check", _boom)
     ok, msg = can_complete_build("KLC-CBX")
     assert ok, "a coverage-check crash must NOT block the build ack (degrade-not-fail)"
-    assert "ac-coverage" in msg and "did not run" in msg, (
-        "a silently-skipped coverage gate must surface a degraded advisory", msg)
+    assert msg, "a silently-skipped coverage gate must surface a degraded advisory"
+    envelope = _adv.read("KLC-CBX", "build")
+    assert envelope is not None
+    assert any("ac-coverage" in r["message"] and "did not run" in r["message"]
+              for r in envelope["records"]), envelope["records"]
 
 
 def test_check_honors_repo_override_for_bare_test_path(tmp_path, monkeypatch):

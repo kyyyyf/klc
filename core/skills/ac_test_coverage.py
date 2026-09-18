@@ -751,3 +751,27 @@ def warn_lines(report: Report) -> list[str]:
         tag = f.state + (":deferred" if f.deferred else "")
         out.append(f"ac-coverage[{tag}]: {f.message}")
     return out
+
+
+# KLC-117 Q-003 severity table: weak/drift are info, a degraded run is medium
+# (the check itself did not run, which is more consequential than one AC's
+# state).
+_SEVERITY = {"degraded": "medium"}
+
+
+def advisory_records(report: Report) -> list[dict]:
+    """The KLC-117 record form of `warn_lines`. Same conditions, same wording,
+    a typed carrier. `warn_lines` stays for this module's own tests and CLI.
+
+    A degraded report's synthetic Finding (`state="degraded"`, produced by
+    `_degraded`) is already in `report.surfaced` — the severity table below
+    picks it up through the same per-finding loop, no separate branch needed.
+    """
+    out: list[dict] = []
+    for f in report.surfaced:
+        tag = f.state + (":deferred" if f.deferred else "")
+        out.append({"source": "ac-coverage",
+                    "severity": _SEVERITY.get(f.state, "info"),
+                    "code": f"ac-coverage.{tag}", "message": f.message,
+                    "ref": f.ac_id})
+    return out

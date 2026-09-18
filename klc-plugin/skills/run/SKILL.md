@@ -98,6 +98,13 @@ Repeat until STOP or archived:
    questions: run `klc ack <KEY> --auto`.
    - Non-zero exit (ambiguous pick / gate paused / scope conflict):
      STOP, surface the CLI's stderr verbatim — do not guess a pick.
+     When `ack --auto` paused on a dirty `advisory` signal (KLC-117),
+     the stderr line names the signal but not its content: read
+     `<ticket-dir>/<phase-id>/ack-advisories.json` and report its
+     `high` and `medium` records to the human, with a bare count of
+     the rest. Never parse the summary line or the phase-history note
+     for advisory detail — the JSON is the machine-readable source and
+     the note is a pointer to it.
    - Zero exit: if the ticket is now in an `:ack` state (rather than
      already advanced to the next phase's `:work` — `apply_ack`
      resolves an unambiguous forward pick directly), run `klc next

@@ -18,6 +18,7 @@ from core.skills.phase_completion import (  # noqa: E402
     can_complete_discovery,
     can_complete_discovery_lite,
 )
+from core.skills import advisories as _adv  # noqa: E402  (KLC-117)
 
 _S_SPEC = """\
 ---
@@ -101,7 +102,10 @@ def test_operator_can_defer_marker(tmp_path, monkeypatch):
     (d / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     ok, msg = can_complete_discovery_lite("KLC-Q04")
     assert ok, f"expected deferred-marker ack to pass, got: {msg!r}"
-    assert "deferred" in msg
+    assert msg
+    envelope = _adv.read("KLC-Q04", "discovery-lite")
+    assert envelope is not None
+    assert any("deferred" in r["message"] for r in envelope["records"])
 
 
 _M_SPEC = """\

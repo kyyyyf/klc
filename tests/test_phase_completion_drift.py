@@ -19,17 +19,26 @@ for _p in (str(_FW_ROOT), str(_FW_ROOT / "core" / "skills")):
         sys.path.insert(0, _p)
 
 import phase_completion as pc  # noqa: E402
+import advisories as _adv_mod  # noqa: E402  (KLC-117)
 
 
 # ----------------------------------------------- step-1: dedicated integrate branch
 
-def test_integrate_appends_drift_advisory(monkeypatch):
+def test_integrate_appends_drift_advisory(monkeypatch, tmp_path):
     """AC-1: the integrate branch (before the empty-outputs early return) returns the
-    drift advisory lines from _drift_advisories."""
+    drift advisory lines from _drift_advisories.
+
+    KLC-117: `_can_complete_generic`'s return value is now the aggregator's
+    one-line summary; the actual advisory content is asserted from the
+    persisted artifact (requires `persist=True` to exist)."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.setattr(pc, "_drift_advisories", lambda ticket, persist: ["drift: core/foo"])
-    ok, msg = pc._can_complete_generic("KLC-ANY", "integrate", persist=False)
+    ok, msg = pc._can_complete_generic("KLC-ANY", "integrate", persist=True)
     assert ok is True
-    assert "drift: core/foo" in msg
+    assert msg
+    envelope = _adv_mod.read("KLC-ANY", "integrate")
+    assert envelope is not None
+    assert any("drift: core/foo" in r["message"] for r in envelope["records"])
 
 
 def test_non_integrate_generic_phase_unaffected(monkeypatch):
@@ -56,24 +65,25 @@ def test_committed_unplanned_module_surfaces(monkeypatch):
     """AC-3 positive: a committed unplanned module surfaces."""
     monkeypatch.setattr(pc._drift, "compare", lambda t: _rep(["core/foo"], []))
     monkeypatch.setattr(pc, "_committed", lambda repo=None: ({"core/foo"}, set()))
-    lines = pc._drift_advisories("KLC-X", False)
-    assert any("core/foo" in l for l in lines)
+    records = pc._drift_advisories("KLC-X", False)
+    assert any("core/foo" in r["message"] for r in records)
+    assert all(r["severity"] == "medium" for r in records)  # KLC-117 Q-003
 
 
 def test_committed_wip_not_false_drift(monkeypatch):
     """AC-3 negative: an uncommitted WIP module is NOT surfaced (name∩name)."""
     monkeypatch.setattr(pc._drift, "compare", lambda t: _rep(["core/foo"], []))
     monkeypatch.setattr(pc, "_committed", lambda repo=None: (set(), set()))
-    lines = pc._drift_advisories("KLC-X", False)
-    assert not any("core/foo" in l for l in lines)
+    records = pc._drift_advisories("KLC-X", False)
+    assert not any("core/foo" in r["message"] for r in records)
 
 
 def test_committed_orphan_wip_not_surfaced(monkeypatch):
     """AC-3 (review F-1): an uncommitted orphan-file WIP is NOT surfaced (path∩path)."""
     monkeypatch.setattr(pc._drift, "compare", lambda t: _rep([], ["scripts/x.py"]))
     monkeypatch.setattr(pc, "_committed", lambda repo=None: (set(), set()))
-    lines = pc._drift_advisories("KLC-X", False)
-    assert not any("scripts/x.py" in l for l in lines)
+    records = pc._drift_advisories("KLC-X", False)
+    assert not any("scripts/x.py" in r["message"] for r in records)
 
 
 def test_drifted_modules_are_names_not_paths(monkeypatch):
@@ -82,8 +92,8 @@ def test_drifted_modules_are_names_not_paths(monkeypatch):
     monkeypatch.setattr(pc._drift, "compare", lambda t: _rep(["core/foo"], []))
     # committed provides the module NAME core/foo (resolved from core/foo/bar.py)
     monkeypatch.setattr(pc, "_committed", lambda repo=None: ({"core/foo"}, {"core/foo/bar.py"}))
-    lines = pc._drift_advisories("KLC-X", False)
-    assert any("core/foo" in l for l in lines)
+    records = pc._drift_advisories("KLC-X", False)
+    assert any("core/foo" in r["message"] for r in records)
 
 
 def test_merge_base_unavailable_degrades(monkeypatch):
@@ -98,15 +108,16 @@ def test_merge_base_unavailable_degrades(monkeypatch):
 def test_drift_check_raises_degrades(monkeypatch):
     """AC-4: drift_check raising → exactly one degraded note, never raises."""
     monkeypatch.setattr(pc._drift, "compare", lambda t: (_ for _ in ()).throw(RuntimeError("boom")))
-    lines = pc._drift_advisories("KLC-X", False)
-    assert len(lines) == 1 and "skipped" in lines[0].lower()
+    records = pc._drift_advisories("KLC-X", False)
+    assert len(records) == 1 and "skipped" in records[0]["message"].lower()
+    assert records[0]["code"] == "drift-check.degraded"
 
 
 def test_drift_check_absent_degrades(monkeypatch):
     """AC-4: an unavailable drift_check (AttributeError) degrades to one note."""
     monkeypatch.setattr(pc._drift, "compare", lambda t: (_ for _ in ()).throw(AttributeError("gone")))
-    lines = pc._drift_advisories("KLC-X", False)
-    assert lines and "skipped" in lines[0].lower()
+    records = pc._drift_advisories("KLC-X", False)
+    assert records and "skipped" in records[0]["message"].lower()
 
 
 def test_never_blocks(monkeypatch):
@@ -150,8 +161,8 @@ def test_scope_skipped_names_reason(monkeypatch):
     """AC-4: a scope `skipped` section is NAMED, not shown as an empty 'no drift'."""
     monkeypatch.setattr(pc._drift, "compare", lambda t: _rep([], [], skipped="modules.json not found"))
     monkeypatch.setattr(pc, "_committed", lambda repo=None: (set(), set()))
-    lines = pc._drift_advisories("KLC-X", False)
-    assert any("modules.json not found" in l for l in lines)
+    records = pc._drift_advisories("KLC-X", False)
+    assert any("modules.json not found" in r["message"] for r in records)
 
 
 # ------------------------------------------------------ step-4: track-scaling

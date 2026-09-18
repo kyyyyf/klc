@@ -62,7 +62,9 @@ def _make_build_ticket(tmp_path: Path, ticket: str) -> Path:
 
 
 _CLEAN_SIG = {
-    "advisory": "",
+    # KLC-117: the advisory signal is now a dict of collected records + the
+    # resolved threshold; no records at or above threshold = clean.
+    "advisory": {"records": [], "threshold": "medium"},
     "scope_expansion": False,
     "sentinels": False,
     "mutation": False,

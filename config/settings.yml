@@ -38,3 +38,8 @@
 #   hook_mode: direct                  # direct | snippet | disabled. Set by `klc install`.
 #   hook_location: .git/hooks/pre-commit   # resolved hooks dir or detected manager name.
 #   refresh_budget_seconds: 30         # wall-clock budget for the verb-side lazy refresh.
+
+# Ack advisory severity threshold (KLC-117). At or above this severity the
+# `advisory` gate signal is dirty and a conditional gate pauses. No legacy file.
+# advisory:
+#   threshold: medium        # high | medium | low | info. Default: medium.

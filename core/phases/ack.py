@@ -30,6 +30,7 @@ import state_sync  # noqa: E402
 import state_feature  # noqa: E402
 import state_tx  # noqa: E402
 import index_refresh as _refresh  # noqa: E402
+import advisories  # noqa: E402  (KLC-117: cap_note)
 
 
 # Phases where expansion (scope creep) blocks ack toward next.
@@ -97,9 +98,10 @@ def run(argv: list[str]) -> int:
                     )
                     if advisory:
                         sys.stderr.write(f"  note: {advisory}\n")
-                    note = "artifacts detected by phase_completion.py"
-                    if advisory:
-                        note = f"{note}; {advisory}"
+                    # KLC-117 AC-8: cap at NOTE_CAP characters — the advisory is
+                    # normally already a short summary line (post-KLC-117), but the
+                    # cap is a hard invariant regardless of how long it gets.
+                    note = advisories.cap_note("artifacts detected by phase_completion.py", advisory)
                     new_state = _ph.STATE_ACK_NEEDED
                     # KLC-057: the WORK→ack-needed advance is a state mutation, so
                     # it must ride its own state_tx (self-heal → pull → set_state

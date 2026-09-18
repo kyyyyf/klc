@@ -32,6 +32,7 @@ import plan_quality as _plan_quality  # noqa: E402
 import drift_check as _drift  # noqa: E402  (KLC-098: report-only drift-check core)
 import module_membership as _mm  # noqa: E402  (KLC-098: file→module resolver, KLC-066)
 import drift_review as _drift_review  # noqa: E402  (KLC-099: DRIFT_CHECK ReviewKind seam)
+import advisories as _adv  # noqa: E402  (KLC-117: the one advisory aggregator)
 
 
 def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -205,11 +206,19 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
     # read-only callers (remind) pass persist=False and leave meta.json untouched.
     if persist:
         _sync_risk_tags(ticket)
-    _advisories = list(_spec_warnings)
+    _decompose_records: list[dict] = []
     if _spec_structure.has_decompose_signal(spec_text):
-        _advisories.append("DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building")
-    _advisories += _spec_review_advisories(ticket, persist)
-    return True, "; ".join(_advisories)
+        _decompose_records.append({
+            "source": "discovery", "severity": "medium", "code": "discovery.decompose",
+            "message": "DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building",
+            "ref": ""})
+    _sources = [
+        ("spec-self-check", _spec_warnings),
+        ("discovery", _decompose_records),
+        ("spec-review", _spec_review_records(ticket, persist)),
+    ]
+    _records, _summary = _adv.finish(ticket, "discovery", _sources, persist)
+    return True, _summary
 
 
 def can_complete_acceptance_test_plan(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -268,16 +277,16 @@ def can_complete_acceptance_test_plan(ticket: str, *, persist: bool = True) -> t
     # each spec SAOC AC to a planned test and flags uncovered ACs / happy-path-only
     # plans / gate-ACs missing a negative test. Track-scaled (XS skip, S coverage-
     # only, M/L full) and degrade-safe inside the skill, so it never fails an ack.
-    _advisories = _testplan_coverage_gate(ticket)
-
     # Independent test-plan reviewer (KLC-085 reusing KLC-084's seam): surface the
     # fresh reviewer's routed decisions_to_confirm + a collapsed findings count at
     # the SAME ack decision gate. Warn-only / fail-open, exactly like the spec
     # reviewer at discovery ack. Threads `persist` so a read-only probe writes nothing.
-    _advisories += _testplan_review_advisories(ticket, persist)
-
-    # All checks passed
-    return True, "; ".join(_advisories)
+    _sources = [
+        ("testplan-coverage", _testplan_coverage_gate(ticket)),
+        ("testplan-review", _testplan_review_records(ticket, persist)),
+    ]
+    _records, _summary = _adv.finish(ticket, "acceptance-test-plan", _sources, persist)
+    return True, _summary
 
 
 def _sync_risk_tags(ticket: str) -> None:
@@ -341,6 +350,26 @@ def _spec_review_advisories(ticket: str, persist: bool) -> list[str]:
         return []  # degrade-not-fail: the review seam never blocks an ack
 
 
+def _spec_review_records(ticket: str, persist: bool) -> list[dict]:
+    """Record-shaped twin of `_spec_review_advisories` (KLC-117): the aggregator
+    source for the KLC-084 spec-review seam, via `spec_review.consume_records` so
+    a routed decision is high and a findings summary/schema/degraded note is
+    high-or-medium/medium (Q-003) — not a legacy-wrapped info record.
+    `_spec_review_advisories` itself is untouched (its own direct callers keep
+    the `list[str]` contract)."""
+    try:
+        meta = _lc.read_meta_ro(ticket)
+        ticket_dir = klc_ticket_meta_file(ticket).parent
+        track = meta.get("track", "")
+        signals = {"risk_tags": meta.get("risk_tags") or []}
+        records, _findings = _spec_review.consume_records(
+            ticket_dir, track, signals, persist=persist
+        )
+        return records
+    except Exception:
+        return []  # degrade-not-fail: the review seam never blocks an ack
+
+
 def _testplan_coverage_gate(ticket: str) -> list[str]:
     """Run the KLC-085 independent test-plan coverage review for the ack path.
 
@@ -385,6 +414,23 @@ def _testplan_review_advisories(ticket: str, persist: bool) -> list[str]:
         return []  # degrade-not-fail: the review seam never blocks an ack
 
 
+def _testplan_review_records(ticket: str, persist: bool) -> list[dict]:
+    """Record-shaped twin of `_testplan_review_advisories` (KLC-117) — same
+    Q-003 severity mapping as `_spec_review_records`, via
+    `testplan_review.consume_records`."""
+    try:
+        meta = _lc.read_meta_ro(ticket)
+        ticket_dir = klc_ticket_meta_file(ticket).parent
+        track = meta.get("track", "")
+        signals = {"risk_tags": meta.get("risk_tags") or []}
+        records, _findings = _testplan_review.consume_records(
+            ticket_dir, track, signals, persist=persist
+        )
+        return records
+    except Exception:
+        return []  # degrade-not-fail: the review seam never blocks an ack
+
+
 def _implplan_review_advisories(ticket: str, persist: bool) -> list[str]:
     """Surface the INDEPENDENT impl-plan reviewer's outputs at the ack (KLC-094).
 
@@ -415,6 +461,23 @@ def _implplan_review_advisories(ticket: str, persist: bool) -> list[str]:
             ticket_dir, track, signals, persist=persist
         )
         return advisories
+    except Exception:
+        return []  # degrade-not-fail: the review seam never blocks an ack
+
+
+def _implplan_review_records(ticket: str, persist: bool) -> list[dict]:
+    """Record-shaped twin of `_implplan_review_advisories` (KLC-117) — same
+    Q-003 severity mapping as `_spec_review_records`, via
+    `implplan_review.consume_records`."""
+    try:
+        meta = _lc.read_meta_ro(ticket)
+        ticket_dir = klc_ticket_meta_file(ticket).parent
+        track = meta.get("track", "")
+        signals = {"risk_tags": meta.get("risk_tags") or []}
+        records, _findings = _implplan_review.consume_records(
+            ticket_dir, track, signals, persist=persist
+        )
+        return records
     except Exception:
         return []  # degrade-not-fail: the review seam never blocks an ack
 
@@ -566,17 +629,28 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
     # KLC-062: gated to the persisting (ack) path; read-only callers skip the write.
     if persist:
         _sync_risk_tags(ticket)
-    _advisories = list(_spec_warnings)
+    _signal_records: list[dict] = []
     if _spec_structure.has_decompose_signal(text):
-        _advisories.append("DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building")
+        _signal_records.append({
+            "source": "discovery", "severity": "medium", "code": "discovery.decompose",
+            "message": "DISCOVERY_DECOMPOSE: consider decomposing across subsystems before building",
+            "ref": ""})
     if _spec_structure.has_upgrade_m_signal(text):
-        _advisories.append("DISCOVERY_LITE_UPGRADE_M: scope exceeds S — re-route via 'klc retrack <KEY> M'")
-    _advisories += _spec_review_advisories(ticket, persist)
+        _signal_records.append({
+            "source": "discovery", "severity": "medium", "code": "discovery.upgrade-m",
+            "message": "DISCOVERY_LITE_UPGRADE_M: scope exceeds S — re-route via 'klc retrack <KEY> M'",
+            "ref": ""})
     # Independent impl-plan reviewer (KLC-094): discovery-lite is the ack that
     # FINALIZES impl-plan.md for the S track, so surface the reviewer's outputs here,
     # symmetric with the spec reviewer above. Track-scaled + degrade-safe in the seam.
-    _advisories += _implplan_review_advisories(ticket, persist)
-    return True, "; ".join(_advisories)
+    _sources = [
+        ("spec-self-check", _spec_warnings),
+        ("discovery", _signal_records),
+        ("spec-review", _spec_review_records(ticket, persist)),
+        ("impl-plan-review", _implplan_review_records(ticket, persist)),
+    ]
+    _records, _summary = _adv.finish(ticket, "discovery-lite", _sources, persist)
+    return True, _summary
 
 
 def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
@@ -673,7 +747,7 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
     # operator set meta.deferred_ac_coverage; drift / weak signals / S-misses /
     # degradation SURFACE as advisories threaded into the success message. The
     # guard keeps degrade-not-fail: a coverage-check crash never blocks the ack.
-    advisories: list[str] = []
+    _acov_records: list[dict] = []
     try:
         import ac_test_coverage as _acov
         track = (_lc.read_meta_ro(ticket) or {}).get("track", "")
@@ -682,15 +756,20 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
         rep = _acov.check(ticket, track, repo, run_tests=persist)
         if rep.block_reason:
             return False, f"AC coverage: {rep.block_reason}"
-        advisories += _acov.warn_lines(rep)
+        _acov_records = _acov.advisory_records(rep)
     except Exception as e:
         # degrade-not-fail: a coverage-check surprise never BLOCKS the ack — but it must
         # be OBSERVABLE (a silently-skipped gate could ack an M/L build with operators
         # unaware AC coverage never ran), so surface a degraded advisory (Codex P2).
-        advisories.append(
-            f"ac-coverage: check did not run — {type(e).__name__} (AC coverage unverified)")
+        _acov_records = [{"source": "ac-coverage", "severity": "medium",
+                          "code": "ac-coverage.degraded",
+                          "message": (f"ac-coverage: check did not run — "
+                                      f"{type(e).__name__} (AC coverage unverified)"),
+                          "ref": ""}]
 
-    return True, "; ".join(advisories)
+    _sources = [("ac-coverage", _acov_records)]
+    _records, _summary = _adv.finish(ticket, "build", _sources, persist)
+    return True, _summary
 
 
 def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -784,16 +863,19 @@ def _committed(repo=None) -> tuple[set, set]:
     return mods, paths
 
 
-def _drift_advisories(ticket: str, persist: bool) -> list[str]:
+def _drift_advisories(ticket: str, persist: bool) -> list[dict]:
     """Surface the drift-check report (KLC-096) at the integrate ack (KLC-098 D-03).
 
-    Surface-only and degrade-not-fail: any failure degrades to a single advisory
-    note; this NEVER blocks and NEVER raises. Scope-drift is restricted to the
-    COMMITTED branch diff — drifted modules by NAME∩NAME, orphan files by PATH∩PATH —
-    so an uncommitted WIP never surfaces. `persist=True` writes drift-report.json (via
-    write_report — the ONLY writer); a read-only probe (persist=False) computes the
-    report without writing. Track-scaled: full on M/L, cascade-on-signal on S
-    (a coordination/risk-tag signal), skip on XS. Fail-OPEN: an unknown/unreadable
+    KLC-117: returns advisory RECORDS (severity medium — Q-003: a scope-drift
+    condition or a skipped/degraded arm is medium, never info, because it names
+    an unplanned module or an untested step). Surface-only and degrade-not-fail:
+    any failure degrades to a single advisory record; this NEVER blocks and NEVER
+    raises. Scope-drift is restricted to the COMMITTED branch diff — drifted
+    modules by NAME∩NAME, orphan files by PATH∩PATH — so an uncommitted WIP never
+    surfaces. `persist=True` writes drift-report.json (via write_report — the ONLY
+    writer); a read-only probe (persist=False) computes the report without
+    writing. Track-scaled: full on M/L, cascade-on-signal on S (a
+    coordination/risk-tag signal), skip on XS. Fail-OPEN: an unknown/unreadable
     track runs, since surfacing is safe."""
     # Track-scale first. FAIL-OPEN: any error — a malformed/non-string track, an
     # unreadable meta — falls through to RUNNING (surfacing is safe and never blocks), so
@@ -829,20 +911,30 @@ def _drift_advisories(ticket: str, persist: bool) -> list[str]:
         surfaced_mods = [m for m in (scope.get("drifted_modules") or []) if m in mods]
         surfaced_orphans = [o for o in (scope.get("orphan_files") or []) if o in paths]
 
-        lines: list[str] = []
+        def _rec(code: str, message: str) -> dict:
+            return {"source": "drift-check", "severity": "medium",
+                    "code": f"drift-check.{code}", "message": message, "ref": ""}
+
+        records: list[dict] = []
         if scope.get("skipped"):
-            lines.append(f"drift scope skipped: {scope['skipped']}")
+            records.append(_rec("skipped", f"drift scope skipped: {scope['skipped']}"))
         if surfaced_mods:
-            lines.append(f"scope-drift modules: {', '.join(sorted(surfaced_mods))}")
+            records.append(_rec("scope-drift-modules",
+                                f"scope-drift modules: {', '.join(sorted(surfaced_mods))}"))
         if surfaced_orphans:
-            lines.append(f"scope-drift orphan files: {', '.join(sorted(surfaced_orphans))}")
+            records.append(_rec("scope-drift-orphans",
+                                f"scope-drift orphan files: {', '.join(sorted(surfaced_orphans))}"))
         if steps.get("skipped"):
-            lines.append(f"step-commit check skipped: {steps['skipped']}")
+            records.append(_rec("step-commit-skipped",
+                                f"step-commit check skipped: {steps['skipped']}"))
         if steps.get("flagged"):
-            lines.append(f"steps without a commit: {', '.join(steps['flagged'])}")
-        return lines
+            records.append(_rec("steps-without-commit",
+                                f"steps without a commit: {', '.join(steps['flagged'])}"))
+        return records
     except Exception as exc:  # noqa: BLE001 — surface-only: never propagate / never block
-        return [f"drift-check: skipped — {type(exc).__name__} (unverified)"]
+        return [{"source": "drift-check", "severity": "medium", "code": "drift-check.degraded",
+                "message": f"drift-check: skipped — {type(exc).__name__} (unverified)",
+                "ref": ""}]
     finally:
         if _meta_snap is not None:
             try:
@@ -852,25 +944,33 @@ def _drift_advisories(ticket: str, persist: bool) -> list[str]:
                 pass
 
 
-def _drift_review_advisories(ticket: str, persist: bool) -> list[str]:
+def _drift_review_advisories(ticket: str, persist: bool) -> list[dict]:
     """Surface the INDEPENDENT drift-reviewer's outputs at the integrate ack (KLC-099).
 
+    KLC-117: returns advisory RECORDS via `drift_review.consume_records` (the
+    thin delegate to `spec_review.consume_records`), so a routed decision/high
+    finding is high and a schema/degraded note is medium (Q-003), matching the
+    other three review-binding sources.
+
     The FOURTH binding of KLC-084's seam — the judgment complement to KLC-098's
-    deterministic `_drift_advisories`. Delegates to `drift_review.consume` (bound to
-    DRIFT_CHECK), which routes the reviewer's `decisions_to_confirm[]` + a collapsed
-    findings count into the ack's advisory lines and records findings to
-    `drift-review-findings.json` ONLY when `persist` is True (a read-only probe surfaces
-    without writing). Fail-open / surface-only: never blocks, and any error degrades to a
-    single note — the seam's degrade-not-fail plus this guard mean it never raises."""
+    deterministic `_drift_advisories`. Delegates to `drift_review.consume_records`
+    (bound to DRIFT_CHECK), which routes the reviewer's `decisions_to_confirm[]`
+    + a collapsed findings count into the ack's advisory records and records
+    findings to `drift-review-findings.json` ONLY when `persist` is True (a
+    read-only probe surfaces without writing). Fail-open / surface-only: never
+    blocks, and any error degrades to a single info record — the seam's
+    degrade-not-fail plus this guard mean it never raises."""
     try:
         tdir = klc_ticket_meta_file(ticket).parent
         meta = _lc.read_meta_ro(ticket)
-        adv, _ = _drift_review.consume(
+        records, _ = _drift_review.consume_records(
             tdir, meta.get("track"), {"risk_tags": meta.get("risk_tags") or []}, persist=persist
         )
-        return adv
+        return records
     except Exception as exc:  # noqa: BLE001 — surface-only: never propagate / never block
-        return [f"drift-review: skipped — {type(exc).__name__}"]
+        return [{"source": "drift-review", "severity": "info",
+                "code": "drift-review.degraded",
+                "message": f"drift-review: skipped — {type(exc).__name__}", "ref": ""}]
 
 
 def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -891,8 +991,12 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
     # BEFORE the empty-outputs early return — integrate declares `outputs: []`, so the
     # advisory would be unreachable after it. Surface-only: always a completable (True, …).
     if phase_id == "integrate":
-        _adv = _drift_advisories(ticket, persist) + _drift_review_advisories(ticket, persist)
-        return True, "; ".join(_adv)
+        _sources = [
+            ("drift-check", _drift_advisories(ticket, persist)),
+            ("drift-review", _drift_review_advisories(ticket, persist)),
+        ]
+        _records, _summary = _adv.finish(ticket, "integrate", _sources, persist)
+        return True, _summary
 
     if not phase.outputs:
         return True, ""
@@ -907,7 +1011,7 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
 
     # Plan-completeness gate (KLC-036): if impl-plan.md is an output of this phase,
     # it must have no violations.
-    _advisories: list[str] = []
+    _sources: list[tuple] = []
     if "impl-plan.md" in phase.outputs:
         _impl_plan_path = ticket_dir / "impl-plan.md"
         _impl_plan_text = _impl_plan_path.read_text(encoding="utf-8")
@@ -922,9 +1026,10 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
         # decisions_to_confirm + a collapsed findings count at this ack — the same
         # decision gate, warn-only / fail-open, exactly like the spec reviewer at the
         # discovery ack. Threads `persist` so a read-only probe writes nothing.
-        _advisories += _implplan_review_advisories(ticket, persist)
+        _sources.append(("impl-plan-review", _implplan_review_records(ticket, persist)))
 
-    return True, "; ".join(_advisories)
+    _records, _summary = _adv.finish(ticket, phase_id, _sources, persist)
+    return True, _summary
 
 
 if __name__ == "__main__":

@@ -88,7 +88,9 @@ def test_every_pick_has_gate():
 # ---------------------------------------------------------------------------
 
 _CLEAN_SIGNALS = {
-    "advisory": "",
+    # KLC-117: the advisory signal is now a dict of collected records + the
+    # resolved threshold; no records at or above threshold = clean.
+    "advisory": {"records": [], "threshold": "medium"},
     "scope_expansion": False,
     "sentinels": False,
     "mutation": False,
@@ -417,7 +419,8 @@ def _make_design_ticket(tmp_path: Path, ticket: str) -> Path:
 
 
 _CLEAN_SIG = {
-    "advisory": "",
+    # KLC-117: see _CLEAN_SIGNALS above.
+    "advisory": {"records": [], "threshold": "medium"},
     "scope_expansion": False,
     "sentinels": False,
     "mutation": False,

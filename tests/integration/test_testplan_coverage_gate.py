@@ -23,6 +23,7 @@ from core.skills.phase_completion import (  # noqa: E402
     can_complete,
     can_complete_acceptance_test_plan,
 )
+from core.skills import advisories as _adv  # noqa: E402  (KLC-117)
 
 # A clean independent-reviewer verdict (empty findings + decisions) so the seam
 # layer is silent and only the deterministic layer is under test where relevant.
@@ -108,7 +109,13 @@ def test_uncovered_ac_surfaced_but_not_blocked(tmp_path, monkeypatch):
     _make(tmp_path, "KLC-T01", _PLAN_UNCOVERED, review=_CLEAN_REVIEW)
     ok, msg = can_complete_acceptance_test_plan("KLC-T01")
     assert ok, "coverage review must not add a new blocking gate"
-    assert "AC-2" in msg and "testplan-review" in msg
+    # KLC-117: msg is now the aggregator's one-line summary; the detail lives in
+    # the persisted artifact.
+    assert msg
+    envelope = _adv.read("KLC-T01", "acceptance-test-plan")
+    assert envelope is not None
+    assert any("AC-2" in r["message"] and "testplan-review" in r["message"]
+              for r in envelope["records"])
 
 
 def test_fully_covered_plan_passes_clean(tmp_path, monkeypatch):
@@ -128,7 +135,11 @@ def test_independent_reviewer_verdict_surfaced_at_ack(tmp_path, monkeypatch):
     d = _make(tmp_path, "KLC-T03", _PLAN_FULL, review=_REVIEW_WITH_FINDING)
     ok, msg = can_complete_acceptance_test_plan("KLC-T03")
     assert ok
-    assert "test-plan-review" in msg and "finding(s) recorded" in msg
+    assert msg
+    envelope = _adv.read("KLC-T03", "acceptance-test-plan")
+    assert envelope is not None
+    assert any("test-plan-review" in r["message"] and "finding(s) recorded" in r["message"]
+              for r in envelope["records"])
     assert (d / "test-plan-review-findings.json").exists()
 
 
@@ -139,8 +150,9 @@ def test_readonly_probe_surfaces_without_writing(tmp_path, monkeypatch):
     d = _make(tmp_path, "KLC-T04", _PLAN_FULL, review=_REVIEW_WITH_FINDING)
     ok, msg = can_complete("KLC-T04", "acceptance-test-plan", persist=False)
     assert ok
-    assert "test-plan-review" in msg  # still surfaced
+    assert msg  # still surfaced (in the summary; persist=False writes no artifact)
     assert not (d / "test-plan-review-findings.json").exists()  # but not written
+    assert _adv.read("KLC-T04", "acceptance-test-plan") is None  # nothing persisted
 
 
 def test_readonly_probe_does_not_migrate_legacy_meta(tmp_path, monkeypatch):

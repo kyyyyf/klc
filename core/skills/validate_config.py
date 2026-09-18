@@ -143,6 +143,8 @@ _SETTINGS_SCHEMA = {
     "index.hook_mode": ("enum", {"direct", "snippet", "disabled"}),
     "index.hook_location": ("str", None),
     "index.refresh_budget_seconds": ("posint", None),
+    # KLC-117: the ack advisory gate signal's severity threshold.
+    "advisory.threshold": ("enum", {"high", "medium", "low", "info"}),
 }
 
 

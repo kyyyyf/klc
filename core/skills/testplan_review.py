@@ -391,6 +391,18 @@ def warn_lines(report: Report) -> list[str]:
     return [f"testplan-review[{f.dimension}]: {f.message}" for f in report.surfaced]
 
 
+def advisory_records(report: Report) -> list[dict]:
+    """The KLC-117 record form of `warn_lines`. Same conditions, same wording,
+    a typed carrier. `warn_lines` stays for this module's own tests and CLI.
+
+    Every surfaced dimension is info (KLC-117 Q-003 severity table) — this
+    reviewer never blocks, so nothing it surfaces rises above info.
+    """
+    return [{"source": "testplan-review", "severity": "info",
+            "code": f"testplan-review.{f.dimension}", "message": f.message,
+            "ref": f.ref} for f in report.surfaced]
+
+
 # --- the independent reviewer verdict: reuse KLC-084's seam, no fork ----------
 
 def consume(ticket_dir, track, signals=None, persist: bool = True):
@@ -406,6 +418,13 @@ def consume(ticket_dir, track, signals=None, persist: bool = True):
     advisories WITHOUT writing `test-plan-review-findings.json`.
     """
     return _spec_review.consume(
+        ticket_dir, track, signals, kind=TEST_PLAN_REVIEW, persist=persist
+    )
+
+
+def consume_records(ticket_dir, track, signals=None, persist: bool = True):
+    """Record-shaped twin of `consume` (KLC-117) — same thin delegation, no fork."""
+    return _spec_review.consume_records(
         ticket_dir, track, signals, kind=TEST_PLAN_REVIEW, persist=persist
     )
 

@@ -119,10 +119,20 @@ def cmd_rollup(args: argparse.Namespace) -> int:
         if not hist:
             return None
         start = hist[0].get("started_at")
-        # last finished or in-progress
+        # last finished or in-progress. review-fix (HIGH, AC-15/KLC-117): only
+        # an entry that actually CARRIES a timestamp updates `end` — an
+        # audit-only entry (retrack.py/scope_fix.py/migrate_notes.py's bare
+        # `ts` field, no started_at/finished_at) is transparently skipped
+        # instead of nulling out an already-known real end when it happens to
+        # be the LAST entry (e.g. an audit note appended to an already-
+        # archived ticket). Without this, the note-migration audit entry
+        # would silently drop every already-archived ticket out of the
+        # cycle-time sample the moment its over-cap note is migrated.
         end = None
         for entry in hist:
-            end = entry.get("finished_at") or entry.get("started_at")
+            ts = entry.get("finished_at") or entry.get("started_at")
+            if ts:
+                end = ts
         if not start or not end:
             return None
         try:

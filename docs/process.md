@@ -439,6 +439,9 @@ klc state init [<remote>]      # materialize the klc-state branch as a .klc/ wor
 klc jira-sync [--dry-run]      # flush Jira push queue
 klc jira-sync status           # queue size + oldest entry age
 klc scope-fix <key> (--modules a,b,c | --add a,b | --remove a,b) [--reason ...]
+klc migrate-notes [--dry-run] [--json]   # one-time: cap over-long phase-history
+                                          # notes to a pointer at their ack
+                                          # advisory artifact (see below)
 ```
 
 **Happy path (clean S ticket).** Every forward `klc ack --pick 1` also advances to
@@ -505,6 +508,48 @@ The design agent and test-planner (M detailed mode) self-review `impl-plan.md`
 before emitting their completion signal — scanning every `## step-N` for missing
 `REQUIRED_STEP_FIELDS`, placeholder tokens, and empty fences — a first line of
 defence before the mechanical gate at ack.
+
+### Ack advisories
+
+Every completion gate's non-blocking observations (a coverage hint, a routed
+review decision, a drift note, …) are **advisory records**, not a joined string
+(KLC-117). One aggregator, `core/skills/advisories.py`, owns the schema:
+
+| Field      | Meaning                                                        |
+|------------|-----------------------------------------------------------------|
+| `source`   | the producer that emitted the record (`ac-coverage`, `spec-review`, …) |
+| `severity` | `high` \| `medium` \| `low` \| `info`                          |
+| `code`     | a stable identifier for the kind of finding (`<source>.<condition>`) |
+| `message`  | the human-readable sentence                                    |
+| `ref`      | what the record points at (an AC id, a module name, …), or empty |
+
+A record with an unknown or missing severity normalises to `info` and raises a
+companion flag naming the offender — severity is always declared by the producer
+that knows the condition, never inferred downstream. On the **persisting** ack
+path the collected records are written to
+`<ticket-dir>/<phase-id>/ack-advisories.json` (schema version, ticket, phase,
+generation timestamp, the record list); a **read-only probe**
+(`persist=False` — `klc remind`, gate-policy signal collection) writes nothing.
+The gate's return value is a one-line **summary** in place of the old joined
+prose — `2 high · 3 medium · 11 info — see <path>`, or the empty string when no
+producer emitted anything; `high`/`medium` counts always render, `low`/`info`
+only when non-zero.
+
+The phase-history note built at ack stays within **200 characters** including
+that summary (`advisories.cap_note`) — `lifecycle.set_state` itself is untouched
+and keeps storing whatever note it is handed, verbatim; the cap is enforced by
+the caller that builds the note. The **severity threshold** at or above which
+the gate-policy `advisory` signal is dirty is an operator-settable knob,
+`advisory.threshold` (default `medium`), resolved through the same
+project-over-framework `settings.yml` ladder as every other knob (see
+`config/settings.yml`; validated by `klc doctor`). `klc status` and
+`klc work` print every `high`/`medium` record in full and a bare count of the
+rest, reading the artifact only (never the gate, so neither verb spawns a git
+subprocess on a routine call). A one-time, operator-invoked verb,
+`klc migrate-notes`, replaces every already-stored note over the cap with a
+truncated note plus a pointer to its phase's artifact — idempotent (a second run
+is byte-identical) and archive-aware (an archived ticket is migrated exactly
+like an active one, since it lives in the same `.klc/tickets/<KEY>/` tree).
 
 ---
 
@@ -590,9 +635,12 @@ findings[]              OBJECTIVE, the reviewer decides -> to be fixed:
 decisions_to_confirm[]  SUBJECTIVE, the HUMAN decides -> scope · tradeoff ·
                         ambiguous-intent. Each carries a RECOMMENDED answer. The
                         reviewer NEVER adjudicates these; the plumbing ROUTES them
-                        into the discovery/design ack's advisory lines — the
+                        into the discovery/design ack's advisory records — the
                         EXISTING `decision`-level gate — so the operator resolves
-                        them there. No new human gate is introduced.
+                        them there. No new human gate is introduced. A routed
+                        decision (and a findings summary carrying any high
+                        finding) arrives as a `high` advisory record (KLC-117);
+                        see [Ack advisories](#ack-advisories).
 ```
 
 Anchors the reviewer checks against (reused single sources): the **constitution**
@@ -675,7 +723,7 @@ Plain `klc ack <KEY> [--pick N]` consults no policy.
 
 | Signal | Source | Clean when |
 |--------|--------|-----------|
-| `advisory` | `phase_completion.can_complete` | empty string |
+| `advisory` | `advisories.read(ticket, phase_id)` (the persisted artifact) | no record at or above `advisory.threshold` (default `medium`); absent/unreadable artifact is dirty |
 | `scope_expansion` | `scope_delta.compare` | no expansion, no skipped |
 | `sentinels` | `scan_sentinels.scan_diff(git diff main..HEAD)` | no hits |
 | `mutation` | `meta.budgets.mutation_fix_attempts` vs limit | below limit |

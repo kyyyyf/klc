@@ -82,15 +82,30 @@ def test_review_documents_drift_spawn():
 
 # --------------------------------------- step-3: consume wired at the integrate ack
 
-def test_integrate_surfaces_drift_review_decisions(monkeypatch):
-    """AC-4: the integrate ack advisory carries the drift-review outputs (surface-only)."""
+def test_integrate_surfaces_drift_review_decisions(monkeypatch, tmp_path):
+    """AC-4: the integrate ack advisory carries the drift-review outputs (surface-only).
+
+    KLC-117: `_drift_review_advisories` now reads `drift_review.consume_records`
+    (the record-shaped twin of `consume`) rather than `consume` itself. The ack's
+    return value is now the aggregator's one-line summary; the actual record
+    content is asserted from the persisted artifact (`persist=True`).
+    """
     import phase_completion as pc
+    import advisories as _adv_mod
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.setattr(pc._lc, "read_meta_ro", lambda t: {"track": "M", "risk_tags": []})
     monkeypatch.setattr(pc, "_drift_advisories", lambda t, p: [])  # isolate the 099 part
-    monkeypatch.setattr(pc._drift_review, "consume",
-                        lambda td, track, sig=None, persist=True: (["drift-review: 1 decision to confirm"], []))
-    ok, msg = pc._can_complete_generic("KLC-X", "integrate", persist=False)
-    assert ok is True and "drift-review: 1 decision to confirm" in msg
+    monkeypatch.setattr(
+        pc._drift_review, "consume_records",
+        lambda td, track, sig=None, persist=True: (
+            [{"source": "drift-review", "severity": "high", "code": "drift-review.decision",
+              "message": "drift-review: 1 decision to confirm", "ref": ""}], []))
+    ok, msg = pc._can_complete_generic("KLC-X", "integrate", persist=True)
+    assert ok is True and msg
+    envelope = _adv_mod.read("KLC-X", "integrate")
+    assert envelope is not None
+    assert any("drift-review: 1 decision to confirm" in r["message"]
+              for r in envelope["records"])
 
 
 def test_records_findings_only_on_persist(monkeypatch):
@@ -99,8 +114,9 @@ def test_records_findings_only_on_persist(monkeypatch):
     seen = []
     monkeypatch.setattr(pc._lc, "read_meta_ro", lambda t: {"track": "M", "risk_tags": []})
     monkeypatch.setattr(pc, "_drift_advisories", lambda t, p: [])
-    monkeypatch.setattr(pc._drift_review, "consume",
-                        lambda td, track, sig=None, persist=True: (seen.append(persist) or ([], [])))
+    monkeypatch.setattr(
+        pc._drift_review, "consume_records",
+        lambda td, track, sig=None, persist=True: (seen.append(persist) or ([], [])))
     pc._can_complete_generic("KLC-X", "integrate", persist=False)
     pc._can_complete_generic("KLC-X", "integrate", persist=True)
     assert seen == [False, True]

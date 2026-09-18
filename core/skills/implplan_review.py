@@ -82,3 +82,10 @@ def consume(ticket_dir, track, signals=None, persist: bool = True):
     return _spec_review.consume(
         ticket_dir, track, signals, kind=IMPL_PLAN_REVIEW, persist=persist
     )
+
+
+def consume_records(ticket_dir, track, signals=None, persist: bool = True):
+    """Record-shaped twin of `consume` (KLC-117) — same thin delegation, no fork."""
+    return _spec_review.consume_records(
+        ticket_dir, track, signals, kind=IMPL_PLAN_REVIEW, persist=persist
+    )

@@ -464,6 +464,32 @@ def self_check(text: str, track: str | None = None) -> Report:
     return report
 
 
+_SEVERITY = {"markers-deferred": "medium"}   # every other dimension is info (KLC-117 Q-003)
+
+
+def advisory_records(report: Report) -> list[dict]:
+    """The KLC-117 record form of `warn_lines`. Same conditions, same wording,
+    a typed carrier. `warn_lines` stays for this module's own tests and CLI."""
+    out: list[dict] = []
+    for f in report.surfaced:
+        if f.dimension == "constitution":
+            continue
+        code = f"spec-self-check.{f.dimension}"
+        out.append({"source": "spec-self-check",
+                    "severity": _SEVERITY.get(f.dimension, "info"),
+                    "code": code, "message": f.message, "ref": f.dimension})
+    con = [f for f in report.surfaced if f.dimension == "constitution"]
+    if con:
+        n = len(report.constitution_checklist)
+        out.append({"source": "spec-self-check", "severity": "info",
+                    "code": "spec-self-check.constitution",
+                    "message": (f"{n} review-principle(s) to consider "
+                                f"(run spec_selfcheck for the checklist)"
+                                if n else con[0].message),
+                    "ref": "constitution"})
+    return out
+
+
 def warn_lines(report: Report) -> list[str]:
     """Compact one-line-per-finding advisory strings for the SURFACED findings.
 

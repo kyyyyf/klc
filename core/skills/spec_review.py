@@ -363,10 +363,74 @@ def should_run(track: str | None, signals: dict | None = None) -> bool:
 
 # --- the consume seam (wired into phase_completion at the ack decision gate) -
 
+def consume_records(ticket_dir: Path, track: str | None, signals: dict | None = None,
+                    kind: ReviewKind = SPEC_REVIEW,
+                    persist: bool = True) -> tuple[list[dict], list[dict]]:
+    """Record-shaped twin of `consume` (KLC-117). Same wording, same trigger
+    logic, same order — only the carrier is a typed dict instead of a string.
+    `consume` below is now a thin renderer over this function, so its 85
+    existing regression assertions across the four review-binding test modules
+    stay byte-compatible.
+
+    Severity (Q-003 table): a routed decision, or a findings summary carrying
+    at least one high finding, is HIGH; a findings summary with no high
+    finding, a schema-validation note, and every "degraded" note (absent
+    expected review / degraded reviewer output / consume exception) are MEDIUM.
+    """
+    def _rec(severity: str, code: str, message: str, ref: str = "") -> dict:
+        return {"source": f"{kind.name}-review", "severity": severity,
+                "code": f"{kind.name}-review.{code}", "message": message, "ref": ref}
+
+    try:
+        ticket_dir = Path(ticket_dir)
+        expected = should_run(track, signals)
+        path = ticket_dir / kind.output_file
+        if not path.exists():
+            if expected:
+                msg = (f"{kind.name}-review: independent {kind.name} review expected "
+                       f"for track {(track or '?').upper()} but no {kind.output_file} "
+                       f"found (degraded)")
+                return ([_rec("medium", "degraded", msg)], [])
+            return ([], [])  # skip / no-signal cascade: nothing to surface
+
+        text = path.read_text(encoding="utf-8")
+        output = parse_review(text)
+
+        records: list[dict] = []
+        if output.degraded:
+            msg = (f"{kind.name}-review: reviewer output degraded "
+                   f"({output.degrade_reason}); decisions_to_confirm unavailable")
+            records.append(_rec("medium", "degraded", msg))
+        else:
+            for d in output.decisions_to_confirm:
+                rec_ans = d.recommended.strip() or "(no recommendation given)"
+                msg = (f"{kind.name}-review[decision {d.id}/{d.topic}]: {d.question} "
+                       f"— RECOMMENDED: {rec_ans}")
+                records.append(_rec("high", "decision", msg, ref=d.id))
+            if output.findings:
+                highs = sum(1 for f in output.findings if f.severity == "high")
+                msg = (f"{kind.name}-review: {len(output.findings)} finding(s) recorded "
+                       f"({highs} high) in {kind.name}-review-findings.json — assess before build")
+                records.append(_rec("high" if highs else "medium", "findings", msg))
+
+        for err in validate(output, kind):
+            records.append(_rec("medium", "schema", f"{kind.name}-review[schema]: {err}"))
+
+        # Write only on the persisting (ack) path; a probe records nothing.
+        findings = record_findings(output, ticket_dir if persist else None, kind)
+        return records, findings
+    except Exception as exc:  # noqa: BLE001 — the ack must never crash on review I/O
+        return ([_rec("medium", "degraded", f"{kind.name}-review: consume degraded ({exc!r})")], [])
+
+
 def consume(ticket_dir: Path, track: str | None, signals: dict | None = None,
             kind: ReviewKind = SPEC_REVIEW,
             persist: bool = True) -> tuple[list[str], list[dict]]:
     """Read the reviewer's verdict for a ticket and produce (advisories, findings).
+
+    UNCHANGED contract: `(list[str], findings)`. Now a thin renderer over
+    `consume_records` (KLC-117), so this seam's 85 existing regression
+    assertions keep passing unmodified.
 
     This is the seam `phase_completion` calls at the discovery/design ack:
       * advisories -> appended to the ack's advisory lines (the decision gate the
@@ -381,28 +445,8 @@ def consume(ticket_dir: Path, track: str | None, signals: dict | None = None,
     Degrade-not-fail: absent output on a review-expected track surfaces ONE note;
     absent output on a skip/no-signal track is silent; nothing here ever raises.
     """
-    try:
-        ticket_dir = Path(ticket_dir)
-        expected = should_run(track, signals)
-        path = ticket_dir / kind.output_file
-        if not path.exists():
-            if expected:
-                return ([f"{kind.name}-review: independent {kind.name} review expected "
-                         f"for track {(track or '?').upper()} but no {kind.output_file} "
-                         f"found (degraded)"], [])
-            return ([], [])  # skip / no-signal cascade: nothing to surface
-
-        text = path.read_text(encoding="utf-8")
-        output = parse_review(text)
-        advisories = route_decisions(output, kind)
-        advisories += summarize_findings(output, kind)
-        for err in validate(output, kind):
-            advisories.append(f"{kind.name}-review[schema]: {err}")
-        # Write only on the persisting (ack) path; a probe records nothing.
-        findings = record_findings(output, ticket_dir if persist else None, kind)
-        return advisories, findings
-    except Exception as exc:  # noqa: BLE001 — the ack must never crash on review I/O
-        return ([f"{kind.name}-review: consume degraded ({exc!r})"], [])
+    records, findings = consume_records(ticket_dir, track, signals, kind, persist)
+    return [r["message"] for r in records], findings
 
 
 # --- CLI --------------------------------------------------------------------

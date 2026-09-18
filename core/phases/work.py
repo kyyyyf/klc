@@ -31,6 +31,7 @@ from _paths import klc_ticket_meta_file, project_root  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import artefacts as _artefacts  # noqa: E402  KLC-118: one card-path resolver
+import advisories as _advisories  # noqa: E402  KLC-117: read-only artifact display
 
 
 def next_action(ticket: str) -> dict:
@@ -72,6 +73,12 @@ def next_action(ticket: str) -> dict:
         out["picks"] = [(p.id, p.label) for p in ph.picks]
     else:  # ack
         out["next"] = f"klc next {ticket}"
+
+    # Advisory records (KLC-117 AC-13): high/medium in full, the rest as a
+    # count. Reads the persisted artifact only — never the gate.
+    adv = _advisories.for_display(ticket, pid)
+    if adv is not None:
+        out["advisories"] = adv
     return out
 
 
@@ -97,6 +104,14 @@ def _render(info: dict) -> str:
             lines.append(f"  → run `klc ack {ticket}`")
     else:  # ack
         lines.append(f"  → run `{info['next']}` to advance")
+
+    adv = info.get("advisories")
+    if adv and (adv["high"] or adv["medium"] or adv["other_count"]):
+        lines.append("")
+        for r in adv["high"] + adv["medium"]:
+            lines.append(f"  [{r.get('severity', '?')}] {r.get('message', '')}")
+        if adv["other_count"]:
+            lines.append(f"  ...and {adv['other_count']} more (see the phase's ack-advisories.json)")
     return "\n".join(lines)
 
 

@@ -70,3 +70,9 @@ def consume(ticket_dir, track, signals=None, persist: bool = True):
     Returns (advisories, findings) exactly as the seam does; degrade-not-fail and the
     read-only-on-`persist=False` discipline live inside the seam."""
     return _spec_review.consume(ticket_dir, track, signals, kind=DRIFT_CHECK, persist=persist)
+
+
+def consume_records(ticket_dir, track, signals=None, persist: bool = True):
+    """Record-shaped twin of `consume` (KLC-117) — same thin delegation, no fork."""
+    return _spec_review.consume_records(ticket_dir, track, signals, kind=DRIFT_CHECK,
+                                        persist=persist)

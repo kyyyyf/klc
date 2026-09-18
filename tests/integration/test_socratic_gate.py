@@ -13,6 +13,7 @@ from core.skills.phase_completion import (  # noqa: E402
     can_complete_discovery_lite,
     can_complete_discovery,
 )
+from core.skills import advisories as _adv  # noqa: E402  (KLC-117)
 
 # ---------------------------------------------------------------------------
 # Step-1: helpers
@@ -265,7 +266,12 @@ def test_decompose_signal_recognized(tmp_path, monkeypatch):
     )
     ok, msg = can_complete_discovery_lite("KLC-D01")
     assert ok, f"DISCOVERY_DECOMPOSE must not block ack, got: {msg!r}"
-    assert "DISCOVERY_DECOMPOSE" in msg, f"expected advisory note in msg, got: {msg!r}"
+    # KLC-117: msg is now the aggregator's one-line summary; the advisory
+    # content lives in the persisted artifact.
+    assert msg
+    envelope = _adv.read("KLC-D01", "discovery-lite")
+    assert envelope is not None
+    assert any("DISCOVERY_DECOMPOSE" in r["message"] for r in envelope["records"])
 
 
 # ---------------------------------------------------------------------------
@@ -293,8 +299,11 @@ def test_upgrade_m_signal_recognized(tmp_path, monkeypatch):
     )
     ok, msg = can_complete_discovery_lite("KLC-U01")
     assert ok, f"DISCOVERY_LITE_UPGRADE_M must not block ack, got: {msg!r}"
-    assert "DISCOVERY_LITE_UPGRADE_M" in msg, f"expected signal token in msg, got: {msg!r}"
-    assert "retrack" in msg, f"expected re-route advisory in msg, got: {msg!r}"
+    assert msg
+    envelope = _adv.read("KLC-U01", "discovery-lite")
+    assert envelope is not None
+    assert any("DISCOVERY_LITE_UPGRADE_M" in r["message"] and "retrack" in r["message"]
+              for r in envelope["records"])
 
 
 def test_both_signals_both_surfaced(tmp_path, monkeypatch):
@@ -313,8 +322,12 @@ def test_both_signals_both_surfaced(tmp_path, monkeypatch):
     )
     ok, msg = can_complete_discovery_lite("KLC-B01")
     assert ok, f"both signals must not block ack, got: {msg!r}"
-    assert "DISCOVERY_DECOMPOSE" in msg, f"expected DECOMPOSE in msg, got: {msg!r}"
-    assert "DISCOVERY_LITE_UPGRADE_M" in msg, f"expected UPGRADE_M in msg, got: {msg!r}"
+    assert msg
+    envelope = _adv.read("KLC-B01", "discovery-lite")
+    assert envelope is not None
+    messages = [r["message"] for r in envelope["records"]]
+    assert any("DISCOVERY_DECOMPOSE" in m for m in messages), messages
+    assert any("DISCOVERY_LITE_UPGRADE_M" in m for m in messages), messages
 
 
 def test_socratic_impl_plan_gate_still_bites(tmp_path, monkeypatch):

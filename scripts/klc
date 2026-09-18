@@ -22,6 +22,9 @@ The ticket lifecycle is driven by seven verbs:
                auto-acking clean conditional gates and pausing at decision gates,
                guardrails (integrate/merge, budget ceiling, consecutive-auto cap),
                and dirty gates (single-user / feature-off only)
+    migrate-notes — one-time: truncate over-cap phase-history notes to a
+               pointer at their phase's advisory artifact (idempotent,
+               archive-aware, operator-invoked; KLC-117)
 
 Plus a few operational commands:
 
@@ -101,7 +104,7 @@ def _project_root() -> str:
 LIFECYCLE_CMDS = (
     "intake", "status", "next", "ack", "ship", "jump", "abort", "step", "work",
     "retrack", "scope-fix", "task-brief", "build-run", "steal", "remind",
-    "heartbeat", "run", "publish",
+    "heartbeat", "run", "publish", "migrate-notes",
 )
 # Only verbs that have a real core/phases/<name>.py belong here — the dispatch
 # below routes these through the generic `_run_phase`. `metrics`, `reindex`, and
