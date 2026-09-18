@@ -27,7 +27,9 @@
 #   tracks       — list of [XS, S, M, L]. Phase is skipped for tracks
 #                  not listed.
 #   work.prompt  — path (relative to framework_root) to the agent prompt
-#                  rendered into .klc/tickets/<key>/<id>/_prompt.md.
+#                  rendered into <card root>/<key>/<id>/_prompt.md (KLC-118;
+#                  card root defaults to .klc/scratch/, overridable with
+#                  KLC_CARD_ROOT — see core/shared/paths.py:klc_card_root()).
 #                  Empty string = no agent (e.g. intake, observe:work).
 #   work.auto_to_ack — optional. When true, :work state is a no-op and
 #                  the state machine moves directly to :ack-needed on

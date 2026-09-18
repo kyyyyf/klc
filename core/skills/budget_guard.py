@@ -50,12 +50,21 @@ def estimate_tokens(text: str) -> int:
 
 def write_token_metrics(ticket: str | None, phase_id: str,
                          tokens_in: int, tokens_out: int,
-                         cache_hit: int, source: str = "estimated") -> None:
+                         cache_hit: int, source: str = "estimated",
+                         card_bytes: int | None = None) -> None:
     """Persist token counts into meta.json:metrics.tokens.<phase_id>.
 
     source: "provider" when parsed from real API usage block,
             "estimated" when derived from len(text)//4.
     cache_hit is always 0 for estimated source.
+
+    card_bytes (KLC-118): the rendered card's byte size, so the two numbers
+    (provider-reported tokens and the card's measured size) can coexist.
+    Two rules, applied BEFORE any write:
+      - an `estimated` write never downgrades an existing `provider` record
+        (a card render must not erase real usage data — AC-5);
+      - a write that omits `card_bytes` carries forward any prior value,
+        so re-recording tokens alone never drops the last-known card size.
     """
     if not ticket:
         return
@@ -67,12 +76,19 @@ def write_token_metrics(ticket: str | None, phase_id: str,
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         metrics = meta.setdefault("metrics", {})
         tokens = metrics.setdefault("tokens", {})
-        tokens[phase_id] = {
+        prior = tokens.get(phase_id) or {}
+        if prior.get("source") == "provider" and source != "provider":
+            return  # never downgrade a provider-sourced record (AC-5)
+        record = {
             "in":        tokens_in,
             "out":       tokens_out,
             "cache_hit": cache_hit if source == "provider" else 0,
             "source":    source,
         }
+        carried = card_bytes if card_bytes is not None else prior.get("card_bytes")
+        if carried is not None:
+            record["card_bytes"] = carried
+        tokens[phase_id] = record
         meta_path.write_text(
             json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",

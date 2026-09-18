@@ -18,6 +18,12 @@ reviewer prompts.
   `full_review_offered`, `full_review_declined`.
 - Output of `metrics.py rollup` — lets you compare this ticket to
   the 30-day median for its track.
+
+Prompt cards (`_prompt.md`, `_prompt_step_N.md`) are DERIVED dispatch
+scaffolding rendered outside the ticket directory (KLC-118); they are not
+part of the artefact set you read and must never be summarised or cited as
+ticket history.
+
 ## Output
 
 `.klc/tickets/<KEY>/retrospective.md`:

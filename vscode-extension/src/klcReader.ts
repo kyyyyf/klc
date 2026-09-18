@@ -3,10 +3,15 @@
  *
  * No klc subprocess needed for read operations.
  * Sources:
- *   .klc/tickets/<key>/meta.json         — phase, track, kind, blocked_reason
- *   .klc/tickets/                        — enumerate live tickets
- *   config/phases.yml (framework)        — picks, prompt paths, outputs
- *   .klc/tickets/<key>/<phase>/_prompt.md — rendered prompt card
+ *   .klc/tickets/<key>/meta.json          — phase, track, kind, blocked_reason
+ *   .klc/tickets/                         — enumerate live tickets
+ *   config/phases.yml (framework)         — picks, prompt paths, outputs
+ *   .klc/scratch/<key>/<phase>/_prompt.md — rendered prompt card (KLC-118;
+ *     the card root moved out of the ticket tree — default `.klc/scratch/`,
+ *     overridable with `KLC_CARD_ROOT`, mirroring
+ *     `core/shared/paths.py:klc_card_root()`). A card still found under
+ *     `.klc/tickets/<key>/<phase>/` is a degraded render (AC-12) or a
+ *     pre-migration leftover and is only used as a fallback.
  */
 
 import * as fs from "fs";
@@ -180,18 +185,38 @@ export function parseState(phaseField: string): { phaseId: string; state: "work"
   return { phaseId, state };
 }
 
+/**
+ * The card root (KLC-118): `.klc/scratch/` by default, overridable with the
+ * `KLC_CARD_ROOT` env var. Mirrors `core/shared/paths.py:klc_card_root()` —
+ * kept in lockstep by source-regex in
+ * tests/integration/test_klc072_dispatch.py::test_reader_source_resolves_the_scratch_card_root_before_the_ticket_dir.
+ * A blank/whitespace-only override is treated as unset, same as the Python side.
+ */
+export function cardRoot(workspaceRoot: string): string {
+  const override = (process.env.KLC_CARD_ROOT ?? "").trim();
+  return override ? override : path.join(workspaceRoot, ".klc", "scratch");
+}
+
 export function promptCardPath(
   workspaceRoot: string,
   ticketKey: string,
   phaseId: string,
   step?: number
 ): string | null {
-  const base = path.join(findTicketsDir(workspaceRoot), ticketKey, phaseId);
-  const candidates = step !== undefined
-    ? [path.join(base, `_prompt_step_${step}.md`), path.join(base, "_prompt.md")]
-    : [path.join(base, "_prompt.md")];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
+  // Canonical (card root) first; the ticket-directory location is honoured
+  // only as a fallback — a degraded render (AC-12) or a pre-migration
+  // leftover the sweep hasn't reached yet (AC-10).
+  const bases = [
+    path.join(cardRoot(workspaceRoot), ticketKey, phaseId),
+    path.join(findTicketsDir(workspaceRoot), ticketKey, phaseId),
+  ];
+  for (const base of bases) {
+    const candidates = step !== undefined
+      ? [path.join(base, `_prompt_step_${step}.md`), path.join(base, "_prompt.md")]
+      : [path.join(base, "_prompt.md")];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c;
+    }
   }
   return null;
 }

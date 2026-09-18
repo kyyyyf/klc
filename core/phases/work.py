@@ -21,14 +21,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 SKILLS = Path(__file__).resolve().parent.parent / "skills"
 sys.path.insert(0, str(SKILLS))
-from _paths import klc_ticket_meta_file  # noqa: E402
+from _paths import klc_ticket_meta_file, project_root  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
+import artefacts as _artefacts  # noqa: E402  KLC-118: one card-path resolver
 
 
 def next_action(ticket: str) -> dict:
@@ -61,9 +63,11 @@ def next_action(ticket: str) -> dict:
             # Build is a multi-step loop; point at the current step's card
             # (written by `klc step`), not a flat _prompt.md.
             step = meta.get("impl_step") or 1
-            out["prompt"] = f".klc/tickets/{ticket}/build/_prompt_step_{step}.md"
+            out["prompt"] = os.path.relpath(
+                _artefacts.card_path(ticket, "build", step), project_root())
         else:
-            out["prompt"] = f".klc/tickets/{ticket}/{pid}/_prompt.md"
+            out["prompt"] = os.path.relpath(
+                _artefacts.card_path(ticket, pid), project_root())
     elif state == _ph.STATE_ACK_NEEDED:
         out["picks"] = [(p.id, p.label) for p in ph.picks]
     else:  # ack

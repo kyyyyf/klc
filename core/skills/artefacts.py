@@ -10,7 +10,9 @@ Responsibilities:
 
   write_prompt_card(ticket, phase_id, meta, step=None)
       Render the prompt for a phase into
-      `.klc/tickets/<ticket>/<phase>/_prompt.md`. Content:
+      `<card root>/<ticket>/<phase>/_prompt.md` (KLC-118; card root is
+      `core.shared.paths.klc_card_root()`, `.klc/scratch/` by default,
+      overridable with `KLC_CARD_ROOT`). Content:
         - a short preamble (ticket key, track, state, phase purpose)
         - the agent prompt body from phases.yml:work.prompt
         - pointers to relevant inputs (resolved from phase.inputs).
@@ -20,8 +22,13 @@ Responsibilities:
       impl-step.md.j2 card instead (only current step context).
 
   write_step_card(ticket, step, meta)
-      Render `.klc/tickets/<ticket>/build/_prompt_step_N.md` for a
+      Render `<card root>/<ticket>/build/_prompt_step_N.md` for a
       specific TDD step. Uses impl-step.md.j2. Returns the path.
+
+  card_path(ticket, phase_id, step=None)
+      The one place any reader learns where a card lives. Canonical
+      (card root) first; a card left in the ticket directory by a
+      degraded render or a pre-migration layout is the fallback.
 
   acquire_lock(ticket)
       Context manager. Writes PID + ISO timestamp to
@@ -36,13 +43,17 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 # Add project root to sys.path for core.shared imports
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
-from core.shared.paths import framework_root, klc_ticket_dir  # noqa: E402
+from core.shared.paths import (  # noqa: E402
+    framework_root, klc_ticket_dir, klc_card_root, klc_card_path, CARD_ROOT_ENV,
+    klc_tickets_dir,
+)
 import phases as _ph  # noqa: E402
 from impl_plan_check import parse_impl_plan_steps, extract_step_fields  # noqa: E402
 
@@ -159,9 +170,101 @@ def _format_ack_instruction(ticket: str, phase: _ph.Phase) -> str:
     return f"`klc ack {ticket} --pick <N>`, where N is:\n\n{opts}"
 
 
+# --- card render modes (KLC-118) -----------------------------------------------
+#
+# `dispatch`: for a Task-tool dispatch, whose subagent definition already
+#   carries the full role prompt (klc-plugin/agents/<stem>.md) — the card
+#   must NOT send it a second time. The `## Role prompt` section becomes a
+#   pointer naming the file by absolute path.
+# `paste`:    today's fully-inlined card — byte-identical, for a human
+#   pasting into a chat and for the headless providers (C-003), which get one
+#   flat prompt string and cannot follow a filesystem reference.
+
+CARD_MODE_DISPATCH = "dispatch"
+CARD_MODE_PASTE = "paste"
+
+_PREAMBLE_DISPATCH_TMPL = """\
+# Agent prompt — {ticket} · {phase_id}:work
+
+You are working in phase **{phase_id}**. Your subagent definition already
+carries this phase's role prompt; this card adds the ticket context only.
+When you claim the work is done, the human runs `klc ack {ticket}` (with
+`--pick N` if required) to confirm.
+
+"""
+
+
+def _resolve_mode(mode: str) -> str:
+    """`KLC_CARD_INLINE=1` forces `paste` (generalises the flag
+    `write_step_card` has had since KLC-072); any value other than the
+    `dispatch` constant degrades to `paste` — the failure direction of a
+    bigger prompt is always safer than a silently missing role prompt."""
+    if os.environ.get("KLC_CARD_INLINE", "").strip() == "1":
+        return CARD_MODE_PASTE
+    return CARD_MODE_DISPATCH if mode == CARD_MODE_DISPATCH else CARD_MODE_PASTE
+
+
+def _role_prompt_block(phase: _ph.Phase, mode: str) -> str:
+    """The `## Role prompt` section for an agent phase (one with
+    `phase.prompt`). Dispatch mode NEVER embeds a body — not even when the
+    file referenced by phases.yml is missing (fail-closed: a caller must not
+    be able to coax an embedded body out of dispatch mode)."""
+    path = framework_root() / phase.prompt
+    if mode == CARD_MODE_DISPATCH:
+        return ("## Role prompt\n\n"
+                "Already loaded: your subagent definition carries the full "
+                "role prompt for this phase. Source of truth on disk (open "
+                f"only if you need to re-read it):\n`{path.resolve()}`\n")
+    if path.exists():
+        return "## Role prompt\n\n" + path.read_text(encoding="utf-8")
+    return (f"## Role prompt\n\n_MISSING: `{phase.prompt}` — "
+            "file referenced by phases.yml does not exist_\n")
+
+
+def _card_dir(ticket: str, phase_id: str) -> tuple[Path, bool]:
+    """(directory, degraded). Never raises: a card that cannot be written to
+    the card root falls back to the ticket dir rather than failing the phase
+    transition (KLC-118 AC-12)."""
+    target = klc_card_root() / ticket / phase_id
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / ".write-probe"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+        return target, False
+    except OSError as exc:
+        sys.stderr.write(
+            f"artefacts: card root {target} unusable ({exc}); "
+            f"falling back to the ticket directory\n"
+        )
+        fallback = klc_ticket_dir(ticket) / phase_id
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback, True
+
+
+def card_path(ticket: str, phase_id: str, step: int | None = None) -> Path:
+    """The one place any reader learns where a card lives (KLC-118 AC-8).
+    Canonical location (the card root) first; a card left in the ticket
+    directory by a degraded render (AC-12) or by a pre-migration layout is
+    honoured only when the canonical one is absent."""
+    canonical = klc_card_path(ticket, phase_id, step)
+    if canonical.exists():
+        return canonical
+    name = f"_prompt_step_{step}.md" if step is not None else "_prompt.md"
+    legacy = klc_ticket_dir(ticket) / phase_id / name
+    return legacy if legacy.exists() else canonical
+
+
 def write_prompt_card(ticket: str, phase_id: str, meta: dict,
-                      step: int | None = None) -> Path:
-    """Render `.klc/tickets/<ticket>/<phase>/_prompt.md`. Returns the path.
+                      step: int | None = None,
+                      mode: str = CARD_MODE_PASTE) -> Path:
+    """Render the phase's prompt card at the card root
+    (`<card root>/<ticket>/<phase>/_prompt.md`, KLC-118). Returns the path.
+
+    `mode`: `CARD_MODE_DISPATCH` omits the role-prompt body (the subagent
+    definition already carries it) and names the file instead;
+    `CARD_MODE_PASTE` (default) is byte-identical to the pre-KLC-118 card.
+    `KLC_CARD_INLINE=1` forces paste; an unrecognised mode degrades to paste.
 
     When phase_id == "build" and step is given, delegates to
     write_step_card() which uses the minimal impl-step template.
@@ -171,27 +274,25 @@ def write_prompt_card(ticket: str, phase_id: str, meta: dict,
 
     ph = _ph.load_phases()
     phase = ph.by_id(phase_id)
-    tdir = klc_ticket_dir(ticket)
-    phase_dir = tdir / phase_id
-    phase_dir.mkdir(parents=True, exist_ok=True)
+    phase_dir, _degraded = _card_dir(ticket, phase_id)
     card = phase_dir / "_prompt.md"
 
     track = meta.get("track") or "?"
     kind = meta.get("kind") or "?"
 
-    preamble = _PREAMBLE_TMPL.format(
+    # A checklist phase (no phase.prompt) has nothing to strip — it renders
+    # identically regardless of mode (design/options.md Shared mechanics).
+    effective_mode = _resolve_mode(mode) if phase.prompt else CARD_MODE_PASTE
+
+    preamble_tmpl = (_PREAMBLE_DISPATCH_TMPL
+                     if effective_mode == CARD_MODE_DISPATCH else _PREAMBLE_TMPL)
+    preamble = preamble_tmpl.format(
         ticket=ticket, phase_id=phase_id, track=track, kind=kind
     )
 
-    # Body: role prompt file (if any), read verbatim.
     body = ""
     if phase.prompt:
-        prompt_path = framework_root() / phase.prompt
-        if prompt_path.exists():
-            body = "## Role prompt\n\n" + prompt_path.read_text(encoding="utf-8")
-        else:
-            body = (f"## Role prompt\n\n_MISSING: `{phase.prompt}` — "
-                    "file referenced by phases.yml does not exist_\n")
+        body = _role_prompt_block(phase, effective_mode)
     else:
         # No agent phase. Generate a lightweight checklist from inputs.
         if phase_id == "observe":
@@ -241,8 +342,7 @@ def write_step_card(ticket: str, step: int, meta: dict,
         inline = os.environ.get("KLC_CARD_INLINE", "").strip() == "1"
 
     tdir = klc_ticket_dir(ticket)
-    build_dir = tdir / "build"
-    build_dir.mkdir(parents=True, exist_ok=True)
+    build_dir, _degraded = _card_dir(ticket, "build")
     card = build_dir / f"_prompt_step_{step}.md"
 
     fw = framework_root()
@@ -293,6 +393,105 @@ def write_step_card(ticket: str, step: int, meta: dict,
     )
     card.write_text(rendered, encoding="utf-8")
     return card
+
+
+@dataclass
+class CardRender:
+    """The measured record of a card render (KLC-118 AC-5/AC-6)."""
+    path:       Path
+    card_bytes: int
+    est_tokens: int
+    degraded:   bool
+
+
+def render_card(ticket: str, phase_id: str, meta: dict,
+                step: int | None = None, mode: str = CARD_MODE_PASTE) -> CardRender:
+    """The measuring entry point: render the card (via the existing
+    path-returning writers, which keep their nine call sites unchanged) and
+    record its byte size + an estimated token count into
+    `meta.json:metrics.tokens.<phase_id>` (`source="estimated"`, never
+    downgrading a `provider` record — see `budget_guard.write_token_metrics`).
+    `klc next` is the one caller that needs the measured numbers; every other
+    call site keeps using `write_prompt_card`/`write_step_card` directly."""
+    if phase_id == "build" and step is not None:
+        path = write_step_card(ticket, step, meta)
+    else:
+        path = write_prompt_card(ticket, phase_id, meta, step=step, mode=mode)
+    text = path.read_text(encoding="utf-8")
+    card_bytes = len(text.encode("utf-8"))
+    degraded = not str(path).startswith(str(klc_card_root()))
+    est_tokens = _record_card_metrics(ticket, phase_id, text, card_bytes)
+    if not degraded:
+        # KLC-118 AC-10 / impl-plan-review F-2 / DECISION D-2: the automatic
+        # sweep is scoped to THIS ticket AND THIS phase only — never the
+        # whole ticket subtree — so it can never delete a SIBLING phase's
+        # still-live, legitimately-degraded card (AC-12). A degraded render
+        # skips the sweep outright: it just wrote the very file a
+        # ticket-wide sweep would otherwise be tempted to remove.
+        sweep_legacy_cards(ticket=ticket, phase_id=phase_id)
+    return CardRender(path=path, card_bytes=card_bytes, est_tokens=est_tokens,
+                      degraded=degraded)
+
+
+_LEGACY_CARD_GLOBS = ("_prompt.md", "_prompt_step_*.md")
+
+
+def sweep_legacy_cards(ticket: str | None = None,
+                       phase_id: str | None = None) -> list[Path]:
+    """Delete prompt cards left under the ticket tree by the pre-KLC-118
+    layout. Pure filesystem deletion: the files were never tracked
+    (FACT F-006), so the state branch is untouched and no commit is produced.
+
+    Scope (KLC-118 D-2):
+      - `ticket=None` (the bare/global form): every live ticket's whole
+        subtree — reserved for the explicit `sweep-cards` CLI subcommand's
+        one-shot operator use, never invoked automatically.
+      - `ticket=<KEY>, phase_id=None`: one ticket's whole subtree — the
+        `sweep-cards <KEY>` CLI form.
+      - `ticket=<KEY>, phase_id=<phase>`: ONE phase's directory only — what
+        `render_card` invokes automatically on every canonical render
+        (F-2: a ticket-wide automatic sweep could delete a sibling phase's
+        still-live, legitimately-degraded card).
+    """
+    if ticket and phase_id:
+        roots = [klc_ticket_dir(ticket) / phase_id]
+    elif ticket:
+        roots = [klc_ticket_dir(ticket)]
+    else:
+        tickets_dir = klc_tickets_dir()
+        roots = ([p for p in sorted(tickets_dir.iterdir())
+                 if p.is_dir() and p.name != "archive"]
+                if tickets_dir.exists() else [])
+    removed: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for pattern in _LEGACY_CARD_GLOBS:
+            for stale in root.rglob(pattern):
+                try:
+                    stale.unlink()
+                    removed.append(stale)
+                except OSError:
+                    pass
+    return removed
+
+
+def _record_card_metrics(ticket: str, phase_id: str, text: str,
+                         card_bytes: int) -> int:
+    """Non-fatal telemetry write (mirrors runner.py's own try/except around
+    write_token_metrics) — a metrics failure must never fail a card render."""
+    try:
+        import budget_guard
+    except ImportError:
+        return max(1, card_bytes // 4)
+    est_tokens = budget_guard.estimate_tokens(text)
+    try:
+        budget_guard.write_token_metrics(
+            ticket, phase_id, est_tokens, 0, 0,
+            source="estimated", card_bytes=card_bytes)
+    except Exception:
+        pass
+    return est_tokens
 
 
 def _extract_goals_acs(spec_path: Path) -> str:
@@ -355,3 +554,22 @@ def _integrate_checklist(ticket: str, meta: dict) -> str:
         f"When both ticks are done, run `klc ack {ticket}`.",
     ]
     return "\n".join(lines)
+
+
+def _main(argv: list[str]) -> int:
+    """`python3 core/skills/artefacts.py sweep-cards [KEY]` — the one-shot
+    operator entry point for the migration sweep (KLC-118 AC-10). With no KEY,
+    sweeps every live ticket; with KEY, that ticket's whole subtree."""
+    if not argv or argv[0] != "sweep-cards":
+        sys.stderr.write("usage: artefacts.py sweep-cards [KEY]\n")
+        return 2
+    ticket = argv[1] if len(argv) > 1 else None
+    removed = sweep_legacy_cards(ticket=ticket)
+    for path in removed:
+        print(f"removed {path}")
+    print(f"swept {len(removed)} stale card(s)")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(_main(sys.argv[1:]))

@@ -289,6 +289,29 @@ def test_reader_source_resolves_build_step_card():
         "reader uses `?? 1` (0 -> step 0) instead of `|| 1` parity with status.py"
 
 
+def test_reader_source_resolves_the_scratch_card_root_before_the_ticket_dir():
+    """KLC-118 F-1: `promptCardPath` must probe the new card root (default
+    `.klc/scratch/`, overridable with `KLC_CARD_ROOT` — mirroring
+    `core/shared/paths.py:klc_card_root()`) BEFORE the ticket-directory
+    location, which after KLC-118 AC-7 is only a degraded/pre-migration
+    fallback. (This is the correct citation for what was previously
+    mis-cited in impl-plan.md/test-plan.md as 'test_klc072_dispatch.py lines
+    ~281-287' — that range is this exact test, testing this exact reader.)
+    """
+    reader = (FW_ROOT / "vscode-extension" / "src" / "klcReader.ts").read_text(
+        encoding="utf-8")
+    assert "KLC_CARD_ROOT" in reader, \
+        "klcReader.ts must mirror the KLC_CARD_ROOT override"
+    assert re.search(r"function cardRoot\(", reader), \
+        "klcReader.ts must resolve the card root (.klc/scratch/ default)"
+    assert ".klc\", \"scratch\"" in reader or ".klc', 'scratch'" in reader, \
+        "klcReader.ts's cardRoot default must be .klc/scratch/"
+    # promptCardPath must consult more than one base directory (canonical +
+    # ticket-dir fallback), not just the ticket dir alone.
+    assert re.search(r"const bases\s*=\s*\[", reader), \
+        "promptCardPath must probe multiple roots (card root, then ticket dir)"
+
+
 def test_tree_source_includes_required_single_pick():
     """buildAckCommand must emit --pick <id> for a single required pick."""
     tree = (FW_ROOT / "vscode-extension" / "src" / "treeProvider.ts").read_text(

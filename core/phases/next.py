@@ -23,7 +23,7 @@ from _paths import klc_ticket_meta_file, project_root  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import epic_deps as _edeps  # noqa: E402
-from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
+from artefacts import acquire_lock, render_card, LockedError  # noqa: E402
 import identity  # noqa: E402
 import holder  # noqa: E402
 import state_sync  # noqa: E402
@@ -115,6 +115,18 @@ def run(argv: list[str]) -> int:
                             holder.release_holder(args.ticket, ident)
                         else:
                             holder.acquire_holder(args.ticket, ident)
+                    # KLC-118 AC-5/AC-6: render_card() writes the measured
+                    # card_bytes/est_tokens into meta.json (a TRACKED file) —
+                    # it must run INSIDE the tx so that write rides the same
+                    # glob-commit + CAS-push as the phase advance, not land as
+                    # an uncommitted local change after the tx already pushed
+                    # (which would wedge the tree for the next op's pull).
+                    if new_state != _ph.STATE_ARCHIVED:
+                        card_meta = _lc.read_meta(args.ticket)
+                        new_pid, _ = _ph.parse_state(new_state)
+                        step = 1 if new_pid == "build" else None
+                        advanced["render"] = render_card(
+                            args.ticket, new_pid, card_meta, step=step)
             except _edeps.BlockedError as be:
                 # KLC-077: the epic dependency guard fired inside the tx (post-
                 # pull). Feature-ON the tx already rolled the advance back; the
@@ -182,16 +194,23 @@ def run(argv: list[str]) -> int:
                     print(f"ARCHIVED {args.ticket}")
                 return 0
 
+            # KLC-118 AC-6: rendered (and measured) inside the tx above, BEFORE
+            # the --json branch — the JSON path used to return before any card
+            # was even written.
             new_pid, _ = _ph.parse_state(new_state)
+            render = advanced["render"]
+
             if args.json:
                 print(json.dumps({"ticket": args.ticket, "phase": new_state,
-                                  "track": meta.get("track")}))
+                                  "track": meta.get("track"),
+                                  "card": str(render.path),
+                                  "card_bytes": render.card_bytes,
+                                  "card_est_tokens": render.est_tokens}))
                 return 0
 
-            step = 1 if new_pid == "build" else None
-            card = write_prompt_card(args.ticket, new_pid, meta, step=step)
             print(f"→ {new_state}")
-            print(f"  cat {card}")
+            print(f"  cat {render.path}")
+            print(f"    # card: {render.card_bytes} bytes, ~{render.est_tokens} est tokens")
             if new_pid == "build":
                 print(f"    # paste into your agent; use `klc step {args.ticket} N` for subsequent steps")
             else:

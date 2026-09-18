@@ -1120,7 +1120,14 @@ def test_state_init_excludes_derived_from_preserved_commit(tmp_path):
     .index.json, scratch/, knowledge/tickets-index.jsonl) must be EXCLUDED from
     the klc-state commit and never pushed — only real ticket state is shared.
     Fails today: a bare `git add -A` (no derived-ignore applied at init) commits
-    and pushes every derived file."""
+    and pushes every derived file.
+
+    KLC-118: a live card is never rendered under `tickets/<KEY>/<phase>/`
+    anymore (the card root moved to `.klc/scratch/`), so the in-ticket
+    `_prompt.md` this fixture seeds reads as a pre-migration leftover
+    (or a degraded render, AC-12) rather than "the normal location of a
+    live card" — the `_DERIVED_IGNORES` pattern this test guards is
+    retained for exactly that case (C-002)."""
     bare = _bare_origin(tmp_path)
     root = tmp_path / "proj"
     root.mkdir()

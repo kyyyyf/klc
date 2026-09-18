@@ -81,8 +81,8 @@ def test_work_build_state(tmp_path, monkeypatch):
     info = json.loads(out)
     assert info["phase"] == "build"
     assert info["state"] == "work"
-    assert info["prompt"] == ".klc/tickets/KLC-900/build/_prompt_step_3.md", \
-        f"build must point at the per-step card for impl_step, got {info['prompt']!r}"
+    assert info["prompt"] == ".klc/scratch/KLC-900/build/_prompt_step_3.md", \
+        f"build must point at the per-step card at the scratch root, got {info['prompt']!r}"
     assert "_prompt_step_1.md" not in info["prompt"], \
         "must be the CURRENT step card, not step 1"
     assert "build-log.md" in info["outputs"]
@@ -96,7 +96,7 @@ def test_work_build_state_defaults_step_1(tmp_path, monkeypatch):
     rc, out = _run(["KLC-901", "--json"])
     assert rc == 0, out
     info = json.loads(out)
-    assert info["prompt"] == ".klc/tickets/KLC-901/build/_prompt_step_1.md"
+    assert info["prompt"] == ".klc/scratch/KLC-901/build/_prompt_step_1.md"
 
 
 def test_work_nonbuild_work_flat_card(tmp_path, monkeypatch):
@@ -107,7 +107,7 @@ def test_work_nonbuild_work_flat_card(tmp_path, monkeypatch):
     rc, out = _run(["KLC-902", "--json"])
     assert rc == 0, out
     info = json.loads(out)
-    assert info["prompt"] == ".klc/tickets/KLC-902/design/_prompt.md"
+    assert info["prompt"] == ".klc/scratch/KLC-902/design/_prompt.md"
     # design's outputs come from phases.yml, not hard-coded.
     assert "impl-plan.md" in info["outputs"]
 
@@ -120,7 +120,7 @@ def test_work_human_output_has_phase_and_card(tmp_path, monkeypatch):
     rc, out = _run(["KLC-903"])
     assert rc == 0, out
     assert "build:work" in out
-    assert ".klc/tickets/KLC-903/build/_prompt_step_2.md" in out
+    assert ".klc/scratch/KLC-903/build/_prompt_step_2.md" in out
     assert "build-log.md" in out
 
 

@@ -21,6 +21,7 @@ import lifecycle as _lc  # noqa: E402
 import phases as _phases  # noqa: E402
 import models as _models  # noqa: E402
 import plugin_gen as _plugin_gen  # noqa: E402
+import artefacts as _artefacts  # noqa: E402  KLC-118: publishes card_path/card_mode
 from core.shared.paths import framework_root  # noqa: E402
 
 @dataclass
@@ -33,6 +34,10 @@ class ResolvedPhase:
     agent_type:  str | None
     runs_inline: bool
     interactive: bool
+    # KLC-118: trailing defaulted fields — every pre-existing positional/keyword
+    # construction site (there is exactly one, below) keeps working unchanged.
+    card_mode:   str = "paste"
+    card_path:   str | None = None
 
 
 def _is_interactive(meta: dict, phase: "_phases.Phase") -> bool:
@@ -42,11 +47,31 @@ def _is_interactive(meta: dict, phase: "_phases.Phase") -> bool:
     return bool(meta.get("clarify_required")) and phase.id == "intake"
 
 
-def resolve_phase(ticket: str, phase_id: str) -> ResolvedPhase:
+# KLC-118: the executor kwarg to resolve_phase — NOT the card mode itself.
+# Only "task" (a Claude Code Task-tool dispatch, whose subagent definition
+# already carries the role prompt) maps to CARD_MODE_DISPATCH; every other
+# value — including the default — maps to CARD_MODE_PASTE (fail-safe: an
+# unconverted caller keeps the role prompt inlined, never silently drops it).
+EXECUTOR_TASK = "task"
+EXECUTOR_HEADLESS = "headless"
+
+
+def _card_mode(executor: str) -> str:
+    return _artefacts.CARD_MODE_DISPATCH if executor == EXECUTOR_TASK \
+        else _artefacts.CARD_MODE_PASTE
+
+
+def resolve_phase(ticket: str, phase_id: str, *,
+                  executor: str = EXECUTOR_HEADLESS) -> ResolvedPhase:
     """Resolve everything an executor needs to dispatch `phase_id` for
     `ticket`: prompt, model (raw + CC alias), agent type, whether it
-    runs inline (XS fast-track) or via a subagent, and whether it is
-    an interactive phase that headless runners must park on."""
+    runs inline (XS fast-track) or via a subagent, whether it is an
+    interactive phase that headless runners must park on, and — KLC-118 —
+    which card render mode and path go with THIS executor.
+
+    `executor`: `"task"` (a Task-tool dispatch) or `"headless"` (the
+    default; `runner.py`'s existing call keeps working unchanged and keeps
+    getting `paste`)."""
     meta = _lc.read_meta(ticket)
     track = meta["track"]
 
@@ -71,6 +96,12 @@ def resolve_phase(ticket: str, phase_id: str) -> ResolvedPhase:
 
     runs_inline = track == "XS" and phase in ph.track_phases("XS")
 
+    # KLC-118: the card path is published from the same call every reader
+    # already makes (AC-8) — build's step is read from meta, not guessed.
+    step = (meta.get("impl_step") or 1) if phase_id == "build" else None
+    resolved_card_path = str(_artefacts.card_path(ticket, phase_id, step))
+    resolved_card_mode = _card_mode(executor)
+
     return ResolvedPhase(
         phase_id=phase_id,
         track=track,
@@ -80,4 +111,6 @@ def resolve_phase(ticket: str, phase_id: str) -> ResolvedPhase:
         agent_type=agent_type,
         runs_inline=runs_inline,
         interactive=_is_interactive(meta, phase),
+        card_mode=resolved_card_mode,
+        card_path=resolved_card_path,
     )

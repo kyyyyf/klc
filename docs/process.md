@@ -784,6 +784,70 @@ per track into `.klc/knowledge/process-metrics.json` with per-phase
 
 ---
 
+## Prompt cards
+
+Every `:work` phase gets a rendered **prompt card** — the per-ticket file that
+carries the concrete key, the resolved input paths and the ack instruction
+(`core/skills/artefacts.py:write_prompt_card` / `write_step_card`). Two things
+about it changed in KLC-118.
+
+**Location.** Cards live at `<card root>/<KEY>/<phase>/_prompt.md` (build
+steps: `_prompt_step_N.md`), OUTSIDE the ticket directory. The card root
+defaults to `.klc/scratch/` and is overridable with `KLC_CARD_ROOT`. A card
+root that cannot be created or written degrades to the ticket directory with
+a warning rather than failing the phase transition. Every reader (`klc
+status`, `klc work --json`, `klc step`, `klc jump`, the headless runner, the
+VS Code extension) resolves the same path through
+`core/skills/artefacts.py:card_path()`.
+
+**Render mode.** `write_prompt_card(..., mode=...)` renders one of two
+shapes:
+
+- `paste` (the default, and `klc next` / `klc step` / `klc jump`'s human
+  output): the role prompt is fully inlined, exactly as before KLC-118. Used
+  by the headless providers (`claude --print`, the OpenAI HTTP API,
+  `ollama`), which receive one flat prompt string and cannot follow a
+  filesystem reference, and by a human pasting the card into a chat.
+- `dispatch` (`/klc:run`'s Task-tool dispatch only): the role prompt is
+  OMITTED — the generated subagent definition
+  (`klc-plugin/agents/<phase>.md`) already carries it — and the `## Role
+  prompt` section instead names the role-prompt file by absolute path.
+
+`KLC_CARD_INLINE=1` forces `paste` for either card (`write_step_card`'s
+existing flag, generalised to phase cards); an unrecognised mode also
+degrades to `paste` — the safe failure direction, since a bigger prompt costs
+tokens but a silently dropped role prompt costs correctness.
+
+**Measured baseline (the seven-phase M-track set: acceptance-test-plan,
+design, discovery, integrate, learn, manual, review).** The `paste` total is
+74 346 bytes; the `dispatch` total falls to roughly 5 813 bytes of
+ticket-specific residue plus a small per-phase pointer block — a 92.2 %
+reduction, worth about 17 100 estimated tokens per M ticket's phase
+dispatches. `tests/integration/test_klc118_card_size_regression.py` gates
+`dispatch_total < 0.10 * paste_total` against the real `core/agents/*.md`
+files so this saving cannot silently regress.
+
+(The design/spec-time estimate for this ticket, taken when KLC-118 was
+scoped, cited 81 967 / 4 198 bytes — measured before KLC-113's prompt-hygiene
+pass, stacked underneath this ticket, shrank several role prompts. The
+figures above are what the renderer actually produces against today's
+`core/agents/*.md`; the saving itself — a dispatch card under 10 % of a paste
+card — holds either way.)
+
+Every render also measures itself: `card_bytes` and an estimated token count
+go into `meta.json:metrics.tokens.<phase>` via `budget_guard.write_token_metrics`
+(never downgrading a `provider`-sourced record), and `klc next` prints both
+numbers alongside the card path.
+
+Prompt cards are DERIVED — rendered fresh on every dispatch, never read back
+by any gate, and excluded from both the pre-merge consistency snapshot and
+the retrospective agent's artefact set. A stale card left by a pre-KLC-118
+layout is removed by `artefacts.sweep_legacy_cards()` (automatic, scoped to
+the ticket and phase being rendered) or the explicit
+`python3 core/skills/artefacts.py sweep-cards [KEY]` one-shot sweep.
+
+---
+
 ## Jira integration
 
 Two layers are available: **legacy push** (`jira-sync` command, `mode: mirror`) —

@@ -22,10 +22,11 @@ from pathlib import Path
 
 SKILLS = Path(__file__).resolve().parent.parent / "skills"
 sys.path.insert(0, str(SKILLS))
-from _paths import klc_ticket_dir, klc_ticket_meta_file  # noqa: E402
+from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import holder_display  # noqa: E402
+import artefacts as _artefacts  # noqa: E402  KLC-118: one card-path resolver
 
 
 BOX_DONE      = "[✓]"  # ✓
@@ -191,13 +192,14 @@ def _work_card(ticket: str, cur_pid: str, meta: dict) -> Path:
     build:work is a multi-step loop whose card is the per-step card written by
     `klc step` (`build/_prompt_step_<N>.md`, default step 1), not a flat
     `build/_prompt.md` (KLC-072). Every other phase uses the flat
-    `<phase>/_prompt.md`.
+    `<phase>/_prompt.md`. The location itself (card root vs. a degraded
+    ticket-dir fallback) is resolved by `artefacts.card_path` — the one
+    resolver every reader shares (KLC-118 AC-8).
     """
-    tdir = klc_ticket_dir(ticket)
     if cur_pid == "build":
         step = meta.get("impl_step") or 1
-        return tdir / "build" / f"_prompt_step_{step}.md"
-    return tdir / cur_pid / "_prompt.md"
+        return _artefacts.card_path(ticket, "build", step)
+    return _artefacts.card_path(ticket, cur_pid)
 
 
 def _ack_command(ticket: str, pid: str) -> str:

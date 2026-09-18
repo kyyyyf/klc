@@ -58,6 +58,7 @@ import state_feature             # noqa: E402
 import build_orchestrator        # noqa: E402
 import runner                    # noqa: E402
 import artefacts as _artefacts   # noqa: E402  renders the per-ticket prompt card
+import phase_resolver as _phase_resolver  # noqa: E402  KLC-118: the mode is READ, never chosen here
 import ack as _ack_cmd           # noqa: E402  core/phases/ack.py — reuse, do not reimplement
 from _paths import klc_ticket_dir, klc_ticket_meta_file, framework_root  # noqa: E402
 
@@ -144,9 +145,18 @@ def _card_path(ticket: str, phase_id: str) -> Path:
     agent must be dispatched with, NOT the generic `core/agents/<phase>.md` role
     prompt (full of <KEY> placeholders). Rendered fresh so inputs are current;
     `write_prompt_card` is idempotent (same file the manual `klc ack`/`klc next`
-    path writes on entering a `:work` phase)."""
+    path writes on entering a `:work` phase).
+
+    KLC-118: the render MODE is read from `phase_resolver`, never chosen
+    here — the autorunner is the headless path (C-003: the provider gets one
+    flat prompt string and cannot follow a filesystem reference), so it
+    always resolves with `executor=EXECUTOR_HEADLESS`, which is the safe
+    default (`paste`, the role prompt inlined)."""
     meta = _lc.read_meta(ticket)
-    return _artefacts.write_prompt_card(ticket, phase_id, meta)
+    resolved = _phase_resolver.resolve_phase(
+        ticket, phase_id, executor=_phase_resolver.EXECUTOR_HEADLESS)
+    return _artefacts.write_prompt_card(ticket, phase_id, meta,
+                                        mode=resolved.card_mode)
 
 
 def _out_path(ticket: str, phase_id: str) -> Path:

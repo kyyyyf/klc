@@ -209,7 +209,8 @@ def test_run_dispatches_work_state(tmp_path, monkeypatch):
 
 def test_dispatch_uses_rendered_card_not_generic_prompt(tmp_path, monkeypatch):
     """P1-A: a non-build phase is dispatched with the RENDERED per-ticket card
-    (.klc/tickets/<KEY>/<phase>/_prompt.md), NOT the generic core/agents role
+    (KLC-118: `<card root>/<KEY>/<phase>/_prompt.md`, default
+    `.klc/scratch/<KEY>/<phase>/_prompt.md`), NOT the generic core/agents role
     prompt (which is full of <KEY> placeholders and generic input descriptions)."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _flush_phases_cache()
@@ -222,10 +223,24 @@ def test_dispatch_uses_rendered_card_not_generic_prompt(tmp_path, monkeypatch):
     prompt = review_call["prompt"].replace("\\", "/")
     assert prompt.endswith("/review/_prompt.md"), prompt
     assert "core/agents" not in prompt, prompt
-    # and the card was actually rendered on disk with the concrete key
-    card = td / "review" / "_prompt.md"
+    assert "/.klc/scratch/KLC-D2/review/_prompt.md" in prompt, prompt
+    assert "/.klc/tickets/KLC-D2/review/_prompt.md" not in prompt, prompt
+    # and the card was actually rendered on disk with the concrete key, at the
+    # scratch root — NOT under the ticket directory (KLC-118 AC-7).
+    card = tmp_path / ".klc" / "scratch" / "KLC-D2" / "review" / "_prompt.md"
     assert card.exists()
-    assert "KLC-D2" in card.read_text(encoding="utf-8")
+    card_text = card.read_text(encoding="utf-8")
+    assert "KLC-D2" in card_text
+    assert not (td / "review" / "_prompt.md").exists(), \
+        "the card must not also be written under the ticket directory"
+    # KLC-118 AC-4: the headless path is pinned to paste mode — the role
+    # prompt travels inline, verbatim, never as a dispatch-mode pointer.
+    role_prompt = (_FW_ROOT / "core" / "agents" / "review.md").read_text(
+        encoding="utf-8")
+    assert role_prompt in card_text, \
+        "autorunner must dispatch a paste-mode card (role prompt inlined)"
+    assert "Already loaded: your subagent definition" not in card_text, \
+        "autorunner must never dispatch a dispatch-mode (pointer-only) card"
 
 
 def test_missing_declared_output_fails_closed(tmp_path, monkeypatch):

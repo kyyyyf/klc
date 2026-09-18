@@ -31,8 +31,12 @@ Repeat until STOP or archived:
    `phase_id`, `state`, `track`.
 2. **Archived?** If `state == "archived"`: report DONE, exit the loop.
 3. **Resolve.** Call `core.skills.phase_resolver.resolve_phase(<KEY>,
-   phase_id)` (import from `core/skills`, `PROJECT_ROOT` already set).
-   This gives you `runs_inline`, `agent_type`, `model`, `interactive`.
+   phase_id, executor="task")` (import from `core/skills`, `PROJECT_ROOT`
+   already set) — you are always the Task-tool executor, never the headless
+   one, so this is the one place that decides the card mode; nowhere else in
+   this loop hardcodes `"dispatch"` or `"paste"` (C-001). This gives you
+   `runs_inline`, `agent_type`, `model`, `interactive`, `card_mode`,
+   `card_path`.
 4. **Interactive gate.** If `resolved.interactive` is true, this is a
    human-interaction point — but the two flavors need different
    handling, and only one of them means "just stop":
@@ -67,9 +71,15 @@ Repeat until STOP or archived:
    b. If `resolved.runs_inline` (XS fast-track): do the phase's work
       yourself, inline, in this loop. Then construct the same
       completion-signal JSON a subagent would emit (see below).
-   c. Otherwise: `Task(subagent_type=resolved.agent_type, prompt=<the
-      phase's dispatch prompt / step card>)`. Take the subagent's
-      returned text as `result`.
+   c. Otherwise: re-render the card in `resolved.card_mode` right before
+      dispatching — a card `klc next`/`klc step` last wrote is `paste` mode
+      and stale by definition; you need a fresh `dispatch`-mode card. Call
+      `core.skills.artefacts.write_prompt_card(<KEY>, phase_id, meta,
+      step=<step, build only>, mode=resolved.card_mode)` (or
+      `write_step_card(..., inline=False)` for a build step — it already
+      references `impl.md` by path). Read that file's text and
+      `Task(subagent_type=resolved.agent_type, prompt=<the card's text>)`.
+      Take the subagent's returned text as `result`.
    d. Parse: `core.skills.run_signal.parse_signal(result, expected_phase
       =phase_id)`.
       - If `None` (unparseable / missing keys / phase mismatch / bad
