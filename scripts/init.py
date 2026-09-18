@@ -42,6 +42,7 @@ from _paths import (  # noqa: E402
     project_root, klc_dir, klc_index_dir, klc_logs_dir,
 )
 from module_edges import aggregate_module_edges  # noqa: E402
+import index_lock as _index_lock  # noqa: E402  (KLC-107 D-201: one writer at a time)
 
 
 def log(msg: str) -> None:
@@ -75,11 +76,19 @@ def _finalize(index_dir: Path) -> int:
     if r.returncode != 0:
         return die("git rev-parse HEAD failed — is this a git repo?")
     head = r.stdout.strip()
-    (index_dir / ".last-run").write_text(head + "\n", encoding="utf-8")
-    # Clear any stale.json left from a previous update cycle
-    stale = index_dir / "stale.json"
-    if stale.exists():
-        stale.unlink()
+    # KLC-107 D-201: the `.last-run` write is the critical section — one writer
+    # at a time for `.klc/index/`, same lock scripts/update.py takes.
+    try:
+        with _index_lock.acquire_index_lock(index_dir, wait_s=0.0):
+            (index_dir / ".last-run").write_text(head + "\n", encoding="utf-8")
+            # Clear any stale.json left from a previous update cycle
+            stale = index_dir / "stale.json"
+            if stale.exists():
+                stale.unlink()
+    except _index_lock.IndexBusy as busy:
+        print(f"INIT_BUSY another index refresh is in progress (PID {busy.pid}); "
+              f"re-run `klc init --finalize` once it completes")
+        return 0
     log(f"Recorded {head} in .klc/index/.last-run")
 
     # Print next steps

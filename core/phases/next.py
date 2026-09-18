@@ -19,7 +19,7 @@ from pathlib import Path
 
 SKILLS = Path(__file__).resolve().parent.parent / "skills"
 sys.path.insert(0, str(SKILLS))
-from _paths import klc_ticket_meta_file  # noqa: E402
+from _paths import klc_ticket_meta_file, project_root  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import epic_deps as _edeps  # noqa: E402
@@ -28,6 +28,7 @@ import identity  # noqa: E402
 import holder  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
+import index_refresh as _refresh  # noqa: E402
 
 
 def _friendly_missing_ticket(ticket: str) -> int:
@@ -43,10 +44,18 @@ def run(argv: list[str]) -> int:
     ap.add_argument("ticket")
     ap.add_argument("--json", action="store_true",
                     help="machine-readable JSON output")
+    ap.add_argument("--no-index-refresh", action="store_true",
+                    help="skip the deterministic index refresh for this run "
+                         "(KLC-107)")
     args = ap.parse_args(argv)
 
     if not klc_ticket_meta_file(args.ticket).exists():
         return _friendly_missing_ticket(args.ticket)
+
+    # KLC-107 AC-8: refresh the index BEFORE the per-ticket lock and BEFORE the
+    # next-phase computation — outside state_tx, same rationale as intake.py.
+    # Return value discarded on purpose (AC-13).
+    _refresh.refresh_if_stale(project_root(), suppressed=args.no_index_refresh)
 
     try:
         with acquire_lock(args.ticket):

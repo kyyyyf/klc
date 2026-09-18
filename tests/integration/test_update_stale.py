@@ -29,18 +29,25 @@ _MODULE_B = {"name": "modB", "path": "src/b", "files": ["src/b/bar.py"], "depend
 
 
 def test_object_format_no_crash(tmp_path):
-    """Object form {"modules":[...]} must not raise and return correct stale set."""
+    """Object form {"modules":[...]} must not raise and return correct stale
+    set. KLC-107 [!DECISION D-002]: modB is the DIRECT hit (the changed file
+    lives in it); modA is the one-hop reverse dependent, now reported
+    separately in impacted_modules — no transitive closure into
+    stale_modules any more (that transition IS AC-25)."""
     idx = _make_modules_obj(tmp_path, [_MODULE_A, _MODULE_B])
     result = _upd._compute_stale(idx, ["src/b/bar.py"])
-    assert result["stale_modules"] == ["modA", "modB"]
+    assert result["stale_modules"] == ["modB"]
+    assert result["impacted_modules"] == ["modA"]
     assert result["total_modules"] == 2
 
 
 def test_bare_list_back_compat(tmp_path):
-    """Legacy bare-list form still works after the fix."""
+    """Legacy bare-list form still works after the fix (KLC-107 D-002: same
+    direct/impacted split as the object-form test above)."""
     idx = _make_modules_list(tmp_path, [_MODULE_A, _MODULE_B])
     result = _upd._compute_stale(idx, ["src/b/bar.py"])
-    assert result["stale_modules"] == ["modA", "modB"]
+    assert result["stale_modules"] == ["modB"]
+    assert result["impacted_modules"] == ["modA"]
     assert result["total_modules"] == 2
 
 

@@ -34,6 +34,7 @@ sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 from _paths import project_root, klc_index_dir, klc_logs_dir  # noqa: E402
 from module_edges import aggregate_module_edges  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
+import index_lock as _index_lock  # noqa: E402  (KLC-107 D-201: one writer at a time)
 
 
 def log(msg: str) -> None:
@@ -89,13 +90,24 @@ def _run_scanner(script: Path, out_file: Path) -> int:
 def _compute_stale(index_dir: Path, changed: list[str]) -> dict:
     """Given changed file list, return stale module info.
 
-    Loads modules.json, maps changed files to modules, walks depended_by
-    for transitive closure, returns:
-      {"stale_modules": [...], "changed_files": N, "total_modules": N}
+    Loads modules.json, maps changed files to modules through the single
+    `file_to_module()` resolver, returns:
+      {"stale_modules": [...], "impacted_modules": [...],
+       "changed_files": N, "total_modules": N}
+
+    KLC-107 AC-25/AC-26/AC-27: `stale_modules` names ONLY the modules that
+    DIRECTLY contain a changed file — no transitive `depended_by` closure.
+    One-hop reverse-dependency neighbours are reported separately in
+    `impacted_modules`; a consumer that wants the full transitive closure
+    computes it from `modules.json` itself. There is no proportion-of-
+    repository rule of any kind here any more: on the last recorded run
+    before this ticket, twelve changed files exceeded the old 20% threshold
+    and marked EVERY module stale, which is the same as reporting nothing.
     """
     modules_file = index_dir / "modules.json"
     if not modules_file.exists():
-        return {"stale_modules": [], "changed_files": len(changed), "total_modules": 0}
+        return {"stale_modules": [], "impacted_modules": [],
+                "changed_files": len(changed), "total_modules": 0}
 
     try:
         raw = json.loads(modules_file.read_text(encoding="utf-8"))
@@ -103,11 +115,13 @@ def _compute_stale(index_dir: Path, changed: list[str]) -> dict:
         if not isinstance(modules, list):
             raise ValueError("unexpected modules.json shape")
     except (json.JSONDecodeError, OSError, ValueError, AttributeError):
-        return {"stale_modules": [], "changed_files": len(changed), "total_modules": 0}
+        return {"stale_modules": [], "impacted_modules": [],
+                "changed_files": len(changed), "total_modules": 0}
 
     total = len(modules)
     if not changed or not modules:
-        return {"stale_modules": [], "changed_files": len(changed), "total_modules": total}
+        return {"stale_modules": [], "impacted_modules": [],
+                "changed_files": len(changed), "total_modules": total}
 
     # KLC-066: map changed files to modules through the single file_to_module()
     # resolver (the private path→module copy is deleted) so stale detection sees
@@ -118,26 +132,18 @@ def _compute_stale(index_dir: Path, changed: list[str]) -> dict:
     for f in changed:
         directly_stale.update(_mm.file_to_module(f, modules_data)["member_of"])
 
-    # Transitive closure via depended_by
+    # KLC-107 AC-26: exactly one hop of reverse dependencies, reported
+    # separately. A consumer that wants the transitive closure walks
+    # modules.json itself.
     name_to_mod = {m["name"]: m for m in modules}
-    visited: set[str] = set(directly_stale)
-    queue = list(directly_stale)
-    while queue:
-        mname = queue.pop()
-        mod = name_to_mod.get(mname, {})
-        for dep in (mod.get("depended_by") or []):
-            if dep not in visited:
-                visited.add(dep)
-                queue.append(dep)
-
-    # Fallback: if >20% of tracked files changed, mark everything stale
-    tracked_files = sum(len(m.get("files") or []) for m in modules) or 1
-    if len(changed) / tracked_files > 0.2:
-        visited = {m["name"] for m in modules}
-        log(f"  >20% of tracked files changed — marking all {total} modules stale")
+    impacted: set[str] = set()
+    for mname in directly_stale:
+        impacted.update(name_to_mod.get(mname, {}).get("depended_by") or [])
+    impacted -= directly_stale
 
     return {
-        "stale_modules": sorted(visited),
+        "stale_modules": sorted(directly_stale),
+        "impacted_modules": sorted(impacted),
         "changed_files": len(changed),
         "total_modules": total,
     }
@@ -319,80 +325,90 @@ def main(argv: list[str]) -> int:
         print("UPDATE_NOOP")
         return 0
 
-    log(f"Change window: {last[:8]}..{head[:8]}")
-    changed = _changed_files(root, last, head)
+    # KLC-107 D-201: everything from here through the `.last-run` write is the
+    # critical section — one writer at a time for `.klc/index/`, so a direct
+    # `klc update` and a verb-triggered refresh (index_refresh.py) can never
+    # interleave their writes into the same artifacts (finding F-1).
+    try:
+        with _index_lock.acquire_index_lock(index_dir, wait_s=0.0):
+            log(f"Change window: {last[:8]}..{head[:8]}")
+            changed = _changed_files(root, last, head)
 
-    # Filter out .klc/ internal files — they are not project source
-    changed = [f for f in changed if not f.startswith(".klc/")]
+            # Filter out .klc/ internal files — they are not project source
+            changed = [f for f in changed if not f.startswith(".klc/")]
 
-    changed_file = index_dir / "changed-files.txt"
-    changed_file.write_text("\n".join(changed) + "\n", encoding="utf-8")
-    log(f"Changed source files: {len(changed)}")
+            changed_file = index_dir / "changed-files.txt"
+            changed_file.write_text("\n".join(changed) + "\n", encoding="utf-8")
+            log(f"Changed source files: {len(changed)}")
 
-    # Step 1: re-scan structure
-    log("Step 1/3: file_scanner")
-    rc = _run_scanner(
-        FRAMEWORK_ROOT / "core" / "skills" / "file_scanner.py",
-        index_dir / "structural.json",
-    )
-    if rc:
-        return err("file_scanner failed")
+            # Step 1: re-scan structure
+            log("Step 1/3: file_scanner")
+            rc = _run_scanner(
+                FRAMEWORK_ROOT / "core" / "skills" / "file_scanner.py",
+                index_dir / "structural.json",
+            )
+            if rc:
+                return err("file_scanner failed")
 
-    # Step 2: re-scan dep graph (non-fatal)
-    log("Step 2/4: dep_graph")
-    rc = _run_scanner(
-        FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
-        index_dir / "depgraph.json",
-    )
-    if rc:
-        log("  WARN: dep_graph failed; stale detection may be less precise")
+            # Step 2: re-scan dep graph (non-fatal)
+            log("Step 2/4: dep_graph")
+            rc = _run_scanner(
+                FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
+                index_dir / "depgraph.json",
+            )
+            if rc:
+                log("  WARN: dep_graph failed; stale detection may be less precise")
 
-    # KLC-074: rebuild the deterministic module SET before edge aggregation / stale
-    # detection, so both see the current directory layout (non-fatal).
-    log("Rebuilding deterministic modules.json (modules_build)")
-    _build_modules(index_dir)
+            # KLC-074: rebuild the deterministic module SET before edge aggregation / stale
+            # detection, so both see the current directory layout (non-fatal).
+            log("Rebuilding deterministic modules.json (modules_build)")
+            _build_modules(index_dir)
 
-    # Step 3: aggregate module-level reverse edges from depgraph (non-fatal)
-    log("Step 3/5: aggregating module reverse edges")
-    _aggregate_and_write_module_edges(index_dir)
+            # Step 3: aggregate module-level reverse edges from depgraph (non-fatal)
+            log("Step 3/5: aggregating module reverse edges")
+            _aggregate_and_write_module_edges(index_dir)
 
-    # KLC-070: refresh the deterministic planning views (non-fatal)
-    log("Step 4/5: refreshing planning views (inventory, test_map, file_roles, "
-        "module_edges, symbol_usage)")
-    _build_planning_views(index_dir)
+            # KLC-070: refresh the deterministic planning views (non-fatal)
+            log("Step 4/5: refreshing planning views (inventory, test_map, file_roles, "
+                "module_edges, symbol_usage)")
+            _build_planning_views(index_dir)
 
-    # KLC-074 review LOW-1: validate modules.json AFTER the views are refreshed so the
-    # cross-artifact checks see this run's file_roles/module_edges (advisory).
-    _validate_modules(index_dir)
+            # KLC-074 review LOW-1: validate modules.json AFTER the views are refreshed so the
+            # cross-artifact checks see this run's file_roles/module_edges (advisory).
+            _validate_modules(index_dir)
 
-    # Step 5: compute stale modules
-    log("Step 5/5: computing stale modules")
-    stale = _compute_stale(index_dir, changed)
-    stale_file = index_dir / "stale.json"
-    stale_file.write_text(json.dumps(stale, indent=2, ensure_ascii=False),
-                          encoding="utf-8")
+            # Step 5: compute stale modules
+            log("Step 5/5: computing stale modules")
+            stale = _compute_stale(index_dir, changed)
+            stale_file = index_dir / "stale.json"
+            stale_file.write_text(json.dumps(stale, indent=2, ensure_ascii=False),
+                                  encoding="utf-8")
 
-    n_stale = len(stale["stale_modules"])
-    if n_stale:
-        log(f"  {n_stale} stale module(s): {', '.join(stale['stale_modules'])}")
-    else:
-        log("  No modules affected.")
+            n_stale = len(stale["stale_modules"])
+            if n_stale:
+                log(f"  {n_stale} stale module(s): {', '.join(stale['stale_modules'])}")
+            else:
+                log("  No modules affected.")
 
-    # Optional: regenerate skeletons
-    if args.regen and n_stale:
-        rc = _regen_skeleton(index_dir, stale["stale_modules"])
-        if rc:
-            return rc
+            # Optional: regenerate skeletons
+            if args.regen and n_stale:
+                rc = _regen_skeleton(index_dir, stale["stale_modules"])
+                if rc:
+                    return rc
 
-    # Advance baseline only after everything succeeded
-    last_file.write_text(head + "\n", encoding="utf-8")
+            # Advance baseline only after everything succeeded
+            last_file.write_text(head + "\n", encoding="utf-8")
 
-    if n_stale:
-        print(f"UPDATE_OK {n_stale} module(s) stale"
-              + ("" if args.regen else " — run `klc update --regen` to refresh docs"))
-    else:
-        print("UPDATE_OK no stale modules")
-    return 0
+            if n_stale:
+                print(f"UPDATE_OK {n_stale} module(s) stale"
+                      + ("" if args.regen else " — run `klc update --regen` to refresh docs"))
+            else:
+                print("UPDATE_OK no stale modules")
+            return 0
+    except _index_lock.IndexBusy as busy:
+        print(f"UPDATE_BUSY another index refresh is in progress (PID {busy.pid}); "
+              f"it will advance .last-run — nothing to do here")
+        return 0
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ import phases as _ph  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
 from artefacts import acquire_lock, LockedError  # noqa: E402
+import index_refresh as _refresh  # noqa: E402
 from _paths import (  # noqa: E402
     klc_config_dir,
     klc_global_tickets_index,
@@ -38,6 +39,7 @@ from _paths import (  # noqa: E402
     klc_ticket_dir,
     klc_ticket_meta_file,
     klc_ticket_raw_file,
+    project_root,
 )
 
 
@@ -213,6 +215,9 @@ def run(argv: list[str]) -> int:
                     help="repeatable dependency edge "
                          "'<KEY>@<point>[:<cond>]#<downstream-phase>' "
                          "(KLC-077); e.g. KLC-077@integrated:passed#build")
+    ap.add_argument("--no-index-refresh", action="store_true",
+                    help="skip the deterministic index refresh for this run "
+                         "(KLC-107)")
     ap.add_argument("ticket", help="Jira-style ticket key, e.g. PROJ-4502")
     ap.add_argument("description", nargs="*",
                     help="description words (any position; quote if it contains options)")
@@ -237,6 +242,12 @@ def run(argv: list[str]) -> int:
         sys.stderr.write("klc intake: description required "
                          "(positional or --stdin)\n")
         return 2
+
+    # KLC-107 AC-7: refresh the index BEFORE any ticket artifact is written —
+    # before the per-ticket lock and outside state_tx (update.py writes only
+    # into the gitignored .klc/index/, unrelated to the ticket-subtree
+    # transaction). Return value discarded on purpose (AC-13).
+    _refresh.refresh_if_stale(project_root(), suppressed=args.no_index_refresh)
 
     tdir = klc_ticket_dir(args.ticket)
     existing = klc_ticket_meta_file(args.ticket).exists()
@@ -663,10 +674,15 @@ def _warn_stale_modules() -> None:
     except (json.JSONDecodeError, OSError):
         return
     modules = data.get("stale_modules") or []
+    # KLC-107 AC-28: absent in a stale.json written before this ticket —
+    # degrade to an empty list rather than raising on a key that used not
+    # to exist.
+    impacted = data.get("impacted_modules") or []
     if not modules:
         return
+    tail = f", {len(impacted)} impacted neighbour(s)" if impacted else ""
     sys.stderr.write(
-        f"\n  ⚠  {len(modules)} module doc(s) may be outdated: "
+        f"\n  ⚠  {len(modules)} module doc(s) may be outdated{tail}: "
         f"{', '.join(modules[:5])}"
         + (" …" if len(modules) > 5 else "") + "\n"
         f"     Run `klc update --regen` to refresh CLAUDE.md files.\n\n"

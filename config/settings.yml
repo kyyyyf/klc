@@ -31,3 +31,10 @@
 # The KLC_AUTORUN_CAP env var overrides this.
 # autorun:
 #   consecutive_auto_transitions: 20   # max consecutive auto transitions. Default: 20.
+
+# Index freshness (KLC-107). `klc install` records hook_mode/hook_location;
+# `klc doctor`'s index-hook check reads them back. No legacy file.
+# index:
+#   hook_mode: direct                  # direct | snippet | disabled. Set by `klc install`.
+#   hook_location: .git/hooks/pre-commit   # resolved hooks dir or detected manager name.
+#   refresh_budget_seconds: 30         # wall-clock budget for the verb-side lazy refresh.

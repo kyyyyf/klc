@@ -6,7 +6,16 @@ every turn. Two moving parts:
 1. **Indexing loop** (`scripts/init.py` + `scripts/update.py`) —
    deterministic, no LLM in the hot path. Produces a stable module
    map, per-module `CLAUDE.md`, dep graph, and stale tracker.
-   Runs automatically via the pre-commit hook after each commit.
+   Freshness is guaranteed by the lifecycle verbs: `klc intake`, `klc next`
+   and `klc ack` refresh the index themselves when `HEAD` has moved since the
+   last run, bounded by `index.refresh_budget_seconds` and suppressible with
+   `--no-index-refresh`. Only one refresh writes the index at a time; a second
+   one reports that a refresh is in progress and gets out of the way. The
+   pre-commit hook is an optional accelerator that keeps that refresh off the
+   critical path; `klc install` wires it only where no other hook manager owns
+   the slot, prints a snippet to paste where one does, and the hook it writes
+   warns and exits zero rather than blocking a commit if klc has moved.
+   `klc doctor` reports whether the index is fresh, complete and wired.
 
 2. **Ticket workflow** — dispatcher `scripts/klc`. The lifecycle verbs
    (`intake / status / next / ack / ship / step / work / jump / abort`) drive
@@ -46,8 +55,13 @@ This installs only: Python 3.11+, git, jinja2.
 /opt/klc/scripts/klc install /path/to/my-project
 ```
 
-Creates `.klc/` state directory, config stubs, the `klc` shim, and
-wires the pre-commit hook. Idempotent; `--force` regenerates configs.
+Creates `.klc/` state directory, config stubs, and the `klc` shim.
+Wires the pre-commit hook where no other hook manager owns the slot;
+otherwise prints a copy-ready snippet and records which of the two
+happened in `.klc/config/settings.yml`, so `klc doctor` can verify it
+later. The hook is an accelerator, not the freshness guarantee — that
+guarantee comes from the lifecycle verbs themselves (see "Indexing
+loop" above). Idempotent; `--force` regenerates configs.
 
 ### 3. Initialize project and detect languages
 

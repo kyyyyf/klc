@@ -138,6 +138,11 @@ _SETTINGS_SCHEMA = {
     "jira.mode": ("enum", {"mirror", "managed"}),
     "clarify.style": ("enum", {"batch", "serial"}),
     "autorun.consecutive_auto_transitions": ("posint", None),
+    # KLC-107: the hook decision `klc install` records and `klc doctor`'s
+    # index-hook check reads back, plus the verb-side refresh budget.
+    "index.hook_mode": ("enum", {"direct", "snippet", "disabled"}),
+    "index.hook_location": ("str", None),
+    "index.refresh_budget_seconds": ("posint", None),
 }
 
 

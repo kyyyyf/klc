@@ -27,7 +27,7 @@ SKILLS = Path(__file__).resolve().parent.parent / "skills"
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 CONFIG = Path(__file__).resolve().parent.parent.parent / "config"
 sys.path.insert(0, str(SKILLS))
-from _paths import framework_root, project_root  # noqa: E402
+from _paths import framework_root, project_root, klc_index_dir as _index_dir  # noqa: E402
 
 
 CHECKS: list[tuple[str, callable]] = []
@@ -235,6 +235,31 @@ def _external_reviewer_key() -> list[str]:
     return errs
 
 
+@check("index-freshness")
+def _index_freshness() -> tuple[list[str], str]:
+    import index_health
+    return index_health.freshness(_index_dir(), project_root())
+
+
+@check("index-views")
+def _index_views() -> tuple[list[str], str]:
+    import index_health
+    return index_health.views(_index_dir())
+
+
+@check("index-degraded")
+def _index_degraded() -> tuple[list[str], str]:
+    import index_health
+    return index_health.degraded(_index_dir())
+
+
+@check("index-hook")
+def _index_hook() -> tuple[list[str], str]:
+    import index_health
+    import settings as _settings
+    return index_health.hook(project_root(), _settings.hook_mode(), _settings.hook_location())
+
+
 @check("project-tools")
 def _project_tools() -> list[str]:
     """Check project-specific language tools (read from project-deps.json).
@@ -249,8 +274,12 @@ def _project_tools() -> list[str]:
 
         deps_file = klc_index_dir() / "project-deps.json"
         if not deps_file.exists():
-            # Not an error — user hasn't run `klc setup` yet
-            return []
+            # KLC-107 AC-4: a project that never ran `klc setup` could never learn
+            # that a required tool was missing. Say so instead of returning an
+            # empty list — "project-tools" is already in _WARN_ONLY, so this
+            # prints as WARN by default and --strict promotes it to a failure.
+            return ["project-deps.json absent — language tool requirements were "
+                    "never detected. Run `klc setup`."]
 
         import json
         deps = json.loads(deps_file.read_text(encoding="utf-8"))
@@ -301,6 +330,20 @@ def _jira_sync_conflicts() -> list[str]:
     return errs
 
 
+# Warn-only checks: don't fail doctor without --strict.
+_WARN_ONLY = {"project-tools", "jira-sync-conflicts"}
+
+
+def _normalize(result):
+    """Accept the legacy bare list a check used to return, and the KLC-107
+    ``(messages, severity)`` tuple form. Every existing check keeps its exact
+    meaning — this is the only harness change (spec AC-1..AC-6)."""
+    if isinstance(result, tuple):
+        msgs, severity = result
+        return list(msgs), severity
+    return list(result), ("fail" if result else "pass")
+
+
 _FW_TESTS = str(Path(__file__).resolve().parents[2] / "tests")
 _FW_FIXTURES = str(Path(__file__).resolve().parents[2] / "tests" / "fixtures")
 
@@ -330,20 +373,22 @@ def run(argv: list[str]) -> int:
     results = []
     overall_ok = True
     for name, fn in CHECKS:
-        errs = fn()
-        ok = not errs
+        errs, severity = _normalize(fn())
 
-        # Warn-only checks: don't fail doctor without --strict
-        _WARN_ONLY = {"project-tools", "jira-sync-conflicts"}
+        # Warn-only checks: don't fail doctor without --strict. A check that
+        # returns its OWN "warn" severity (the KLC-107 tuple form) is already
+        # warn-only by construction; _WARN_ONLY additionally downgrades the
+        # legacy bare-list checks that used to fail silently.
         if name in _WARN_ONLY and not args.strict:
-            if errs:
-                results.append({"check": name, "ok": True, "errors": errs, "warn": True})
-            else:
-                results.append({"check": name, "ok": True, "errors": []})
-        else:
-            # All other checks (and project-tools with --strict) fail normally
-            overall_ok = overall_ok and ok
-            results.append({"check": name, "ok": ok, "errors": errs})
+            severity = "warn" if errs else "pass"
+        if severity == "warn" and args.strict:
+            severity = "fail"
+        ok = severity != "fail"
+        overall_ok = overall_ok and ok
+        entry = {"check": name, "ok": ok, "errors": errs}
+        if severity == "warn":
+            entry["warn"] = True
+        results.append(entry)
 
     if args.json:
         print(json.dumps({"ok": overall_ok, "checks": results}, indent=2))

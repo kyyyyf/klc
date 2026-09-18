@@ -116,6 +116,32 @@ def jira_mode(config_dir=None) -> str:
                    default="mirror", project_dir=config_dir)
 
 
+HOOK_MODES = ("direct", "snippet", "disabled")
+
+
+def hook_mode():
+    """Recorded pre-commit wiring mode, or None when install never recorded
+    one (KLC-107 AC-17). No legacy file predates this knob."""
+    return resolve("index.hook_mode", legacy_file="profile.yml",
+                   legacy_key="index_hook_mode", default=None)
+
+
+def hook_location():
+    """Resolved hooks directory / detected manager name install recorded
+    alongside `hook_mode` (KLC-107 AC-17)."""
+    return resolve("index.hook_location", legacy_file="profile.yml",
+                   legacy_key="index_hook_location", default=None)
+
+
+def index_refresh_budget() -> float:
+    """Wall-clock budget (seconds) for the verb-side lazy refresh (KLC-107
+    AC-12). `index_refresh.py` resolves this key itself via `resolve()`
+    directly rather than calling this accessor, so this is a convenience
+    for other callers, not a hidden extra call site."""
+    return float(resolve("index.refresh_budget_seconds", legacy_file="profile.yml",
+                         legacy_key="index_refresh_budget_seconds", default=30.0))
+
+
 def autorun_cap():
     """Autonomous-runner consecutive-auto-transition cap, or None if unset.
 

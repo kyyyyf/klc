@@ -40,6 +40,9 @@ import stat
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills"))
+import hook_install  # noqa: E402
+
 
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc install")
@@ -123,6 +126,27 @@ def run(argv: list[str]) -> int:
 
     # --- .gitignore --------------------------------------------------------
     _ensure_gitignore(project)
+
+    # --- pre-commit hook (KLC-107 C-001/C-002/C-006) ------------------------
+    # The hook is an optional accelerator, never the freshness guarantee (that
+    # is the verb-side lazy refresh, index_refresh.py). Wire it only where no
+    # other manager owns the slot; print a snippet where one does; never write
+    # into a file another manager owns; record the decision either way so
+    # `klc doctor`'s index-hook check has a single source of truth (AC-17).
+    det = hook_install.detect(project)
+    klc_shim_cmd = f"{bin_dir / 'klc'} update"
+    if det["mode"] == "direct":
+        action = hook_install.write_hook(det["hooks_dir"], fw)
+        hook_location = str(det["hooks_dir"] / "pre-commit")
+        print(f"  hook:       {action} at {hook_location}")
+    else:
+        hook_location = det["manager"] if det["mode"] == "snippet" else "none"
+        print(f"  hook:       {det['mode']} — {det['manager']} ({det['evidence']})")
+        if det["also_detected"]:
+            print(f"              also detected: {', '.join(det['also_detected'])}")
+        if det["mode"] == "snippet":
+            print(hook_install.render_snippet(det["manager"], klc_shim_cmd))
+    hook_install.record_mode(project, det["mode"], hook_location)
 
     # --- summary -----------------------------------------------------------
     print(f"INSTALL_OK {project}")
@@ -213,6 +237,10 @@ _SETTINGS_SEED = (
     "#   style: batch                             # batch | serial (default: batch)\n"
     "# autorun:\n"
     "#   consecutive_auto_transitions: 20         # klc run runaway cap (default: 20)\n"
+    "# index:                                     # KLC-107 — written by `klc install`\n"
+    "#   hook_mode: direct                        # direct | snippet | disabled\n"
+    "#   hook_location: .git/hooks/pre-commit     # resolved hooks dir or manager name\n"
+    "#   refresh_budget_seconds: 30               # verb-side lazy-refresh budget (s)\n"
 )
 
 

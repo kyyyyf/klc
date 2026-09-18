@@ -198,7 +198,16 @@ def test_settings_yml_ships_all_knobs_commented():
 
 
 def test_install_seeds_commented_settings(tmp_path):
-    """AC-11: klc install seeds a commented .klc/config/settings.yml."""
+    """AC-11: klc install seeds a commented .klc/config/settings.yml.
+
+    KLC-107 AC-17 [!DECISION]: `klc install` now ALSO records the hook
+    decision (mode + location) as an ACTIVE `index:` block on every run,
+    including a bare non-git fixture like this one (mode `disabled`) — that
+    is the one value `klc doctor`'s index-hook check reads, and AC-17 says
+    "every install run" with no exemption. Every OTHER knob (profile, jira,
+    clarify, autorun) stays fully commented exactly as before; only the
+    `index:` block the KLC-107 managed-block marker owns is active.
+    """
     proj = tmp_path / "proj"
     proj.mkdir()
     r = subprocess.run(
@@ -206,7 +215,9 @@ def test_install_seeds_commented_settings(tmp_path):
         capture_output=True, text=True)
     seeded = proj / ".klc" / "config" / "settings.yml"
     assert seeded.exists(), r.stderr
-    assert not _yparse(seeded.read_text(encoding="utf-8"))
+    parsed = _yparse(seeded.read_text(encoding="utf-8")) or {}
+    assert set(parsed.keys()) <= {"index"}, parsed
+    assert parsed.get("index", {}).get("hook_mode") in ("direct", "snippet", "disabled")
 
 
 def test_readme_groups_system_functional():
