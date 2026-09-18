@@ -3,20 +3,34 @@
 # Covers the declarations most likely to be part of a crate's public API.
 # Nested visibility modifiers (`pub(crate)`, `pub(super)`) are intentionally
 # excluded — those are internal.
+#
+# KLC-103 F-104 / Q-102: a bare `pattern: "pub fn ..."` ALSO matches
+# `pub(crate) fn ...` — ast-grep's literal `pub` token matches the
+# `visibility_modifier` node's `pub` keyword regardless of a trailing
+# `(crate|super|...)` restriction (verified: `pub($$$VIS) fn ...` as an
+# explicit exclusion pattern does NOT itself match `pub(crate) fn ...`
+# either, so a pattern-level exclusion can't distinguish the two — a
+# `not: {regex: "^pub\\("}` on the matched text is what reliably excludes
+# the restricted-visibility form).
 
 id: rust-exported-symbols
 language: rust
+metadata:
+  extensions: [".rs"]
 rule:
-  any:
-    - pattern: "pub fn $NAME($$$ARGS) $$$RET { $$$BODY }"
-    - pattern: "pub async fn $NAME($$$ARGS) $$$RET { $$$BODY }"
-    - pattern: "pub struct $NAME { $$$FIELDS }"
-    - pattern: "pub struct $NAME($$$TUPLE);"
-    - pattern: "pub enum $NAME { $$$VARIANTS }"
-    - pattern: "pub trait $NAME { $$$BODY }"
-    - pattern: "pub type $NAME = $RHS;"
-    - pattern: "pub const $NAME: $T = $RHS;"
-    - pattern: "pub static $NAME: $T = $RHS;"
+  all:
+    - any:
+        - pattern: "pub fn $NAME($$$ARGS) $$$RET { $$$BODY }"
+        - pattern: "pub async fn $NAME($$$ARGS) $$$RET { $$$BODY }"
+        - pattern: "pub struct $NAME { $$$FIELDS }"
+        - pattern: "pub struct $NAME($$$TUPLE);"
+        - pattern: "pub enum $NAME { $$$VARIANTS }"
+        - pattern: "pub trait $NAME { $$$BODY }"
+        - pattern: "pub type $NAME = $RHS;"
+        - pattern: "pub const $NAME: $T = $RHS;"
+        - pattern: "pub static $NAME: $T = $RHS;"
+    - not:
+        regex: "^pub\\("
 message: Public Rust item
 
 tests:
@@ -32,3 +46,5 @@ tests:
       fn internal() -> i32 { 0 }
     - |
       pub(crate) fn crate_only() {}
+    - |
+      pub(super) struct Restricted { x: i32 }

@@ -45,6 +45,9 @@ _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir  # noqa: E402
+from core.shared.inventory import (  # noqa: E402
+    InventorySchemaError, load as inv_load, symbols as inv_symbols,
+)
 import module_membership as _mm  # noqa: E402
 import file_universe  # noqa: E402
 
@@ -206,8 +209,17 @@ def validate(modules_data: dict, files_list: list[str] | None = None,
         # otherwise a real symbol-less config/doc target is false-flagged and --strict
         # fails on a merely-missing view.
         if roles_files:
-            inv_files = {s.get("file") for s in (inventory or {}).get("symbols") or []
-                         if isinstance(s, dict) and s.get("file")}
+            inv_files: set[str] = set()
+            if inventory is not None:
+                try:
+                    inv_files = {s.get("file") for s in
+                                 inv_symbols(inventory, source="inventory")
+                                 if isinstance(s, dict) and s.get("file")}
+                except InventorySchemaError as exc:
+                    # ADVISORY consumer (D-2 / F-2): a wrong-shaped inventory must
+                    # still surface loudly — recorded here, not crashed on — because
+                    # this check is degrade-not-fail by contract.
+                    errors.append(f"inventory symbols not usable: {exc}")
             known_files = set(roles_files) | inv_files
             for key in ("files_to_read_first", "files_likely_to_edit",
                         "tests_to_read_or_run"):
@@ -314,16 +326,36 @@ def main(argv: list[str] | None = None) -> int:
                 return None
         return None
 
+    _inv_load_errors: list[str] = []
+
+    def _opt_inventory(path: Path | None) -> dict | None:
+        """D-2 / F-2: route inventory specifically through the shared accessor
+        (AC-6) instead of the generic `_opt()`. required=False keeps the
+        existing degrade for an absent or present-but-corrupt file (silent
+        None, matching `_opt()`'s own behaviour); a present-but-WRONG-SHAPED
+        file still raises `InventorySchemaError` (that check does not depend
+        on `required`) — caught here and folded into the report's `errors[]`
+        after `validate()` returns, so the loud schema failure is recorded
+        without crashing this advisory CLI."""
+        if not path:
+            return None
+        try:
+            return inv_load(path, required=False)
+        except InventorySchemaError as exc:
+            _inv_load_errors.append(f"inventory not usable: {exc}")
+            return None
+
     report = validate(
         modules_data, files_list,
         file_roles=_opt(args.in_file_roles),
         module_edges=_opt(args.in_module_edges),
         retrieval=_opt(args.in_retrieval),
-        inventory=_opt(args.in_inventory),
+        inventory=_opt_inventory(args.in_inventory),
         structural=_opt(args.in_structural),
         depgraph=_opt(args.in_depgraph),
         test_map=_opt(args.in_test_map),
         symbol_usage=_opt(args.in_symbol_usage))
+    report["errors"] = _inv_load_errors + report["errors"]
     out_text = json.dumps(report, indent=2, ensure_ascii=False)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -1,13 +1,30 @@
 # ast-grep rule: C++ virtual methods (including pure virtuals). Useful to find
 # interface-like classes even without a formal `interface` keyword.
+#
+# KLC-103 F-104: the plain `pattern: virtual $RET $NAME($$$ARGS);` form
+# parses correctly ONLY at file/top-level scope, never when the declaration
+# is a class MEMBER (the realistic case — nobody declares `virtual` at file
+# scope). Tree-sitter-cpp parses a class member as a `field_declaration`, a
+# different node kind than the bare `declaration` a top-level pattern parses
+# to, so a literal-text pattern silently matches nothing once nested (the
+# same class of context-sensitivity `header-symbols.yaml`'s own comment
+# already documents for the trailing `;`). Fixed with the `context` +
+# `selector` pattern-object form: the pattern text is parsed WITHIN a
+# synthetic class body (`context`), then `selector: field_declaration` picks
+# out just the member declaration node to match against. `$$$MODS` (zero or
+# more trailing tokens) absorbs `const` / `override` / `= 0` and any
+# combination in one pattern, instead of one literal variant per
+# combination (which double-counts overlapping spans — verified: 6 separate
+# literal variants produced 2 matches for one `const = 0` declaration).
 
 id: cpp-virtual-methods
 language: cpp
+metadata:
+  extensions: [".cpp", ".h", ".hpp", ".cc", ".cxx", ".hxx"]
 rule:
-  any:
-    - pattern: virtual $RET $NAME($$$ARGS);
-    - pattern: virtual $RET $NAME($$$ARGS) = 0;
-    - pattern: virtual $RET $NAME($$$ARGS) override;
+  pattern:
+    context: "class C { virtual $RET $NAME($$$ARGS) $$$MODS; };"
+    selector: field_declaration
 message: Virtual method declaration
 
 tests:
@@ -16,6 +33,12 @@ tests:
       class Shape { public: virtual double Area() const = 0; };
     - |
       class Circle : public Shape { public: virtual double Area() const override; };
+    - |
+      struct X { virtual void Foo(); };
+    - |
+      struct Y { virtual int Bar() = 0; };
   invalid:
     - |
       class Plain { public: double Area() const { return 1.0; } };
+    - |
+      struct Z { void NotVirtual(); };

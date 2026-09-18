@@ -1,6 +1,5 @@
 """Test core.shared.paths utilities."""
 
-import os
 from pathlib import Path
 from core.shared import paths
 
@@ -15,20 +14,25 @@ def test_framework_root():
     assert (root / "config").is_dir()
 
 
-def test_project_root_with_env_var():
+def test_project_root_with_env_var(monkeypatch):
     """Test project_root() uses $PROJECT_ROOT if set."""
     test_path = "/tmp/test_project"
-    os.environ["PROJECT_ROOT"] = test_path
-    try:
-        root = paths.project_root()
-        assert str(root) == test_path
-    finally:
-        os.environ.pop("PROJECT_ROOT", None)
+    monkeypatch.setenv("PROJECT_ROOT", test_path)
+    root = paths.project_root()
+    assert str(root) == test_path
 
 
-def test_project_root_fallback():
+def test_project_root_fallback(monkeypatch):
     """Test project_root() falls back to parent of framework_root()."""
-    os.environ.pop("PROJECT_ROOT", None)
+    # KLC-103: monkeypatch.delenv (not a bare os.environ.pop) so the REAL
+    # PROJECT_ROOT this pytest process was invoked with is restored after
+    # this test, not left permanently unset for the rest of the run — a
+    # bare pop() here (and the analogous one this test used to have in
+    # test_project_root_with_env_var's manual finally block) silently broke
+    # every later test in the suite that resolves paths via PROJECT_ROOT
+    # without its own override (e.g. detect_languages.detect() reading
+    # .klc/index/structural.json).
+    monkeypatch.delenv("PROJECT_ROOT", raising=False)
     root = paths.project_root()
     assert root == paths.framework_root().parent
 

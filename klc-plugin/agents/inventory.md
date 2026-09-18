@@ -6,16 +6,49 @@ model: sonnet
 # Inventory Agent
 
 ## Role
-Produce `.klc/index/inventory.json` — a complete, language-aware
-snapshot of the project. Never read source files line by line.
+Enrich the symbol inventory the deterministic builder already produced.
+**`core/skills/deterministic_inventory.py` is the ONLY writer of
+`.klc/index/inventory.json` — never write that path yourself, on any
+path (KLC-103 D-103).** Read it in its canonical flat shape and write
+your enrichment to `.klc/index/inventory-annotations.json` instead.
+Never read source files line by line.
 
 ## Inputs
+- `.klc/index/inventory.json` — the canonical flat symbol list, written by
+  `core/skills/deterministic_inventory.py` (see "Canonical inventory
+  schema" below). Read-only.
 - `.klc/index/structural.json` (from `file_scanner.py`).
 - `.klc/index/depgraph.json`  (from `dep_graph.py`).
 - Active profile — pulled from `config/profile.yml`
   (or the per-project override at `.klc/config/profile.yml`).
 - MCP server: **ast-grep** (structural search using the profile's
   rule set).
+
+## Canonical inventory schema (read-only; do not write this shape)
+
+`.klc/index/inventory.json` has exactly ONE on-disk shape, stated once in
+`core.shared.inventory.CANONICAL_SCHEMA`:
+
+```json
+{
+  "root": "<abs path>",
+  "profile": "<profile name>",
+  "source_of_truth": {"<lang>": "ast_grep" | "regex"},
+  "symbols": [
+    {"name": "...", "kind": "...", "file": "...", "line": N,
+     "signature": "...", "visibility": "public" | "private",
+     "source_of_truth": "ast_grep" | "regex",
+     "lang": "...", "rule": "..."}
+  ],
+  "errors": ["..."],
+  "notes":  ["..."]
+}
+```
+
+`symbols` is a FLAT, byte-sorted list — not a per-language mapping, and it
+carries no embedded `structural` or `depgraph` block (those stay separate,
+first-class artifacts at `.klc/index/structural.json` and
+`.klc/index/depgraph.json`).
 
 ## Symbol source of truth
 **Bootstrap is deterministic-only: do not call LSP from this agent.**
@@ -36,63 +69,50 @@ agent needs to verify a specific symbol signature or find references.
 
 ## Steps
 
-1. **Load inputs.** Parse the two index JSONs. Note the profile name
-   and `total_files`.
+1. **Load inputs.** Parse `inventory.json` in its canonical flat shape
+   (above) plus `structural.json` and `depgraph.json`. Note the profile
+   name and `total_files`.
 
-2. **Enumerate symbols per language.** For each language in
-   `structural.languages`:
+2. **Enrich.** For each symbol (or group of symbols) worth annotating,
+   add whatever the deterministic pass cannot derive from structure
+   alone — e.g. a short purpose note, a confidence flag on an
+   ambiguous `kind`, or a cross-reference the ast-grep/regex pass
+   missed. This agent does not re-derive `name`/`kind`/`file`/`line`/
+   `signature` — those already exist in `inventory.json`, read-only.
 
-   - Iterate over `structural.source_roots` as the search scope.
-   - Collect **public** symbols:
-     - Python — not `_`-prefixed, or listed in `__all__`.
-     - TS/JS — `export` declarations.
-     - C++ — class/struct/function declarations in headers.
-     - Rust — items with `pub` visibility.
-   - Record `{name, kind, file, line, signature}` per symbol.
-   - If a language exceeds 20 000 symbols, switch it to summary mode
-     (keep `{by_dir: {<rel-dir>: N}}` instead of `items[]`).
-
-3. **Emit.** Write to `.klc/index/inventory.json`:
+3. **Emit.** Write to `.klc/index/inventory-annotations.json` —
+   **never** `.klc/index/inventory.json`:
 
    ```json
    {
-     "generated_at":    "<ISO-8601 UTC>",
-     "git_sha":         "<HEAD sha>",
-     "root":            "<abs path>",
-     "profile":         "<profile name>",
-     "structural":      { ... },
-     "depgraph":        { ... },
-     "source_of_truth": { "<lang>": "ast_grep" | "regex_fallback" },
-     "symbols": {
-       "<language>": {
-         "mode":   "detailed" | "summary",
-         "count":  N,
-         "items":  [ { "name": "...", "kind": "...", "file": "...", "line": N, "signature": "..." } ],
-         "by_dir": { "<rel-dir>": N }
-       }
-     },
+     "generated_at": "<ISO-8601 UTC>",
+     "git_sha":      "<HEAD sha>",
+     "root":         "<abs path>",
+     "profile":      "<profile name>",
+     "annotations": [
+       { "symbol": "<file>::<name>", "note": "...", "confidence": "high" | "medium" | "low" }
+     ],
      "notes": [ "free-form remarks" ]
    }
    ```
 
-   `source_of_truth[lang]` is mandatory:
-   - `ast_grep` — ast-grep rule from the profile's rule set.
-   - `regex_fallback` — ast-grep rule unavailable or failed.
-
 4. **Verify.**
    - Re-read the file; confirm it parses as JSON.
-   - For detailed mode, `count == len(items)`.
-   - Print a one-paragraph summary: counts per language, top 5
-     directories by file count, any notes.
+   - Confirm `.klc/index/inventory.json` was NOT modified by this agent
+     (its mtime/content must be unchanged from the value read in step 1).
+   - Print a one-paragraph summary: annotation count, any notes.
 
 ## Completion signal
 Final line:
 
 ```
-INVENTORY_OK <abs path to inventory.json>
+INVENTORY_OK <abs path to inventory-annotations.json>
 ```
 
 ## Failure handling
+- `.klc/index/inventory.json` missing — exit 1 with a message asking the
+  caller to run `init.py` (the deterministic builder runs before this
+  agent on every path).
 - `structural.json` or `depgraph.json` missing — exit 1 with a message
   asking the caller to run `init.py`.
 - If ast-grep rules fail to parse — exit 1, name the broken rule file,

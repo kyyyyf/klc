@@ -61,6 +61,7 @@ _FILE_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _FILE_DIR.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_FILE_DIR))
+from core.shared.inventory import InventorySchemaError, load as inv_load  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 
 # Role priority for ranking eligible files (planning_indexer.md §"Retrieval
@@ -480,6 +481,22 @@ def _load(path: Path) -> dict:
         return {}
 
 
+def _load_inventory(path: Path) -> dict:
+    """D-2 / F-2 / AC-6: inventory specifically routes through the shared
+    accessor instead of the generic `_load()`. `required=False` keeps the
+    existing silent degrade on an absent or present-but-corrupt file; a
+    present-but-WRONG-SHAPED file still raises `InventorySchemaError` (that
+    check does not depend on `required`) — caught here rather than crashing,
+    since `build_trace()` treats `inventory` as fully optional (its own
+    docstring: accepted but currently ignored)."""
+    try:
+        data = inv_load(path, required=False)
+    except InventorySchemaError as exc:
+        sys.stderr.write(f"planning-retriever: warning: {exc}\n")
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def main(argv: list[str] | None = None) -> int:
     import os
 
@@ -508,7 +525,7 @@ def main(argv: list[str] | None = None) -> int:
     file_roles = _load(args.in_file_roles)
     module_edges = _load(args.in_module_edges)
     test_map = _load(args.in_test_map)
-    inventory = _load(args.in_inventory)
+    inventory = _load_inventory(args.in_inventory)
 
     trace = build_trace(args.query, args.mode, modules, file_roles,
                         module_edges, test_map, inventory)

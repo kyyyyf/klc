@@ -55,6 +55,7 @@ _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 from core.shared.paths import framework_root, klc_index_dir, project_root  # noqa: E402, F401
+from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 
 
@@ -154,14 +155,13 @@ def _build_symbols_by_module_from_inventory(
         modules_data = {"modules": modules_data}
     modules = modules_data.get("modules", [])
     index: dict[str, list[dict]] = {m["name"]: [] for m in modules}
-    for _lang, entry in inventory.get("symbols", {}).items():
-        for item in entry.get("items", []):
-            f = item.get("file", "")
-            if not f:
-                continue
-            for name in _mm.file_to_module(f, modules_data)["member_of"]:
-                if name in index:
-                    index[name].append(item)
+    for item in inv_symbols(inventory, source="inventory"):
+        f = item.get("file", "")
+        if not f:
+            continue
+        for name in _mm.file_to_module(f, modules_data)["member_of"]:
+            if name in index:
+                index[name].append(item)
     return index
 
 
@@ -189,10 +189,7 @@ def total_project_symbols_from_sbm(sbm: dict[str, list[dict]]) -> int:
 
 def total_project_symbols(inventory: dict) -> int:
     """Fallback denominator when symbols_by_module.json is missing."""
-    total = 0
-    for entry in inventory.get("symbols", {}).values():
-        total += int(entry.get("count", 0) or 0)
-    return total or 1
+    return len(inv_symbols(inventory, source="inventory")) or 1
 
 
 def collect_claude_mds(module_names: list[str], modules: list[dict]) -> list[str]:
@@ -521,9 +518,14 @@ def main() -> int:
         by_module = load_symbols_by_module(modules_doc)
         total = total_project_symbols_from_sbm(by_module)
     else:
-        inventory = load_json(klc_index_dir() / "inventory.json")
-        by_module = load_symbols_by_module(modules_doc, inventory=inventory)
-        total = total_project_symbols(inventory)
+        inv_path = klc_index_dir() / "inventory.json"
+        inventory = load_json(inv_path)
+        try:
+            by_module = load_symbols_by_module(modules_doc, inventory=inventory)
+            total = total_project_symbols(inventory)
+        except InventorySchemaError as exc:
+            sys.stderr.write(f"context-loader: {exc}\n")
+            return 2
 
     # Depth: honour --depth if the caller insisted; otherwise grow from 1
     # up to --max-depth while the selected-symbol budget holds. Stop early

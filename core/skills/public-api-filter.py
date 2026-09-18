@@ -46,6 +46,7 @@ _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 from core.shared.paths import framework_root, klc_index_dir  # noqa: E402, F401
+from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 
 FORWARD_KINDS = {"forward", "cpp-header-symbols-forward"}
@@ -88,11 +89,11 @@ def trim_modules(
     symbols_by_module). The third element is the authored-here items per
     module (after forward-decl drop + dedupe), ready to be materialized
     as .klc/index/symbols_by_module.json."""
-    # Build a quick per-lang {file: [items]} index.
+    # Flat inventory (KLC-103): one pass builds the {file: [items]} index directly,
+    # no per-language "items" wrapper to unwrap.
     by_file: dict[str, list] = {}
-    for lang, blob in inv.get("symbols", {}).items():
-        for it in blob.get("items", []):
-            by_file.setdefault(it["file"], []).append(it)
+    for it in inv_symbols(inv, source="inventory"):
+        by_file.setdefault(it["file"], []).append(it)
 
     # KLC-066: assignment of each file to its module(s) goes through the single
     # file_to_module() resolver (the private longest-prefix copy is deleted). A
@@ -183,6 +184,11 @@ def main() -> int:
         return 1
 
     inv = json.loads(args.in_inventory.read_text(encoding="utf-8"))
+    try:
+        inv_symbols(inv, source=str(args.in_inventory))
+    except InventorySchemaError as exc:
+        sys.stderr.write(f"public-api-filter: {exc}\n")
+        return 2
     mods = json.loads(args.in_modules.read_text(encoding="utf-8"))
 
     trimmed, removed, symbols_by_module = trim_modules(inv, mods, args.cap)

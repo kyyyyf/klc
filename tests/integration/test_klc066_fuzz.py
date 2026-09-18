@@ -142,11 +142,11 @@ def _check_diff_modules(md, files, tmp):
 
 
 def _check_public_api_filter(md, files):
-    inv = {"symbols": {"python": {"items": [
+    inv = {"symbols": [
         {"file": f, "name": f"sym_{i}", "kind": "function",
          "signature": f"def sym_{i}(): pass"}
         for i, f in enumerate(files)
-    ]}}}
+    ]}
     mods_copy = json.loads(json.dumps(md))
     _, _, sbm = paf.trim_modules(inv, mods_copy, cap=999)
     for i, f in enumerate(files):
@@ -158,10 +158,10 @@ def _check_public_api_filter(md, files):
 
 
 def _check_context_loader(md, files):
-    inv = {"symbols": {"python": {"items": [
+    inv = {"symbols": [
         {"file": f, "name": f"cl_{i}", "kind": "function", "signature": "x"}
         for i, f in enumerate(files)
-    ]}}}
+    ]}
     idx = cl._build_symbols_by_module_from_inventory(inv, md)
     for i, f in enumerate(files):
         want = _members(f, md)

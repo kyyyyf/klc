@@ -4,6 +4,8 @@
 
 id: ts-async-patterns
 language: typescript
+metadata:
+  extensions: [".ts"]
 rule:
   any:
     - pattern: async function $NAME($$$ARGS) { $$$BODY }

@@ -6,11 +6,39 @@
 # Matches the UFUNCTION(...) macro call itself — the following method
 # prototype is a separate sibling node in tree-sitter-cpp. Callers recover the
 # method name by walking one node forward.
+#
+# KLC-103 note (discovered while adding this file's first declared test
+# cases, AC-3): this rule matches UFUNCTION(...) at file/class-SIBLING scope
+# (as used above the class in uclass-symbols.yaml's own valid cases), but
+# NOT when the macro call is a CLASS MEMBER nested inside a class body
+# (with or without a preceding access specifier / GENERATED_BODY()) —
+# verified independently: 0 matches in that context vs 1 standalone. That is
+# the realistic UE placement and a real coverage gap, but it is a DIFFERENT
+# defect than the one this ticket's spec.md cites for this file (spec.md /
+# F-104 only flags "declares no test cases" here) and fixing the underlying
+# class-member pattern-context issue is out of this ticket's scope — see
+# core/rules/cpp/virtual-methods.yaml for the `context`+`selector` technique
+# that fixes the analogous issue there, which a follow-up ticket can reuse
+# here. The cases below use the form the rule demonstrably matches today.
 
 id: cpp-unreal-ufunction
 language: cpp
+metadata:
+  extensions: [".h", ".hh", ".hpp", ".hxx", ".cpp", ".cc", ".cxx"]
 rule:
   any:
     - pattern: "UFUNCTION($$$SPECS)"
     - pattern: "UFUNCTION()"
 message: Unreal UFUNCTION declaration
+
+tests:
+  valid:
+    - |
+      UFUNCTION(BlueprintCallable)
+      void DoSomething();
+    - |
+      UFUNCTION()
+      void Simple();
+  invalid:
+    - |
+      void PlainMethod();

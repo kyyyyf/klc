@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""detect_languages.py — detect project languages from inventory.
+"""detect_languages.py — detect project languages from structural.json
+(KLC-103 D-102).
 
 Reads:
-- .klc/index/inventory.json (file counts per extension)
+- .klc/index/structural.json (per-language file counts — the FILE universe;
+  structural.json is the file universe, inventory.json is the symbol
+  universe). The retired read of inventory["extensions"] targeted a key no
+  producer ever wrote, so this function silently returned an empty set on
+  every project before KLC-103 (AC-10).
 
-Returns set of detected languages (python, cpp, typescript, javascript, rust).
+Returns set of detected languages (whatever structural.json's `languages` key
+lists, at or above FILE_COUNT_THRESHOLD).
 
-Threshold: language detected if ≥10 files of that extension.
+Threshold: language detected if >=10 files of that language.
 """
 from __future__ import annotations
 
@@ -26,50 +32,27 @@ except ImportError:
         return Path(".klc/index")
 
 
-# Extension to language mapping
-EXT_TO_LANG = {
-    ".py": "python",
-    ".cpp": "cpp",
-    ".cc": "cpp",
-    ".cxx": "cpp",
-    ".hpp": "cpp",
-    ".h": "cpp",  # Assuming C++ (could be C, but klc targets C++)
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".rs": "rust",
-}
-
 # Threshold for auto-detection
 FILE_COUNT_THRESHOLD = 10
 
 
 def detect() -> Set[str]:
-    """Detect project languages from inventory.json.
+    """Detect project languages from structural.json.
 
     Returns:
-        Set of language names (python, cpp, typescript, javascript, rust)
+        Set of language names structural.json's `languages` key lists with
+        >=FILE_COUNT_THRESHOLD files.
     """
     languages: Set[str] = set()
 
-    inventory_path = klc_index_dir() / "inventory.json"
-    if inventory_path.exists():
+    structural_path = klc_index_dir() / "structural.json"
+    if structural_path.exists():
         try:
-            inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
-            extensions = inventory.get("extensions", {})
-
-            lang_counts: dict[str, int] = {}
-            for ext, count in extensions.items():
-                lang = EXT_TO_LANG.get(ext)
-                if lang:
-                    lang_counts[lang] = lang_counts.get(lang, 0) + count
-
-            for lang, count in lang_counts.items():
-                if count >= FILE_COUNT_THRESHOLD:
+            structural = json.loads(structural_path.read_text(encoding="utf-8"))
+            for lang, stats in (structural.get("languages") or {}).items():
+                if int((stats or {}).get("files", 0)) >= FILE_COUNT_THRESHOLD:
                     languages.add(lang)
-
-        except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+        except (json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError):
             pass
 
     return languages

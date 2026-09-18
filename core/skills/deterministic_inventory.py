@@ -14,8 +14,11 @@ so the UE profile's ``profiles/ue/rules/cpp-unreal`` rules and its ``.h -> cpp``
 languageGlobs are applied. Merging by hand (only ``core/rules``) would make the UE
 public-API index worse than the LLM-agent path.
 
-FROZEN inventory.json schema (KLC-071 builds on this — do not reshape without a
-migration note):
+FROZEN inventory.json schema — stated ONCE, in ``core.shared.inventory``
+(``CANONICAL_SCHEMA`` / ``SYMBOL_FIELDS``), not here (KLC-103 migration note: this
+docstring used to carry its own copy of the shape; it now points at the single
+statement so the schema cannot drift into two documents). KLC-071 and every reader
+of ``inventory.json`` build on that one statement:
 
     {
       "root":            "<abs path>",

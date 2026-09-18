@@ -39,15 +39,11 @@ class TestSetupIntegration(unittest.TestCase):
 
     def test_setup_python_project(self):
         """Test klc setup on a Python project."""
-        # Create inventory.json with Python files
-        inventory = {
-            "extensions": {
-                ".py": 50,
-                ".md": 5
-            }
-        }
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        # Create structural.json with Python files (KLC-103: detect() reads
+        # structural.json, not the retired inventory["extensions"] key).
+        structural = {"languages": {"python": {"files": 50}}}
+        structural_path = self.klc_dir / "index" / "structural.json"
+        structural_path.write_text(json.dumps(structural), encoding="utf-8")
 
         # Create minimal profile.yml
         profile_path = self.klc_dir / "config" / "profile.yml"
@@ -84,16 +80,10 @@ class TestSetupIntegration(unittest.TestCase):
 
     def test_setup_cpp_project(self):
         """Test klc setup on a C++ project."""
-        # Create inventory.json with C++ files
-        inventory = {
-            "extensions": {
-                ".cpp": 30,
-                ".hpp": 25,
-                ".h": 15
-            }
-        }
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        # Create structural.json with C++ files
+        structural = {"languages": {"cpp": {"files": 70}}}
+        structural_path = self.klc_dir / "index" / "structural.json"
+        structural_path.write_text(json.dumps(structural), encoding="utf-8")
 
         # Create minimal profile.yml
         profile_path = self.klc_dir / "config" / "profile.yml"
@@ -124,16 +114,10 @@ class TestSetupIntegration(unittest.TestCase):
 
     def test_setup_mixed_language_project(self):
         """Test klc setup on a project with multiple languages."""
-        # Create inventory.json with Python + TypeScript files
-        inventory = {
-            "extensions": {
-                ".py": 40,
-                ".ts": 30,
-                ".tsx": 20
-            }
-        }
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        # Create structural.json with Python + TypeScript files
+        structural = {"languages": {"python": {"files": 40}, "typescript": {"files": 50}}}
+        structural_path = self.klc_dir / "index" / "structural.json"
+        structural_path.write_text(json.dumps(structural), encoding="utf-8")
 
         profile_path = self.klc_dir / "config" / "profile.yml"
         profile_path.write_text("profile: generic\n", encoding="utf-8")
@@ -159,8 +143,8 @@ class TestSetupIntegration(unittest.TestCase):
         self.assertIn("typescript", deps["languages"])
 
     def test_setup_empty_project(self):
-        """Test klc setup on empty project (no inventory.json)."""
-        # No inventory.json created
+        """Test klc setup on empty project (no structural.json)."""
+        # No structural.json created
 
         # Create minimal profile.yml
         profile_path = self.klc_dir / "config" / "profile.yml"

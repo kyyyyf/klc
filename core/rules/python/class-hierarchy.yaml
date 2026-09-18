@@ -4,6 +4,8 @@
 
 id: py-class-hierarchy
 language: python
+metadata:
+  extensions: [".py"]
 rule:
   pattern: "class $NAME($$$BASES): $$$BODY"
 message: Class with explicit bases

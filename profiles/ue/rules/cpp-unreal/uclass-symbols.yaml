@@ -11,6 +11,8 @@
 
 id: cpp-unreal-uclass-symbols
 language: cpp
+metadata:
+  extensions: [".h", ".hh", ".hpp", ".hxx", ".cpp", ".cc", ".cxx"]
 rule:
   any:
     - pattern: "UCLASS($$$SPECS)"
@@ -22,3 +24,23 @@ rule:
     - pattern: "UENUM($$$SPECS)"
     - pattern: "UENUM()"
 message: Unreal UCLASS/USTRUCT/UINTERFACE/UENUM declaration
+
+tests:
+  valid:
+    - |
+      UCLASS()
+      class AMyActor : public AActor {};
+    - |
+      USTRUCT(BlueprintType)
+      struct FMyStruct {};
+    - |
+      UENUM()
+      enum class EMyEnum : uint8 {};
+    - |
+      UINTERFACE()
+      class UMyInterface : public UInterface {};
+  invalid:
+    - |
+      class APlainActor : public AActor {};
+    - |
+      struct FPlainStruct {};

@@ -1,0 +1,19 @@
+# Synthetic negative-twin fixture (KLC-103 AC-3): an `invalid` case that
+# DOES match the pattern. The executor must fail — a declared "this must
+# NOT match" case that does is a false negative in the rule's own self-test.
+id: synthetic-invalid-matches
+language: python
+metadata:
+  extensions: [".py"]
+rule:
+  pattern: "def $NAME($$$ARGS): $$$BODY"
+message: Synthetic — invalid case matches
+tests:
+  valid:
+    - |
+      def real_function():
+          pass
+  invalid:
+    - |
+      def also_matches_the_pattern():
+          pass

@@ -79,9 +79,9 @@ def test_ac2_diff_modules_agrees_with_resolver(tmp_path):
 
 
 def test_ac2_public_api_filter_agrees_with_resolver():
-    inv = {"symbols": {"python": {"items": [
+    inv = {"symbols": [
         {"file": f, "name": f"s{i}", "kind": "function", "signature": "def s(): 0"}
-        for i, f in enumerate(UNIVERSE)]}}}
+        for i, f in enumerate(UNIVERSE)]}
     _, _, sbm = paf.trim_modules(inv, json.loads(json.dumps(MD)), cap=999)
     for i, f in enumerate(UNIVERSE):
         for name in {m["name"] for m in MD["modules"]}:
@@ -90,9 +90,9 @@ def test_ac2_public_api_filter_agrees_with_resolver():
 
 
 def test_ac2_context_loader_agrees_with_resolver():
-    inv = {"symbols": {"python": {"items": [
+    inv = {"symbols": [
         {"file": f, "name": f"c{i}", "kind": "function", "signature": "x"}
-        for i, f in enumerate(UNIVERSE)]}}}
+        for i, f in enumerate(UNIVERSE)]}
     idx = cl._build_symbols_by_module_from_inventory(inv, MD)
     for i, f in enumerate(UNIVERSE):
         for name in {m["name"] for m in MD["modules"]}:

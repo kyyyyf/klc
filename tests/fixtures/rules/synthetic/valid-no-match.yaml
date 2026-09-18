@@ -1,0 +1,17 @@
+# Synthetic negative-twin fixture (KLC-103 AC-3): a `valid` case that does
+# NOT match its own pattern. The executor must fail — a declared "this must
+# match" case that doesn't is exactly the kind of decorative-tests gap
+# spec.md's F-101 describes.
+id: synthetic-valid-no-match
+language: python
+metadata:
+  extensions: [".py"]
+rule:
+  pattern: "class $NAME: $$$BODY"
+message: Synthetic — valid case does not match
+tests:
+  valid:
+    - |
+      def not_a_class():
+          pass
+  invalid: []

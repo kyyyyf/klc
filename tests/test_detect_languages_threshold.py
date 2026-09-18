@@ -41,9 +41,9 @@ class TestLanguageDetectionThreshold(unittest.TestCase):
         """Test 9 Python files (below threshold=10) - should NOT detect."""
         from detect_languages import detect
 
-        inventory = {"extensions": {".py": 9}}
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        structural = {"languages": {"python": {"files": 9}}}
+        inventory_path = self.klc_dir / "index" / "structural.json"
+        inventory_path.write_text(json.dumps(structural), encoding="utf-8")
 
         languages = detect()
         self.assertNotIn("python", languages, "9 files should be below threshold")
@@ -52,9 +52,9 @@ class TestLanguageDetectionThreshold(unittest.TestCase):
         """Test 10 Python files (at threshold=10) - SHOULD detect."""
         from detect_languages import detect
 
-        inventory = {"extensions": {".py": 10}}
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        structural = {"languages": {"python": {"files": 10}}}
+        inventory_path = self.klc_dir / "index" / "structural.json"
+        inventory_path.write_text(json.dumps(structural), encoding="utf-8")
 
         languages = detect()
         self.assertIn("python", languages, "10 files should be at threshold boundary")
@@ -63,9 +63,9 @@ class TestLanguageDetectionThreshold(unittest.TestCase):
         """Test 11 Python files (above threshold=10) - SHOULD detect."""
         from detect_languages import detect
 
-        inventory = {"extensions": {".py": 11}}
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        structural = {"languages": {"python": {"files": 11}}}
+        inventory_path = self.klc_dir / "index" / "structural.json"
+        inventory_path.write_text(json.dumps(structural), encoding="utf-8")
 
         languages = detect()
         self.assertIn("python", languages, "11 files should be above threshold")
@@ -74,15 +74,15 @@ class TestLanguageDetectionThreshold(unittest.TestCase):
         """Test threshold with multiple languages at boundary."""
         from detect_languages import detect
 
-        inventory = {
-            "extensions": {
-                ".py": 10,   # At threshold - should detect
-                ".cpp": 9,   # Below threshold - should NOT detect
-                ".ts": 11    # Above threshold - should detect
+        structural = {
+            "languages": {
+                "python": {"files": 10},   # At threshold - should detect
+                "cpp": {"files": 9},       # Below threshold - should NOT detect
+                "typescript": {"files": 11},  # Above threshold - should detect
             }
         }
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        inventory_path = self.klc_dir / "index" / "structural.json"
+        inventory_path.write_text(json.dumps(structural), encoding="utf-8")
 
         languages = detect()
         self.assertIn("python", languages)
@@ -95,9 +95,9 @@ class TestLanguageDetectionThreshold(unittest.TestCase):
         from detect_languages import detect
 
         # Only 5 C++ files (below threshold)
-        inventory = {"extensions": {".cpp": 5}}
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        structural = {"languages": {"cpp": {"files": 5}}}
+        inventory_path = self.klc_dir / "index" / "structural.json"
+        inventory_path.write_text(json.dumps(structural), encoding="utf-8")
 
         # But profile explicitly lists cpp
         profile_path = self.klc_dir / "config" / "profile.yml"

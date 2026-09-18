@@ -25,7 +25,12 @@ Generate the `CLAUDE.md` documentation tree:
   it contains `(` or `→` — those are signature tells.
 
 ## Inputs
-- `.klc/index/inventory.json`
+- `.klc/index/inventory.json` — the canonical flat symbol list (see
+  `core.shared.inventory.CANONICAL_SCHEMA`). It answers "which symbols",
+  never "how many files" — do not read file/line/language totals from it.
+- `.klc/index/structural.json` — the file universe: `total_files`,
+  `total_lines`, and the `languages` table used for the root doc's
+  language breakdown (KLC-103 D-102).
 - `.klc/index/modules.json`
 - `docs/adr/*.md` (may be absent)
 - Templates under `core/templates/`:
@@ -35,7 +40,9 @@ Generate the `CLAUDE.md` documentation tree:
 
 ## Steps
 
-1. **Preconditions.** Abort if either index JSON is missing.
+1. **Preconditions.** Abort if `inventory.json` or `modules.json` is
+   missing. `structural.json` is preferred but degrades to zero/empty
+   totals if absent (bootstrap-ordering edge case) rather than aborting.
 
 2. **Resolve doc filenames.** Before rendering, the skill runs
    `_resolve_doc_filenames()`: if two modules share a path (e.g. a
@@ -47,8 +54,10 @@ Generate the `CLAUDE.md` documentation tree:
 3. **Root `CLAUDE.md`.** Compose context:
    - `project_name` from `package.json` / `Cargo.toml` / `pyproject.toml`,
      else the repo directory name.
-   - `languages` from `inventory.structural.languages`, sorted by line
-     count descending.
+   - `languages`, `total_files`, `total_lines` from `structural.json`
+     (not `inventory.json` — the retired embedded `inventory.structural`
+     copy is gone; `structural.json` is the single source of these
+     totals, KLC-103 D-102), sorted by line count descending.
    - Module table: `{name, path, language, public_api_count, depends_on}`.
    - ADR index from `docs/adr/`, sorted numerically.
    - Conventions collected from config files present on disk

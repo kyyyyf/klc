@@ -5,11 +5,28 @@
 # ReplicatedUsing on replicated props, etc).
 #
 # Matches the macro call only — see cpp-unreal/uclass-symbols.yaml for why.
+#
+# KLC-103 note: same class-member scope limitation as
+# cpp-unreal/ufunction-declarations.yaml — see that file's comment.
 
 id: cpp-unreal-uproperty
 language: cpp
+metadata:
+  extensions: [".h", ".hh", ".hpp", ".hxx", ".cpp", ".cc", ".cxx"]
 rule:
   any:
     - pattern: "UPROPERTY($$$SPECS)"
     - pattern: "UPROPERTY()"
 message: Unreal UPROPERTY declaration
+
+tests:
+  valid:
+    - |
+      UPROPERTY(EditAnywhere)
+      int32 Health;
+    - |
+      UPROPERTY()
+      float Speed;
+  invalid:
+    - |
+      int32 PlainField;

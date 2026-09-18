@@ -1,0 +1,70 @@
+# ast-grep rule: plain JavaScript exported declarations.
+#
+# KLC-103 / independent impl-plan-review F-1 (HIGH): this is DELIBERATELY
+# NOT a verbatim clone of exported-symbols.yaml. Plain JavaScript's grammar
+# does not have abstract_class_declaration / interface_declaration /
+# type_alias_declaration / enum_declaration — those are TypeScript-only
+# nodes. ast-grep validates `kind:` matchers against the rule's own
+# `language:` at PARSE time, so a `language: javascript` rule that still
+# lists those kinds is REJECTED before any scan runs (`ast-grep scan` exits
+# 8: "Rule contains invalid kind matcher... Kind `abstract_class_declaration`
+# is invalid."), and this is a WHOLE-RULEDIR failure: production's
+# `_run_astgrep()` (core/skills/deterministic_inventory.py) merges every rule
+# dir into ONE scan call, so a single bad kind here would silently fall the
+# ENTIRE project back to the much weaker regex path — a strictly worse
+# regression than either defect this ticket exists to fix. Verified
+# independently before writing this file.
+#
+# The kind list below is the JS-safe subset: function/class declarations and
+# `const`/`let`/`var` (lexical_declaration). It still captures all the
+# plain-JS top-level export forms (function/class/const/default/
+# module.exports).
+
+id: js-exported-symbols
+language: javascript
+metadata:
+  extensions: [".js"]
+rule:
+  any:
+    - kind: export_statement
+      has:
+        any:
+          - kind: function_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: class_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: lexical_declaration
+            has:
+              kind: variable_declarator
+              has: {field: name, pattern: $NAME}
+    - all:
+        - pattern: export default $EXPR
+        - not:
+            has:
+              any:
+                - kind: function_declaration
+                - kind: class_declaration
+    - pattern: module.exports.$NAME = $RHS
+message: Exported JS declaration
+
+tests:
+  valid:
+    - |
+      export const PLAIN = 1;
+    - |
+      export function fn() { return 1; }
+    - |
+      export class Foo {}
+    - |
+      export default function Named() {}
+    - |
+      export default 42;
+    - |
+      module.exports.Bar = 2;
+  invalid:
+    - |
+      function notExported() {
+        const local = 1;
+      }
+    - |
+      class PrivateThing {}

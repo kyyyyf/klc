@@ -6,6 +6,8 @@
 
 id: py-public-api
 language: python
+metadata:
+  extensions: [".py"]
 rule:
   any:
     - pattern: "def $NAME($$$ARGS): $$$BODY"

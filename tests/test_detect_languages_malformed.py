@@ -38,16 +38,16 @@ class TestDetectLanguagesMalformed(unittest.TestCase):
         detect_languages.klc_index_dir = self.original_klc_index_dir
 
     def test_malformed_inventory_json_graceful_degradation(self):
-        """Test that malformed inventory.json is gracefully skipped."""
+        """Test that malformed structural.json is gracefully skipped."""
         from detect_languages import detect
 
         # Write malformed JSON (missing closing brace)
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text('{"extensions": {".py": 50}', encoding="utf-8")
+        structural_path = self.klc_dir / "index" / "structural.json"
+        structural_path.write_text('{"languages": {"python": {"files": 50}}', encoding="utf-8")
 
         # Should not crash, should return empty set (no profile)
         languages = detect()
-        self.assertEqual(languages, set(), "Malformed inventory.json should be skipped")
+        self.assertEqual(languages, set(), "Malformed structural.json should be skipped")
 
     @unittest.skip("detect_languages no longer reads profile.yml (profile detection removed)")
     def test_malformed_inventory_json_with_valid_profile(self):
@@ -67,13 +67,13 @@ class TestDetectLanguagesMalformed(unittest.TestCase):
         self.assertIn("python", languages, "Profile should work despite malformed inventory")
 
     def test_inventory_wrong_structure_graceful_degradation(self):
-        """Test that inventory.json with wrong structure is gracefully skipped."""
+        """Test that structural.json with wrong structure is gracefully skipped."""
         from detect_languages import detect
 
-        # Write JSON with wrong structure (extensions is array not dict)
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory = {"extensions": [".py", ".cpp"]}  # Should be dict not list
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        # Write JSON with wrong structure (languages is array not dict)
+        structural_path = self.klc_dir / "index" / "structural.json"
+        structural = {"languages": ["python", "cpp"]}  # Should be dict not list
+        structural_path.write_text(json.dumps(structural), encoding="utf-8")
 
         # Should not crash due to TypeError when iterating
         languages = detect()
@@ -83,10 +83,10 @@ class TestDetectLanguagesMalformed(unittest.TestCase):
         """Test that malformed profile.yml is gracefully skipped."""
         from detect_languages import detect
 
-        # Write valid inventory with 20 Python files
-        inventory = {"extensions": {".py": 20}}
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        # Write valid structural.json with 20 Python files
+        structural = {"languages": {"python": {"files": 20}}}
+        structural_path = self.klc_dir / "index" / "structural.json"
+        structural_path.write_text(json.dumps(structural), encoding="utf-8")
 
         # Write malformed YAML (invalid indentation)
         profile_path = self.klc_dir / "config" / "profile.yml"
@@ -104,10 +104,10 @@ class TestDetectLanguagesMalformed(unittest.TestCase):
         from detect_languages import detect
         import sys
 
-        # Write valid inventory
-        inventory = {"extensions": {".py": 20}}
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        # Write valid structural.json
+        structural = {"languages": {"python": {"files": 20}}}
+        structural_path = self.klc_dir / "index" / "structural.json"
+        structural_path.write_text(json.dumps(structural), encoding="utf-8")
 
         # Write valid profile
         profile_path = self.klc_dir / "config" / "profile.yml"
@@ -141,17 +141,17 @@ class TestDetectLanguagesMalformed(unittest.TestCase):
                 sys.modules["yaml"] = yaml_backup
 
     def test_empty_inventory_and_profile(self):
-        """Test that empty inventory.json and missing profile return empty set."""
+        """Test that empty structural.json and missing profile return empty set."""
         from detect_languages import detect
 
         # Write empty but valid JSON
-        inventory_path = self.klc_dir / "index" / "inventory.json"
-        inventory_path.write_text("{}", encoding="utf-8")
+        structural_path = self.klc_dir / "index" / "structural.json"
+        structural_path.write_text("{}", encoding="utf-8")
 
         # No profile.yml
 
         languages = detect()
-        self.assertEqual(languages, set(), "Empty inventory and no profile should return empty set")
+        self.assertEqual(languages, set(), "Empty structural.json and no profile should return empty set")
 
 
 if __name__ == "__main__":

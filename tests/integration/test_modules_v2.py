@@ -134,9 +134,9 @@ def test_root_module_public_api_not_dropped_by_public_api_filter():
     root = next(m for m in res["modules"] if "main.py" in m.get("files", []))
     assert root["path"], "root module path must be truthy (not '') for public-api-filter"
 
-    inv = {"symbols": {"python": {"items": [
+    inv = {"symbols": [
         {"file": "main.py", "name": "main", "kind": "function",
-         "signature": "def main(): pass"}]}}}
+         "signature": "def main(): pass"}]}
     _, _, sbm = paf.trim_modules(inv, res, cap=15)
     by_name = {m["name"]: m for m in res["modules"]}
     # the root file's symbol is attributed to the root module and NOT dropped

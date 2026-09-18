@@ -28,6 +28,11 @@ import re
 import sys
 from pathlib import Path
 
+_file_dir = Path(__file__).resolve().parent
+_project_root_dir = _file_dir.parent.parent
+sys.path.insert(0, str(_project_root_dir))
+from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
+
 try:
     from jinja2 import Environment, FileSystemLoader, StrictUndefined
 except ImportError:
@@ -64,6 +69,16 @@ def load_json(path: Path) -> dict:
     if not path.exists():
         sys.stderr.write(f"module-writer: missing file {path}\n")
         sys.exit(1)
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_json_optional(path: Path) -> dict:
+    """Degrade-not-fail variant of load_json() (C-005): an ABSENT optional
+    artifact returns {} instead of exiting. AC-9's structural.json-absent
+    bootstrap-ordering edge case must not crash render_root()."""
+    if not path.exists():
+        return {}
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -166,6 +181,11 @@ def _doc_module(module: dict) -> dict:
 def render_root(out_path: Path | None) -> Path:
     inv = load_json(klc_index_dir() / "inventory.json")
     mods = load_json(klc_index_dir() / "modules.json")
+    # AC-9 / D-102: structural.json is the single source of file, line and
+    # language totals — inventory.json answers "which symbols", never "how many
+    # files". The retired embedded `inv["structural"]` copy is what went stale
+    # and rendered the root document with zero files.
+    structural = _load_json_optional(klc_index_dir() / "structural.json")
     env = jinja_env()
     tpl = env.get_template("CLAUDE.md.j2")
 
@@ -199,11 +219,11 @@ def render_root(out_path: Path | None) -> Path:
         "project_name": name,
         "generated_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "languages": sorted(
-            inv.get("structural", {}).get("languages", {}).items(),
+            structural.get("languages", {}).items(),
             key=lambda kv: -kv[1].get("lines", 0),
         ),
-        "total_lines": inv.get("structural", {}).get("total_lines", 0),
-        "total_files": inv.get("structural", {}).get("total_files", 0),
+        "total_lines": structural.get("total_lines", 0),
+        "total_files": structural.get("total_files", 0),
         "modules": [_doc_module(m) for m in _code_modules(mods.get("modules", []))],
         "cycles": mods.get("cycles", []),
         "adr_index": collect_adr_index(),
@@ -429,6 +449,9 @@ def main() -> int:
             _write_inventory_hash()
         elif args.check:
             return _check_inventory_hash()
+    except InventorySchemaError as exc:
+        sys.stderr.write(f"module-writer: {exc}\n")
+        return 2
     except Exception as exc:
         sys.stderr.write(f"module-writer: {exc}\n")
         return 1
@@ -459,7 +482,11 @@ def _inventory_hash_payload() -> dict:
         "generated_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "digest": digest,
         "per_module": per_module,
-        "total_symbols": inv.get("symbols", {}),
+        # C-006: the payload embeds the symbol COUNT, not the raw collection
+        # (a mis-labelled key that stored the whole mapping-shaped `symbols`
+        # value pre-KLC-103); an int makes the hash payload meaningful and
+        # cheap regardless of inventory size.
+        "total_symbols": len(inv_symbols(inv, source="inventory")),
     }
 
 

@@ -117,11 +117,15 @@ def block_03_synthetic_inventory(scratch: Path) -> None:
             if name.startswith("_"):
                 continue
             items.append({
-                "name":      name,
-                "kind":      "file",
-                "file":      str(py_path).replace("\\", "/"),
-                "line":      1,
-                "signature": "",
+                "name":            name,
+                "kind":            "file",
+                "file":            str(py_path).replace("\\", "/"),
+                "line":            1,
+                "signature":       "",
+                "visibility":      "public",
+                "source_of_truth": "regex",
+                "lang":            "python",
+                "rule":            "smoke-synthetic",
             })
         modules.append({
             "name":         sr["module"],
@@ -137,18 +141,19 @@ def block_03_synthetic_inventory(scratch: Path) -> None:
         symbols.extend(items)
 
     now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # KLC-103: the flat symbol list is the ONE canonical inventory.json shape
+    # (core.shared.inventory.CANONICAL_SCHEMA) — structural.json and
+    # depgraph.json stay separate, first-class artifacts (already written by
+    # block_01/block_02) rather than embedded copies here.
     inventory = {
         "generated_at":    now,
         "git_sha":         "smoke",
         "root":            struct["root"],
         "profile":         struct["profile"],
-        "structural":      struct,
-        "depgraph":        dep,
-        "source_of_truth": {"python": "regex_fallback"},
-        "symbols": {
-            "python": {"mode": "detailed", "count": len(symbols), "items": symbols},
-        },
-        "notes": ["smoke-test synthesized inventory"],
+        "source_of_truth": {"python": "regex"},
+        "symbols":         symbols,
+        "errors":          [],
+        "notes":           ["smoke-test synthesized inventory"],
     }
     (scratch / ".klc" / "index" / "inventory.json").write_text(
         json.dumps(inventory, indent=2), encoding="utf-8")

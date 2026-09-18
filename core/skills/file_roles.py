@@ -63,6 +63,7 @@ _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir  # noqa: E402
+from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
 import module_membership as _mm  # noqa: E402
 import test_map as _tm  # noqa: E402  (reuse the one is_test_file convention)
 
@@ -115,7 +116,7 @@ def _keywords(path: str, symbol_names: list[str]) -> list[str]:
 
 def _symbols_by_file(inventory: dict) -> dict[str, list[dict]]:
     by_file: dict[str, list[dict]] = {}
-    for s in inventory.get("symbols") or []:
+    for s in inv_symbols(inventory, source="inventory"):
         f = s.get("file")
         if f:
             by_file.setdefault(f, []).append(s)
@@ -313,9 +314,10 @@ def main(argv: list[str] | None = None) -> int:
             f"{args.in_inventory}\n")
         return 2
     inventory = _load(args.in_inventory)
-    if not isinstance(inventory, dict) or "symbols" not in inventory:
-        sys.stderr.write(
-            f"file-roles: inventory.json malformed at {args.in_inventory}\n")
+    try:
+        inv_symbols(inventory, source=str(args.in_inventory))
+    except InventorySchemaError as exc:
+        sys.stderr.write(f"file-roles: {exc}\n")
         return 2
 
     modules = _load(args.in_modules)

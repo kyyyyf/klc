@@ -60,7 +60,7 @@ def die(msg: str) -> int:
 _INDEXING_AGENTS = (
     ("inventory",
      "core/agents/inventory.md",
-     ".klc/index/inventory.json",
+     ".klc/index/inventory-annotations.json",
      "INVENTORY_OK"),
     ("docgen",
      "core/agents/docgen.md",
@@ -173,7 +173,7 @@ def _validate_modules(index_dir: Path) -> None:
         log(f"  planning_validate skipped ({e})")
 
 
-def _build_planning_views(index_dir: Path) -> None:
+def _build_planning_views(index_dir: Path, *, include_inventory: bool = True) -> None:
     """KLC-070/KLC-071: build the deterministic planning views (inventory, test_map,
     file_roles, module_edges v2, symbol_usage) in dependency order. Degrade-not-fail —
     a builder that errors is logged and skipped, never aborting init.
@@ -186,9 +186,17 @@ def _build_planning_views(index_dir: Path) -> None:
     KLC-074: the module SET is now built by _build_modules (modules_build.py) BEFORE
     this runs, so these views consume the deterministic modules.json via the single
     file_to_module() resolver (KLC-070 D-001 / AC-13 is superseded — the LLM decompose
-    agent no longer decides membership)."""
+    agent no longer decides membership).
+
+    KLC-103 AC-8: ``include_inventory=False`` (used on the POST-agent call in `--auto`
+    mode) skips rebuilding inventory.json — it is the one view independent of
+    modules.json, so rebuilding it here would just be a second write of the same
+    deterministic output. The deterministic builder
+    (core/skills/deterministic_inventory.py) is the SOLE writer of inventory.json on
+    every path (D-103); the inventory LLM agent, when it runs, writes a separate
+    annotation file instead (see core/agents/inventory.md)."""
     skills = FRAMEWORK_ROOT / "core" / "skills"
-    views = (
+    views = [
         ("inventory",    skills / "deterministic_inventory.py",
          ["--out", str(index_dir / "inventory.json")]),
         ("test_map",     skills / "test_map.py",
@@ -201,7 +209,9 @@ def _build_planning_views(index_dir: Path) -> None:
         # KLC-071: symbol_usage depends on inventory + callgraph (degrades to imports).
         ("symbol_usage", skills / "symbol_usage.py",
          ["--out", str(index_dir / "symbol_usage.json")]),
-    )
+    ]
+    if not include_inventory:
+        views = [v for v in views if v[0] != "inventory"]
     for name, script, extra in views:
         try:
             r = subprocess.run([sys.executable, str(script), *extra],
@@ -345,8 +355,11 @@ def main(argv: list[str]) -> int:
             log(f"  [{name}] {trailer} ✓")
         # modules.json was already built deterministically above; re-aggregate
         # reverse edges and rebuild the planning views so they see the module set.
+        # KLC-103 AC-8: inventory is excluded here — it does not depend on
+        # modules.json, so it was already written correctly by the pre-agent call
+        # above and rebuilding it a second time would just repeat that write.
         _aggregate_and_write_module_edges(index_dir)
-        _build_planning_views(index_dir)
+        _build_planning_views(index_dir, include_inventory=False)
         _validate_modules(index_dir)  # LOW-1: after views are refreshed
         log("Step 5/5: recording baseline sha")
         return _finalize(index_dir)

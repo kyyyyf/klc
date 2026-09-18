@@ -1,26 +1,62 @@
-# ast-grep rule: TypeScript/JavaScript exported declarations.
+# ast-grep rule: TypeScript exported declarations.
 #
-# Captures the common forms of module-level exports. Default exports, named
-# re-exports from other modules, and CommonJS `module.exports` are covered.
+# KLC-103: rewritten onto `kind: export_statement` + `has:` so the SAME rule
+# captures the plain, type-annotated, return-type-annotated, generic,
+# `extends`, and `abstract` forms in one clause — the old text-pattern list
+# only matched the plain forms (spec.md Defect 1 / F-103). Anchoring on
+# `export_statement` also delivers AC-4 for free: a declaration nested inside
+# a function/method body is never an `export_statement`, so it cannot match.
+#
+# `export default $EXPR` is a SEPARATE, guarded clause: it must not
+# double-count a named `function_declaration`/`class_declaration` that the
+# first clause's `export_statement` already owns (`export default class Foo
+# {}` is one export_statement whose child IS a class_declaration).
+#
+# Sibling files: exported-symbols-tsx.yaml (language: tsx, same kind list —
+# TSX's grammar is a superset of TS's) and exported-symbols-js.yaml
+# (language: javascript, a NARROWER kind list — plain JS's grammar does not
+# have abstract_class_declaration/interface_declaration/type_alias_declaration/
+# enum_declaration, and ast-grep validates kind names against `language:` at
+# PARSE time, so keeping the full TS kind list under `language: javascript`
+# aborts the WHOLE merged ruleset scan, not just this file — see KLC-103 F-1).
 
 id: ts-exported-symbols
 language: typescript
+metadata:
+  extensions: [".ts"]
 rule:
   any:
-    - pattern: export function $NAME($$$ARGS) { $$$BODY }
-    - pattern: export async function $NAME($$$ARGS) { $$$BODY }
-    - pattern: export class $NAME { $$$BODY }
-    - pattern: export interface $NAME { $$$BODY }
-    - pattern: export type $NAME = $RHS
-    - pattern: export enum $NAME { $$$BODY }
-    - pattern: export const $NAME = $RHS
-    - pattern: export let $NAME = $RHS
-    - pattern: export var $NAME = $RHS
-    - pattern: export default function $NAME($$$ARGS) { $$$BODY }
-    - pattern: export default class $NAME { $$$BODY }
+    - kind: export_statement
+      has:
+        any:
+          - kind: function_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: class_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: abstract_class_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: interface_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: type_alias_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: enum_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: lexical_declaration
+            has:
+              kind: variable_declarator
+              has: {field: name, pattern: $NAME}
+    # `export default React.memo(X)` / `export default 42` — guarded so a
+    # named default declaration is not captured twice (the export_statement
+    # clause above already owns `export default class/function X {}`).
+    - all:
+        - pattern: export default $EXPR
+        - not:
+            has:
+              any:
+                - kind: function_declaration
+                - kind: class_declaration
     - pattern: module.exports.$NAME = $RHS
-    - pattern: module.exports = { $$$FIELDS }
-message: Exported TS/JS declaration
+message: Exported TS declaration
 
 tests:
   valid:
@@ -34,8 +70,27 @@ tests:
       export type ID = string;
     - |
       export default class App {}
+    - |
+      export const TYPED: number = 2;
+    - |
+      export function generic<T>(x: T): T { return x; }
+    - |
+      export class Foo extends Bar {}
+    - |
+      export abstract class Baz {}
+    - |
+      export interface IFoo extends IBar {}
+    - |
+      export enum Color { Red, Green }
+    - |
+      export default React.memo(Comp);
   invalid:
     - |
       function addInternal(a: number, b: number) { return a + b; }
     - |
       class PrivatePoint { x = 0; }
+    - |
+      function notExported() {
+        const local = 1;
+        class LocalCls {}
+      }

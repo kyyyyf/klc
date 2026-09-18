@@ -94,7 +94,7 @@ def run(argv: list[str]) -> int:
 
     if not languages:
         print("[setup] No languages detected, skipping tool setup.")
-        print("[setup] Hint: run `klc init` first to generate inventory.json")
+        print("[setup] Hint: run `klc init` first to generate structural.json")
         return 0
 
     print(f"[setup] Detected languages: {', '.join(sorted(languages))}")

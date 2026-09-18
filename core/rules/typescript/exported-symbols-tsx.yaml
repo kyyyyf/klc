@@ -1,0 +1,68 @@
+# ast-grep rule: TSX exported declarations.
+#
+# KLC-103: sibling of exported-symbols.yaml (language: typescript). `tsx` is
+# a SEPARATE ast-grep language from `typescript` — a `language: typescript`
+# rule never scans a `.tsx` file at all (spec.md Defect 1 / FACT
+# reproduced=2026-09-16). This file exists so `.tsx` gets the SAME coverage
+# `.ts` gets. TSX's grammar is a superset of TS's, so this clone differs from
+# exported-symbols.yaml ONLY in `id:`, `language:` and `metadata.extensions`
+# — the full kind list (including abstract_class_declaration,
+# interface_declaration, type_alias_declaration, enum_declaration) parses and
+# matches correctly under `language: tsx` (verified independently; contrast
+# with exported-symbols-js.yaml, which must NOT carry those TS-only kinds).
+
+id: tsx-exported-symbols
+language: tsx
+metadata:
+  extensions: [".tsx"]
+rule:
+  any:
+    - kind: export_statement
+      has:
+        any:
+          - kind: function_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: class_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: abstract_class_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: interface_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: type_alias_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: enum_declaration
+            has: {field: name, pattern: $NAME}
+          - kind: lexical_declaration
+            has:
+              kind: variable_declarator
+              has: {field: name, pattern: $NAME}
+    - all:
+        - pattern: export default $EXPR
+        - not:
+            has:
+              any:
+                - kind: function_declaration
+                - kind: class_declaration
+    - pattern: module.exports.$NAME = $RHS
+message: Exported TSX declaration
+
+tests:
+  valid:
+    - |
+      export const Comp = () => <div>hi</div>;
+    - |
+      export function Button(): JSX.Element { return <button/>; }
+    - |
+      export default React.memo(Comp);
+    - |
+      export class Widget extends React.Component<Props> {}
+    - |
+      export interface WidgetProps { label: string; }
+    - |
+      export type Handler = (e: Event) => void;
+  invalid:
+    - |
+      function Local() {
+        const x = <span/>;
+        return x;
+      }

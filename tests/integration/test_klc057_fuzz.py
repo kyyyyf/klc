@@ -215,7 +215,17 @@ def _run_one_seed(seed: int, steps: int, nusers: int, tmp_path: Path,
 
     def _run_verb(user: _User, mod, argv: list[str]) -> tuple[int, str]:
         actor["email"] = user.email
-        os.environ["PROJECT_ROOT"] = str(user.root)
+        # KLC-103: use monkeypatch (already in scope), not a raw os.environ
+        # assignment — monkeypatch reverts this at teardown, a bare
+        # os.environ[...] = does not, and this closure runs inside a loop
+        # over many simulated users, so a bare assignment leaves
+        # PROJECT_ROOT pointed at a deleted tmp_path for the rest of the
+        # pytest PROCESS once this test finishes, silently breaking any
+        # later test that resolves paths via PROJECT_ROOT without its own
+        # override (discovered via test_detect_languages_real_key.py /
+        # test_klc103_rule_executor.py intermittently failing only when run
+        # after this test in the full suite).
+        monkeypatch.setenv("PROJECT_ROOT", str(user.root))
         capsys.readouterr()  # clear
         try:
             rc = mod.run(argv)

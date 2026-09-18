@@ -1,0 +1,10 @@
+# Synthetic negative-twin fixture (KLC-103 AC-3): a rule file that declares
+# NO test cases at all. The executor must fail on this — a coverage gap
+# cannot reopen silently.
+id: synthetic-no-cases
+language: python
+metadata:
+  extensions: [".py"]
+rule:
+  pattern: "def $NAME($$$ARGS): $$$BODY"
+message: Synthetic — no declared cases

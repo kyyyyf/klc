@@ -10,9 +10,25 @@
 
 id: cpp-header-symbols
 language: cpp
+metadata:
+  extensions: [".hpp", ".h", ".hxx"]
 rule:
   any:
     - pattern: "class $NAME"
     - pattern: "struct $NAME"
     - pattern: "namespace $NS { $$$BODY }"
 message: Header-visible C++ symbol
+
+tests:
+  valid:
+    - |
+      class Widget { int x; };
+    - |
+      struct Point { int x; int y; };
+    - |
+      namespace app { int value; }
+  invalid:
+    - |
+      int add(int a, int b);
+    - |
+      int total = 0;

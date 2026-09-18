@@ -49,6 +49,7 @@ _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir  # noqa: E402
+from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
 import module_membership as _mm  # noqa: E402
 import test_map as _tm  # noqa: E402  (reuse is_test_file + load_callgraph_dir)
 
@@ -158,7 +159,7 @@ def build_symbol_usage(inventory: dict, modules: dict,
 
     dropped_defs = 0
     symbols_out: dict[str, dict] = {}
-    for s in inventory.get("symbols") or []:
+    for s in inv_symbols(inventory, source="inventory"):
         name = s.get("name")
         defined_in = s.get("file")
         if not name or not defined_in:
@@ -241,9 +242,10 @@ def main(argv: list[str] | None = None) -> int:
             f"{args.in_inventory}\n")
         return 2
     inventory = _load(args.in_inventory)
-    if not isinstance(inventory, dict) or "symbols" not in inventory:
-        sys.stderr.write(
-            f"symbol-usage: inventory.json malformed at {args.in_inventory}\n")
+    try:
+        inv_symbols(inventory, source=str(args.in_inventory))
+    except InventorySchemaError as exc:
+        sys.stderr.write(f"symbol-usage: {exc}\n")
         return 2
 
     modules = _load(args.in_modules)
