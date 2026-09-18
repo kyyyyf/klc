@@ -730,9 +730,18 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
     the probe path the AC-coverage arm runs only the STATIC classification and
     spawns NO pytest (KLC-095 FIX-2) — a per-prompt probe must not execute the
     ticket's tests. The completability decision is otherwise identical.
+
+    review-fix (HIGH): the AC-coverage / Evidence / step-verify arms below
+    share ONE `verify.arm_budget_seconds` deadline (`_verify_deadline`,
+    computed once here) instead of each independently computing its own —
+    so the total ack ceiling really is one arm budget, not up to three.
     """
     import re as _re
+    import time as _time
     import tdd_order as _tdd_order
+    import settings as _settings
+
+    _verify_deadline = _time.monotonic() + _settings.verify_arm_budget()
 
     ticket_dir = klc_ticket_meta_file(ticket).parent
     build_log_path = ticket_dir / "build-log.md"
@@ -783,7 +792,7 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
         track = (_lc.read_meta_ro(ticket) or {}).get("track", "")
         # run_tests=persist: the scoped pytest runs only on the real ack path; the
         # read-only probe does the static classification with no pytest (FIX-2).
-        rep = _acov.check(ticket, track, repo, run_tests=persist)
+        rep = _acov.check(ticket, track, repo, run_tests=persist, deadline=_verify_deadline)
         if rep.block_reason:
             return False, f"AC coverage: {rep.block_reason}"
         _acov_records = _acov.advisory_records(rep)
@@ -797,7 +806,52 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
                                       f"{type(e).__name__} (AC coverage unverified)"),
                           "ref": ""}]
 
-    _sources = [("ac-coverage", _acov_records)]
+    # KLC-115: the per-AC Evidence gate — an ADDITIONAL arm alongside the
+    # legacy KLC-038 heading+fence check above (never a replacement of it):
+    # every spec_saoc-parsed AC needs a well-formed entry (AC-4/AC-18), and an
+    # entry claiming pass whose re-executed command exits non-zero blocks
+    # (AC-6); an inability to observe (a budget overrun, a launch error, an
+    # exhausted arm budget) SURFACES on every track and never blocks (D-204).
+    # `run_commands=persist`: the real ack path re-executes; the read-only
+    # probe (persist=False) does only the structural per-AC check (AC-5).
+    _evidence_records: list[dict] = []
+    try:
+        import evidence_gate as _evg
+        _erep = _evg.check_evidence(ticket, track, repo, run_commands=persist,
+                                    deadline=_verify_deadline)
+        if _erep.block_reason:
+            return False, f"Evidence: {_erep.block_reason}"
+        _evidence_records = _evg.advisory_records(_erep)
+    except Exception as e:
+        # degrade-not-fail (AC-16): a surprise here is never a silent pass —
+        # it surfaces as a visible advisory naming the reason.
+        _evidence_records = [{"source": "verify", "severity": "medium",
+                              "code": "verify.degraded",
+                              "message": (f"evidence: check did not run — "
+                                          f"{type(e).__name__} (verification unverified)"),
+                              "ref": ""}]
+
+    # KLC-115: re-execute each impl-plan step's VERIFY command and compare the
+    # ISOLATED Expected outcome token (AC-8/AC-9). Unlike the Evidence arm, an
+    # unlaunchable VERIFY blocks on M/L too (D-205) — it is a defect in the
+    # plan text the author controls, not a property of the suite.
+    _stepverify_records: list[dict] = []
+    try:
+        import step_verify as _sv
+        _srep = _sv.check_steps(ticket, track, repo, run_commands=persist,
+                                deadline=_verify_deadline)
+        if _srep.block_reason:
+            return False, f"step-verify: {_srep.block_reason}"
+        _stepverify_records = _sv.advisory_records(_srep)
+    except Exception as e:
+        _stepverify_records = [{"source": "verify", "severity": "medium",
+                                "code": "verify.degraded",
+                                "message": (f"step-verify: check did not run — "
+                                            f"{type(e).__name__} (verification unverified)"),
+                                "ref": ""}]
+
+    _sources = [("ac-coverage", _acov_records), ("verify", _evidence_records),
+               ("verify", _stepverify_records)]
     _records, _summary = _adv.finish(ticket, "build", _sources, persist)
     return True, _summary
 

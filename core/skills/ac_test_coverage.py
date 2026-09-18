@@ -68,6 +68,7 @@ import ast
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -82,6 +83,8 @@ for _p in (str(_project_root), str(_file_dir)):
 
 import spec_saoc as _saoc  # noqa: E402
 import testplan_review as _tpr  # noqa: E402
+import settings  # noqa: E402  (KLC-115: verify.node_budget_seconds / verify.arm_budget_seconds)
+import verify_runner  # noqa: E402  (KLC-115: the bounded, language-agnostic runner)
 
 # Reuse the SAME AC-id class the plan review anchors on — no second parser (C-001).
 _AC_ID_RE = _tpr._AC_ID_RE  # AC-\d+
@@ -98,6 +101,13 @@ COVERED = "covered"
 DRIFT = "drift"
 WEAK = "weak"
 MISS = "miss"
+UNVERIFIED = "unverified"        # KLC-115 D-201: the gate could not observe
+
+# D-201: only these reasons mean "the gate could not observe" — `skipped` and
+# `uncollected` are DEFINITE negative observations and keep today's WEAK
+# treatment, so a skipped test still cannot evade the gate (F-104).
+_INCONCLUSIVE = frozenset({"slow", "arm-budget-exhausted",
+                          "launch-error", "runner-unavailable"})
 
 
 def _ac_num(ac_id: str) -> str:
@@ -368,34 +378,20 @@ def build_map(spec_text: str, test_plan_text: str, tests_root,
 # The "test exists + passes" mechanism (C-005 / Q-002): a SCOPED pytest run.
 # ---------------------------------------------------------------------------
 
-def _verify_passing(node_ids, repo=None, tests_root=None) -> dict[str, bool]:
-    """Confirm each node-id is collected AND passing, SCOPED to those node-ids.
-
-    Mechanism (Q-002): a targeted `pytest` over ONLY the given node-ids — a
-    `--collect-only` pass proves existence (catches import/syntax breakage), then a
-    scoped run proves passing. It NEVER targets the whole suite (C-005). Returns
-    `{node_id: passing_bool}`. Degrade-not-fail: any pytest-invocation surprise
-    returns `{}` so the caller SURFACES rather than crashes/blocks.
-    """
-    node_ids = list(dict.fromkeys(n for n in node_ids if n))
-    if not node_ids:
-        return {}
+def _collect_existing(node_ids, repo, tests_root) -> set[str]:
+    """The existence floor, isolated PER FILE (extracted unchanged from the
+    original `_verify_passing`, F-103): a single unresolvable node-id aborts a
+    whole pytest selection with "not found", so collecting the batch as one
+    selection would let one bad id mark EVERY passing test not-passing.
+    Collecting a FILE never fails on a bad node-id, so each requested node-id
+    is resolved against its own file's collection; an unresolvable id then
+    affects only itself (Codex MEDIUM fix)."""
     cwd = None
     if repo is not None:
         cwd = str(repo)
     elif tests_root is not None:
         cwd = str(Path(tests_root).parent)
     base = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider"]
-
-    # Existence floor, isolated PER FILE. A single unresolvable node-id (e.g. a
-    # `test_`-named method in a non-`Test*` class, or an import-skipped module)
-    # aborts a whole pytest selection with "not found" — so collecting the batch
-    # as one selection would let one bad id mark EVERY passing test not-passing.
-    # Collecting a FILE never fails on a bad node-id, so we resolve each requested
-    # node-id against its own file's collection; an unresolvable id then affects
-    # only itself (it is simply absent from `collected` → not passing) and never
-    # poisons the sibling ACs (Codex MEDIUM fix). Still scoped to the ticket's own
-    # test files, never the whole suite (C-005).
     by_file: dict[str, list[str]] = {}
     for n in node_ids:
         by_file.setdefault(n.split("::", 1)[0], []).append(n)
@@ -408,37 +404,21 @@ def _verify_passing(node_ids, repo=None, tests_root=None) -> dict[str, bool]:
             continue  # pytest unavailable / file surprise → those nodes stay unconfirmed
         col_out = (col.stdout or "") + (col.stderr or "")
         collected.update(n for n in nodes if n in col_out)
+    return collected
 
-    if not collected:
-        return {n: False for n in node_ids}
 
-    # Scoped run for pass/fail over ONLY the resolvable node-ids (never the whole
-    # suite, and never the unresolvable ids that would abort the selection). `-v`
-    # prints one `<node-id> <OUTCOME>` line per test, so a node counts as passing
-    # ONLY when it genuinely PASSED — a SKIPPED/XFAIL/FAILED/ERROR result is NOT
-    # passing (FIX-3: a skip must not evade the gate). Outcomes are attributed by
-    # EXACT node-id token, so a FAILED `::test_ac1_extra` never mis-marks the
-    # passing `::test_ac1` via substring (FIX-5).
-    scoped = sorted(collected)
-    try:
-        run = subprocess.run(base + scoped + ["--tb=no", "-v"],
-                             capture_output=True, text=True, cwd=cwd, timeout=300)
-    except Exception:
-        # Collect-only floor stands: existence proven, passing unconfirmed → not
-        # counted as passing (degrade to WEAK at the caller) rather than raising.
-        return {n: False for n in node_ids}
-    run_out = (run.stdout or "") + (run.stderr or "")
-    # Aggregate outcomes PER BASE NODE across all its parametrised variants AND
-    # phases (setup/call/teardown). A base node counts as passing ONLY IF it has at
-    # least one genuine PASSED and ZERO FAILED/ERROR among its matching lines — so a
-    # partially-failing parametrized test (`[caseA] PASSED` + `[caseB] FAILED`), or
-    # a `PASSED` call with an `ERROR` teardown, is NOT counted covered (Codex P2). A
-    # SKIPPED/XFAIL variant alongside real passes is fine; a skip with NO real pass
-    # is still not-passing (FIX-3 intact). Lines come in two shapes — the `-v`
-    # progress line `<nodeid> <OUTCOME>` and the summary line `<OUTCOME> <nodeid>` —
-    # so we accept the outcome token from either position.
+def _attribute_outcomes(run_out: str, nodes) -> tuple[set[str], set[str]]:
+    """The EXISTING FIX-3/FIX-5/FIX-B attribution loop (F-103), extracted out
+    of `_verify_passing` UNCHANGED so both the boolean path (`_verify_passing`)
+    and the tri-state path (`_verify_nodes`) read ONE parser (D-201). Returns
+    (passed_any, bad_any): a `-v` progress line `<nodeid> <OUTCOME>` or a
+    summary line `<OUTCOME> <nodeid>` is located by its outcome TOKEN, the
+    node-id is reconstructed around it, and a parametrised variant
+    `node[param]` attributes to its base node. SKIPPED and XFAIL add to
+    NEITHER set, which is exactly why a skip is not a pass (FIX-3)."""
     passed_any: set[str] = set()
     bad_any: set[str] = set()
+    node_set = set(nodes)
     for line in run_out.splitlines():
         tokens = line.split()
         # A parametrised node-id may contain SPACES (`test_ac1[case one]`), so we
@@ -458,7 +438,7 @@ def _verify_passing(node_ids, repo=None, tests_root=None) -> dict[str, bool]:
             nid = " ".join(tokens[:oc_idx])
         if not nid:
             continue
-        for n in collected:
+        for n in node_set:
             # Exact node-id, or one of its parametrised variants (`node[param]`).
             if nid == n or nid.startswith(n + "["):
                 if outcome == "PASSED":
@@ -466,7 +446,96 @@ def _verify_passing(node_ids, repo=None, tests_root=None) -> dict[str, bool]:
                 elif outcome in ("FAILED", "ERROR"):
                     bad_any.add(n)
                 break  # a line attributes to exactly one base node
-    return {n: (n in passed_any and n not in bad_any) for n in node_ids}
+    return passed_any, bad_any
+
+
+def _verify_nodes(node_ids, repo=None, tests_root=None,
+                  deadline: float | None = None) -> dict[str, tuple[str, str]]:
+    """One pytest invocation PER NODE under `verify.node_budget_seconds`
+    (D-006), so a node that exceeds its budget can never mark a sibling
+    not-passing — replacing the single batched run with its hardcoded
+    `timeout=300` (F-102, the KLC-105 defect this ticket exists to close).
+    Returns `{node_id: (state, reason)}` with `state` in
+    `{pass, fail, unverified}` (`verify_runner.PASSED/FAILED/UNVERIFIED`).
+
+    review-fix (HIGH, AC-10/AC-11/AC-12): *deadline* is a `time.monotonic()`
+    value shared across the WHOLE verification arm for one ack (evidence_gate,
+    step_verify AND this module) — created ONCE at the top of
+    `can_complete_build` and threaded down — so the total ack ceiling is one
+    `verify.arm_budget_seconds`, not one per call. A caller that has no shared
+    deadline (a standalone/test call) still gets one computed here, same as
+    before.
+    """
+    node_ids = list(dict.fromkeys(n for n in node_ids if n))
+    if not node_ids:
+        return {}
+    collected = _collect_existing(node_ids, repo, tests_root)   # existence floor, unchanged
+    cwd = None
+    if repo is not None:
+        cwd = str(repo)
+    elif tests_root is not None:
+        cwd = str(Path(tests_root).parent)
+    budget = settings.verify_node_budget()
+    if deadline is None:
+        deadline = time.monotonic() + settings.verify_arm_budget()
+    base = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider"]
+    out: dict[str, tuple[str, str]] = {}
+    for node in node_ids:
+        if node not in collected:
+            out[node] = (verify_runner.UNVERIFIED, "uncollected")   # weak, as today (D-201)
+            continue
+        if time.monotonic() >= deadline:
+            out[node] = (verify_runner.UNVERIFIED, "arm-budget-exhausted")
+            continue
+        cmd = base + [node, "--tb=no", "-v"]
+        v = verify_runner.run(cmd, budget_s=budget, cwd=cwd)
+        if v.state == verify_runner.UNVERIFIED:
+            reason = ("slow" if v.reason == verify_runner.BUDGET_EXCEEDED
+                     else v.reason)                                # AC-11
+            out[node] = (verify_runner.UNVERIFIED, reason)
+            continue
+        # The command ran. AC-19 keeps the RUNNER on exit status alone, but
+        # pytest exits 0 for an all-skipped node, so the pytest-aware layer
+        # (the one C-007 permits) attributes the real outcome from the -v
+        # lines, through the SAME parser `_verify_passing` uses (D-201).
+        passed, bad = _attribute_outcomes(v.output, [node])
+        if node in bad:
+            out[node] = (verify_runner.FAILED, "")
+        elif node in passed:
+            out[node] = (verify_runner.PASSED, "")
+        else:
+            out[node] = (verify_runner.UNVERIFIED, "skipped")      # F-1: never a pass
+    return out
+
+
+def _verify_passing(node_ids, repo=None, tests_root=None, deadline: float | None = None,
+                    cache: dict | None = None) -> dict[str, bool]:
+    """Confirm each node-id is collected AND passing, SCOPED to those node-ids.
+
+    Boolean adapter kept for this module's own callers/tests (D-201): a
+    skipped node lands `UNVERIFIED`, so this still returns `False` for it and
+    `test_verify_passing_skip_is_not_passing` keeps asserting exactly what it
+    asserts today, against the same parser. Degrade-not-fail: any
+    pytest-invocation surprise degrades to `False` (never counted as passing).
+
+    review-fix (HIGH, AC-10/AC-11/AC-12): when *cache* is given, it is
+    populated (mutated in place) with the FULL `{node: (state, reason)}` map
+    `_verify_nodes` computed — so a caller (`_evaluate`) that also needs the
+    REASON for a not-passing node reads it from *cache* instead of calling
+    `_verify_nodes` a second time, which would re-execute the same node via a
+    second real pytest subprocess.
+    """
+    try:
+        states = _verify_nodes(node_ids, repo, tests_root, deadline=deadline)
+    except Exception:
+        result = {n: False for n in dict.fromkeys(n for n in node_ids if n)}
+        if cache is not None:
+            cache.update({n: (verify_runner.UNVERIFIED, "runner-unavailable")
+                         for n in result})
+        return result
+    if cache is not None:
+        cache.update(states)
+    return {n: (st == verify_runner.PASSED) for n, (st, _reason) in states.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +689,8 @@ def _path_allows(node_file: str, allowed: set[str]) -> bool:
     return False
 
 
-def _evaluate(ticket, report, mode, spec_text, tp_text, repo, run_tests) -> Report:
+def _evaluate(ticket, report, mode, spec_text, tp_text, repo, run_tests,
+              deadline: float | None = None) -> Report:
     _acs = _saoc.parse_acs(spec_text)
     ac_ids = [ac.id for ac in _acs]
     # FIX-A (Codex P2, false-block): a malformed SAOC AC still parses via parse_acs, but
@@ -656,9 +726,17 @@ def _evaluate(ticket, report, mode, spec_text, tp_text, repo, run_tests) -> Repo
     # must never execute the ticket's tests. When tests aren't run, a referencing
     # test is taken at face value (covered); the ack path then confirms it passes.
     passing: dict[str, bool] = {}
+    # review-fix (HIGH, AC-10/AC-11/AC-12): _node_states caches EVERY node's
+    # (state, reason) from this ONE _verify_nodes invocation (inside
+    # _verify_passing below) — the per-AC loop further down reads this cache
+    # instead of calling _verify_nodes again, so a node shared by multiple ACs
+    # is executed via a real pytest subprocess at most ONCE per ack, not once
+    # per referencing AC.
+    _node_states: dict[str, tuple[str, str]] = {}
     if run_tests and all_nodes:
         try:
-            passing = _verify_passing(all_nodes, repo, _troot) or {}
+            passing = _verify_passing(all_nodes, repo, _troot, deadline=deadline,
+                                      cache=_node_states) or {}
         except Exception:
             passing = {}  # pytest surprise → nodes unconfirmed → degrade to WEAK/surface
 
@@ -683,12 +761,47 @@ def _evaluate(ticket, report, mode, spec_text, tp_text, repo, run_tests) -> Repo
         _allowed_paths = set(ac_plan_files) | _changed_paths
         nodes = [n for n in implemented.get(ac, [])
                  if _path_allows(n.split("::", 1)[0], _allowed_paths)]
-        is_covered = bool(nodes) if not run_tests else any(passing.get(n) for n in nodes)
-        if is_covered:
-            continue  # covered: a referencing test exists (and passes, on the ack path)
-        if nodes:
-            _record(report, mode, ac, WEAK, deferred, False)
-            continue
+        if not run_tests:
+            if nodes:
+                continue  # covered (static classification, unchanged)
+        else:
+            if any(passing.get(n) for n in nodes):
+                continue  # covered: a referencing test exists and genuinely passed
+            if nodes:
+                # KLC-115 D-201: re-probe only THIS AC's own not-passing nodes
+                # for their REASON (bounded — never the whole ticket's node set
+                # again, and never called at all when `passing` already found a
+                # pass). A definite negative observation (a real fail, or a
+                # definite skip/uncollected) is WEAK, exactly as today —
+                # `skipped`/`uncollected` are NOT excusable, so a skip still
+                # cannot evade the gate (F-104). Only when EVERY node's result
+                # is inconclusive (the gate could not observe at all) is the AC
+                # reported `unverified: <reason>` instead (AC-11) — never
+                # silently dropped, and excluded from the weak/drift/miss
+                # population that today's false-WEAK defect poisoned.
+                #
+                # review-fix (HIGH, AC-10/AC-11/AC-12): read the REASON from
+                # `_node_states` — already computed once, above, for every
+                # node in `all_nodes` — instead of calling `_verify_nodes`
+                # again. A node shared by N acceptance criteria was previously
+                # re-executed via a real pytest subprocess up to N+1 times.
+                reasons = _node_states
+                states = [reasons.get(n, (verify_runner.UNVERIFIED, "runner-unavailable"))
+                         for n in nodes]
+                definite_negative = any(
+                    st == verify_runner.FAILED
+                    or (st == verify_runner.UNVERIFIED and r not in _INCONCLUSIVE)
+                    for st, r in states)
+                if definite_negative:
+                    _record(report, mode, ac, WEAK, deferred, False)
+                else:
+                    reason = next((r for st, r in states
+                                  if st == verify_runner.UNVERIFIED), "runner-unavailable")
+                    report.findings.append(Finding(
+                        ac, UNVERIFIED, SURFACE,
+                        f"{ac}: unverified: {reason} — the referencing test could "
+                        f"not be observed, not a coverage miss"))
+                continue
         # No referencing test in ANY candidate (plan OR git-changed). A BLOCK must be
         # SUBSTANTIATED by the plan alone (git is additive, never a block basis): at
         # least one of this AC's PLAN-declared files must have been successfully
@@ -708,7 +821,7 @@ def _evaluate(ticket, report, mode, spec_text, tp_text, repo, run_tests) -> Repo
 
 
 def check(ticket: str, track: str, repo: Path | None = None, *,
-          run_tests: bool = True) -> Report:
+          run_tests: bool = True, deadline: float | None = None) -> Report:
     """Run the AC→implemented-test coverage check for *ticket* at *track*.
 
     Track-scaled (C-004): XS skips, S surfaces, M/L block on an objective miss.
@@ -718,6 +831,12 @@ def check(ticket: str, track: str, repo: Path | None = None, *,
     *run_tests* gates the scoped pytest verification: the real ack path passes True;
     a read-only probe passes False so it does only the static classification and
     spawns no pytest (FIX-2 — a per-prompt probe must not execute the ticket's tests).
+
+    *deadline* (review-fix, HIGH, AC-10/AC-11/AC-12): a `time.monotonic()` value
+    shared across the whole verification arm for one ack (this module,
+    `evidence_gate`, `step_verify`) — passed down from `can_complete_build` so
+    the total ack ceiling is one `verify.arm_budget_seconds`, not one per arm.
+    `None` (the default, e.g. a standalone/test call) computes a fresh one.
     """
     report = Report(track=(track or "").strip().upper() or "?")
     if _active(track) == "skip":
@@ -739,7 +858,8 @@ def check(ticket: str, track: str, repo: Path | None = None, *,
         return _degraded(report, "test-plan.md is absent or empty — AC coverage check degraded")
 
     try:
-        return _evaluate(ticket, report, mode, spec_text, tp_text, repo, run_tests)
+        return _evaluate(ticket, report, mode, spec_text, tp_text, repo, run_tests,
+                         deadline=deadline)
     except Exception as exc:  # defensive: a surprise never blocks the build ack
         return _degraded(report, f"AC coverage check degraded ({exc!r})")
 

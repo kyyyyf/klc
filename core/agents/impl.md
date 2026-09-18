@@ -223,29 +223,31 @@ TDD-loop isn't valid once the upstream assumption cracked.
 ## Evidence block (required before IMPL_ALL_GREEN)
 
 Before emitting `IMPL_ALL_GREEN`, append an `## Evidence` section to
-`build-log.md`.  For each acceptance check run during the build, paste a
-fenced block containing the command and its actual output:
+`build-log.md` with ONE entry per acceptance criterion in spec.md. An entry
+is a heading (or line) naming its AC id(s), an optional `verdict:` line, and
+a fenced block holding the command (a `$ ` line) and its real pasted output:
 
 ````markdown
 ## Evidence
+
+### AC-1, AC-2 — the parser extracts one entry per criterion
 
 ```
 $ python3 -m pytest tests/integration/test_build_evidence_gate.py -q
 5 passed in 0.04s
 ```
-
-```
-$ grep -rn "Evidence" core/agents/impl.md
-<actual grep output here>
-```
 ````
 
 Rules:
-- At least one non-empty fenced block must appear under `## Evidence`.
-- An empty fence (` ``` ``` `) does not satisfy the requirement.
+- Every AC parsed from spec.md needs an entry, or `klc ack` BLOCKS on M/L.
+  One entry may cover several ids.
+- No `verdict:` line means pass. Use `verdict: deferred(<reason>)` with a
+  non-empty reason when a check could not run.
+- `klc ack` RE-EXECUTES each entry's command under `verify.entry_budget_seconds`.
+  A non-zero exit BLOCKS. A budget overrun or launch error is reported
+  `unverified` with the reason named — it SURFACES on every track; it is
+  neither a pass nor a claim your tests failed.
 - Paste real output — do not fabricate or summarise.
-- The `klc ack <KEY>` gate reads this section and blocks if it is absent
-  or contains no non-empty fenced block.
 
 ## Completion signal
 

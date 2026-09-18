@@ -29,6 +29,15 @@ sys.path.insert(0, str(_project_root))
 from core.shared.paths import klc_ticket_dir, klc_ticket_meta_file, klc_tickets_dir  # noqa: E402
 import phases as _phases  # noqa: E402
 import provenance as _provenance  # noqa: E402  (KLC-116: the companion-rule gate)
+import items_verify as _items_verify  # noqa: E402  (KLC-115: the FACT-source rule)
+
+
+def _repo_root() -> Path:
+    try:
+        from core.shared.paths import project_root
+        return project_root()
+    except Exception:                                  # noqa: BLE001
+        return _project_root
 
 
 def _load_meta(ticket: str) -> dict | None:
@@ -65,7 +74,7 @@ def _run_items_validate(ticket: str) -> tuple[int, str]:
     return r.returncode, (r.stderr or r.stdout)
 
 
-def check_ticket(ticket: str) -> list[str]:
+def check_ticket(ticket: str, warnings: list[str] | None = None) -> list[str]:
     errs: list[str] = []
     meta = _load_meta(ticket)
     if meta is None:
@@ -100,6 +109,38 @@ def check_ticket(ticket: str) -> list[str]:
     except Exception:                                  # noqa: BLE001
         pass
 
+    # KLC-115 (AC-13, D-203): a FACT in spec.md, design/options.md or
+    # impl-plan.md whose src does not name an existing project code or config
+    # file. Graduated: blocks only for an evidence=read opt-in or a ticket
+    # created on/after FACT_SOURCE_RULE_EPOCH; everything else WARNS — a
+    # separate channel `cmd_check` prints without touching the exit code
+    # (D-206), so no in-flight ticket is broken by this rule landing. Scoped
+    # to the three named artefacts by EXACT ticket-relative path, which is
+    # what keeps a `_superseded/` snapshot out of scope (A-005) with no extra
+    # filtering — its relative path never equals one of the three names.
+    try:
+        tdir = klc_ticket_dir(ticket)
+        for item in _items_verify.iter_facts(tdir):
+            if item.type != "FACT":
+                continue
+            try:
+                rel = str(item.file.relative_to(tdir)).replace("\\", "/")
+            except ValueError:
+                continue
+            if rel not in _items_verify.FACT_SOURCE_ARTIFACTS:
+                continue
+            kind = _items_verify.src_kind(item.attrs.get("src", ""), _repo_root())
+            if kind == "code":
+                continue
+            line = (f"{ticket}: {item.id} in {rel}: src must name a project "
+                    f"code or config file ({kind})")
+            if _items_verify.fact_source_enforced(item, meta):
+                errs.append(line)
+            elif warnings is not None:
+                warnings.append(line + " — warned only, predates FACT_SOURCE_RULE_EPOCH")
+    except Exception as exc:                            # noqa: BLE001
+        print(f"fact-source: check did not run — {type(exc).__name__} (degraded)")
+
     snap = meta.get("pre_merge_snapshot")
     if snap:
         now = _hash_artefacts(ticket)
@@ -120,7 +161,10 @@ def cmd_check(args: argparse.Namespace) -> int:
                    if p.is_dir() and p.name != "archive"]
     failures = 0
     for t in targets:
-        errs = check_ticket(t)
+        warnings: list[str] = []
+        errs = check_ticket(t, warnings=warnings)
+        for w in warnings:
+            sys.stderr.write(f"WARN {w}\n")
         if errs:
             failures += 1
             for e in errs:

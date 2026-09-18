@@ -240,10 +240,15 @@ def _setup_check(monkeypatch, tmp_path, spec, tp, files=None, passing=True, meta
     # AVAILABLE (empty set, not None): candidates then come purely from the plan.
     monkeypatch.setattr(acov, "_changed_test_files", lambda repo=None: set())
 
-    def fake_verify(node_ids, repo=None, tests_root=None):
+    def fake_verify(node_ids, repo=None, tests_root=None, deadline=None, cache=None):
         if isinstance(passing, dict):
-            return {n: passing.get(n, False) for n in node_ids}
-        return {n: bool(passing) for n in node_ids}
+            result = {n: passing.get(n, False) for n in node_ids}
+        else:
+            result = {n: bool(passing) for n in node_ids}
+        if cache is not None:
+            cache.update({n: (acov.verify_runner.PASSED if v else acov.verify_runner.FAILED, "")
+                         for n, v in result.items()})
+        return result
 
     monkeypatch.setattr(acov, "_verify_passing", fake_verify)
     return root
@@ -733,6 +738,13 @@ def _make_full_build_ticket(tmp_path, ticket, track, spec, test_plan, meta_extra
         "track": track,
         "estimate": {"complexity": 1, "uncertainty": 0, "risk": 0, "manual": 0, "total": 1},
         "affected_modules": ["core/skills"], "layer": "code",
+        # KLC-115 [!DECISION D-301]: `_BUILD_LOG` is a generic, non-per-AC
+        # Evidence block (no AC id anywhere) — this file's own tests are
+        # about ac_test_coverage's block/override/degrade behaviour, not
+        # about the new per-AC Evidence gate, so that gate is waived here
+        # rather than re-executing (or blocking on) a fixture it was never
+        # meant to exercise.
+        "deferred_verify_evidence": True,
     }
     meta.update(meta_extra or {})
     (ticket_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
@@ -840,8 +852,10 @@ def test_probe_persist_false_runs_no_pytest(tmp_path, monkeypatch):
 
     calls = []
 
-    def rec(node_ids, repo=None, tests_root=None):
+    def rec(node_ids, repo=None, tests_root=None, deadline=None, cache=None):
         calls.append(list(node_ids))
+        if cache is not None:
+            cache.update({n: (acov.verify_runner.PASSED, "") for n in node_ids})
         return {n: True for n in node_ids}
 
     monkeypatch.setattr(acov, "_verify_passing", rec)
@@ -932,3 +946,102 @@ def test_check_honors_repo_override_for_bare_test_path(tmp_path, monkeypatch):
         "the bare plan location under the override repo/tests must be scanned → covered",
         [f.__dict__ for f in rep.findings])
     assert not any(f.ac_id == "AC-1" for f in rep.findings), rep.findings
+
+
+def test_shared_slow_node_referenced_by_two_acs_runs_only_once(tmp_path, monkeypatch):
+    """review-fix (HIGH, AC-10/AC-11/AC-12): a node shared by TWO acceptance
+    criteria must be executed via a real pytest subprocess AT MOST ONCE per
+    ack, never once per referencing AC. Before the fix, `_evaluate` called
+    `_verify_passing` once for ALL nodes (spawning the node once) and then
+    `_verify_nodes` AGAIN for every not-yet-passing AC's own nodes to recover
+    the reason it had just discarded — so a node shared by N ACs could be
+    re-executed up to N+1 times."""
+    root = tmp_path / "tests"
+    root.mkdir()
+    # One test function whose body mentions BOTH AC-1 and AC-2, and fails —
+    # so both ACs go through the "not passing" reason-recovery branch.
+    _write(root, "test_shared.py",
+          "def test_shared_ac():\n"
+          "    '''covers AC-1 and AC-2'''\n"
+          "    assert False\n")
+    monkeypatch.setattr(acov, "_tests_root", lambda: root)
+    monkeypatch.setattr(acov, "_load_texts",
+                        lambda t: (_spec("AC-1", "AC-2"),
+                                   _test_plan(("AC-1", "tests/test_shared.py::test_shared_ac"),
+                                              ("AC-2", "tests/test_shared.py::test_shared_ac"))))
+    monkeypatch.setattr(acov, "_changed_test_files", lambda repo=None: set())
+    monkeypatch.setattr(acov, "_read_meta_ro", lambda t: {})
+
+    node_run_calls = []
+    real_run = acov.verify_runner.run
+
+    def counting_run(command, **kwargs):
+        node_run_calls.append(command)
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(acov.verify_runner, "run", counting_run)
+
+    rep = acov.check("KLC-XXX", "M")
+
+    states = {f.ac_id: f.state for f in rep.findings}
+    assert states.get("AC-1") == acov.WEAK, states
+    assert states.get("AC-2") == acov.WEAK, states
+    assert len(node_run_calls) == 1, (
+        f"the shared node was executed {len(node_run_calls)} times, expected 1: "
+        f"{node_run_calls}")
+
+
+def test_can_complete_build_shares_one_verify_arm_deadline_across_all_three_checks(
+        tmp_path, monkeypatch):
+    """review-fix (HIGH, AC-10/AC-11/AC-12): `can_complete_build` must compute
+    ONE shared `verify.arm_budget_seconds` deadline and pass the SAME value to
+    ac_test_coverage.check, evidence_gate.check_evidence and
+    step_verify.check_steps — not let each independently compute its own
+    fresh deadline, which would make the total ack ceiling three arm-budgets
+    instead of one."""
+    from core.skills.phase_completion import can_complete_build
+    import evidence_gate as _evg_mod
+    import step_verify as _sv_mod
+
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    root = tmp_path / "tests"
+    _write(root, "test_x.py", "def test_ac1_x():\n    assert True\n")
+    monkeypatch.setattr(acov, "_tests_root", lambda: root)
+    monkeypatch.setattr(acov, "_changed_test_files", lambda repo=None: set())
+    _make_full_build_ticket(tmp_path, "KLC-CBSHARE", "M", _spec("AC-1"),
+                            _test_plan(("AC-1", "tests/test_x.py::test_ac1_x")))
+
+    seen_deadlines: dict[str, object] = {}
+
+    real_acov_check = acov.check
+
+    def spy_acov_check(*a, **k):
+        seen_deadlines["ac-coverage"] = k.get("deadline")
+        return real_acov_check(*a, **k)
+
+    monkeypatch.setattr(acov, "check", spy_acov_check)
+
+    real_check_evidence = _evg_mod.check_evidence
+
+    def spy_check_evidence(*a, **k):
+        seen_deadlines["evidence"] = k.get("deadline")
+        return real_check_evidence(*a, **k)
+
+    monkeypatch.setattr(_evg_mod, "check_evidence", spy_check_evidence)
+
+    real_check_steps = _sv_mod.check_steps
+
+    def spy_check_steps(*a, **k):
+        seen_deadlines["step-verify"] = k.get("deadline")
+        return real_check_steps(*a, **k)
+
+    monkeypatch.setattr(_sv_mod, "check_steps", spy_check_steps)
+
+    ok, msg = can_complete_build("KLC-CBSHARE")
+    assert ok, msg
+    assert set(seen_deadlines) == {"ac-coverage", "evidence", "step-verify"}, seen_deadlines
+    assert all(v is not None for v in seen_deadlines.values()), (
+        f"every arm must receive an explicit shared deadline: {seen_deadlines}")
+    assert len(set(seen_deadlines.values())) == 1, (
+        f"each arm received a DIFFERENT deadline, expected one shared value: "
+        f"{seen_deadlines}")

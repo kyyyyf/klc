@@ -43,6 +43,8 @@ def _seed_ticket(tmp_path: Path, ticket: str) -> None:
     (tdir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     (tdir / "build-log.md").write_text(
         "# build log\n\n## Evidence\n\n```\n$ true\nok\n```\n", encoding="utf-8")
+    (tdir / "impl-plan.md").write_text(
+        f"# Implementation plan — {ticket}\n", encoding="utf-8")
 
 
 def test_klc105_build_ack_note_shrinks_to_cap_with_all_12_records_present(tmp_path, monkeypatch):

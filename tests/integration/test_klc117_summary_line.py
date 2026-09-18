@@ -42,6 +42,8 @@ def test_empty_advisory_result_when_no_producer_emits(tmp_path, monkeypatch):
     (tdir / "build-log.md").write_text(
         "# build log\n\n## Evidence\n\n```\n$ true\nok\n```\n", encoding="utf-8")
     (tdir / "meta.json").write_text('{"ticket": "KLC-EMPTY", "track": "M"}', encoding="utf-8")
+    (tdir / "impl-plan.md").write_text(
+        "# Implementation plan — KLC-EMPTY\n", encoding="utf-8")
 
     monkeypatch.setattr(_pc, "_impl_plan_steps", lambda d: [])
     monkeypatch.setattr(acov, "check", lambda *a, **k: acov.Report(track="M"))

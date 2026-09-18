@@ -23,7 +23,6 @@
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -33,6 +32,7 @@ _SKILLS = Path(__file__).resolve().parent
 if str(_SKILLS) not in sys.path:
     sys.path.insert(0, str(_SKILLS))
 import index_lock as _lock  # noqa: E402
+import verify_runner as _verify_runner  # noqa: E402  (KLC-115 D-002: promoted kill/spawn)
 
 _FRAMEWORK_ROOT = _SKILLS.parent.parent
 _UPDATE_SCRIPT = _FRAMEWORK_ROOT / "scripts" / "update.py"   # monkeypatchable in tests
@@ -72,50 +72,22 @@ def _kill_tree(proc: subprocess.Popen) -> None:
     """AC-12 says the REFRESH is terminated, not merely the process we
     launched. `scripts/update.py` spawns builders with their own 300/600/120s
     timeouts, so killing only the direct child leaves a grandchild writing
-    `.klc/index/` for minutes (finding F-2)."""
-    if os.name == "posix":
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            try:
-                proc.kill()
-            except OSError:
-                pass
-        try:
-            proc.wait(timeout=3)
-            return
-        except subprocess.TimeoutExpired:
-            pass
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
-            try:
-                proc.kill()
-            except OSError:
-                pass
-    else:                                   # Windows: /T walks the tree
-        try:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                           capture_output=True, timeout=10)
-        except (OSError, subprocess.TimeoutExpired):
-            try:
-                proc.kill()
-            except OSError:
-                pass
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
+    `.klc/index/` for minutes (finding F-2).
+
+    Delegates to `verify_runner.kill_tree` (KLC-115 D-002): the POSIX
+    `killpg`/Windows `taskkill` implementation now lives there, promoted
+    verbatim, so this module keeps exactly one caller of exactly one
+    implementation rather than a second copy free to drift."""
+    _verify_runner.kill_tree(proc)
 
 
 def _spawn(cmd: list[str], env: dict) -> subprocess.Popen:
-    kw: dict = {}
-    if os.name == "posix":
-        kw["start_new_session"] = True      # child leads its own process group
-    else:
-        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    return subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, **kw)
+    """Delegates to `verify_runner.spawn` (KLC-115 D-002), with
+    `merge_stderr=False` to keep this module's original two-pipe (separate
+    stdout/stderr) capture shape — `refresh_if_stale`'s failure-detail
+    reporting reads real stderr text out of the second element of
+    `proc.communicate()`."""
+    return _verify_runner.spawn(cmd, env=env, merge_stderr=False)
 
 
 def refresh_if_stale(root, *, suppressed: bool = False, budget_s: float | None = None,

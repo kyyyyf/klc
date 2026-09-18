@@ -223,11 +223,25 @@ directly; M/L follow the plan steps).
 - **Outputs:** code changes; `build-log.md` (iteration journal); `build/progress.md`
   (durable step ledger); git commits (one per step when practical).
 - **Completion criteria:** all tests green; every AC has a passing test;
-  `build-log.md` records all iterations AND carries a `## Evidence` section with at
-  least one non-empty fenced block (command + pasted output); impl-plan fully ticked
-  (M/L); git history shows a failing-test commit before the implementation commit
-  for each behaviour step (verified mechanically by `klc ack` via
-  `core/skills/tdd_order.py`; steps marked `RED: not applicable` are exempt).
+  `build-log.md` records all iterations AND carries a `## Evidence` section with ONE
+  entry per acceptance criterion in `spec.md` (KLC-115) — a heading or line naming
+  the AC id(s), an optional `verdict:` line (absent means pass; `deferred(<reason>)`
+  needs a non-empty reason), and a fenced block with the command (a `$ ` line) and
+  its real pasted output. On M/L `klc ack` BLOCKS an AC with no well-formed entry
+  and RE-EXECUTES every pass-claiming entry's command in the project root under
+  `verify.entry_budget_seconds`; a non-zero exit BLOCKS, while a budget overrun or a
+  launch error is reported `unverified` with the reason named and SURFACES on every
+  track rather than blocking — it is neither a pass nor a claim your tests failed
+  (`core/skills/evidence_gate.py`). `klc ack` also RE-EXECUTES each impl-plan step's
+  `VERIFY:` command and compares only the isolated outcome token in `Expected:`
+  (`core/skills/step_verify.py`); impl-plan fully ticked (M/L); git history shows a
+  failing-test commit before the implementation commit for each behaviour step
+  (verified mechanically by `klc ack` via `core/skills/tdd_order.py`; steps marked
+  `RED: not applicable` are exempt). A FACT item in `spec.md`, `design/options.md`
+  or `impl-plan.md` must cite a real project code or config file as `src=<path>:<line>`;
+  for a ticket created on or after `items_verify.FACT_SOURCE_RULE_EPOCH`, or any item
+  carrying `evidence=read`, a bad source fails consistency — for an older ticket it
+  is warned, not failed (`consistency_check.py`, `items_verify.py`).
 - **Ack options:** `--pick 1` approve → review · (block when a budget limit is hit
   or the plan is invalid).
 - **Pitfalls:** a red-test loop over the budget; scope creep; silent plan changes

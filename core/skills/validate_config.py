@@ -145,6 +145,11 @@ _SETTINGS_SCHEMA = {
     "index.refresh_budget_seconds": ("posint", None),
     # KLC-117: the ack advisory gate signal's severity threshold.
     "advisory.threshold": ("enum", {"high", "medium", "low", "info"}),
+    # KLC-115: the bounded verification runner's four budget knobs.
+    "verify.entry_budget_seconds": ("posint", None),
+    "verify.step_budget_seconds": ("posint", None),
+    "verify.node_budget_seconds": ("posint", None),
+    "verify.arm_budget_seconds": ("posint", None),
 }
 
 

@@ -55,6 +55,8 @@ def test_raising_producer_degrades_to_single_info_record(tmp_path, monkeypatch):
     (tdir / "build-log.md").write_text(
         "# build log\n\n## Evidence\n\n```\n$ true\nok\n```\n", encoding="utf-8")
     (tdir / "meta.json").write_text('{"ticket": "KLC-BOOM", "track": "M"}', encoding="utf-8")
+    (tdir / "impl-plan.md").write_text(
+        "# Implementation plan — KLC-BOOM\n", encoding="utf-8")
 
     monkeypatch.setattr(_pc, "_impl_plan_steps", lambda d: [])
 

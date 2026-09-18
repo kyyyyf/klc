@@ -300,7 +300,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     log_path = klc_verification_log()
     if not log_path.exists():
-        print(json.dumps({"runs": 0, "counts": {}}))
+        print(json.dumps({"runs": 0, "counts": {}, "undecidable_share": 0.0}))
         return 0
     # Tail the last N records.
     lines = log_path.read_text(encoding="utf-8").splitlines()
@@ -315,8 +315,58 @@ def cmd_stats(args: argparse.Namespace) -> int:
         v = rec.get("verdict")
         if v in counts:
             counts[v] += 1
-    print(json.dumps({"runs": len(lines), "counts": counts}, ensure_ascii=False))
+    runs = len(lines)
+    # KLC-115 AC-14: the undecidable share as a NAMED ratio, not just a raw
+    # count, so it is visible as a metric rather than something a reader must
+    # compute by hand.
+    share = round(counts["undecidable"] / runs, 3) if runs else 0.0
+    print(json.dumps({"runs": runs, "counts": counts, "undecidable_share": share},
+                     ensure_ascii=False))
     return 0
+
+
+# --- KLC-115: the FACT-source rule (AC-13) and its graduated enforcement -----
+
+# The three artefacts the rule applies to, matched by EXACT ticket-relative
+# path (A-005) — a `_superseded/<ts>/spec.md` snapshot never matches, since
+# its relative path is `_superseded/<ts>/spec.md`, not `spec.md`.
+FACT_SOURCE_ARTIFACTS = ("spec.md", "design/options.md", "impl-plan.md")
+
+# D-203/A-004: the day AFTER this rule lands. The step-6 tests build their
+# fixture dates relative to this constant, never from today, so a bump here
+# (should this land later than 2026-09-17) cannot break them.
+FACT_SOURCE_RULE_EPOCH = "2026-09-18"
+
+
+def src_kind(src: str, repo: Path) -> str:
+    """Classify a FACT `src=` value (AC-13, D-008) — the ONE rule the
+    consistency gate and the `undecidable_share` metric share. `code` is the
+    only acceptable kind for the three FACT_SOURCE_ARTIFACTS."""
+    src = (src or "").strip()
+    if not src:
+        return "missing"
+    m = SRC_FILE_LINE_RE.match(src)
+    if not m:
+        return "unparseable"           # a range form, a comma-joined pair, a shell command
+    path = m.group(1).replace("\\", "/")
+    if path.startswith(".klc/tickets/"):
+        return "ticket-artifact"
+    return "code" if (Path(repo) / path).exists() else "missing"
+
+
+def fact_source_enforced(item: "FactItem", meta: dict | None) -> bool:
+    """D-203: block only for an item that opted in via KLC-116's
+    `evidence=read` (which already implies a file:line src), or for a ticket
+    created on or after `FACT_SOURCE_RULE_EPOCH`; warn for everything older,
+    so a ticket already in flight cannot be broken by a rule that did not
+    exist when its artefacts were written. An absent or unparseable
+    `meta.created` warns too — the property being protected is "no in-flight
+    ticket breaks", and an unknown creation date is exactly the case where
+    breaking would be unjustified."""
+    if str(item.attrs.get("evidence", "")).strip().lower() == "read":
+        return True
+    created = str((meta or {}).get("created", ""))[:10]
+    return created >= FACT_SOURCE_RULE_EPOCH    # ISO-8601 dates compare lexically
 
 
 def _now_iso() -> str:

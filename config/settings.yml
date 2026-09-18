@@ -43,3 +43,14 @@
 # `advisory` gate signal is dirty and a conditional gate pauses. No legacy file.
 # advisory:
 #   threshold: medium        # high | medium | low | info. Default: medium.
+
+# Bounded verification runner budgets (KLC-115) — one Evidence entry re-run,
+# one impl-plan step VERIFY re-run, one AC-referencing pytest node, and the
+# whole verification arm at one build ack. No legacy file.
+# verify:
+#   entry_budget_seconds: 120   # one Evidence entry command. Default: 120.
+#   step_budget_seconds: 120    # one impl-plan step VERIFY command. Default: 120.
+#   node_budget_seconds: 120    # one AC-referencing pytest node. Default: 120.
+#   arm_budget_seconds: 600     # the whole verification arm at one ack — ONE shared
+#                               # ceiling split across ac-coverage/evidence/step-verify
+#                               # (KLC-115 review-fix), not one per checker. Default: 600.

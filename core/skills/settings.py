@@ -153,6 +153,57 @@ def index_refresh_budget() -> float:
                          legacy_key="index_refresh_budget_seconds", default=30.0))
 
 
+def verify_entry_budget() -> int:
+    """Wall-clock budget (seconds) for re-running ONE Evidence entry's command
+    at build ack (KLC-115 AC-12)."""
+    try:
+        return int(resolve("verify.entry_budget_seconds", legacy_file="profile.yml",
+                           legacy_key="verify_entry_budget_seconds", default=120))
+    except (TypeError, ValueError):
+        return 120
+
+
+def verify_step_budget() -> int:
+    """Wall-clock budget (seconds) for re-running ONE impl-plan step's `VERIFY:`
+    command at build ack (KLC-115 AC-12)."""
+    try:
+        return int(resolve("verify.step_budget_seconds", legacy_file="profile.yml",
+                           legacy_key="verify_step_budget_seconds", default=120))
+    except (TypeError, ValueError):
+        return 120
+
+
+def verify_node_budget() -> int:
+    """Wall-clock budget (seconds) for verifying ONE AC-referencing pytest node
+    in `ac_test_coverage` (KLC-115 AC-12)."""
+    try:
+        return int(resolve("verify.node_budget_seconds", legacy_file="profile.yml",
+                           legacy_key="verify_node_budget_seconds", default=120))
+    except (TypeError, ValueError):
+        return 120
+
+
+def verify_arm_budget() -> int:
+    """Wall-clock budget (seconds) for the WHOLE verification arm at one build
+    ack — once spent, remaining entries/nodes surface as
+    `unverified: arm-budget-exhausted` rather than running (KLC-115 AC-12).
+
+    review-fix (HIGH): this is ONE ceiling for the ack as a whole, not one
+    per checker. `phase_completion.can_complete_build` computes a single
+    `time.monotonic()` deadline from this value and threads it through
+    `ac_test_coverage.check`, `evidence_gate.check_evidence` and
+    `step_verify.check_steps` — so a slow ac-coverage arm eats into the
+    budget the Evidence/step-verify arms get, and the total ack ceiling is
+    this ONE value, not three independent ones. Each checker still computes
+    its own fresh deadline when called standalone with no shared deadline
+    (e.g. a unit test)."""
+    try:
+        return int(resolve("verify.arm_budget_seconds", legacy_file="profile.yml",
+                           legacy_key="verify_arm_budget_seconds", default=600))
+    except (TypeError, ValueError):
+        return 600
+
+
 def autorun_cap():
     """Autonomous-runner consecutive-auto-transition cap, or None if unset.
 
