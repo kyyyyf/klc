@@ -93,16 +93,30 @@ def jinja_env() -> Environment:
     )
 
 
+_MANUAL_BEGIN_RE = re.compile(r"^\s*" + re.escape(MANUAL_BEGIN) + r"\s*$", re.MULTILINE)
+_MANUAL_END_RE = re.compile(r"^\s*" + re.escape(MANUAL_END) + r"\s*$", re.MULTILINE)
+
+
 def extract_manual_block(path: Path) -> str:
+    """Extract content between the manual markers.
+
+    KLC-104: the markers must occupy their OWN line (start-of-line anchored,
+    trailing whitespace tolerated) to match. This stops template header prose
+    that merely mentions the marker text inline (e.g. CLAUDE.md.j2's own
+    "Manual notes go inside the `<!-- BEGIN: manual -->` block..." sentence)
+    from being mistaken for the real marker and swallowing everything up to
+    the genuine END marker into the extracted block.
+    """
     if not path.exists():
         return ""
     text = path.read_text(encoding="utf-8")
-    m = re.search(
-        re.escape(MANUAL_BEGIN) + r"(.*?)" + re.escape(MANUAL_END),
-        text,
-        flags=re.DOTALL,
-    )
-    return m.group(1).strip("\n") if m else ""
+    begin = _MANUAL_BEGIN_RE.search(text)
+    if not begin:
+        return ""
+    end = _MANUAL_END_RE.search(text, begin.end())
+    if not end:
+        return ""
+    return text[begin.end():end.start()].strip("\n")
 
 
 def collect_adr_index() -> list[dict]:
@@ -159,8 +173,15 @@ def _is_code_module(module: dict) -> bool:
     return bool(module.get("language") or module.get("symbol_count"))
 
 
+def _is_root_module(module: dict) -> bool:
+    """True iff *module* is the repo-root sentinel module (KLC-104): its doc
+    target IS the root CLAUDE.md that render_root() already writes, so a
+    standalone per-module doc for it is meaningless by construction."""
+    return module.get("path") == "."
+
+
 def _code_modules(modules: list[dict]) -> list[dict]:
-    return [m for m in modules if _is_code_module(m)]
+    return [m for m in modules if _is_code_module(m) and not _is_root_module(m)]
 
 
 # Optional doc fields the templates read via `x or default`. A deterministic
@@ -307,7 +328,17 @@ def _verify(modules: list[dict]) -> list[str]:
         target = project_root() / m["path"] / (m.get("doc_filename") or "CLAUDE.md")
         if not target.exists():
             errors.append(f"missing doc: {target}")
-    root = (project_root() / "CLAUDE.md").read_text(encoding="utf-8") if (project_root() / "CLAUDE.md").exists() else ""
+    root_path = project_root() / "CLAUDE.md"
+    root = root_path.read_text(encoding="utf-8") if root_path.exists() else ""
+    # KLC-104: catch the exact clobber shape from this ticket -- a per-module
+    # render overwriting the root doc leaves it starting with "# Module: <n>"
+    # instead of the project-name heading CLAUDE.md.j2 always emits.
+    if root.lstrip().startswith("# Module:"):
+        errors.append(
+            f"{root_path}: begins with '# Module:' -- a per-module render "
+            "clobbered the root document (KLC-104); expected the "
+            "project-name heading"
+        )
     for m in modules:
         if m["name"] not in root:
             errors.append(f"root CLAUDE.md does not mention module {m['name']!r}")
@@ -386,6 +417,12 @@ def main() -> int:
             if match is None:
                 sys.stderr.write(f"module-writer: unknown module {args.module!r}\n")
                 return 1
+            if _is_root_module(match):
+                sys.stderr.write(
+                    "module-writer: module '.' is the repo-root sentinel (KLC-104); "
+                    "its doc IS the root CLAUDE.md -- use --root instead\n"
+                )
+                return 1
             render_module(match, out)
         elif args.all or args.only:
             mods = load_json(klc_index_dir() / "modules.json")
@@ -426,6 +463,17 @@ def main() -> int:
                     sys.stderr.write(
                         f"module-writer: skipping non-code module {name!r} "
                         f"(no CLAUDE.md rendered)\n")
+                # KLC-104: symmetric skip for an explicit `--only .` request -- the
+                # root sentinel is code-bearing (root_files are non-empty by
+                # construction) so it is NOT caught by the non-code skip above, but
+                # its doc target IS the root CLAUDE.md render_root() just wrote, so a
+                # per-module render for it would clobber that. Skip, don't error.
+                dot_requested = sorted(m["name"] for m in requested if _is_root_module(m))
+                for name in dot_requested:
+                    sys.stderr.write(
+                        f"module-writer: skipping module {name!r} "
+                        "(repo-root sentinel; its doc IS the root CLAUDE.md, no "
+                        "per-module CLAUDE.md rendered)\n")
 
             for m in targets:
                 render_module(m)
