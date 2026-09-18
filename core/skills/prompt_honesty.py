@@ -63,7 +63,12 @@ ALLOWLIST: tuple[AllowlistEntry, ...] = (
     AllowlistEntry(".klc/reports/*",                          "scripts/review.py"),
     AllowlistEntry(".klc/knowledge/*",                        "scripts/review.py:1104"),
     AllowlistEntry("docs/adr/*",                               "core/agents/adr.md"),
-    AllowlistEntry("core/agents/review/*",                     "config/reviewers.yml dispatches these by name"),
+    # KLC-113 review-fix (MEDIUM): narrowed from a `core/agents/review/*`
+    # wildcard, which silently admitted ANY nonexistent path under that
+    # directory (the same defect class impl-plan-review F-1 already fixed
+    # for `.klc/config/*` above) — to the exact placeholder shape actually
+    # referenced (retrospective.md's `core/agents/review/<reviewer>.md`).
+    AllowlistEntry("core/agents/review/<reviewer>.md",         "config/reviewers.yml dispatches these by name"),
 )
 
 _PREFIXES = ("core/", "scripts/", ".klc/", "docs/")

@@ -128,6 +128,23 @@ def test_prompt_honesty_green_on_shipped_tree() -> None:
     assert ph.scan() == []
 
 
+def test_fabricated_review_reviewer_path_is_reported_as_a_miss(tmp_path) -> None:
+    """review-fix (MEDIUM): the `core/agents/review/*` allowlist entry was
+    narrowed to the exact placeholder `core/agents/review/<reviewer>.md`
+    (retrospective.md's only real reference) — a FABRICATED, non-placeholder
+    path under that same directory must still be caught by the scanner,
+    exactly as every other directory already is. Before the fix the wildcard
+    silently admitted this path (verified live: `ph._allowed(...)` returned
+    a match and `scan()` reported no miss)."""
+    assert ph._allowed("core/agents/review/does-not-exist.md") is None
+    _write(tmp_path / "fixture-phase.md",
+           "See `core/agents/review/does-not-exist.md` for the reviewer prompt.\n")
+    misses = ph.scan(roots=[tmp_path])
+    assert any("does-not-exist.md" in m for m in misses), misses
+    # the real placeholder reference itself must still resolve.
+    assert ph._allowed("core/agents/review/<reviewer>.md") is not None
+
+
 def test_review_subdir_included_in_scan() -> None:
     """Q-003 — the scan glob widens to core/agents/review/*.md, which
     generate_agents itself does not descend into."""
