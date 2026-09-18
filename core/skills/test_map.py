@@ -152,6 +152,21 @@ def build_test_map(structural: dict, depgraph: dict, modules: dict,
     notes: list[str] = []
 
     files = _candidate_files(depgraph or {})
+    # KLC-105: intersect with the resolved universe. The depgraph already inherits
+    # it (import-graph builds from file_universe), so this makes that inheritance a
+    # CHECKED fact rather than a hope — a stale/foreign depgraph cannot smuggle an
+    # out-of-universe file back in.
+    declared = (structural or {}).get("files_rel")
+    if isinstance(declared, list) and declared:
+        member = set(declared)
+        dropped = sorted(f for f in files if f not in member)
+        if dropped:
+            notes.append(f"{len(dropped)} out-of-universe candidate file(s) dropped "
+                         f"(not in structural.files_rel)")
+        files = {f for f in files if f in member}
+    else:
+        notes.append("structural.files_rel unavailable — candidate files unfiltered")
+
     if not files:
         errors.append("depgraph absent/empty — no import-graph file listing; "
                       "production_to_tests will be empty")

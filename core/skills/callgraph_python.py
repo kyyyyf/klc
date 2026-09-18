@@ -49,7 +49,9 @@ from typing import Any
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))
 from core.shared.paths import framework_root  # noqa: E402
+import file_universe  # noqa: E402
 
 
 class Symbol:
@@ -268,22 +270,19 @@ class CallGraphBuilder(ast.NodeVisitor):
 
 
 def collect_python_files(root: Path, module_name: str | None) -> list[Path]:
-    """Find all .py files under root (or specific module if given)."""
+    """Universe members ending in .py (KLC-105), optionally narrowed to one module's
+    directory prefix. No independent rglob walk."""
+    universe = file_universe.resolve(root)["files"]
+    files = file_universe.by_suffix(universe, (".py",))
     if module_name:
-        # Scan only the specified module
+        prefix = module_name.replace(".", "/") + "/"
         module_dir = root / module_name.replace(".", "/")
-        if not module_dir.exists():
+        narrowed = [f for f in files if f.startswith(prefix)]
+        if not module_dir.exists() and not narrowed:
             sys.stderr.write(f"callgraph_python: module {module_name} not found\n")
             return []
-        search_root = module_dir
-    else:
-        search_root = root
-
-    files: list[Path] = []
-    for path in search_root.rglob("*.py"):
-        if path.is_file():
-            files.append(path)
-    return files
+        files = narrowed
+    return [root / f for f in files]
 
 
 def build_call_graph(root: Path, module_name: str | None) -> dict[str, Symbol]:

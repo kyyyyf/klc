@@ -26,7 +26,9 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))
 from core.shared.paths import framework_root  # noqa: E402
+import file_universe  # noqa: E402
 
 
 class AsyncLSPClient:
@@ -268,14 +270,12 @@ def find_rust_analyzer() -> str:
 
 
 def collect_rust_files(root: Path) -> list[Path]:
-    """Find all .rs files (excluding target/)."""
-    files: list[Path] = []
-    for path in root.rglob("*.rs"):
-        if "/target/" in str(path) or "/.cargo/" in str(path):
-            continue
-        if path.is_file():
-            files.append(path)
-    return files
+    """Universe members ending in .rs (KLC-105) — no independent rglob walk. The
+    universe's excludes already keep ``target/`` (a baseline-excluded build dir) out;
+    ``.cargo/`` is typically outside the project root entirely."""
+    universe = file_universe.resolve(root)["files"]
+    files = file_universe.by_suffix(universe, (".rs",))
+    return [root / f for f in files]
 
 
 def extract_functions_from_symbols(symbols: list[dict], file_path: str, root: Path) -> list[tuple[str, int, int, str]]:

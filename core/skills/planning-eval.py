@@ -55,6 +55,7 @@ _PROJECT_ROOT = _FILE_DIR.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_FILE_DIR))
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
+import file_universe as _fu  # noqa: E402  (KLC-105: the one file universe)
 
 REPORT_SCHEMA_VERSION = 1
 
@@ -222,23 +223,21 @@ def is_git_repo(repo: Path) -> bool:
 
 
 def _walk_repo_files(repo: Path) -> list[str]:
-    """Repo-relative POSIX paths of code files, applying baseline excludes.
-    structural.json carries only counts, so the coverage denominator is a walk.
+    """Repo-relative POSIX paths of code files, for the coverage denominator.
 
-    Uses os.walk with in-place pruning of excluded directories so the walk never
-    descends into `.git` / nested `.claude/worktrees` (a real-repo perf cliff)."""
-    import os
-    out: list[str] = []
-    for dirpath, dirs, files in os.walk(repo):
-        rel_dir = Path(dirpath).relative_to(repo).as_posix()
-        prefix = "" if rel_dir == "." else rel_dir + "/"
-        dirs[:] = [d for d in dirs if not _excluded(prefix + d)]
-        for fn in files:
-            rel = prefix + fn
-            if _excluded(rel):
-                continue
-            out.append(rel)
-    return out
+    KLC-105 review-fix: routes through the ONE file-universe resolver
+    (`file_universe.resolve()`, git-tracked ∩ resolved excludes) instead of a
+    private `os.walk` + exclude list. planning-eval.py IS a builder in KLC-105's
+    own sense (spec.md terminology: "'builder' means any skill that writes into
+    `.klc/index/`" — this one writes `.klc/index/planning/eval_report.json`), so
+    it must not decide for itself what the project is either: an untracked
+    stray file must not inflate the coverage denominator just because it
+    happens not to match a private exclude pattern. `structural_path` is
+    pinned to *repo*'s own structural.json (never the ambient PROJECT_ROOT's)
+    so this stays correct however the caller's environment is set up."""
+    return _fu.resolve(
+        repo, structural_path=repo / ".klc" / "index" / "structural.json",
+    )["files"]
 
 
 def compute_coverage(files: list[str], modules_data) -> dict:

@@ -26,6 +26,8 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))
+import file_universe  # noqa: E402
 
 
 class AsyncLSPClient:
@@ -234,28 +236,15 @@ _EXCLUDE_DIRS = frozenset({
 def collect_header_files(root: Path) -> list[Path]:
     """Find header files that may contain header-only / inline functions.
 
-    Excludes common build output directories and the .klc state directory.
+    KLC-105: sourced from the resolved file universe (``file_universe.by_suffix``)
+    instead of an independent ``rglob`` + a private ``_EXCLUDE_DIRS`` walk — the
+    universe already applied git-tracked filtering plus the profile/baseline
+    excludes, so ``_EXCLUDE_DIRS`` is redundant and removed here (kept as a
+    module-level constant for any external caller, but no longer consulted).
     """
-    headers: list[Path] = []
-    seen: set[str] = set()
-
-    for ext in ("*.h", "*.hpp", "*.hh", "*.hxx"):
-        for p in root.rglob(ext):
-            if not p.is_file():
-                continue
-            try:
-                parts = p.relative_to(root).parts[:-1]
-            except ValueError:
-                continue
-            if any(d in _EXCLUDE_DIRS for d in parts):
-                continue
-            key = str(p.resolve())
-            if key not in seen:
-                seen.add(key)
-                headers.append(p.resolve())
-
-    headers.sort()
-    return headers
+    universe = file_universe.resolve(root)["files"]
+    headers = file_universe.by_suffix(universe, (".h", ".hpp", ".hh", ".hxx"))
+    return sorted((root / f).resolve() for f in headers)
 
 
 def collect_tu_files(compdb: list[dict]) -> list[Path]:
@@ -273,6 +262,22 @@ def collect_tu_files(compdb: list[dict]) -> list[Path]:
             seen.add(key)
             files.append(p)
     return files
+
+
+def _filter_to_universe(files: list[Path], root: Path, universe: set[str]) -> list[Path]:
+    """KLC-105: translation units come from compile_commands.json — an external,
+    independently-generated artifact this module cannot constrain — so its output is
+    POST-FILTERED against the resolved universe (mirrors dep_graph._madge_typescript).
+    A TU outside *root* entirely (e.g. a system/vendored path) is dropped too."""
+    out: list[Path] = []
+    for f in files:
+        try:
+            rel = f.resolve().relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if rel in universe:
+            out.append(f)
+    return out
 
 
 def _sel_range_pos(sym: dict) -> tuple[int, int]:
@@ -352,7 +357,8 @@ async def build_call_graph_async(root: Path, compdb_path: Path, clangd: str) -> 
         await client.initialize()
 
         compdb = load_compdb(compdb_path)
-        tu_files = collect_tu_files(compdb)
+        universe = set(file_universe.resolve(root)["files"])
+        tu_files = _filter_to_universe(collect_tu_files(compdb), root, universe)
         header_files = collect_header_files(root)
         sys.stderr.write(
             f"callgraph_cpp: found {len(tu_files)} TU(s) in compile_commands.json, "
@@ -537,7 +543,8 @@ async def query_references_async(root: Path, compdb_path: Path, clangd: str, sym
         await client.initialize()
 
         compdb = load_compdb(compdb_path)
-        tu_files = collect_tu_files(compdb)
+        universe = set(file_universe.resolve(root)["files"])
+        tu_files = _filter_to_universe(collect_tu_files(compdb), root, universe)
         header_files = collect_header_files(root)
         for file_path in tu_files + header_files:
             file_uri = f"file://{file_path}"
@@ -588,7 +595,8 @@ async def query_workspace_symbol_async(root: Path, compdb_path: Path, clangd: st
         await client.initialize()
 
         compdb = load_compdb(compdb_path)
-        tu_files = collect_tu_files(compdb)
+        universe = set(file_universe.resolve(root)["files"])
+        tu_files = _filter_to_universe(collect_tu_files(compdb), root, universe)
         header_files = collect_header_files(root)
         for file_path in tu_files + header_files:
             file_uri = f"file://{file_path}"

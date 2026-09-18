@@ -46,11 +46,14 @@ sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir  # noqa: E402
 import module_membership as _mm  # noqa: E402
+import file_universe  # noqa: E402
 
 
 def validate(modules_data: dict, files_list: list[str] | None = None,
              file_roles: dict | None = None, module_edges: dict | None = None,
-             retrieval: dict | None = None, inventory: dict | None = None) -> dict:
+             retrieval: dict | None = None, inventory: dict | None = None,
+             structural: dict | None = None, depgraph: dict | None = None,
+             test_map: dict | None = None, symbol_usage: dict | None = None) -> dict:
     """Return {"warnings": [...], "errors": [...], "counts": {...}}.
 
     ``file_roles`` / ``module_edges`` / ``retrieval`` / ``inventory`` are the KLC-071
@@ -58,7 +61,16 @@ def validate(modules_data: dict, files_list: list[str] | None = None,
     (recorded in ``counts`` as ``*_checked: False``) rather than failing — the views
     are built degrade-not-fail, so validation must not assume they exist. Retrieval
     file-refs are checked against the real file universe (``file_roles`` ∪
-    ``inventory`` files)."""
+    ``inventory`` files).
+
+    ``structural`` / ``depgraph`` / ``test_map`` / ``symbol_usage`` (KLC-105,
+    additive) feed the universe-closure check (AC-7): every out-of-universe path
+    across the six AC-2 categories (depgraph, inventory, test_map, file_roles,
+    symbol_usage, modules) becomes one warning, via the SAME
+    ``file_universe.collect_index_paths`` / ``closure_report`` predicate the
+    integration suite (AC-6) uses — there is no second copy of "closure". A missing
+    or ``files_rel``-less ``structural`` degrades to ``universe_checked: False``
+    rather than failing (C-005)."""
     warnings: list[str] = []
     errors: list[str] = []
 
@@ -207,6 +219,25 @@ def validate(modules_data: dict, files_list: list[str] | None = None,
             errors.append("retrieval file refs not validated: file_roles.json absent "
                           "(authoritative file universe missing)")
 
+    # --- KLC-105 universe-closure check (AC-7, advisory) -------------------------
+    universe_checked = False
+    n_out_of_universe = 0
+    declared = (structural or {}).get("files_rel")
+    if isinstance(declared, list) and declared:
+        universe_checked = True
+        categories = file_universe.collect_index_paths(
+            depgraph=depgraph, inventory=inventory, test_map=test_map,
+            file_roles=file_roles, symbol_usage=symbol_usage, modules=modules_data)
+        for category, violations in sorted(
+                file_universe.closure_report(categories, declared).items()):
+            for path in violations:
+                n_out_of_universe += 1
+                warnings.append(
+                    f"{category} references a path outside structural.files_rel: "
+                    f"{path}")
+    else:
+        errors.append("universe closure check skipped: structural.files_rel absent")
+
     return {
         "warnings": warnings,
         "errors": errors,
@@ -218,6 +249,8 @@ def validate(modules_data: dict, files_list: list[str] | None = None,
             "eligibility_checked": eligibility_checked,
             "edges_checked": edges_checked,
             "retrieval_checked": retrieval_checked,
+            "universe_checked": universe_checked,
+            "out_of_universe": n_out_of_universe,
         },
     }
 
@@ -239,6 +272,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--in-inventory", type=Path,
                     default=klc_index_dir() / "inventory.json",
                     help="optional inventory.json — widens the retrieval file universe")
+    ap.add_argument("--in-structural", type=Path,
+                    default=klc_index_dir() / "structural.json",
+                    help="optional structural.json — enables the universe-closure check")
+    ap.add_argument("--in-depgraph", type=Path,
+                    default=klc_index_dir() / "depgraph.json",
+                    help="optional depgraph.json for the universe-closure check")
+    ap.add_argument("--in-test-map", type=Path,
+                    default=klc_index_dir() / "test_map.json",
+                    help="optional test_map.json for the universe-closure check")
+    ap.add_argument("--in-symbol-usage", type=Path,
+                    default=klc_index_dir() / "symbol_usage.json",
+                    help="optional symbol_usage.json for the universe-closure check")
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 when warnings are present")
@@ -274,7 +319,11 @@ def main(argv: list[str] | None = None) -> int:
         file_roles=_opt(args.in_file_roles),
         module_edges=_opt(args.in_module_edges),
         retrieval=_opt(args.in_retrieval),
-        inventory=_opt(args.in_inventory))
+        inventory=_opt(args.in_inventory),
+        structural=_opt(args.in_structural),
+        depgraph=_opt(args.in_depgraph),
+        test_map=_opt(args.in_test_map),
+        symbol_usage=_opt(args.in_symbol_usage))
     out_text = json.dumps(report, indent=2, ensure_ascii=False)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

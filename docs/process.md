@@ -232,6 +232,9 @@ directly; M/L follow the plan steps).
   or the plan is invalid).
 - **Pitfalls:** a red-test loop over the budget; scope creep; silent plan changes
   (must be recorded as `[!DECISION]` items).
+- **Nested full-suite check.** `tests/integration/test_klc105_no_regression.py::test_full_suite_passes_unchanged`
+  spawns the entire `tests/` suite as a child process and is skipped by default;
+  run it explicitly with `KLC_RUN_NESTED_FULL_SUITE=1` (e.g. as a separate CI step).
 
 **TDD loop.**
 

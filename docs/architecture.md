@@ -103,6 +103,13 @@ posture; a new feature is expected to preserve all of them.
   WITHOUT writing any `*-review-findings.json`; only the persisting ack path
   records. Read verbs (`klc work`, `klc publish`, `klc status`) take no holder and
   write nothing.
+- **one file universe.** `structural.files_rel` — git-tracked intersected with the
+  resolved excludes — is the ONLY file universe for index builders. Every skill that
+  writes into `.klc/index/` takes its file list from `file_universe.resolve()`; none
+  enumerates project files by walking the working tree. The cost is deliberate and
+  worth naming: a file is invisible to the index until `git add`. When git is
+  unavailable the resolver walks ONCE, marks the source `walk`, and every builder
+  consumes that same walked list.
 
 ---
 

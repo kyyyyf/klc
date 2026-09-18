@@ -37,7 +37,9 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))
 from core.shared.paths import framework_root, klc_index_dir  # noqa: E402, F401
+import file_universe  # noqa: E402
 
 
 # ---- tiny regex-based parsers ----------------------------------------------
@@ -66,43 +68,23 @@ def load_structural() -> dict:
 # ---- per-language scanners --------------------------------------------------
 
 def _collect_files(root: Path, source_roots: list[str], extensions: tuple[str, ...],
-                   exclude_parts: tuple[str, ...]) -> list[Path]:
-    """Collect files with any of the extensions under source_roots. If no
-    source_root contains a matching file, fall back to scanning from root
-    (this handles projects whose source_roots describe a different
-    language, e.g. UE where source_roots are Build.cs dirs but python
-    support tooling lives elsewhere)."""
-    found: list[Path] = []
-    seen: set[Path] = set()
-    for sr in source_roots:
-        base = root / sr
-        if not base.exists():
-            continue
-        for ext in extensions:
-            for f in base.rglob(f"*{ext}"):
-                if any(p in exclude_parts for p in f.parts):
-                    continue
-                if f in seen:
-                    continue
-                seen.add(f); found.append(f)
-    if found:
-        return found
-    # Fall back to repo root, honouring the same exclusions. Keep common
-    # engine/build detritus out.
-    for ext in extensions:
-        for f in root.rglob(f"*{ext}"):
-            if any(p in exclude_parts for p in f.parts):
-                continue
-            if ".git" in f.parts or "node_modules" in f.parts:
-                continue
-            if f in seen:
-                continue
-            seen.add(f); found.append(f)
-    return found
+                   universe: list[str]) -> list[Path]:
+    """Collect universe members with any of the extensions under source_roots. If no
+    source_root contains a matching file, fall back to every universe member with a
+    matching extension (this handles projects whose source_roots describe a
+    different language, e.g. UE where source_roots are Build.cs dirs but python
+    support tooling lives elsewhere) — the SAME fallback semantics as before
+    (KLC-105), but drawn from the resolved universe instead of an independent
+    ``rglob`` walk plus a hard-coded exclusion tuple."""
+    hits = [f for f in universe if f.endswith(extensions)]
+    under = [f for f in hits
+             if any(f == sr or f.startswith(sr + "/") for sr in source_roots)]
+    return [root / f for f in (under or hits)]
 
 
-def scan_python(root: Path, source_roots: list[str]) -> tuple[list, list]:
-    files = _collect_files(root, source_roots, (".py",), ("__pycache__",))
+def scan_python(root: Path, source_roots: list[str],
+                universe: list[str]) -> tuple[list, list]:
+    files = _collect_files(root, source_roots, (".py",), universe)
 
     # Build a module-name -> file index so we can resolve `import foo.bar.baz`
     # to an internal file. Key is the dotted module path relative to the
@@ -143,8 +125,9 @@ def scan_python(root: Path, source_roots: list[str]) -> tuple[list, list]:
     return nodes, edges
 
 
-def scan_rust(root: Path, source_roots: list[str]) -> tuple[list, list]:
-    files = _collect_files(root, source_roots, (".rs",), ("target",))
+def scan_rust(root: Path, source_roots: list[str],
+             universe: list[str]) -> tuple[list, list]:
+    files = _collect_files(root, source_roots, (".rs",), universe)
 
     nodes = [{"id": str(f.relative_to(root)).replace("\\", "/")} for f in files]
 
@@ -181,10 +164,12 @@ def scan_rust(root: Path, source_roots: list[str]) -> tuple[list, list]:
     return nodes, edges
 
 
-def scan_ts(root: Path, source_roots: list[str]) -> tuple[list, list]:
+def scan_ts(root: Path, source_roots: list[str],
+           universe: list[str]) -> tuple[list, list]:
     files = _collect_files(root, source_roots,
                            (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"),
-                           ("node_modules",))
+                           universe)
+    member = set(universe)
 
     files_rel = {str(f.relative_to(root)).replace("\\", "/"): f for f in files}
     nodes = [{"id": k} for k in files_rel]
@@ -228,6 +213,11 @@ def scan_ts(root: Path, source_roots: list[str]) -> tuple[list, list]:
                 tgt_rel = str(tgt.resolve().relative_to(root)).replace("\\", "/")
             except ValueError:
                 continue
+            # KLC-105: a resolved relative import may land on an untracked file —
+            # drop it, otherwise the edge ENDPOINT escapes the universe (AC-2 counts
+            # endpoints, not just node ids).
+            if tgt_rel not in member:
+                continue
             edges.append({"from": src_rel, "to": tgt_rel})
     return nodes, edges
 
@@ -251,12 +241,15 @@ def main() -> int:
     root = Path(structural["root"]).resolve()
     source_roots = [r["path"] for r in structural.get("source_roots", [])]
     languages = structural.get("languages", {})
+    # KLC-105: the ONE universe (adopts structural["files_rel"] since root matches,
+    # D-002) — every scanner enumerates only its members, never an independent walk.
+    universe = file_universe.resolve(root, structural=structural)["files"]
 
     out: dict = {}
     for lang, (_ext, scanner) in LANG_SCANNERS.items():
         if lang not in languages:
             continue
-        nodes, edges = scanner(root, source_roots)
+        nodes, edges = scanner(root, source_roots, universe)
         if not nodes and not edges:
             continue
         out[lang] = {"tool": "import-graph.py", "nodes": nodes, "edges": edges}

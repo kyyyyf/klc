@@ -127,10 +127,22 @@ def _change_risk(visibility: str, n_users: int) -> str:
 
 
 def build_symbol_usage(inventory: dict, modules: dict,
-                       callgraph: dict | None, depgraph: dict | None) -> dict:
-    """Deterministic symbol impact-radius map. Pure; no timestamp (AC-8)."""
+                       callgraph: dict | None, depgraph: dict | None,
+                       structural: dict | None = None) -> dict:
+    """Deterministic symbol impact-radius map. Pure; no timestamp (AC-8).
+
+    ``structural`` (KLC-105, additive) — when its ``files_rel`` is present, a symbol
+    DEFINED outside the universe is dropped entirely, and every ``used_by`` /
+    ``tested_by`` file reference outside the universe is filtered out (AC-2's
+    "symbol_usage defining and using files" category)."""
     errors: list[str] = []
     notes: list[str] = []
+
+    declared = (structural or {}).get("files_rel")
+    member: set[str] | None = set(declared) if isinstance(declared, list) and declared else None
+    if member is None:
+        notes.append("structural.files_rel unavailable — symbol usage file refs "
+                     "unfiltered")
 
     cg_idx = _callgraph_index(callgraph)
     degraded = not cg_idx
@@ -144,11 +156,15 @@ def build_symbol_usage(inventory: dict, modules: dict,
     def _mod(path: str) -> str | None:
         return _mm.primary_module(path, modules or {})
 
+    dropped_defs = 0
     symbols_out: dict[str, dict] = {}
     for s in inventory.get("symbols") or []:
         name = s.get("name")
         defined_in = s.get("file")
         if not name or not defined_in:
+            continue
+        if member is not None and defined_in not in member:
+            dropped_defs += 1
             continue
         key = f"{defined_in}::{name}"
         visibility = s.get("visibility") or "public"
@@ -160,6 +176,8 @@ def build_symbol_usage(inventory: dict, modules: dict,
                 cf = _caller_file(caller)
                 if not cf:
                     continue
+                if member is not None and cf not in member:
+                    continue
                 if _tm.is_test_file(cf):
                     tested_by.add(cf)
                 else:
@@ -167,6 +185,8 @@ def build_symbol_usage(inventory: dict, modules: dict,
                                     "usage_type": "call", "confidence": "medium"})
         else:
             for cf in import_consumers.get(defined_in, []):
+                if member is not None and cf not in member:
+                    continue
                 if _tm.is_test_file(cf):
                     tested_by.add(cf)
                 else:
@@ -189,6 +209,10 @@ def build_symbol_usage(inventory: dict, modules: dict,
             "change_risk": _change_risk(visibility, len(used_by)),
         }
 
+    if dropped_defs:
+        notes.append(f"{dropped_defs} symbol(s) defined outside structural.files_rel "
+                     f"dropped")
+
     return {"symbols": dict(sorted(symbols_out.items())),
             "errors": errors, "notes": notes}
 
@@ -207,6 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--in-modules", type=Path, default=idx / "modules.json")
     ap.add_argument("--in-callgraph-dir", type=Path, default=idx / "callgraph")
     ap.add_argument("--in-depgraph", type=Path, default=idx / "depgraph.json")
+    ap.add_argument("--in-structural", type=Path, default=idx / "structural.json")
     ap.add_argument("--out", type=Path, default=idx / "symbol_usage.json")
     args = ap.parse_args(argv)
 
@@ -226,8 +251,9 @@ def main(argv: list[str] | None = None) -> int:
         modules = {"modules": modules}
     callgraph = load_callgraph_dir(args.in_callgraph_dir)  # merges all languages
     depgraph = _load(args.in_depgraph)
+    structural = _load(args.in_structural) if args.in_structural.exists() else None
 
-    result = build_symbol_usage(inventory, modules, callgraph, depgraph)
+    result = build_symbol_usage(inventory, modules, callgraph, depgraph, structural)
     payload = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc)
         .strftime("%Y-%m-%dT%H:%M:%SZ"),

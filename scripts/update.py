@@ -235,7 +235,11 @@ def _validate_modules(index_dir: Path) -> None:
             [sys.executable, str(script),
              "--in-modules", str(index_dir / "modules.json"),
              "--in-file-roles", str(index_dir / "file_roles.json"),
-             "--in-module-edges", str(index_dir / "module_edges.json")],
+             "--in-module-edges", str(index_dir / "module_edges.json"),
+             "--in-structural", str(index_dir / "structural.json"),
+             "--in-depgraph", str(index_dir / "depgraph.json"),
+             "--in-test-map", str(index_dir / "test_map.json"),
+             "--in-symbol-usage", str(index_dir / "symbol_usage.json")],
             capture_output=True, text=True, timeout=120,
         )
         report = json.loads(r.stdout) if r.stdout.strip() else {}

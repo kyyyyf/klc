@@ -557,6 +557,4 @@ def test_gh_version_is_safe_sanity_only():
         p = subprocess.run(["gh", "--version"], capture_output=True, text=True)
     except FileNotFoundError:
         pytest.skip("gh not installed")
-    if p.returncode != 0:
-        pytest.skip("gh installed but not runnable in this environment")
-    assert "gh version" in p.stdout
+    assert p.returncode == 0 and "gh version" in p.stdout

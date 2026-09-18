@@ -35,6 +35,9 @@ from pathlib import Path
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent.parent
 
+sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
+import file_universe  # noqa: E402
+
 BASELINE_EXCL = re.compile(
     r"(^|/)(\.git|\.klc|node_modules|\.venv|venv|__pycache__|target|build|"
     r"dist|out|bin|obj|\.gradle|\.idea|\.vs|\.next|\.cache|\.serena-cache)(/|$)"
@@ -107,9 +110,13 @@ def _import_graphs_from_scanner(root: Path) -> tuple[dict, list[str]]:
     return imports, errors
 
 
-def _madge_typescript(root: Path) -> dict | None:
+def _madge_typescript(root: Path, universe: list[str]) -> dict | None:
     """Replace the typescript import graph with madge's richer output
-    when `package.json` + madge are present. Returns None on miss."""
+    when `package.json` + madge are present. Returns None on miss.
+
+    KLC-105: madge is an external binary we cannot constrain to the universe, so its
+    output is POST-FILTERED; an edge dies with either endpoint (no dangling
+    endpoints left in the graph), and the drop count is recorded in ``errors``."""
     if not (root / "package.json").exists():
         return None
     if not shutil.which("madge"):
@@ -128,13 +135,18 @@ def _madge_typescript(root: Path) -> dict | None:
         raw = json.loads(r.stdout or "{}")
     except json.JSONDecodeError:
         return None
-    nodes = [{"id": f, "path": f} for f in raw]
+    member = set(universe)
+    nodes = [{"id": f, "path": f} for f in raw if f in member]
     edges = [
         {"from": src, "to": tgt}
-        for src, tgts in raw.items()
-        for tgt in (tgts or [])
+        for src, tgts in raw.items() if src in member
+        for tgt in (tgts or []) if tgt in member
     ]
-    return {"tool": "madge", "nodes": nodes, "edges": edges, "raw": raw}
+    dropped = len(raw) - len(nodes)
+    return {
+        "tool": "madge", "nodes": nodes, "edges": edges, "raw": raw,
+        "errors": [f"madge: {dropped} out-of-universe file(s) dropped"] if dropped else [],
+    }
 
 
 def _python_package_graph(root: Path) -> tuple[dict | None, list[str]]:
@@ -281,12 +293,16 @@ def _parse_build_cs_deps(path: Path) -> set[str]:
     return names
 
 
-def _ue_import_graph(root: Path, excl: re.Pattern) -> dict | None:
+def _ue_import_graph(root: Path, excl: re.Pattern, universe: list[str]) -> dict | None:
     """Build a module-to-module import graph by parsing every *.Build.cs.
 
     Only runs when the project looks like an Unreal project (has a
     *.uproject file in root or one level deep).
-    """
+
+    KLC-105: *.Build.cs discovery is bound to the resolved universe instead of an
+    independent ``rglob`` + regex-exclude walk (``excl`` is kept for signature
+    compatibility but the universe is now authoritative — it already applied the
+    same excludes plus git-tracked filtering)."""
     uproject: Path | None = None
     for p in sorted(root.glob("*.uproject")):
         uproject = p; break
@@ -302,20 +318,21 @@ def _ue_import_graph(root: Path, excl: re.Pattern) -> dict | None:
     seen: set[str] = set()
 
     def _iter_build_cs() -> list[Path]:
-        candidates: set[Path] = set()
+        bases: list[str] = []
         for base in (uproject_dir / "Source",
                      uproject_dir / "Plugins",
                      root / "Plugins"):
-            if not base.exists():
+            try:
+                rel_base = str(base.relative_to(root)).replace(os.sep, "/")
+            except ValueError:
                 continue
-            for p in base.rglob("*.Build.cs"):
-                try:
-                    rel = str(p.relative_to(root)).replace(os.sep, "/")
-                except ValueError:
-                    continue
-                if excl.search(rel):
-                    continue
-                candidates.add(p)
+            bases.append(rel_base)
+        candidates: set[Path] = set()
+        for f in universe:
+            if not f.endswith(".Build.cs"):
+                continue
+            if any(f == b or f.startswith(b + "/") for b in bases):
+                candidates.add(root / f)
         return sorted(candidates)
 
     for build_cs in _iter_build_cs():
@@ -347,6 +364,10 @@ def _ue_import_graph(root: Path, excl: re.Pattern) -> dict | None:
 def build(root: Path) -> dict:
     profile_excl = _resolve("excludes-regex")
     excl = _combined_excl(profile_excl)
+    # KLC-105: the ONE universe — every file-keyed graph this module assembles
+    # enumerates only its members (and drops an edge whose endpoint isn't one).
+    universe = file_universe.resolve(
+        root, structural_path=root / ".klc" / "index" / "structural.json")["files"]
 
     try:
         discovery = json.loads(_resolve("module_discovery") or "{}")
@@ -378,9 +399,10 @@ def build(root: Path) -> dict:
     errors.extend(scanner_errors)
 
     # madge overrides typescript scanner output.
-    madge = _madge_typescript(root)
+    madge = _madge_typescript(root, universe)
     if madge:
         add_import("typescript", madge)
+        errors.extend(madge.get("errors") or [])
 
     if collect_packages:
         for builder, lang in (
@@ -395,7 +417,7 @@ def build(root: Path) -> dict:
 
     # UE build-cs import graph.
     if discovery_mode == "build-cs":
-        ue = _ue_import_graph(root, excl)
+        ue = _ue_import_graph(root, excl, universe)
         if ue is not None:
             add_import("cpp-unreal", ue)
 

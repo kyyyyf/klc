@@ -268,8 +268,23 @@ def build_file_roles(inventory: dict, modules: dict, structural: dict) -> dict:
     entrypoints = _entrypoints(modules, structural)
     public_surfaces = _public_surfaces(modules)
 
+    universe_files = _file_universe(inventory, modules, structural)
+    # KLC-105: intersect with the resolved universe (structural.files_rel) — every
+    # one of the three declared inputs above should already agree with it, but this
+    # makes that a CHECKED fact rather than a hope.
+    declared = structural.get("files_rel")
+    if isinstance(declared, list) and declared:
+        member = set(declared)
+        dropped = sorted(f for f in universe_files if f not in member)
+        if dropped:
+            notes.append(f"{len(dropped)} out-of-universe file(s) dropped "
+                         f"(not in structural.files_rel)")
+        universe_files = {f for f in universe_files if f in member}
+    else:
+        notes.append("structural.files_rel unavailable — file universe unfiltered")
+
     files_out: dict[str, dict] = {}
-    for path in sorted(_file_universe(inventory, modules, structural)):
+    for path in sorted(universe_files):
         files_out[path] = _classify(
             path, by_file.get(path, []), modules, entrypoints, public_surfaces)
 

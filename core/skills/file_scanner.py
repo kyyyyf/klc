@@ -22,9 +22,20 @@ This is a direct port of file-scanner.sh — same contract, same output
 shape. The bash version wrapped find/grep/sed/awk/jq; this version
 uses pathlib + re + json (no external tools required, works on
 Windows without Git Bash).
+
+KLC-105: `total_files`, `total_lines`, `languages`, `directory_tree`, `entry_points`
+and `source_roots` are all derived from the SAME resolved file universe
+(`files_rel`) that `resolved_file_universe()` already computed for the reproducible
+`files_rel` field — not from an independent `rglob` walk. Before this change the two
+counted 4978 (walk) vs 486 (universe) on this checkout, because `.claude/worktrees`
+agent copies matched no exclude pattern. `total_files`/`languages`/`directory_tree`
+therefore change meaning from "files on disk after excludes" to "files in the
+universe" (spec.md `counter-semantics`); they are diagnostics inside the index, not
+a published API.
 """
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
@@ -92,6 +103,16 @@ def _resolve_profile_field(field: str) -> str:
     return r.stdout.strip()
 
 
+def _to_posix(rel: str) -> str:
+    """Normalise an OS-native relative-path string to POSIX '/'-separators.
+
+    Extracted so the normalisation itself is unit-testable independent of the
+    runner's actual ``os.sep`` (a test built with native ``Path`` objects on a
+    POSIX runner never produces a backslash to normalise, and asserting on it
+    would be vacuously true there — see test_klc105_edge_cases.py review)."""
+    return rel.replace(os.sep, "/")
+
+
 def _line_count(path: Path) -> int:
     """Count newlines in a file. Falls back to 0 on read errors."""
     try:
@@ -114,7 +135,7 @@ def _build_excludes_re(root: Path, profile_excludes: str) -> re.Pattern:
     # (layout A), exclude that subdirectory.
     try:
         rel_fw = FRAMEWORK_ROOT.relative_to(root)
-        fw_esc = re.escape(str(rel_fw).replace(os.sep, "/"))
+        fw_esc = re.escape(_to_posix(str(rel_fw)))
         parts.append(rf"(^|/){fw_esc}(/|$)")
     except ValueError:
         pass
@@ -162,7 +183,7 @@ def resolved_file_universe(root: Path, excludes_re: re.Pattern) -> tuple[list[st
         if not path.is_file():
             continue
         try:
-            rel = str(path.relative_to(root)).replace(os.sep, "/")
+            rel = _to_posix(str(path.relative_to(root)))
         except ValueError:
             continue
         if excludes_re.search(rel):
@@ -184,27 +205,26 @@ def scan(root: Path) -> dict:
     discovery_mode = module_discovery.get("mode", "") or ""
     entry_patterns = module_discovery.get("entry_patterns") or []
 
+    # KLC-105: the ONE file universe (git-tracked ∩ resolved excludes, or the walk
+    # degrade path) drives every counter below — no independent rglob walk. Moved
+    # above the counter loop (was computed ten lines further down, after an
+    # independent walk had already produced total_files/languages/directory_tree
+    # from a DIFFERENT set — 4978 vs 486 on this checkout before the fix).
+    files_rel, files_rel_source = resolved_file_universe(root, excludes_re)
+
     total_files = 0
     total_lines = 0
     lang_files: dict[str, int] = {}
     lang_lines: dict[str, int] = {}
     dir_files: dict[str, int] = {}
 
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            rel = str(path.relative_to(root)).replace(os.sep, "/")
-        except ValueError:
-            continue
-        if excludes_re.search(rel):
-            continue
+    for rel in files_rel:
         total_files += 1
 
         ext = _ext_of(rel)
         lang = EXT_LANG.get(ext, "")
         if lang:
-            lines = _line_count(path)
+            lines = _line_count(root / rel)
             lang_files[lang] = lang_files.get(lang, 0) + 1
             lang_lines[lang] = lang_lines.get(lang, 0) + lines
             total_lines += lines
@@ -226,39 +246,30 @@ def scan(root: Path) -> dict:
         if (root / cand).exists():
             entry_points.append(cand)
 
-    # Profile-declared entry patterns (e.g. *.uproject). Case-sensitive
-    # glob walk from root honouring excludes.
+    # Profile-declared entry patterns (e.g. *.uproject). KLC-105: matched against the
+    # resolved universe (files_rel), not an independent glob walk — a pattern with no
+    # "/" matches by basename (rglob(pat) semantics), a pattern with "/" matches the
+    # full relative path.
     for pat in entry_patterns:
         pat = (pat or "").strip()
         if not pat:
             continue
-        for hit in root.rglob(pat):
-            if not hit.is_file():
-                continue
-            try:
-                rel = str(hit.relative_to(root)).replace(os.sep, "/")
-            except ValueError:
-                continue
-            if excludes_re.search(rel):
-                continue
-            if rel not in entry_points:
+        for rel in files_rel:
+            base = rel.rsplit("/", 1)[-1]
+            matched = fnmatch.fnmatch(rel, pat) if "/" in pat else fnmatch.fnmatch(base, pat)
+            if matched and rel not in entry_points:
                 entry_points.append(rel)
 
     # Source roots by discovery mode.
     source_roots: list[dict] = []
     if discovery_mode == "build-cs":
         seen: set[tuple[str, str]] = set()
-        for hit in root.rglob("*.Build.cs"):
-            if not hit.is_file():
+        for rel in files_rel:
+            if not rel.endswith(".Build.cs"):
                 continue
-            try:
-                rel = str(hit.relative_to(root)).replace(os.sep, "/")
-            except ValueError:
-                continue
-            if excludes_re.search(rel):
-                continue
+            name = rel.rsplit("/", 1)[-1]
             parent = rel.rsplit("/", 1)[0] if "/" in rel else "."
-            module = hit.name[: -len(".Build.cs")]
+            module = name[: -len(".Build.cs")]
             key = (parent, module)
             if key in seen:
                 continue
@@ -273,12 +284,6 @@ def scan(root: Path) -> dict:
             f"file-scanner: unknown module_discovery.mode: {discovery_mode!r}\n"
         )
         sys.exit(1)
-
-    # KLC-074 review: emit the AUTHORITATIVE file universe (git-tracked ∩ excludes) so
-    # modules_build clusters exactly the scan universe by construction — never a raw
-    # working-tree walk. `total_files`/`languages`/`directory_tree` keep their
-    # historical rglob-based counts (unchanged); `files_rel` is the reproducible list.
-    files_rel, files_rel_source = resolved_file_universe(root, excludes_re)
 
     return {
         "root":              str(root),

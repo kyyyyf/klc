@@ -59,6 +59,13 @@ sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir, framework_root, project_root  # noqa: E402
 import tools as _tools  # noqa: E402
+import file_universe  # noqa: E402
+
+# KLC-105: ast-grep is invoked with an explicit positional PATHS list (chunked under
+# this budget) instead of scanning "." — a builder must not decide the universe by
+# walking. Chars of positional paths per invocation; real ARG_MAX is ~2 MiB, this is
+# a conservative budget that leaves headroom for the rest of argv + environment.
+_ARG_BUDGET = 100_000
 
 # ast-grep 0-based line/column ranges -> 1-based editor lines.
 _SIG_MAX = 200
@@ -209,14 +216,37 @@ def _parse_matches(raw: list, source_of_truth: str) -> list[dict]:
     return out
 
 
-def _run_astgrep(root: Path, ruleset: dict, astgrep_path: str) -> list[dict]:
-    """Run one ast-grep scan over *root* with a merged temp sgconfig.
+def _chunk_paths(files: list[str], budget: int = _ARG_BUDGET):
+    """Yield *files* in batches whose total char length stays under *budget*, so a
+    large universe cannot blow past the OS argument-length limit (ARG_MAX) when
+    handed to ast-grep as positional PATHS."""
+    batch: list[str] = []
+    size = 0
+    for f in files:
+        if batch and size + len(f) + 1 > budget:
+            yield batch
+            batch, size = [], 0
+        batch.append(f)
+        size += len(f) + 1
+    if batch:
+        yield batch
+
+
+def _run_astgrep(root: Path, ruleset: dict, astgrep_path: str,
+                 files: list[str]) -> list[dict]:
+    """Run ast-grep over *files* (relative to *root*) with a merged temp sgconfig,
+    one or more invocations chunked under ``_ARG_BUDGET``.
 
     The temp config lists every resolved rule dir as an absolute ``ruleDirs`` entry
-    and carries the profile's ``languageGlobs`` (so UE ``.h`` files scan as cpp). One
-    invocation covers all languages. Raises on a non-zero exit / missing binary so the
-    caller can degrade.
+    and carries the profile's ``languageGlobs`` (so UE ``.h`` files scan as cpp).
+    KLC-105: *files* is an EXPLICIT positional PATHS list — ast-grep never walks the
+    tree on its own, so it can never see a file outside the resolved universe.
+    ``files=[]`` short-circuits to no invocation at all (an empty universe is a
+    legitimate degrade case, C-005). Raises on a non-zero exit / missing binary so
+    the caller can degrade.
     """
+    if not files:
+        return []
     import yaml
     cfg = {"ruleDirs": ruleset["rule_dirs"]}
     if ruleset["language_globs"]:
@@ -227,14 +257,21 @@ def _run_astgrep(root: Path, ruleset: dict, astgrep_path: str) -> list[dict]:
         yaml.safe_dump(cfg, fh)
         cfg_path = fh.name
     try:
-        r = subprocess.run(
-            [astgrep_path, "scan", "--config", cfg_path, "--json", "."],
-            capture_output=True, text=True, timeout=300, cwd=str(root),
-        )
-        if r.returncode != 0:
-            raise RuntimeError(
-                f"ast-grep exit {r.returncode}: {r.stderr.strip()[:200]}")
-        raw = json.loads(r.stdout or "[]")
+        raw: list = []
+        # D-004 codex verified: ast-grep 0.42.1's `scan [OPTIONS] [PATHS]...`
+        # accepts multiple positional paths; a file that no longer exists on disk
+        # (git may index a deleted-but-uncommitted path) is skipped rather than
+        # failing the whole invocation.
+        present = [f for f in files if (root / f).is_file()]
+        for batch in _chunk_paths(present):
+            r = subprocess.run(
+                [astgrep_path, "scan", "--config", cfg_path, "--json", *batch],
+                capture_output=True, text=True, timeout=300, cwd=str(root),
+            )
+            if r.returncode != 0:
+                raise RuntimeError(
+                    f"ast-grep exit {r.returncode}: {r.stderr.strip()[:200]}")
+            raw.extend(json.loads(r.stdout or "[]"))
     finally:
         try:
             os.unlink(cfg_path)
@@ -245,23 +282,31 @@ def _run_astgrep(root: Path, ruleset: dict, astgrep_path: str) -> list[dict]:
 
 # --- regex fallback -----------------------------------------------------------
 
-def _iter_source_files(root: Path, excludes_re: str, suffixes: tuple[str, ...]):
+def _iter_source_files(root: Path, files: list[str], excludes_re: str,
+                       suffixes: tuple[str, ...]):
+    """KLC-105: iterate universe MEMBERS with a matching suffix, sorted — never an
+    independent rglob walk. ``_HIDDEN_OR_NOISE`` and the profile ``excludes_re`` are
+    kept as an extra filter (defense in depth / D-004 double guard): the universe
+    already applied its own excludes, but a caller-supplied ``files`` list is not
+    assumed to be pre-filtered."""
     excl = re.compile(excludes_re) if excludes_re else None
-    for p in sorted(root.rglob("*")):
-        if not p.is_file() or p.suffix not in suffixes:
+    for rel in sorted(files):
+        if Path(rel).suffix not in suffixes:
             continue
-        rel = p.relative_to(root).as_posix()
         if _HIDDEN_OR_NOISE.search(rel):
             continue
         if excl and excl.search(rel):
             continue
+        p = root / rel
+        if not p.is_file():
+            continue
         yield p, rel
 
 
-def _regex_scan(root: Path, excludes_re: str) -> list[dict]:
+def _regex_scan(root: Path, excludes_re: str, files: list[str]) -> list[dict]:
     """Lower-fidelity fallback: public defs/classes (py) and exports (ts)."""
     symbols: list[dict] = []
-    for p, rel in _iter_source_files(root, excludes_re, (".py",)):
+    for p, rel in _iter_source_files(root, files, excludes_re, (".py",)):
         try:
             lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
@@ -272,7 +317,7 @@ def _regex_scan(root: Path, excludes_re: str) -> list[dict]:
                 if mm and not mm.group(1).startswith("_"):
                     symbols.append(
                         _regex_symbol(mm.group(1), kind, rel, i, line, "python"))
-    for p, rel in _iter_source_files(root, excludes_re, (".ts", ".tsx")):
+    for p, rel in _iter_source_files(root, files, excludes_re, (".ts", ".tsx")):
         try:
             lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
@@ -320,9 +365,16 @@ def _sort_key(s: dict) -> tuple:
     return (s["file"], s["line"], s["name"], s["rule"])
 
 
-def build_inventory(root: Path, ruleset: dict, astgrep_path: str | None) -> dict:
-    """Deterministically inventory *root*. Pure w.r.t. (root, ruleset, astgrep_path):
-    no timestamp, byte-identical on re-run (AC-11).
+def build_inventory(root: Path, ruleset: dict, astgrep_path: str | None,
+                    files: list[str] | None = None) -> dict:
+    """Deterministically inventory *root*. Pure w.r.t. (root, ruleset, astgrep_path,
+    files): no timestamp, byte-identical on re-run (AC-11).
+
+    ``files`` (KLC-105) is the resolved universe (relative posix paths) to scan. When
+    ``None`` the universe is resolved HERE via ``file_universe.resolve(root)`` — a
+    builder invoked without a prebuilt ``structural.json`` still refuses to walk on
+    its own; it falls through to the SAME resolver ``file_scanner.py`` uses, never a
+    private ``rglob``/``scan --config . .``.
 
     ``astgrep_path=None`` (or an ast-grep failure) → regex fallback with a note in
     ``errors[]`` and ``source_of_truth`` marked ``regex`` per language touched.
@@ -332,10 +384,12 @@ def build_inventory(root: Path, ruleset: dict, astgrep_path: str | None) -> dict
     symbols: list[dict] = []
     sot: dict[str, str] = {}
 
+    universe = files if files is not None else file_universe.resolve(root)["files"]
+
     used_astgrep = False
     if astgrep_path:
         try:
-            symbols = _run_astgrep(root, ruleset, astgrep_path)
+            symbols = _run_astgrep(root, ruleset, astgrep_path, universe)
             used_astgrep = True
         except Exception as exc:  # missing binary, bad rule, timeout, bad JSON
             errors.append(f"ast-grep unavailable/failed ({exc}); regex fallback")
@@ -344,12 +398,17 @@ def build_inventory(root: Path, ruleset: dict, astgrep_path: str | None) -> dict
         errors.append("ast-grep not resolved; regex fallback (lower fidelity)")
 
     if not used_astgrep:
-        symbols = _regex_scan(root, ruleset.get("excludes_re", ""))
+        symbols = _regex_scan(root, ruleset.get("excludes_re", ""), universe)
         notes.append("symbols from regex fallback — visibility/kind less precise "
                      "than ast-grep; source_of_truth=regex")
 
     # FIX-1: apply the profile excludes on BOTH paths (ast-grep does not know them).
     symbols = _drop_excluded(symbols, ruleset.get("excludes_re", ""))
+
+    # KLC-105 D-004 double guard: closure holds even if ast-grep re-expands an
+    # argument (e.g. a directory alias) beyond what was requested.
+    member = set(universe)
+    symbols = [s for s in symbols if s.get("file") in member]
 
     for s in symbols:
         sot.setdefault(s["lang"] or "unknown", s["source_of_truth"])

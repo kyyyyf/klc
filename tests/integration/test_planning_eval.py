@@ -349,6 +349,30 @@ def test_report_has_pre_retriever_metrics(tmp_path):
     assert cov["orphan_rate"] == pytest.approx(1 / 7)
 
 
+def test_coverage_denominator_ignores_untracked_pollution(tmp_path):
+    """KLC-105 review-fix (docs/architecture.md 'one file universe'):
+    `_walk_repo_files` must route through the ONE file-universe resolver
+    (`file_universe.resolve()`, git-tracked ∩ excludes) instead of a private
+    `os.walk` over the whole working tree. An UNTRACKED stray file (never
+    `git add`ed, so it matches none of the baseline-exclude patterns either)
+    must not inflate the coverage denominator — exactly the pollution class
+    KLC-105 already closes for every OTHER index builder; before this fix
+    planning-eval.py was the one builder still deciding for itself what the
+    project is."""
+    fx = _build_corpus(tmp_path)
+    # present on disk, never committed:
+    (fx["repo"] / "pollution.py").write_text("z = 1\n")
+    out = tmp_path / "eval_report.json"
+    proc = _run_harness(fx, out)
+    assert proc.returncode == 0, proc.stderr
+    rep = json.loads(out.read_text())
+    cov = rep["coverage"]
+    assert cov["status"] == "ok"
+    assert cov["files_total"] == 7, (
+        "an untracked file leaked into the coverage denominator")
+    assert cov["files_orphan"] == 1
+
+
 # --------------------------------------------------------------------------- #
 # AC-5: precision / recall numbers match the fixture
 # --------------------------------------------------------------------------- #
