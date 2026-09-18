@@ -28,6 +28,7 @@ _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
 from core.shared.paths import klc_ticket_dir, klc_ticket_meta_file, klc_tickets_dir  # noqa: E402
 import phases as _phases  # noqa: E402
+import provenance as _provenance  # noqa: E402  (KLC-116: the companion-rule gate)
 
 
 def _load_meta(ticket: str) -> dict | None:
@@ -81,6 +82,23 @@ def check_ticket(ticket: str) -> list[str]:
     rc, out = _run_items_validate(ticket)
     if rc != 0:
         errs.append(f"{ticket}: items.validate: {out.strip()}")
+
+    # KLC-116: a DECLARED evidence label without its companion BLOCKS (C-001's
+    # deliberate asymmetry); absence only ever WARNS, printed without touching
+    # the exit code. A crash of the check itself degrades to a note (C-004) —
+    # it must never turn into a spurious commit-blocking error.
+    try:
+        for f in _provenance.check_artefacts(ticket):
+            errs.append(f"{ticket}: provenance[{f.dimension}]: {f.message} "
+                        f"({f.file}:{f.line})")
+    except Exception as exc:                          # noqa: BLE001
+        print(f"provenance: check did not run — {type(exc).__name__} (degraded)")
+    try:
+        warn = _provenance.absence_warning(ticket)
+        if warn:
+            print(warn)
+    except Exception:                                  # noqa: BLE001
+        pass
 
     snap = meta.get("pre_merge_snapshot")
     if snap:

@@ -144,6 +144,9 @@ This finding feeds the `cheap_escape_rate` rollup (see `docs/process.md#metrics`
   follow-up command) applies them.
 - Never delete or supersede FACT items in other artefacts. The retro
   only adds its own `F-R*` items.
+- **Report the contradicted-assumption count (KLC-116).** Run
+  `provenance.py report --ticket <KEY>` and cite `contradicted_assumed` as an `F-R*`
+  fact — report zero as plainly as a non-zero count.
 
 ## Completion signal
 

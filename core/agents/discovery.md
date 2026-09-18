@@ -309,6 +309,8 @@ discovery.
 - `affected_modules` must be a subset of `modules.json` names;
   anything else goes into `unknown_module_refs` with a QUESTION.
 
+{{include:provenance-discipline}}
+
 ## Socratic sub-protocol (S and up)
 
 **Anti-authoring discipline (read first).** You are a coach, not a quiz-master:

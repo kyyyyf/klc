@@ -59,7 +59,8 @@ SURFACE = "surface"
 
 # Track sets. LIGHT is the XS floor; FULL adds the heavier consistency checks.
 _LIGHT = {"format", "markers", "constitution"}
-_HEAVY = {"testability", "what-not-how", "contradiction", "completeness", "coverage"}
+_HEAVY = {"testability", "what-not-how", "contradiction", "completeness", "coverage",
+          "provenance"}
 
 # The [NEEDS CLARIFICATION] marker (spec-kit convention). Any occurrence that
 # survives in the spec is an UNRESOLVED question by definition — the author
@@ -401,6 +402,28 @@ def _check_coverage(text: str, track: str) -> list[Finding]:
                         f"coverage scan unavailable ({exc!r}); completeness surfacing degraded")]
 
 
+def _check_provenance(text: str) -> list[Finding]:
+    """Provenance-counts dimension (KLC-116, HEAVY, warn-only). Reports the
+    observed/read/assumed tally over `spec.md`'s own items as a single
+    advisory line — nothing when the spec carries no `evidence=` attribute at
+    all (AC-14's "when the artefact holds at least one item" condition).
+
+    Degrade-not-fail: `provenance` is imported lazily so its absence degrades
+    HERE, exactly like `_check_coverage`/`_check_constitution`.
+    """
+    try:
+        import provenance as _prov  # lazy so absence degrades HERE
+        c = _prov.counts_in_text(text)
+    except Exception as exc:                          # noqa: BLE001
+        return [Finding("provenance", SURFACE,
+                        f"provenance counts unavailable ({exc!r}); counts surfacing degraded")]
+    if not any(c.values()):
+        return []
+    return [Finding("provenance", SURFACE,
+                    f"spec.md observed={c['observed']} read={c['read']} "
+                    f"assumed={c['assumed']}")]
+
+
 def _check_constitution() -> tuple[list[Finding], list[dict]]:
     """Surface the constitution REVIEW-principle checklist (degrade-safe).
 
@@ -456,6 +479,8 @@ def self_check(text: str, track: str | None = None) -> Report:
         report.findings += _check_completeness(text)
     if "coverage" in active:
         report.findings += _check_coverage(text, report.track)
+    if "provenance" in active:
+        report.findings += _check_provenance(text)
     if "constitution" in active:
         con_findings, checklist = _check_constitution()
         report.findings += con_findings

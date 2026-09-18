@@ -85,6 +85,18 @@ matches the plumbing schema on `implplan_review.IMPL_PLAN_REVIEW`):
   the RED test cannot fail before the code exists (e.g. it asserts a constant, or the
   step's own GREEN is a prerequisite of its RED). The KLC-057 lesson, at plan level.
 
+## Provenance on the claims you are reviewing
+
+A runtime-behaviour premise must be `observed`, probed during design, not deferred to the
+manual phase — check this standard, don't restate it.
+
+Verify every load-bearing DECISION declares `evidence=`, and an `observed` item carries
+its probe. Raise a finding when a load-bearing decision, or a step's `Depends on:` premise,
+is `assumed` or `read` for a claim only a probe could settle.
+
+A provenance gap is an `unaddressed-ac` finding, not a sixth category — the list above
+stays closed.
+
 Your `findings[]` do not stop here: the plumbing records them to
 `impl-plan-review-findings.json` in the ticket directory, and the BUILD agent
 (`core/agents/impl.md`) reads that file at the start of build and assesses EACH

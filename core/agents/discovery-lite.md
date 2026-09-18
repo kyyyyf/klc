@@ -94,6 +94,8 @@ total: <sum, must be ≤2 for XS or ≤5 for S>
    short description does not make it small — do **not** keep it XS/S;
    raise the estimate accordingly or emit `DISCOVERY_LITE_UPGRADE_M`.
 
+{{include:provenance-discipline}}
+
 ## Coverage elicitation — run mid-draft, before you finalize
 
 Completeness is by luck unless you interrogate a systematic checklist of WHAT to

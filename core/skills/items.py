@@ -65,6 +65,10 @@ ATTR_RE = re.compile(
     r"""(\w[\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))"""
 )
 
+# KLC-116: the closed provenance vocabulary. No fourth value — a vocabulary an
+# author has to think about is a vocabulary an author will skip.
+EVIDENCE_VALUES = ("observed", "read", "assumed")
+
 
 @dataclass
 class Item:
@@ -150,6 +154,12 @@ def build_index(ticket_id: str, *, write: bool = True) -> dict:
             "referenced_by": [],
             "superseded_by": None,
         }
+        # KLC-116 AC-1: copy the header's `evidence` into the index ONLY when
+        # present. Absence must read as absence, never as a silently
+        # synthesized/defaulted value (the fail-closed twin of AC-1).
+        ev = (it.attrs.get("evidence") or "").strip().lower()
+        if ev:
+            by_id[it.id]["evidence"] = ev
     # back-links
     for item_id, rec in by_id.items():
         if rec["supersedes"] and rec["supersedes"] in by_id:
@@ -168,6 +178,13 @@ def build_index(ticket_id: str, *, write: bool = True) -> dict:
         "unresolved_conflicts":   [i for i, r in by_id.items()
                                    if r["type"] == "CONFLICT"
                                    and r["status"] != "resolved"],
+        # KLC-116 AC-2: a DECLARED `evidence` value outside the closed
+        # vocabulary is a named violation, reported next to dangling_refs.
+        "evidence_violations": [
+            {"item": i, "value": r["evidence"]}
+            for i, r in by_id.items()
+            if r.get("evidence") and r["evidence"] not in EVIDENCE_VALUES
+        ],
     }
     if write:
         out = klc_ticket_index_file(ticket_id)
@@ -245,6 +262,7 @@ def cmd_index(args: argparse.Namespace) -> int:
         "dangling_refs":      len(data["dangling_refs"]),
         "orphan_questions":   len(data["orphan_questions"]),
         "unresolved_conflicts": len(data["unresolved_conflicts"]),
+        "evidence_violations": len(data["evidence_violations"]),
     }, ensure_ascii=False))
     return 0
 
@@ -258,6 +276,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
         errs.append(("orphan_questions", data["orphan_questions"]))
     if data["unresolved_conflicts"]:
         errs.append(("unresolved_conflicts", data["unresolved_conflicts"]))
+    if data["evidence_violations"]:
+        errs.append(("evidence_violations", data["evidence_violations"]))
     if errs:
         for kind, details in errs:
             sys.stderr.write(f"{kind}: {json.dumps(details, ensure_ascii=False)}\n")

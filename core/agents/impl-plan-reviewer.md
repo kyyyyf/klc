@@ -80,6 +80,11 @@ matches the plumbing schema on `implplan_review.IMPL_PLAN_REVIEW`):
   the RED test cannot fail before the code exists (e.g. it asserts a constant, or the
   step's own GREEN is a prerequisite of its RED). The KLC-057 lesson, at plan level.
 
+{{include:provenance-review}}
+
+A provenance gap is an `unaddressed-ac` finding, not a sixth category — the list above
+stays closed.
+
 Your `findings[]` do not stop here: the plumbing records them to
 `impl-plan-review-findings.json` in the ticket directory, and the BUILD agent
 (`core/agents/impl.md`) reads that file at the start of build and assesses EACH

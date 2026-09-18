@@ -33,6 +33,30 @@ import drift_check as _drift  # noqa: E402  (KLC-098: report-only drift-check co
 import module_membership as _mm  # noqa: E402  (KLC-098: file→module resolver, KLC-066)
 import drift_review as _drift_review  # noqa: E402  (KLC-099: DRIFT_CHECK ReviewKind seam)
 import advisories as _adv  # noqa: E402  (KLC-117: the one advisory aggregator)
+import provenance as _provenance  # noqa: E402  (KLC-116: the design-ack provenance gate)
+
+
+def _provenance_gate_records(ticket: str, persist: bool) -> tuple[str, list[dict]]:
+    """`(block_message, advisory_records)` for the KLC-116 design-ack gate.
+
+    Reads track read-only regardless of `persist` — the gate's own decision
+    never writes anything; `persist` only threads through to keep the same
+    read-only contract every other seam in this module honours. Degrade-not-
+    fail (C-004): a crash of `provenance.design_gate` itself never blocks —
+    it becomes one degraded advisory record instead.
+    """
+    try:
+        track = (_lc.read_meta_ro(ticket) or {}).get("track", "")
+        block, warns = _provenance.design_gate(ticket, track)
+    except Exception as exc:                          # noqa: BLE001
+        return "", [{"source": "provenance", "severity": "medium",
+                    "code": "provenance.degraded",
+                    "message": (f"provenance: design gate did not run — "
+                                f"{type(exc).__name__} (unverified)"),
+                    "ref": ""}]
+    records = [{"source": "provenance", "severity": "info",
+               "code": "provenance.warn", "message": w, "ref": ""} for w in warns]
+    return block, records
 
 
 def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -643,11 +667,17 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
     # Independent impl-plan reviewer (KLC-094): discovery-lite is the ack that
     # FINALIZES impl-plan.md for the S track, so surface the reviewer's outputs here,
     # symmetric with the spec reviewer above. Track-scaled + degrade-safe in the seam.
+    # KLC-116: on S the same load-bearing check SURFACES rather than blocks (AC-8;
+    # `design_gate` never returns a block message for a track outside M/L, so the
+    # block half of `_provenance_gate_records` is unreachable here — asserted, not
+    # re-implemented); on XS `design_gate` itself computes nothing (AC-9).
+    _, _prov_records = _provenance_gate_records(ticket, persist)
     _sources = [
         ("spec-self-check", _spec_warnings),
         ("discovery", _signal_records),
         ("spec-review", _spec_review_records(ticket, persist)),
         ("impl-plan-review", _implplan_review_records(ticket, persist)),
+        ("provenance", _prov_records),
     ]
     _records, _summary = _adv.finish(ticket, "discovery-lite", _sources, persist)
     return True, _summary
@@ -1027,6 +1057,13 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
         # decision gate, warn-only / fail-open, exactly like the spec reviewer at the
         # discovery ack. Threads `persist` so a read-only probe writes nothing.
         _sources.append(("impl-plan-review", _implplan_review_records(ticket, persist)))
+        # KLC-116: an unmeasured load-bearing decision blocks THIS ack on M/L — the
+        # phase that finalizes design/options.md. Degrade-not-fail (C-004): a crash
+        # of the gate itself never blocks; it only loses the check for this ack.
+        _prov_block, _prov_records = _provenance_gate_records(ticket, persist)
+        if _prov_block:
+            return False, f"design: {_prov_block}"
+        _sources.append(("provenance", _prov_records))
 
     _records, _summary = _adv.finish(ticket, phase_id, _sources, persist)
     return True, _summary

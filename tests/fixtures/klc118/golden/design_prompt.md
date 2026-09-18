@@ -73,6 +73,8 @@ Use the LSP tool (`goToDefinition`, `hover`, `workspaceSymbol`) to
 verify any symbol signatures mentioned in options. Any symbol referenced
 in `options.md` / `adr.md` must be verified via LSP before citing it.
 
+{{include:provenance-discipline}}
+
 ## Steps
 
 ### Step 0 — deep-context scout (conditional, KLC-026)

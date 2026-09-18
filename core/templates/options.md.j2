@@ -32,6 +32,24 @@ last_generated: {{ generated_at }}
 
 {% endfor %}
 
+## Decisions
+
+<!--
+  Documentation only (KLC-116, F-005): this block is NOT rendered by the
+  `options` loop above — the design agent writes `[!DECISION]` items here by
+  hand, after picking. Shown so a reader of this template sees the expected
+  shape, including the `evidence=` attribute every decision carries:
+
+  > [!DECISION D-001] owner=agent date=<ISO> evidence=observed|read|assumed
+  > <what was decided, and why>
+
+  `observed` needs the command and its output in a fenced block next to the
+  item; `read` needs `src=<file>:<line>` that resolves; `assumed` needs a
+  non-empty `if-false=`. An item written before this attribute existed
+  carries no `evidence=` at all — that predates the rule and is never
+  retroactively enforced.
+-->
+
 ## Recommendation
 
 {{ recommendation }}

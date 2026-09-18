@@ -595,9 +595,9 @@ Items are indexed by `core/skills/items.py` into `.index.json` and checked by th
 consistency gate before integrate.
 
 ```
-[!FACT F-001]       src=path/to/file:42  verified=2026-05-21
-[!ASSUMPTION A-001] if-false=rollback-to-option-B
-[!DECISION D-001]   owner=impl-agent  date=2026-05-21  refs=step-3
+[!FACT F-001]       src=path/to/file:42  verified=2026-05-21  evidence=observed
+[!ASSUMPTION A-001] if-false=rollback-to-option-B  evidence=assumed
+[!DECISION D-001]   owner=impl-agent  date=2026-05-21  refs=step-3  evidence=read src=core/skills/items.py:133
 [!QUESTION Q-001]   blocks=discovery
 [!CONSTRAINT C-001] source=security-review
 [!CONFLICT C-001]   (scope creep / infeasible option / broken assumption)
@@ -605,6 +605,28 @@ consistency gate before integrate.
 
 `CONFLICT` always halts the agent and requires human resolution. `QUESTION` with
 `blocks=<phase>` prevents phase advance until answered.
+
+### Provenance (`evidence=`, KLC-116)
+
+A FACT, ASSUMPTION or DECISION may declare `evidence=observed|read|assumed` — how the
+claim was established, not just what it says. Each label brings its own companion, and
+the consistency gate blocks a DECLARED label that arrives without it:
+
+- `evidence=observed` — the author ran something against the real system. Companion: a
+  fenced block holding the command and its output, in the item's own quoted body or
+  immediately after it (no other item header in between).
+- `evidence=read` — the author took the claim from a source that can be reopened.
+  Companion: `src=<file>:<line>` that resolves to a real path in the repository (the line
+  number itself is not re-verified — see the periodic verification pass for staleness).
+- `evidence=assumed` — the author does not know; the claim stands until contradicted.
+  Companion: a non-empty `if-false=<consequence>`.
+
+**Migration rule**: an item written before this attribute existed carries no `evidence=`
+at all, and that is fine — absence predates the rule and is never retroactively enforced.
+The consistency gate only warns (naming the artefact and the count) on absence; it blocks
+only when a label IS declared but its companion is missing, or when a load-bearing design
+decision (the recommended option's decisions, plus any item a plan step's `Depends on:`
+names) is `assumed` or undeclared at the M/L design acceptance gate.
 
 ---
 
