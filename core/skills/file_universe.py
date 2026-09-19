@@ -122,9 +122,9 @@ def collect_index_paths(
                 continue
             for node in g.get("nodes") or []:
                 if isinstance(node, dict):
-                    # D-003: path-carrying graphs (cpp-unreal, madge) must be
-                    # checked on their real file path, not the node id — for
-                    # cpp-unreal the id is a *.Build.cs module name, never a
+                    # D-003: path-carrying graphs (e.g. madge) must be
+                    # checked on their real file path, not the node id — a
+                    # module-scoped graph's id can be a module name, never a
                     # repo-relative path, so a closure check over "id" would
                     # test the wrong field entirely.
                     nid = node.get("path") or node.get("id")

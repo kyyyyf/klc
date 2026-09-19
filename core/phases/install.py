@@ -229,7 +229,7 @@ _SETTINGS_SEED = (
     "# (profile.yml / jira.yml / clarify.yml / budgets.yml). Uncomment to override.\n"
     "# `klc doctor` validates the keys below.\n"
     "\n"
-    "# profile: ue                                # active profile (default: ue)\n"
+    "# profile: generic                           # active profile (default: generic)\n"
     "# jira:\n"
     "#   enabled: false                           # Jira mirror on/off (default: false)\n"
     "#   mode: mirror                             # mirror | managed (default: mirror)\n"

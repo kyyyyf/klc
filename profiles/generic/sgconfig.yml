@@ -1,0 +1,17 @@
+# ast-grep language-mapping override for the generic profile.
+#
+# ast-grep's built-in extension-to-language mapping treats `.h` as C, not
+# C++. core/rules/cpp/header-symbols.yaml is a `language: cpp` rule scoped
+# to header files (*.h, *.hpp, *.hxx) — without this override it can never
+# match a real .h/.hxx file, since ast-grep would classify them as C before
+# the rule is even considered. `.hpp`/`.cpp`/`.cc`/`.cxx` already resolve to
+# cpp by default; only the C-shaped extensions need the explicit route.
+#
+# This is the ONLY mapping generic needs (KLC-122 review round 1, HIGH):
+# no other core/rules language rule requires a languageGlobs override.
+
+languageGlobs:
+  cpp:
+    - "**/*.h"
+    - "**/*.hxx"
+    - "**/*.hpp"

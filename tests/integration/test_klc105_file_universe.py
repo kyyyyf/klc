@@ -57,20 +57,20 @@ def test_out_of_universe_flags_non_members():
     assert file_universe.out_of_universe([], universe) == []
 
 
-def test_collect_index_paths_uses_path_field_for_cpp_unreal_nodes():
+def test_collect_index_paths_uses_path_field_for_a_path_carrying_graph():
     """D-003 (design/options.md): the closure predicate must check the `path`
-    field for path-carrying graphs (cpp-unreal, madge), not the node `id` — for
-    cpp-unreal the id is a *.Build.cs MODULE NAME (e.g. parsed from the file
-    stem), never a repo-relative path, so a closure check over `id` tests the
-    wrong field entirely and would flag a real, in-universe .Build.cs file as an
-    out-of-universe violation (or miss a genuine violation whose module name
-    happens to collide with an in-universe path)."""
+    field for path-carrying graphs (e.g. madge), not the node `id` — a
+    module-scoped graph's id can be a MODULE NAME (e.g. parsed from a build
+    manifest's file stem), never a repo-relative path, so a closure check over
+    `id` tests the wrong field entirely and would flag a real, in-universe
+    build-manifest file as an out-of-universe violation (or miss a genuine
+    violation whose module name happens to collide with an in-universe path)."""
     depgraph = {
         "import_graphs": {
-            "cpp-unreal": {
-                "tool": "grep *.Build.cs",
+            "modgraph": {
+                "tool": "grep *.module-manifest",
                 "nodes": [
-                    {"id": "MyModule", "path": "Source/MyModule/MyModule.Build.cs"},
+                    {"id": "MyModule", "path": "Source/MyModule/MyModule.module-manifest"},
                     {"id": "ExternalDep", "path": ""},
                 ],
                 "edges": [{"from": "MyModule", "to": "ExternalDep"}],
@@ -81,6 +81,6 @@ def test_collect_index_paths_uses_path_field_for_cpp_unreal_nodes():
     # The real file path must be collected from the node, not just its
     # module-name id (edges still carry module-name from/to keys, which is
     # outside this fix's scope — only the node-path branch is under test).
-    assert "Source/MyModule/MyModule.Build.cs" in categories["depgraph"]
+    assert "Source/MyModule/MyModule.module-manifest" in categories["depgraph"]
     # A node with an empty path (external dependency) falls back to its id.
     assert "ExternalDep" in categories["depgraph"]

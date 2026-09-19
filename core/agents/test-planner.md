@@ -182,7 +182,8 @@ Rules for L (test-plan detailed section):
   ```
   so `.index.json` stays current.
 - Mutation tests: if the detected language/profile disables mutation
-  (e.g. cpp-unreal), skip that column — do not invent numbers.
+  (e.g. a build system with no mutation tool), skip that column — do
+  not invent numbers.
 
 ## Symbol verification
 

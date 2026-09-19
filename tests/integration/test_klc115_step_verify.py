@@ -162,7 +162,7 @@ _REAL_EXPECTED_FIELDS = [
     ("`14 passed` — 6 from `test_rules_typescript.py` (the 4 originally planned "
      "plus the two F-1 additions), 1 nesting floor, and 7 parametrised AC-1 cases "
      "(`typescript/.ts`, `tsx/.tsx`, `javascript/.js`, `python/.py`, `rust/.rs`, "
-     "`cpp/.cpp`, `cpp-unreal/.h`)", "14 passed"),
+     "`cpp/.cpp`)", "14 passed"),
     ("`4 passed` from the executor file, then the full suite exits 0 with 0 failed",
      "4 passed"),
     ("the first command reports all new cases passed; the second reports the "

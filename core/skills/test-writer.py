@@ -109,91 +109,11 @@ def load_yaml_min(path: Path) -> dict:
         return {}
 
 
-def _detect_unreal() -> dict | None:
-    """Detect Unreal Engine projects (*.uproject at root or one level down).
-
-    Distinguishes three sub-cases the test agent must surface to the user:
-    - Automation tests found (`IMPLEMENT_SIMPLE_AUTOMATION_TEST(...)` in source).
-    - LLTest found (a `LowLevelTests/` directory or a `.Target.cs` with
-      `LaunchType.Program`).
-    - Neither — test agent must ask the user which framework to use before
-      writing tests.
-
-    Mutation testing is reported as disabled for UE per reviewers.yml
-    `per_language.cpp-unreal.mutation_enabled: false`.
-    """
-    pr = project_root()
-    uprojects = list(pr.glob("*.uproject")) + list(pr.glob("*/*.uproject"))
-    if not uprojects:
-        return None
-
-    uproject = uprojects[0]
-    root = uproject.parent
-
-    # Grep for Automation macros inside the Source tree.
-    automation_hits = 0
-    lltest_seen = False
-    source_dir = root / "Source"
-    if source_dir.exists():
-        for p in source_dir.rglob("*.cpp"):
-            try:
-                text = p.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            if "IMPLEMENT_SIMPLE_AUTOMATION_TEST" in text \
-               or "IMPLEMENT_COMPLEX_AUTOMATION_TEST" in text \
-               or "IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST" in text:
-                automation_hits += 1
-            if automation_hits > 5:
-                break
-        for tcs in source_dir.rglob("*.Target.cs"):
-            try:
-                t = tcs.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            if "LaunchType.Program" in t and "LowLevelTests" in t:
-                lltest_seen = True
-                break
-    if (root / "LowLevelTests").exists():
-        lltest_seen = True
-
-    sub_kind = []
-    if automation_hits > 0:
-        sub_kind.append("automation")
-    if lltest_seen:
-        sub_kind.append("lltest")
-    if not sub_kind:
-        sub_kind = ["unknown"]
-
-    return {
-        "detected_at":   time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "language":      "cpp-unreal",
-        "framework":     "ue-automation" if "automation" in sub_kind else (
-                         "lltest" if "lltest" in sub_kind else "unreal-unknown"),
-        "framework_variants": sub_kind,  # {automation, lltest, unknown}
-        "mutation_tool":  None,
-        "mutation_enabled": False,
-        "mutation_reason": "UBT + mull are not compatible; mutation testing "
-                           "is disabled for UE projects.",
-        "test_glob":      "Source/**/*Tests/**/*.cpp",
-        "run_command":    "UnrealEditor-Cmd.exe <uproject> -ExecCmds=\"Automation RunTests <FilterName>; Quit\" -Unattended -NoPause",
-        "mutation_cmd":   None,
-        "uproject":       str(uproject.relative_to(pr)),
-        "fallback":       True,
-    }
-
-
 def detect_framework_if_missing() -> dict:
     """If test-framework.json is missing, produce a best-effort guess so the
     skill can still return a useful report. The test agent is expected to
     generate this file properly; this is only a fallback."""
     pr = project_root()
-    # UE check comes first: a project may also have a CMakeLists.txt inside
-    # Source/ for native LLTest, but the .uproject is authoritative.
-    ue = _detect_unreal()
-    if ue:
-        return ue
-
     candidates = [
         ("pyproject.toml", "python",    "pytest",     "mutmut",        "mutmut run"),
         ("package.json",   "typescript","vitest",     "stryker",       "npx stryker run"),
@@ -230,8 +150,6 @@ def sample_existing_tests(module_paths: list[Path]) -> list[str]:
         "**/tests/**/*.rs",
         "**/test_*.cpp",
         "**/*Test.cpp",
-        # UE Automation tests live under Source/<Module>Tests/ or
-        # <Module>/Tests/. Match both to pick up whichever layout the team uses.
         "**/Tests/*.cpp",
         "**/*Tests/*.cpp",
         "**/LowLevelTests/**/*.cpp",

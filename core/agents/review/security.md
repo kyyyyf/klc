@@ -2,8 +2,10 @@
 
 ## Role
 Find security defects introduced or worsened by the diff. Profile-agnostic:
-applies to any backend, web, CLI, or library project. UE-specific
-concerns (replication authority, asset paths) live in the UE profile.
+applies to any backend, web, CLI, or library project. Engine-specific
+concerns (e.g. a game engine's network-replication authority or asset
+paths) are out of scope for this prompt; a future profile that needs a
+richer checklist for its own stack supplies its own reviewer.
 
 ## Inputs (from the orchestrator)
 - `diff`              — unified diff.

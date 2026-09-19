@@ -36,7 +36,7 @@ Knobs currently fronted by `settings.yml` (each with its legacy file):
 | File | Purpose | Consumer(s) |
 |------|---------|-------------|
 | `settings.yml` | Operational front door: profile / jira / clarify / autorun cap | core/skills/settings.py |
-| `profile.yml` | Legacy active-profile selection (default: ue) | core/skills/profile-resolve.py, core/phases/{install,doctor}.py |
+| `profile.yml` | Legacy active-profile selection (default: generic) | core/skills/profile-resolve.py, core/phases/{install,doctor}.py |
 | `models.yml` | LLM model selection per phase / role / track | core/skills/models.py |
 | `jira.yml` | Jira integration: connection, status_mapping (+ DEPRECATED legacy sync.*/url_template) | core/skills/{jira_config,jira_sync}.py, core/phases/jira.py |
 | `reviewers.yml` | Multi-agent review pipeline, external reviewer, mutation gate, cascade | core/skills/review.py, core/skills/test-writer.py |

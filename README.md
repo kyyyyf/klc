@@ -206,11 +206,14 @@ Default profile at `config/profile.yml`; per-project override at
 `.klc/config/profile.yml`:
 
 ```yaml
-profile: ue   # or: generic
+profile: generic
 ```
 
 A profile's `manifest.yml` controls rules, reviewer sub-agents,
-excludes, module-discovery mode, and content extensions.
+excludes, module-discovery mode, and content extensions. `generic` is
+the only profile that ships; a second profile stays possible by
+contract — nothing in the profile-resolution machinery is specific to
+any one profile.
 
 ## Model selection
 
@@ -228,7 +231,7 @@ klc/                           # framework repo
   core/phases/                 # command implementations
   core/skills/                 # supporting tools (lifecycle, budget, …)
   core/templates/              # Jinja2 templates
-  profiles/generic/ ue/        # profiles
+  profiles/generic/            # profiles (a second profile is a supported extension point, none ships)
   hooks/pre-commit             # update.py + consistency check
   scripts/klc                  # dispatcher
   scripts/init.py update.py    # indexing loop

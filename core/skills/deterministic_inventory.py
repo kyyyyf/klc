@@ -10,8 +10,8 @@ and never hard-fails on a missing optional tool — the only exit-2 case is a ``
 that is not a directory.
 
 Profile-awareness matters: the active profile is resolved via ``profile-resolve.py``,
-so the UE profile's ``profiles/ue/rules/cpp-unreal`` rules and its ``.h -> cpp``
-languageGlobs are applied. Merging by hand (only ``core/rules``) would make the UE
+so a profile's own rule dirs and its ``sgconfig`` languageGlobs are applied on top
+of the core rules. Merging by hand (only ``core/rules``) would make a profile-specific
 public-API index worse than the LLM-agent path.
 
 FROZEN inventory.json schema — stated ONCE, in ``core.shared.inventory``
@@ -132,7 +132,7 @@ def resolve_ruleset() -> dict:
         sg_path = (fr / sgconfig_rel).resolve()
         if sg_path.exists():
             try:
-                import yaml  # local import: only the UE path needs it
+                import yaml  # local import: only the sgconfig-carrying-profile path needs it
                 sg = yaml.safe_load(sg_path.read_text(encoding="utf-8")) or {}
                 lg = sg.get("languageGlobs")
                 if isinstance(lg, dict):
@@ -243,7 +243,8 @@ def _run_astgrep(root: Path, ruleset: dict, astgrep_path: str,
     one or more invocations chunked under ``_ARG_BUDGET``.
 
     The temp config lists every resolved rule dir as an absolute ``ruleDirs`` entry
-    and carries the profile's ``languageGlobs`` (so UE ``.h`` files scan as cpp).
+    and carries the profile's ``languageGlobs`` (a profile's own override of
+    ast-grep's built-in extension-to-language mapping, e.g. routing ``.h`` to cpp).
     KLC-105: *files* is an EXPLICIT positional PATHS list — ast-grep never walks the
     tree on its own, so it can never see a file outside the resolved universe.
     ``files=[]`` short-circuits to no invocation at all (an empty universe is a

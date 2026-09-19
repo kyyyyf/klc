@@ -42,7 +42,6 @@ def test_executor_runs_declared_cases_for_every_rule_file():
         REPO_ROOT / "core" / "rules" / "python",
         REPO_ROOT / "core" / "rules" / "rust",
         REPO_ROOT / "core" / "rules" / "cpp",
-        REPO_ROOT / "profiles" / "ue" / "rules" / "cpp-unreal",
     ]
     failures = run_rule_tests(rule_dirs, _active_profile_language_globs())
     assert failures == [], "\n".join(failures)

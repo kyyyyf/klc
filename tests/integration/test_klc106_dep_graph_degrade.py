@@ -4,8 +4,8 @@ candidate wins, madge gets its flags (AC-4, AC-5, AC-6).
 `dep_graph.py` already threads a KLC-105 file universe through every producer
 to post-filter its raw tool output; this ticket layers a coverage VERDICT on
 top of that plumbing. Producers whose nodes are not files at all (cargo
-metadata, cmake --graphviz, the UE *.Build.cs walk) have no natural file
-denominator (Q-005/D-002) and always record `metric: "not-applicable"`,
+metadata, cmake --graphviz) have no natural file denominator
+(Q-005/D-002) and always record `metric: "not-applicable"`,
 `degraded: false` — never a fabricated ratio.
 """
 from __future__ import annotations
@@ -35,10 +35,8 @@ def _no_op_packages(monkeypatch):
     monkeypatch.setattr(dep_graph, "_cpp_package_graph", lambda root: (None, []))
 
 
-def _resolve_stub(monkeypatch, *, discovery_mode="", collect_packages=False, tsconfig=""):
+def _resolve_stub(monkeypatch, *, collect_packages=False, tsconfig=""):
     def fake_resolve(field):
-        if field == "module_discovery":
-            return json.dumps({"mode": discovery_mode}) if discovery_mode else "{}"
         if field == "collect_package_graphs":
             return "true" if collect_packages else "false"
         if field == "tsconfig":
@@ -63,7 +61,7 @@ def test_each_import_graph_producer_stamps_degraded_below_threshold(tmp_path, mo
     root.mkdir()
     _structural(root, {"python": {"files": 20}, "typescript": {"files": 20},
                         "cpp": {"files": 5}}, total_files=25)
-    _resolve_stub(monkeypatch, discovery_mode="build-cs", collect_packages=True)
+    _resolve_stub(monkeypatch, collect_packages=True)
 
     # generic scanner: 1 of 20 python files -> below the 0.25 default floor.
     monkeypatch.setattr(dep_graph, "_import_graphs_from_scanner",
@@ -71,15 +69,13 @@ def test_each_import_graph_producer_stamps_degraded_below_threshold(tmp_path, mo
     # madge: sole typescript candidate, 1 of 20 -> below floor too.
     monkeypatch.setattr(dep_graph, "_madge_typescript",
                          lambda root, universe: {**_graph("madge", ["a.ts"]), "errors": []})
-    # cargo metadata / cmake / UE walk: no file denominator (D-002) regardless
-    # of node count — must stay not-applicable, never a fabricated ratio.
+    # cargo metadata / cmake: no file denominator (D-002) regardless of node
+    # count — must stay not-applicable, never a fabricated ratio.
     monkeypatch.setattr(dep_graph, "_rust_package_graph",
                          lambda root: (_graph("cargo metadata", ["pkgA"]), []))
     monkeypatch.setattr(dep_graph, "_python_package_graph", lambda root: (None, []))
     monkeypatch.setattr(dep_graph, "_cpp_package_graph",
                          lambda root: (_graph("cmake --graphviz", ["nodeA"]), []))
-    monkeypatch.setattr(dep_graph, "_ue_import_graph",
-                         lambda root, excl, universe: _graph("grep *.Build.cs", ["ModA"]))
 
     result = dep_graph.build(root)
 
@@ -91,8 +87,6 @@ def test_each_import_graph_producer_stamps_degraded_below_threshold(tmp_path, mo
     assert rust_pkg["degraded"] is False and rust_pkg.get("metric", dep_graph.index_coverage.NOT_APPLICABLE)
     cpp_pkg = result["package_graphs"]["cpp"]
     assert cpp_pkg["degraded"] is False
-    ue = result["import_graphs"]["cpp-unreal"]
-    assert ue["degraded"] is False
 
     verdicts = [e for e in result["errors"] if isinstance(e, dict)]
     by_builder = {v["builder"]: v for v in verdicts}
@@ -100,7 +94,6 @@ def test_each_import_graph_producer_stamps_degraded_below_threshold(tmp_path, mo
     assert by_builder["dep_graph:madge"]["degraded"] is True
     assert by_builder["dep_graph:cargo metadata"]["metric"] == "not-applicable"
     assert by_builder["dep_graph:cmake --graphviz"]["metric"] == "not-applicable"
-    assert by_builder["dep_graph:grep *.Build.cs"]["metric"] == "not-applicable"
 
 
 def test_producer_with_missing_structural_denominator_defaults_to_degraded_not_healthy(
@@ -119,12 +112,12 @@ def test_producer_with_missing_structural_denominator_defaults_to_degraded_not_h
     assert "denominator" in py["reason"] or "unavailable" in py["reason"]
 
 
-def test_cpp_and_ue_package_graphs_report_metric_not_applicable_without_fabricated_ratio(
+def test_cpp_package_graphs_report_metric_not_applicable_without_fabricated_ratio(
         tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     _structural(root, {"cpp": {"files": 2}}, total_files=2)
-    _resolve_stub(monkeypatch, discovery_mode="build-cs", collect_packages=True)
+    _resolve_stub(monkeypatch, collect_packages=True)
     monkeypatch.setattr(dep_graph, "_import_graphs_from_scanner", lambda root: ({}, []))
     monkeypatch.setattr(dep_graph, "_madge_typescript", lambda root, universe: None)
     monkeypatch.setattr(dep_graph, "_python_package_graph", lambda root: (None, []))
@@ -134,18 +127,13 @@ def test_cpp_and_ue_package_graphs_report_metric_not_applicable_without_fabricat
     # the "plausible-costume" number D-002 forbids.
     monkeypatch.setattr(dep_graph, "_cpp_package_graph",
                          lambda root: (_graph("cmake --graphviz", ["n1", "n2", "n3", "n4"]), []))
-    monkeypatch.setattr(dep_graph, "_ue_import_graph",
-                         lambda root, excl, universe: _graph(
-                             "grep *.Build.cs", ["Mod1", "Mod2", "Mod3", "Mod4", "Mod5"]))
 
     result = dep_graph.build(root)
     cpp_pkg = result["package_graphs"]["cpp"]
     assert cpp_pkg["degraded"] is False
-    ue = result["import_graphs"]["cpp-unreal"]
-    assert ue["degraded"] is False
 
     verdicts = {e["builder"]: e for e in result["errors"] if isinstance(e, dict)}
-    for builder in ("dep_graph:cmake --graphviz", "dep_graph:grep *.Build.cs"):
+    for builder in ("dep_graph:cmake --graphviz",):
         v = verdicts[builder]
         assert v["metric"] == "not-applicable"
         assert v["universe"] is None

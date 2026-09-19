@@ -297,8 +297,8 @@ def _deps_fallback(module: dict) -> str:
     `_none_` — claiming a full, clean measurement when half the module's
     dependency picture was actually unmeasured. Now: zero covering graphs
     (including a module with no files at all, or a producer whose graph
-    nodes are keyed by something other than a repo-relative file path — the
-    cpp-unreal `*.Build.cs` walk's module-name node ids, for one) stays "not
+    nodes are keyed by something other than a repo-relative file path — a
+    package-graph producer's crate/module-name node ids, for one) stays "not
     indexed"; some-but-not-all covering graphs degraded names the degraded
     ones explicitly instead of picking either extreme; only when EVERY
     covering graph is healthy does an empty `depends_on`/`depended_by`

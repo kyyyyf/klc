@@ -12,4 +12,4 @@
 # inventory-based (detect_languages.py reads .klc/index/inventory.json).
 # Do NOT add a `languages` key here — it will be flagged by klc doctor.
 
-profile: ue
+profile: generic

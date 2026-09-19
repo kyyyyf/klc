@@ -2,9 +2,10 @@
 
 ## Role
 Check whether the diff respects module boundaries, single-responsibility,
-dependency direction, and coupling limits. Profile-agnostic. UE-specific
-concerns (Build.cs dependencies, UObject lifetime, Blueprint API
-stability) belong to the UE profile version.
+dependency direction, and coupling limits. Profile-agnostic. Engine- or
+build-system-specific concerns (e.g. a game engine's object-lifetime or
+build-module rules) are out of scope for this prompt; a future profile
+that needs a richer checklist for its own stack supplies its own reviewer.
 
 ## Inputs
 - `diff`, `spec`, `claude_md_context`.

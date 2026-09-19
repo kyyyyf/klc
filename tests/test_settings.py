@@ -79,8 +79,8 @@ def test_project_settings_beats_project_legacy(scopes):
 def test_no_settings_file_returns_legacy_profile(scopes):
     """AC-3: no settings.yml at either scope → legacy profile.yml value verbatim."""
     proj, fw = scopes
-    _w(fw, "profile.yml", "profile: ue\n")
-    assert settings.profile() == "ue"
+    _w(fw, "profile.yml", "profile: generic\n")
+    assert settings.profile() == "generic"
 
 
 def test_no_settings_file_returns_legacy_all_knobs(scopes):
@@ -99,8 +99,8 @@ def test_commented_key_falls_through(scopes):
     """A commented (absent) knob in a present settings.yml falls through to legacy."""
     proj, fw = scopes
     _w(proj, "settings.yml", "# profile: X\n")
-    _w(fw, "profile.yml", "profile: ue\n")
-    assert settings.profile() == "ue"
+    _w(fw, "profile.yml", "profile: generic\n")
+    assert settings.profile() == "generic"
 
 
 def test_per_knob_independence_mixed_file(scopes):
@@ -136,7 +136,7 @@ def test_malformed_settings_degrades_per_knob(scopes, monkeypatch):
     NO exception propagated out of the accessor."""
     proj, fw = scopes
     _w(proj, "settings.yml", "MALFORMED\n")
-    _w(fw, "profile.yml", "profile: ue\n")
+    _w(fw, "profile.yml", "profile: generic\n")
     real = settings._parse
 
     def fake(text):
@@ -145,7 +145,7 @@ def test_malformed_settings_degrades_per_knob(scopes, monkeypatch):
         return real(text)
 
     monkeypatch.setattr(settings, "_parse", fake)
-    assert settings.profile() == "ue"
+    assert settings.profile() == "generic"
 
 
 def test_cap_project_dir_override_ignored(scopes):

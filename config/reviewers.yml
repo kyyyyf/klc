@@ -49,13 +49,10 @@ test:
   mutation_score_threshold: 80
 
   # Per-language overrides of the mutation gate. Use this for languages or
-  # build systems where the mutation tool is impractical (e.g. cpp-unreal
-  # under UnrealBuildTool). Keys match the `language` field that the test
-  # agent writes into .klc/index/test-framework.json.
-  per_language:
-    cpp-unreal:
-      mutation_enabled: false
-      reason: "UBT + mull are not compatible; mutation testing is skipped for UE projects."
+  # build systems where the mutation tool is impractical. Keys match the
+  # `language` field that the test agent writes into
+  # .klc/index/test-framework.json.
+  per_language: {}
 
 review:
   # Severity levels that block merge. Anything in this list contributes to

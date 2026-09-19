@@ -15,8 +15,8 @@
 
 # Active profile — selects profiles/<name>/{manifest,sgconfig,mcp}.yml
 # (language globs, semgrep config, MCP servers, reviewer manifest).
-# Legacy: config/profile.yml. Default: ue.
-# profile: ue
+# Legacy: config/profile.yml. Default: generic.
+# profile: generic
 
 # Jira mirror integration (optional). Legacy: config/jira.yml.
 # jira:

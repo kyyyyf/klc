@@ -14,10 +14,9 @@ counts every file in the tree, including the ones under `legacy/` — this
 repository's fixture stand-in for the FACT's "excluded working-copy
 duplicates" / `baseUrl`-rooted-imports scenario. No `madge` needed (A-101):
 no `package.json` ships in the TS fixture. Every fixture pins the `generic`
-profile via a project `settings.yml` — this repo's OWN active profile is
-`ue`, whose `build-cs` module discovery would leave `source_roots` empty and
-silently fall back to scanning every file (masking the exact asymmetry these
-fixtures exist to exercise).
+profile explicitly via a project `settings.yml`, regardless of whatever
+this repo's own `config/profile.yml` currently says, so each fixture's
+discovery mode stays independent of the framework's own ambient default.
 """
 from __future__ import annotations
 
@@ -58,10 +57,10 @@ def _copy_fixture(name: str, tmp_path: Path) -> Path:
     src = _FIXTURES / name
     dst = tmp_path / name
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
-    # Pin the `generic` profile (conventional-dirs discovery): this repo's
-    # own active profile is `ue` (build-cs discovery), under which
-    # `source_roots` stays empty and every scanner silently falls back to
-    # the whole universe — masking the asymmetry these fixtures exercise.
+    # Pin the `generic` profile explicitly, regardless of whatever this
+    # repo's own config/profile.yml currently says, so each fixture's
+    # discovery mode (conventional-dirs) stays independent of the
+    # framework's own ambient default.
     cfg = dst / ".klc" / "config"
     cfg.mkdir(parents=True, exist_ok=True)
     (cfg / "settings.yml").write_text("profile: generic\n", encoding="utf-8")
@@ -118,23 +117,17 @@ def test_healthy_fixture_produces_no_degraded_flags_and_unchanged_confidence(tmp
     root = _copy_fixture("tiny-py", tmp_path)
     # D-212 (review round 1, HIGH finding #1) follow-up discovery: the
     # `generic` profile's conventional-dirs discovery (source_roots=["src"])
-    # structurally EXCLUDES tests/ from the python import graph's own node
-    # set — a PRE-EXISTING, ticket-unrelated limitation of
-    # core/skills/file_scanner.py's conventional-dirs discovery (it only
-    # recognises src/lib/pkg/internal/app/apps/services as source roots,
-    # never a test directory), not of test_map. That made this fixture's
-    # "healthy" claim vacuous no matter what test_map did: tests/test_app.py
-    # could never even become a depgraph node, so production_to_tests could
-    # never be anything but empty — exactly the kind of accidental vacuity
-    # AC-17 exists to rule out. Pinning this ONE fixture's profile to `ue`
-    # (build-cs discovery) instead — which finds no `*.Build.cs` here and so
-    # leaves `source_roots` empty — makes file_scanner fall back to the
-    # WHOLE file universe, so tests/test_app.py participates like every
-    # other file. This is a ticket-local fixture-copy choice (the degraded
-    # fixtures still need `generic`, per the module docstring); it does not
-    # change any shipped discovery/profile logic.
-    (root / ".klc" / "config" / "settings.yml").write_text(
-        "profile: ue\n", encoding="utf-8")
+    # used to structurally EXCLUDE tests/ from the python import graph's own
+    # node set — a limitation of `core/skills/import-graph.py::_collect_files`
+    # (it used `source_roots` as a hard scan filter), not of test_map. That
+    # made this fixture's "healthy" claim vacuous no matter what test_map
+    # did: tests/test_app.py could never even become a depgraph node, so
+    # production_to_tests could never be anything but empty — exactly the
+    # kind of accidental vacuity AC-17 exists to rule out. KLC-122 review
+    # round 1 (D-6/step-8) fixed `_collect_files` for real: it now always
+    # includes every test-convention file regardless of `source_roots`, so
+    # this fixture's own `generic` pin (set by `_copy_fixture` above) is
+    # sufficient on its own — no per-test profile override needed any more.
 
     # tiny-py's real `from src.util import helper` / `from src.app import
     # run` package-style imports are not resolved by import-graph.py's
@@ -160,8 +153,8 @@ def test_healthy_fixture_produces_no_degraded_flags_and_unchanged_confidence(tmp
         encoding="utf-8")
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "-m",
-         "resolve imports for import-graph.py; use ue profile so tests/ "
-         "participates in the python import graph")
+         "resolve imports for import-graph.py so tests/ participates in "
+         "the python import graph")
 
     proc = _run_pipeline(root)
     assert proc.returncode == 0, proc.stdout + proc.stderr

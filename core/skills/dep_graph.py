@@ -39,12 +39,6 @@ sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 import file_universe  # noqa: E402
 import index_coverage  # noqa: E402
 
-BASELINE_EXCL = re.compile(
-    r"(^|/)(\.git|\.klc|node_modules|\.venv|venv|__pycache__|target|build|"
-    r"dist|out|bin|obj|\.gradle|\.idea|\.vs|\.next|\.cache|\.serena-cache)(/|$)"
-)
-
-
 def _resolve(field: str) -> str:
     script = FRAMEWORK_ROOT / "core" / "skills" / "profile-resolve.py"
     try:
@@ -55,12 +49,6 @@ def _resolve(field: str) -> str:
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return r.stdout.strip()
-
-
-def _combined_excl(profile_excludes: str) -> re.Pattern:
-    if profile_excludes:
-        return re.compile(f"{BASELINE_EXCL.pattern}|{profile_excludes}")
-    return BASELINE_EXCL
 
 
 def _import_graphs_from_scanner(root: Path) -> tuple[dict, list[str]]:
@@ -266,109 +254,6 @@ def _cpp_package_graph(root: Path) -> tuple[dict | None, list[str]]:
         }, errors
 
 
-# ---- UE build-cs ------------------------------------------------------------
-
-_UE_DEP_NAMES = re.compile(
-    r"(Public|Private)(Dependency|IncludePath)ModuleNames\s*\.\s*"
-    r"(Add|AddRange)\s*\("
-)
-_STRING_LITERAL = re.compile(r'"([A-Za-z_][A-Za-z0-9_]*)"')
-
-
-def _parse_build_cs_deps(path: Path) -> set[str]:
-    """Extract referenced module names from a *.Build.cs file.
-
-    Handles Add / AddRange calls, strips // comments, walks parens to
-    find the matching close so multi-line arg lists work.
-    """
-    try:
-        text = path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return set()
-    text = re.sub(r"//[^\n]*", "", text)
-    names: set[str] = set()
-    for m in _UE_DEP_NAMES.finditer(text):
-        i = m.end()
-        depth = 1
-        while i < len(text) and depth > 0:
-            c = text[i]
-            if c == "(":
-                depth += 1
-            elif c == ")":
-                depth -= 1
-            i += 1
-        block = text[m.end():i - 1]
-        for s in _STRING_LITERAL.findall(block):
-            names.add(s)
-    return names
-
-
-def _ue_import_graph(root: Path, excl: re.Pattern, universe: list[str]) -> dict | None:
-    """Build a module-to-module import graph by parsing every *.Build.cs.
-
-    Only runs when the project looks like an Unreal project (has a
-    *.uproject file in root or one level deep).
-
-    KLC-105: *.Build.cs discovery is bound to the resolved universe instead of an
-    independent ``rglob`` + regex-exclude walk (``excl`` is kept for signature
-    compatibility but the universe is now authoritative — it already applied the
-    same excludes plus git-tracked filtering)."""
-    uproject: Path | None = None
-    for p in sorted(root.glob("*.uproject")):
-        uproject = p; break
-    if uproject is None:
-        for p in sorted(root.glob("*/*.uproject")):
-            uproject = p; break
-    if uproject is None:
-        return None
-
-    uproject_dir = uproject.parent
-    nodes: list[dict] = []
-    edges: list[dict] = []
-    seen: set[str] = set()
-
-    def _iter_build_cs() -> list[Path]:
-        bases: list[str] = []
-        for base in (uproject_dir / "Source",
-                     uproject_dir / "Plugins",
-                     root / "Plugins"):
-            try:
-                rel_base = str(base.relative_to(root)).replace(os.sep, "/")
-            except ValueError:
-                continue
-            bases.append(rel_base)
-        candidates: set[Path] = set()
-        for f in universe:
-            if not f.endswith(".Build.cs"):
-                continue
-            if any(f == b or f.startswith(b + "/") for b in bases):
-                candidates.add(root / f)
-        return sorted(candidates)
-
-    for build_cs in _iter_build_cs():
-        mod_name = build_cs.stem[: -len(".Build")] \
-                   if build_cs.stem.endswith(".Build") else build_cs.stem
-        try:
-            rel_path = str(build_cs.relative_to(root)).replace(os.sep, "/")
-        except ValueError:
-            rel_path = str(build_cs)
-        if mod_name not in seen:
-            seen.add(mod_name)
-            nodes.append({"id": mod_name, "path": rel_path})
-        for dep in sorted(_parse_build_cs_deps(build_cs)):
-            if dep not in seen:
-                seen.add(dep)
-                nodes.append({"id": dep, "path": ""})
-            edges.append({"from": mod_name, "to": dep})
-
-    return {
-        "tool":  "grep *.Build.cs",
-        "nodes": nodes,
-        "edges": edges,
-        "raw":   str(uproject),
-    }
-
-
 # ---- coverage verdicts (KLC-106) --------------------------------------------
 
 def _node_count(graph: dict) -> int:
@@ -391,18 +276,10 @@ def _keep_richer(a: dict, b: dict) -> tuple[dict, dict]:
 # ---- main -------------------------------------------------------------------
 
 def build(root: Path) -> dict:
-    profile_excl = _resolve("excludes-regex")
-    excl = _combined_excl(profile_excl)
     # KLC-105: the ONE universe — every file-keyed graph this module assembles
     # enumerates only its members (and drops an edge whose endpoint isn't one).
     universe = file_universe.resolve(
         root, structural_path=root / ".klc" / "index" / "structural.json")["files"]
-
-    try:
-        discovery = json.loads(_resolve("module_discovery") or "{}")
-    except json.JSONDecodeError:
-        discovery = {}
-    discovery_mode = discovery.get("mode", "")
 
     collect_packages = (_resolve("collect_package_graphs") or "false").lower() == "true"
 
@@ -477,14 +354,6 @@ def build(root: Path) -> dict:
                 # D-002): manifest-level nodes are packages, not files.
                 add_package(lang, _stamp_and_record(
                     data, data.get("tool", builder.__name__), "depgraph.json", None))
-
-    # UE build-cs import graph — module-scoped, not file-scoped (D-002): a
-    # *.Build.cs module is not a file-universe member in the sense the
-    # coverage ratio measures.
-    if discovery_mode == "build-cs":
-        ue = _ue_import_graph(root, excl, universe)
-        if ue is not None:
-            offer_import("cpp-unreal", ue, None)
 
     for lang, offers in import_candidates.items():
         scope = offers[0][1]

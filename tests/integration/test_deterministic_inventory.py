@@ -94,15 +94,15 @@ def test_regex_degrade_when_astgrep_absent(tmp_path):
 
 
 def test_astgrep_path_honours_profile_excludes(tmp_path):
-    """FIX-1 (codex P2): a file under a profile-excluded dir must NOT appear on the
-    ast-grep path (it already didn't on the regex path)."""
+    """FIX-1 (codex P2), retargeted for KLC-122: the exclusion mechanism is
+    proven directly against a fabricated ruleset, independent of whichever
+    profile ships as the repo default (generic ships with excludes: [])."""
     root = _fixture(tmp_path)
-    # active profile 'ue' excludes Content/ (Binaries, Intermediate, Content, ...).
     (root / "Content").mkdir()
     (root / "Content" / "gen.py").write_text(
         "def generated_thing():\n    return 0\n", encoding="utf-8")
-    ruleset = di.resolve_ruleset()
-    assert ruleset["excludes_re"], "test assumes the active profile has excludes"
+    base = di.resolve_ruleset()
+    ruleset = dict(base, excludes_re=r"(^|/)Content(/|$)")
     astgrep = _astgrep_or_skip()
 
     inv_ast = di.build_inventory(root, ruleset, astgrep)

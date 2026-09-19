@@ -40,6 +40,7 @@ sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import framework_root, klc_index_dir  # noqa: E402, F401
 import file_universe  # noqa: E402
+import test_map as _tm  # noqa: E402  (reuse is_test_file — KLC-122 step-6)
 
 
 # ---- tiny regex-based parsers ----------------------------------------------
@@ -69,17 +70,31 @@ def load_structural() -> dict:
 
 def _collect_files(root: Path, source_roots: list[str], extensions: tuple[str, ...],
                    universe: list[str]) -> list[Path]:
-    """Collect universe members with any of the extensions under source_roots. If no
-    source_root contains a matching file, fall back to every universe member with a
-    matching extension (this handles projects whose source_roots describe a
-    different language, e.g. UE where source_roots are Build.cs dirs but python
-    support tooling lives elsewhere) — the SAME fallback semantics as before
-    (KLC-105), but drawn from the resolved universe instead of an independent
-    ``rglob`` walk plus a hard-coded exclusion tuple."""
+    """Collect universe members with any of the extensions under source_roots, plus
+    every test file regardless of source_roots (KLC-122 step-6): a test file is
+    never itself a "source root" under conventional-dirs discovery (tests/ is
+    deliberately excluded from the src/lib/pkg/... candidate list), but it is a
+    legitimate import-graph EDGE SOURCE whenever it imports a source-root file —
+    dropping it here silently starves symbol_usage.py's degraded-mode `tested_by`
+    (the file-level import fallback) for every symbol, regardless of language. If
+    no source_root contains a matching non-test file, fall back to every universe
+    member with a matching extension (this handles projects whose source_roots
+    describe a different language, e.g. one where source_roots are build-manifest
+    dirs but python support tooling lives elsewhere) — the SAME fallback semantics
+    as before (KLC-105), but drawn from the resolved universe instead of an
+    independent ``rglob`` walk plus a hard-coded exclusion tuple. Test files are
+    then unioned in unconditionally (KLC-122 step-6) — the source_roots-vs-fallback
+    decision itself is unchanged (computed over non-test hits only), so the
+    original "no source root covers any file -> whole universe" escape hatch keeps
+    working exactly as before for languages with no test file at all."""
     hits = [f for f in universe if f.endswith(extensions)]
-    under = [f for f in hits
-             if any(f == sr or f.startswith(sr + "/") for sr in source_roots)]
-    return [root / f for f in (under or hits)]
+    test_files = {f for f in hits if _tm.is_test_file(f)}
+    non_test_hits = [f for f in hits if f not in test_files]
+    under = {f for f in non_test_hits
+             if any(f == sr or f.startswith(sr + "/") for sr in source_roots)}
+    base = under or set(non_test_hits)
+    selected = base | test_files
+    return [root / f for f in hits if f in selected]
 
 
 def scan_python(root: Path, source_roots: list[str],

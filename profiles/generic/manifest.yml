@@ -7,7 +7,9 @@ rules:
   - core/rules/typescript
   - core/rules/rust
 
-# No sgconfig — ast-grep uses its built-in language mapping.
+# ast-grep config with the one language-mapping override generic needs
+# (.h/.hxx -> cpp, so core/rules/cpp/header-symbols.yaml stays reachable).
+sgconfig: profiles/generic/sgconfig.yml
 
 reviewers:
   # `filter` is an optional regex over file paths; review.sh produces a

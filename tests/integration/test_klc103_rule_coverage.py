@@ -36,7 +36,7 @@ _CASES = [
     ("python/.py", COV_FIXTURES, "sample.py"),
     ("rust/.rs", COV_FIXTURES, "sample.rs"),
     ("cpp/.cpp", COV_FIXTURES, "sample.cpp"),
-    ("cpp-unreal/.h", COV_FIXTURES, "sample_unreal.h"),
+    ("cpp-header/.h", COV_FIXTURES, "sample.h"),
 ]
 
 
@@ -44,7 +44,7 @@ _CASES = [
                         _CASES, ids=[c[0] for c in _CASES])
 def test_rule_coverage_floor_per_language(case_id, root, filename):
     """AC-1: the count of fixture files that declare an export and yield
-    zero symbols is 0 — for every language the active (UE) profile
+    zero symbols is 0 — for every language the active (generic) profile
     configures, across every file extension it maps to that language."""
     astgrep = _astgrep_or_skip()
     ruleset = di.resolve_ruleset()
