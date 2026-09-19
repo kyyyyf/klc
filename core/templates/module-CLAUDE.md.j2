@@ -28,8 +28,8 @@
 {% endif %}
 ## Dependencies
 
-- **Depends on**: {{ (module.depends_on or []) | join(", ") or "_none_" }}
-- **Depended by**: {{ (module.depended_by or []) | join(", ") or "_none_" }}
+- **Depends on**: {{ (module.depends_on or []) | join(", ") or deps_fallback }}
+- **Depended by**: {{ (module.depended_by or []) | join(", ") or deps_fallback }}
 
 ## Invariants
 

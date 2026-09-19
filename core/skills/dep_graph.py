@@ -37,6 +37,7 @@ FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent.parent
 
 sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 import file_universe  # noqa: E402
+import index_coverage  # noqa: E402
 
 BASELINE_EXCL = re.compile(
     r"(^|/)(\.git|\.klc|node_modules|\.venv|venv|__pycache__|target|build|"
@@ -122,9 +123,18 @@ def _madge_typescript(root: Path, universe: list[str]) -> dict | None:
     if not shutil.which("madge"):
         return None
     target = "src" if (root / "src").is_dir() else "."
+    # KLC-106 AC-6: improve the INPUT to the coverage check, never stand in
+    # for it — the flags widen what madge resolves, the verdict in build()
+    # still decides whether the result is trustworthy.
+    cmd = ["madge", "--json", "--extensions", "ts,tsx,js,jsx"]
+    configured = _resolve("tsconfig")
+    ts_config = (root / configured) if configured else (root / "tsconfig.json")
+    if ts_config.exists():
+        cmd += ["--ts-config", str(ts_config)]
+    cmd.append(target)
     try:
         r = subprocess.run(
-            ["madge", "--json", target],
+            cmd,
             capture_output=True, text=True, cwd=str(root), timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -359,6 +369,25 @@ def _ue_import_graph(root: Path, excl: re.Pattern, universe: list[str]) -> dict 
     }
 
 
+# ---- coverage verdicts (KLC-106) --------------------------------------------
+
+def _node_count(graph: dict) -> int:
+    """Distinct files a candidate graph actually covers."""
+    ids = {(n.get("path") or n.get("id") or "") for n in graph.get("nodes") or []}
+    return len(ids - {""})
+
+
+def _keep_richer(a: dict, b: dict) -> tuple[dict, dict]:
+    """(kept, discarded) — higher node coverage wins; ties break on edge count
+    (AC-5). Order of offer never decides, so an external tool can no longer
+    silently replace a richer generic-scanner graph."""
+    ka, kb = _node_count(a), _node_count(b)
+    if ka != kb:
+        return (a, b) if ka > kb else (b, a)
+    ea, eb = len(a.get("edges") or []), len(b.get("edges") or [])
+    return (a, b) if ea >= eb else (b, a)
+
+
 # ---- main -------------------------------------------------------------------
 
 def build(root: Path) -> dict:
@@ -392,17 +421,48 @@ def build(root: Path) -> dict:
         if lang not in languages:
             languages.append(lang)
 
+    # KLC-106: structural.json read once, behind the tolerant loader — it is
+    # the coverage denominator for every file-scoped producer below (AC-3).
+    structural = index_coverage.load_json_or_none(
+        root / ".klc" / "index" / "structural.json")
+
+    def _stamp_and_record(entry: dict, builder: str, artifact: str, scope) -> dict:
+        """Stamp `degraded`/`reason` onto *entry* and append its verdict to
+        `errors[]` (AC-4). `scope=None` means "not file-scoped" (D-002): a
+        producer whose nodes are not files records `metric: not-applicable`
+        rather than a fabricated ratio."""
+        if scope is None:
+            v = index_coverage.verdict(
+                f"dep_graph:{builder}", artifact, _node_count(entry), None,
+                metric=index_coverage.NOT_APPLICABLE)
+        else:
+            v = index_coverage.verdict(
+                f"dep_graph:{builder}", artifact, _node_count(entry),
+                index_coverage.universe_for(scope, structural),
+                metric="node-coverage")
+        entry["degraded"], entry["reason"] = v["degraded"], v["reason"]
+        errors.append(v)
+        return entry
+
+    # Each producer OFFERS a candidate for a language; coverage decides which
+    # one is kept, not call order (AC-5). `scope` is the universe_for() key,
+    # or None for a producer whose nodes are not files (D-002).
+    import_candidates: dict[str, list[tuple[dict, str | None]]] = {}
+
+    def offer_import(lang: str, data: dict, scope) -> None:
+        import_candidates.setdefault(lang, []).append((data, scope))
+
     # Import graphs via generic scanner.
     scanner_imports, scanner_errors = _import_graphs_from_scanner(root)
     for lang, data in scanner_imports.items():
-        add_import(lang, data)
+        offer_import(lang, data, lang)
     errors.extend(scanner_errors)
 
-    # madge overrides typescript scanner output.
+    # madge OFFERS a typescript candidate; it no longer overwrites the
+    # scanner's unconditionally (AC-5 — the ticket's originating bug).
     madge = _madge_typescript(root, universe)
     if madge:
-        add_import("typescript", madge)
-        errors.extend(madge.get("errors") or [])
+        offer_import("typescript", madge, "typescript")
 
     if collect_packages:
         for builder, lang in (
@@ -413,13 +473,31 @@ def build(root: Path) -> dict:
             data, errs = builder(root)
             errors.extend(errs)
             if data:
-                add_package(lang, data)
+                # Package graphs have no natural file denominator (Q-005,
+                # D-002): manifest-level nodes are packages, not files.
+                add_package(lang, _stamp_and_record(
+                    data, data.get("tool", builder.__name__), "depgraph.json", None))
 
-    # UE build-cs import graph.
+    # UE build-cs import graph — module-scoped, not file-scoped (D-002): a
+    # *.Build.cs module is not a file-universe member in the sense the
+    # coverage ratio measures.
     if discovery_mode == "build-cs":
         ue = _ue_import_graph(root, excl, universe)
         if ue is not None:
-            add_import("cpp-unreal", ue)
+            offer_import("cpp-unreal", ue, None)
+
+    for lang, offers in import_candidates.items():
+        scope = offers[0][1]
+        kept = offers[0][0]
+        for other, _scope in offers[1:]:
+            kept, poorer = _keep_richer(kept, other)
+            # Record the discarded candidate's own verdict too (AC-5): its
+            # tool name and ratio land in errors[] even though it lost.
+            _stamp_and_record(dict(poorer), poorer.get("tool", "?"),
+                               "depgraph.json", scope)
+        errors.extend(kept.get("errors") or [])
+        add_import(lang, _stamp_and_record(
+            kept, kept.get("tool", "?"), "depgraph.json", scope))
 
     return {
         "root":           str(root),

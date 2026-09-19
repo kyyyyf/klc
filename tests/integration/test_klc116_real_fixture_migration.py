@@ -31,19 +31,39 @@ import provenance  # noqa: E402
 
 def test_klc105_options_passes_consistency_and_design_ack_with_added_attributes_only(
         tmp_path, monkeypatch):
-    monkeypatch.setenv("PROJECT_ROOT", str(FW_ROOT))
-    baseline = items.build_index("KLC-105", write=False)
-    baseline_dangling = baseline["dangling_refs"]
-    baseline_orphans = baseline["orphan_questions"]
-
     dst = tmp_path / ".klc" / "tickets" / "KLC-105"
     dst.parent.mkdir(parents=True)
-    shutil.copytree(FW_ROOT / ".klc" / "tickets" / "KLC-105", dst)
+    # KLC-106 follow-up (D-211): this fixture snapshots the DESIGN-TIME view of
+    # KLC-105 — raw.md/spec.md/test-plan.md/impl-plan.md/design/discovery/
+    # acceptance-test-plan/meta.json — and must not read learn/review-phase
+    # artefacts (retrospective.md, review*, manual*, integrate*, build-log.md,
+    # drift-*, _superseded/...). KLC-105 gained a real `retrospective.md` after
+    # this test was written, whose `[!FACT F-Rn] evidence=read` items are not
+    # in `<file>:<line>` shape — a live-repo condition unrelated to what this
+    # test is proving (that ADDING `evidence=` attributes to design/options.md
+    # alone does not regress provenance/consistency), so copying it in made
+    # the fixture non-hermetic against ongoing lifecycle activity on the real
+    # ticket.
+    shutil.copytree(
+        FW_ROOT / ".klc" / "tickets" / "KLC-105", dst,
+        ignore=shutil.ignore_patterns(
+            "retrospective.md", "review*", "manual*", "integrate*",
+            "build-log.md", "drift-*", "_superseded", "learn", "review",
+            "manual", "integrate"))
     # The `read` src below must resolve under THIS fixture's project root too.
     stub = tmp_path / "core" / "skills" / "items.py"
     stub.parent.mkdir(parents=True)
     stub.write_text((FW_ROOT / "core" / "skills" / "items.py").read_text(encoding="utf-8"),
                      encoding="utf-8")
+
+    # Baseline is computed from the SAME hermetic snapshot, before the
+    # evidence= edit below — comparing against the live ticket's full
+    # dangling_refs/orphan_questions would conflate this test's own
+    # copytree exclusions with unrelated drift on the live ticket.
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    baseline = items.build_index("KLC-105", write=False)
+    baseline_dangling = baseline["dangling_refs"]
+    baseline_orphans = baseline["orphan_questions"]
 
     opts = dst / "design" / "options.md"
     text = opts.read_text(encoding="utf-8")

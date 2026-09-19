@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
+
+_SKILLS = Path(__file__).resolve().parent
+if str(_SKILLS) not in sys.path:
+    sys.path.insert(0, str(_SKILLS))
+import index_coverage  # noqa: E402
 
 VIEWS = ("inventory.json", "test_map.json", "file_roles.json",
          "module_edges.json", "symbol_usage.json")
@@ -87,47 +93,24 @@ def views(index_dir: Path) -> tuple[list[str], str]:
     return ([], "pass")
 
 
-def _degradation_entries(data):
-    """Yield (builder, entry) pairs for anything carrying a `degraded` field.
-
-    Tolerant reader (spec Q-002 / A-1): KLC-106 has not landed yet, so the
-    shape of a degradation-carrying artifact is a working assumption, not a
-    contract. Two shapes are recognised: a top-level `degraded`/`reason` pair
-    naming the whole artifact, and a `builders: {name: {degraded, reason}}`
-    mapping.
-    """
-    if not isinstance(data, dict):
-        return
-    if "degraded" in data:
-        yield (data.get("builder", "?"), data)
-    builders = data.get("builders")
-    if isinstance(builders, dict):
-        for name, entry in builders.items():
-            if isinstance(entry, dict) and "degraded" in entry:
-                yield (name, entry)
-
-
 def degraded(index_dir: Path) -> tuple[list[str], str]:
-    """Tolerant reader (spec Q-002 / A-1): KLC-106 has not landed yet."""
+    """KLC-106 AC-15: warn-only, reads the persisted per-artifact coverage
+    verdicts (`index_coverage.collect_verdicts`) — no builder is re-run, and
+    escalation to a hard failure is KLC-107's, not this check's. This is the
+    "gains teeth when KLC-106 lands" landing this module's own docstring
+    anticipated; the shape is now the real one (a verdict record inside an
+    artifact's own `errors[]`), not the two speculative shapes this function
+    used to guess at."""
     pre = _uninitialised(index_dir)
     if pre:
         return pre
-    seen_field, bad = False, []
-    for p in sorted(index_dir.glob("*.json")):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        for builder, entry in _degradation_entries(data):
-            seen_field = True
-            if entry.get("degraded") is True:
-                bad.append(f"{p.name}: builder {builder} degraded — "
-                           f"{entry.get('reason', 'no reason recorded')}")
+    verdicts = index_coverage.collect_verdicts(index_dir)
+    bad = [index_coverage.render_error(v) for v in verdicts if v.get("degraded")]
     if bad:
-        return (bad, "fail")
-    if not seen_field:
+        return (bad, "warn")
+    if not verdicts:
         return (["degradation metadata is not present — no builder artifact records a "
-                 "`degraded` field (this check gains teeth when KLC-106 lands)"], "pass")
+                 "coverage verdict yet; run `klc init`/`klc update`"], "pass")
     return ([], "pass")
 
 

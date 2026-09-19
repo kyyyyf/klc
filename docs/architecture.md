@@ -183,6 +183,49 @@ not implemented.
 
 ---
 
+## Index-coverage verdicts (degrade honestly, KLC-106)
+
+Every index builder — the dependency-graph producers, the inventory, the
+callgraph builders — accepted an external tool's output the moment the process
+exited 0 and the JSON parsed, with no check that the output actually covered the
+project. `core/skills/index_coverage.py` is the one shared, language- and
+tool-agnostic module that answers "did my output actually cover the code?": a
+builder hands it an observed count and a universe count (usually
+`structural.languages[<lang>].files`, or `structural.total_files` for a
+language-agnostic producer), and it returns a verdict record
+`{builder, artifact, metric, observed, universe, ratio, threshold, degraded,
+reason}`. Below the coverage threshold — `index.coverage.min_ratio` in
+`config/settings.yml`, default `0.25`, with an optional
+`index.coverage.per_builder.<name>` override, both settings-only knobs with no
+legacy file — the builder stamps `degraded: true` and a human-readable `reason`
+on its own artifact and appends the verdict to that artifact's `errors[]`.
+
+The verdict travels **with** the artifact rather than into a second file: a
+consumer that already opens `depgraph.json` or `inventory.json` cannot be honest
+by accident and dishonest by omission. `module_edges`, `symbol_usage` and
+`test_map` each add their own `degraded_inputs: [...]` list naming every upstream
+artifact that is degraded or vacuous, and `planning-retriever.build_trace` caps
+`confidence` at `low` — at every site that produces one, not only the top-level
+field — whenever that list is non-empty, and reports `mode: "name-match-only"`
+when its module ranking rested on name/path matches alone because
+`module_edges` contributed no edges. `dep_graph.build` also uses the same verdict
+to decide which of two candidate graphs for one language to keep: the richer
+node-coverage ratio wins, ties break on edge count, and the discarded
+candidate's tool name and ratio land in `errors[]` — a poorer external-tool
+result can no longer silently overwrite a richer generic-scanner one.
+
+Presentation is a **derived** view, never a second authority:
+`index_coverage.collect_verdicts(index_dir)` harvests every persisted verdict
+from the artifacts' own `errors[]` at read time, for the root `CLAUDE.md`'s
+"Notes from the indexer" section, the per-builder summary line `klc init` and
+`klc update` print on every run, and `klc doctor`'s warn-only `index-degraded`
+check (`core/phases/doctor.py`; `index_health.py` is the module that computes
+it, not the check's registered name). There is no `index_health.json`;
+escalating a degraded index to a hard failure, and detecting staleness, are
+KLC-107's.
+
+---
+
 ## Planning-index evaluation (measurement before tuning)
 
 `core/skills/planning-eval.py` is the **measurement layer** of the planning index,

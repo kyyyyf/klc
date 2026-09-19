@@ -180,28 +180,36 @@ class TestIndexDegraded(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_index_degraded_check_branches(self):
-        """AC-3: (a) a builder artifact carrying degraded: true FAILs naming
-        builder and reason, two offending builders are both named; (b) no
-        artifact carries a `degraded` field at all PASSes with the explicit
-        note."""
+        """AC-3, superseded by KLC-106 (this module's own docstring: "gains
+        teeth when KLC-106 lands"): (a) a REAL KLC-106 coverage verdict
+        carrying `degraded: true` in a persisted artifact's own `errors[]`
+        WARNs (never FAILs — KLC-106 AC-15 is explicitly warn-only, with
+        escalation to a hard failure staying KLC-107's) naming the builder;
+        two offending builders in two different artifacts are both named;
+        (b) no artifact carries a coverage verdict at all PASSes with the
+        explicit note."""
         repo = _make_repo(self.tmp_path)
         (repo / ".klc" / "index" / ".last-run").write_text(_head(repo) + "\n",
                                                             encoding="utf-8")
         _write_views(repo)
         index_dir = repo / ".klc" / "index"
-        (index_dir / "structural.json").write_text(json.dumps({
-            "builders": {
-                "file_scanner": {"degraded": True, "reason": "madge missing"},
-                "dep_graph": {"degraded": True, "reason": "timeout"},
-            }
-        }), encoding="utf-8")
+        (index_dir / "inventory.json").write_text(json.dumps({"errors": [
+            {"builder": "inventory:python", "artifact": "inventory.json",
+             "metric": "files-with-symbols", "observed": 1, "universe": 20,
+             "ratio": 0.05, "threshold": 0.25, "degraded": True,
+             "reason": "madge missing"},
+        ]}), encoding="utf-8")
+        (index_dir / "test_map.json").write_text(json.dumps({"errors": [
+            {"builder": "dep_graph:import-graph.py", "artifact": "depgraph.json",
+             "metric": "node-coverage", "observed": 0, "universe": 5,
+             "ratio": 0.0, "threshold": 0.25, "degraded": True, "reason": "timeout"},
+        ]}), encoding="utf-8")
 
         r = _run_doctor(repo)
-        self.assertIn("FAIL index-degraded", r.stdout)
-        self.assertIn("file_scanner", r.stdout)
-        self.assertIn("madge missing", r.stdout)
-        self.assertIn("dep_graph", r.stdout)
-        self.assertIn("timeout", r.stdout)
+        self.assertIn("WARN index-degraded", r.stdout)
+        self.assertNotIn("FAIL index-degraded", r.stdout)
+        self.assertIn("inventory:python", r.stdout)
+        self.assertIn("dep_graph:import-graph.py", r.stdout)
 
     def test_index_degraded_passes_when_no_degradation_metadata_present(self):
         repo = _make_repo(self.tmp_path)

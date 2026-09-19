@@ -41,6 +41,7 @@ sys.path.insert(0, str(_file_dir))
 # `core/phases/intake.py`) are now attributed to the file-module, not its parent
 # dir-module, which the boundary-aware match missed.
 import module_membership as _mm
+import index_coverage  # noqa: E402
 
 
 def aggregate_module_edges(modules_data: dict, depgraph: dict) -> dict:
@@ -206,7 +207,25 @@ def build_detailed_edges(modules_data: dict, depgraph: dict,
         edges.append(edge)
 
     edges.sort(key=lambda e: (-e["evidence_count"], e["from"], e["to"]))
-    return {"edges": edges}
+
+    # KLC-106 AC-8 / D-212 (review round 1, MEDIUM finding): name every
+    # upstream artifact this consumer cannot trust — either it is itself
+    # degraded, or it is present but empty of the one thing this consumer
+    # needs. `callgraph` used to hardcode `vacuous=False`, an unexplained
+    # asymmetry against test_map/symbol_usage; it now routes through the
+    # SAME shared rule they use — a callgraph that was never built (the
+    # default init/update state, Q-103) is only named when the import graph
+    # ALSO produced nothing, and a present-but-unusable callgraph always
+    # counts.
+    has_import_edges = any((g.get("edges") or [])
+                           for g in (depgraph.get("import_graphs") or {}).values())
+    degraded_inputs = index_coverage.degraded_inputs([
+        ("depgraph.json", depgraph, not has_import_edges),
+        ("callgraph", callgraph,
+         index_coverage.callgraph_degraded_input(callgraph, has_import_edges)),
+    ])
+    return {"edges": edges, "degraded": bool(degraded_inputs),
+            "degraded_inputs": degraded_inputs}
 
 
 def _load_json(path: Path) -> dict:

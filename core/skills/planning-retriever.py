@@ -63,6 +63,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_FILE_DIR))
 from core.shared.inventory import InventorySchemaError, load as inv_load  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
+import index_coverage  # noqa: E402
 
 # Role priority for ranking eligible files (planning_indexer.md §"Retrieval
 # workflow" step 4/5: entry points and public surfaces first, then domain logic).
@@ -191,7 +192,7 @@ def _role_rank(rec: dict) -> int:
 # trace assembly (pure)
 # --------------------------------------------------------------------------- #
 def _empty_trace(query: str, mode: str, status: str, confidence: str,
-                 reasons: list[str]) -> dict:
+                 reasons: list[str], degraded_inputs: list[str] | None = None) -> dict:
     """A full-schema trace with empty slices — used for the degrade path so every
     schema key is always present (planning_indexer.md 'Retrieval result')."""
     return {
@@ -208,7 +209,17 @@ def _empty_trace(query: str, mode: str, status: str, confidence: str,
         "stop_rules": ["Do not expand context until planning views are built."],
         "confidence": confidence,
         "reasons": reasons,
+        "degraded_inputs": degraded_inputs or [],
     }
+
+
+def _cap_confidence(confidence: str, degraded_inputs: list[str]) -> str:
+    """AC-10. Called at EVERY site in build_trace that produces a confidence
+    value — the top-level score and each primary_modules[] entry — so no
+    scoring branch can route around the cap and no trace can contradict
+    itself by saying 'low' overall while one of its own primary modules says
+    'high' (KLC-106 F-4, D-204)."""
+    return "low" if degraded_inputs else confidence
 
 
 def _neighbor_condition(edge: dict) -> str:
@@ -261,6 +272,20 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
             reasons.append("file_roles.json unavailable — no read candidates; "
                            "retrieval degraded to status:unavailable")
         return _empty_trace(query, effective_mode, "unavailable", "low", reasons)
+
+    # --- honest evidence accounting (AC-9) --------------------------------
+    # Placed BEFORE the ranking loop: primary_modules[].confidence is produced
+    # in that loop and is capped by the same value as the top-level field.
+    edges = (module_edges or {}).get("edges") or []
+    roles_vacuous = bool(roles) and not any(
+        (rec or {}).get("roles") for rec in roles.values())
+    trace_degraded_inputs = index_coverage.degraded_inputs([
+        ("module_edges.json", module_edges, not edges),
+        ("file_roles.json", file_roles, roles_vacuous),
+        ("test_map.json", test_map, False),
+        ("inventory.json", inventory, False),
+        ("modules.json", modules, False),
+    ])
 
     qtokens = tokenize(query)
 
@@ -320,6 +345,7 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
             and d["rec"].get("eligible_as_primary")
         ]
         conf = "high" if (sc >= 4 and eligible_here) else ("medium" if sc >= 2 else "low")
+        conf = _cap_confidence(conf, trace_degraded_inputs)
         pr = sorted(set(mod_reasons.get(name, [])))
         if not pr:
             pr = [f"aggregate file-match score {sc} in module {name}"]
@@ -387,7 +413,6 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
     tests_to_read_or_run = sorted(tests)
 
     # --- conditional neighbours (one hop via module_edges) ---------------------
-    edges = (module_edges or {}).get("edges") or []
     neighbors: dict[str, dict] = {}
     for e in edges:
         frm, to = e.get("from"), e.get("to")
@@ -436,6 +461,19 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
     else:
         confidence = "low"
 
+    confidence = _cap_confidence(confidence, trace_degraded_inputs)
+    if trace_degraded_inputs:
+        reasons.append("degraded inputs — confidence capped at low: "
+                       + ", ".join(trace_degraded_inputs))
+
+    # AC-11: ranking rested on names and paths alone because no edge
+    # contributed. The trigger is zero edges, not a low ratio: a partial
+    # edge set still ranks.
+    if not edges:
+        effective_mode = "name-match-only"
+        reasons.append("module_edges contributed no edges — module ranking "
+                       "rests on name and path matches alone")
+
     if primary_names:
         reasons.append(f"primary modules by evidence: {', '.join(primary_names)}")
     if shared_members and not primary_names:
@@ -467,6 +505,7 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
         "stop_rules": stop_rules,
         "confidence": confidence,
         "reasons": reasons,
+        "degraded_inputs": trace_degraded_inputs,
     }
 
 

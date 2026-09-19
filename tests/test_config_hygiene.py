@@ -303,3 +303,35 @@ def test_commented_settings_no_validate_warning():
     doc = _load("klc_doctor2", "core/phases/doctor.py")
     errs = doc._config_validation()
     assert not any("settings.yml" in e for e in errs)
+
+
+# ============================================== KLC-106 step-2: coverage knob
+
+def test_validate_settings_accepts_per_builder_coverage_override(tmp_path):
+    """AC-2 / review F-5 / D-205: a per-builder override key
+    (`index.coverage.per_builder.<name>`) is matched by the trailing-dot prefix
+    entry in _SETTINGS_SCHEMA, not reported as an unknown key."""
+    cfg = _wsettings(
+        tmp_path, "index:\n  coverage:\n    per_builder:\n      dep_graph: 0.4\n")
+    warns = _vc.validate_settings(cfg)
+    assert not any("per_builder" in w for w in warns), warns
+
+
+def test_validate_settings_rejects_non_ratio_coverage_value(tmp_path):
+    """AC-2: a string or boolean under either coverage key warns."""
+    cfg = _wsettings(tmp_path, "index:\n  coverage:\n    min_ratio: not-a-number\n")
+    warns = _vc.validate_settings(cfg)
+    assert any("index.coverage.min_ratio" in w for w in warns), warns
+
+    b = tmp_path / "b"
+    b.mkdir()
+    cfg2 = _wsettings(b, "index:\n  coverage:\n    per_builder:\n      dep_graph: true\n")
+    warns2 = _vc.validate_settings(cfg2)
+    assert any("index.coverage.per_builder.dep_graph" in w for w in warns2), warns2
+
+
+def test_validate_settings_rejects_out_of_range_coverage_ratio(tmp_path):
+    """AC-2: a ratio outside [0, 1] warns."""
+    cfg = _wsettings(tmp_path, "index:\n  coverage:\n    min_ratio: 1.5\n")
+    warns = _vc.validate_settings(cfg)
+    assert any("index.coverage.min_ratio" in w for w in warns), warns

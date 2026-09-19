@@ -27,7 +27,23 @@ _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
+from core.shared.paths import klc_index_dir  # noqa: E402
+from core.shared import inventory as _inv  # noqa: E402  — KLC-103's canonical accessor
 import file_universe  # noqa: E402
+import index_coverage  # noqa: E402
+
+LANG = "cpp"
+
+
+def coverage_verdict(symbols: dict, inventory: dict | None) -> dict:
+    """KLC-106 AC-7: callgraph symbols over inventory symbols for this
+    language. See callgraph_python.coverage_verdict for the fail-closed
+    rationale (absent/empty inventory both degrade via a zero denominator)."""
+    universe = sum(1 for s in _inv.symbols(inventory or {"symbols": []})
+                   if s.get("lang") == LANG)
+    return index_coverage.verdict(
+        f"callgraph:{LANG}", f"callgraph/{LANG}.json", len(symbols), universe,
+        metric="callgraph-symbols")
 
 
 class AsyncLSPClient:
@@ -639,6 +655,9 @@ def main() -> int:
     ap.add_argument("--query", choices=["references", "workspace-symbol"],
                     help="Query mode: find references or workspace symbols (prints JSON to stdout)")
     ap.add_argument("--symbol", help="Symbol name for --query mode")
+    ap.add_argument("--in-inventory", type=Path,
+                    default=klc_index_dir() / "inventory.json",
+                    help="inventory.json to measure coverage against (KLC-106 AC-7)")
     args = ap.parse_args()
 
     compdb_path = Path(args.compdb)
@@ -677,7 +696,9 @@ def main() -> int:
     # Workspace root = directory containing compile_commands.json
     symbols = asyncio.run(build_call_graph_async(root, compdb_path.resolve(), clangd))
 
-    output = {"symbols": symbols}
+    inventory = _inv.load(args.in_inventory, required=False)
+    verdict = coverage_verdict(symbols, inventory)
+    output = {"symbols": symbols, "errors": [verdict]}
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")

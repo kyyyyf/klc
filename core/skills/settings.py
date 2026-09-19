@@ -68,23 +68,34 @@ def _read_key(path: Path, dotted: str):
     return data
 
 
-def resolve(dotted_key, *, legacy_file, legacy_key, default=None,
+def resolve(dotted_key, *, legacy_file=None, legacy_key=None, default=None,
             project_legacy=True, project_dir=None):
-    """Resolve one knob through the interleaved four-layer ladder.
+    """Resolve one knob through the interleaved ladder.
 
     ``project_dir`` overrides the project scope root (jira forwards its
     ``config_dir=`` injection seam here so ``jira_config.load(config_dir=X)``
     keeps working — impl-review F-1). ``project_legacy=False`` drops layer 2 for
     knobs whose legacy has no project scope (the cap — spec-review F-5).
+
+    ``legacy_file``/``legacy_key`` default to ``None`` (KLC-106 F-1/D-201): a
+    knob introduced AFTER settings.yml has no legacy file at all, and omitting
+    both drops the two legacy layers rather than forcing the caller to invent
+    a file that was never shipped. Supplying exactly one of the pair is a
+    programming error and raises — silently dropping a ladder layer would be
+    the same dishonest degrade this ticket removes everywhere else.
     """
+    if (legacy_file is None) != (legacy_key is None):
+        raise ValueError(
+            "resolve(): legacy_file and legacy_key must be given together "
+            "(or both omitted for a knob with no legacy file)")
+    has_legacy = legacy_file is not None
     proj = Path(project_dir) if project_dir is not None else _proj_config()
     layers = [(proj / "settings.yml", dotted_key)]
-    if project_legacy:
+    if has_legacy and project_legacy:
         layers.append((proj / legacy_file, legacy_key))
-    layers += [
-        (_fw_config() / "settings.yml", dotted_key),
-        (_fw_config() / legacy_file, legacy_key),
-    ]
+    layers.append((_fw_config() / "settings.yml", dotted_key))
+    if has_legacy:
+        layers.append((_fw_config() / legacy_file, legacy_key))
     for path, key in layers:
         value = _read_key(path, key)
         if value is not _MISSING:
@@ -202,6 +213,18 @@ def verify_arm_budget() -> int:
                            legacy_key="verify_arm_budget_seconds", default=600))
     except (TypeError, ValueError):
         return 600
+
+
+def index_coverage_threshold(builder=None):
+    """Index-coverage floor (KLC-106 AC-2). Settings-only ladder: this knob is
+    new, so there is no legacy file to consult. The per-builder override wins
+    when set; the built-in default lives in index_coverage, not here, so the
+    data layer stays pure data."""
+    if builder:
+        override = resolve(f"index.coverage.per_builder.{builder}")
+        if override is not None:
+            return override
+    return resolve("index.coverage.min_ratio")
 
 
 def autorun_cap():

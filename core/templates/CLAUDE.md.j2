@@ -45,9 +45,12 @@
 {% endfor %}
 
 {% endif %}
-{% if notes %}
+{% if notes or degraded_builders %}
 ## Notes from the indexer
 
+{% for v in degraded_builders %}
+- DEGRADED {{ v.builder }} ({{ v.artifact }}): {{ v.metric }} {{ v.ratio }} — {{ v.reason }}
+{% endfor %}
 {% for n in notes[:10] %}
 - {{ n }}
 {% endfor %}

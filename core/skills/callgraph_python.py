@@ -50,8 +50,25 @@ _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
-from core.shared.paths import framework_root  # noqa: E402
+from core.shared.paths import framework_root, klc_index_dir  # noqa: E402
+from core.shared import inventory as _inv  # noqa: E402  — KLC-103's canonical accessor
 import file_universe  # noqa: E402
+import index_coverage  # noqa: E402
+
+LANG = "python"
+
+
+def coverage_verdict(symbols: dict, inventory: dict | None) -> dict:
+    """KLC-106 AC-7: callgraph symbols over inventory symbols for this
+    language. `inventory=None` means the inventory artifact could not be
+    loaded (absent/unreadable) — that degrades the SAME way a zero-symbol
+    inventory does (denominator 0 -> fail closed, never a ZeroDivisionError
+    and never a fabricated healthy ratio)."""
+    universe = sum(1 for s in _inv.symbols(inventory or {"symbols": []})
+                   if s.get("lang") == LANG)
+    return index_coverage.verdict(
+        f"callgraph:{LANG}", f"callgraph/{LANG}.json", len(symbols), universe,
+        metric="callgraph-symbols")
 
 
 class Symbol:
@@ -318,6 +335,9 @@ def main() -> int:
     ap.add_argument("--root", required=True, help="Root directory to scan")
     ap.add_argument("--out", required=True, help="Output JSON file path")
     ap.add_argument("--module", help="Optional: scan only this module (e.g., 'src.api')")
+    ap.add_argument("--in-inventory", type=Path,
+                    default=klc_index_dir() / "inventory.json",
+                    help="inventory.json to measure coverage against (KLC-106 AC-7)")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
@@ -328,8 +348,12 @@ def main() -> int:
     symbols = build_call_graph(root, args.module)
     compute_called_by(symbols)
 
+    inventory = _inv.load(args.in_inventory, required=False)
+    verdict = coverage_verdict(symbols, inventory)
+
     # Convert to output format
-    output = {"symbols": {name: sym.to_dict() for name, sym in symbols.items()}}
+    output = {"symbols": {name: sym.to_dict() for name, sym in symbols.items()},
+              "errors": [verdict]}
 
     # Write to file
     out_path = Path(args.out)

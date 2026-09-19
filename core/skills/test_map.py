@@ -58,6 +58,7 @@ sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir, project_root  # noqa: E402
 import module_membership as _mm  # noqa: E402
+import index_coverage  # noqa: E402
 
 # Full relationship enum + confidence (planning_indexer.md §4). Priority high→low:
 #   direct_import > call > same_module > name_similarity > cochange
@@ -239,11 +240,29 @@ def build_test_map(structural: dict, depgraph: dict, modules: dict,
                  "only); a file with no direct/call/name link stays coverage:none. "
                  "cochange not computed in v1.")
 
+    # KLC-106 AC-8 / D-212 (review round 1, HIGH finding #1): a bare-absent
+    # callgraph is NOT by itself a degraded input — scripts/init.py and
+    # scripts/update.py never build one (Q-103), so that would be the
+    # default, permanent state of every ordinary index. It only counts when
+    # this consumer's own production_to_tests output is genuinely vacuous
+    # (no file-specific coverage came from ANY signal, callgraph included) —
+    # or when the callgraph was actually built and turned out unusable, via
+    # the one shared rule in index_coverage.callgraph_degraded_input.
+    produced_coverage = any(
+        entry["coverage"] != "none" for entry in prod_to_tests.values())
+    degraded_inputs = index_coverage.degraded_inputs([
+        ("depgraph.json", depgraph, not files),
+        ("callgraph", callgraph,
+         index_coverage.callgraph_degraded_input(callgraph, produced_coverage)),
+        ("structural.json", structural, not structural),
+    ])
     return {
         "production_to_tests": prod_to_tests,
         "module_to_tests": {m: sorted(v) for m, v in sorted(module_to_tests.items())},
         "errors": errors,
         "notes": notes,
+        "degraded": bool(degraded_inputs),
+        "degraded_inputs": degraded_inputs,
     }
 
 
@@ -303,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     args.out.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     for e in result["errors"]:
-        sys.stderr.write(f"test_map: warning: {e}\n")
+        sys.stderr.write(f"test_map: warning: {index_coverage.render_error(e)}\n")
     print(f"test_map: mapped {len(result['production_to_tests'])} production file(s) "
           f"to {args.out}")
     return 0

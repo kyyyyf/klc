@@ -52,6 +52,7 @@ from core.shared.paths import klc_index_dir  # noqa: E402
 from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
 import module_membership as _mm  # noqa: E402
 import test_map as _tm  # noqa: E402  (reuse is_test_file + load_callgraph_dir)
+import index_coverage  # noqa: E402
 
 # Re-export the KLC-070 loader so callers/tests use one merge implementation.
 load_callgraph_dir = _tm.load_callgraph_dir
@@ -214,8 +215,23 @@ def build_symbol_usage(inventory: dict, modules: dict,
         notes.append(f"{dropped_defs} symbol(s) defined outside structural.files_rel "
                      f"dropped")
 
+    # KLC-106 AC-8 / D-212: `callgraph` is the vacuous trigger this consumer
+    # names, via the ONE shared rule in index_coverage.callgraph_degraded_input
+    # (also used by test_map/module_edges): a bare-absent callgraph counts
+    # only when the file-level import fallback (`import_consumers`) produced
+    # nothing either — matching the `errors[]` message already emitted above
+    # for exactly this condition — while a present-but-empty/self-degraded
+    # callgraph always counts.
+    vacuous_callgraph = index_coverage.callgraph_degraded_input(
+        callgraph, bool(import_consumers))
+    degraded_inputs = index_coverage.degraded_inputs([
+        ("callgraph", callgraph, vacuous_callgraph),
+        ("depgraph.json", depgraph, False),
+        ("inventory.json", inventory, False),
+    ])
     return {"symbols": dict(sorted(symbols_out.items())),
-            "errors": errors, "notes": notes}
+            "errors": errors, "notes": notes,
+            "degraded": bool(degraded_inputs), "degraded_inputs": degraded_inputs}
 
 
 def _load(path: Path) -> dict:
@@ -265,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     args.out.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     for e in result["errors"]:
-        sys.stderr.write(f"symbol-usage: warning: {e}\n")
+        sys.stderr.write(f"symbol-usage: warning: {index_coverage.render_error(e)}\n")
     print(f"symbol-usage: mapped {len(result['symbols'])} symbol(s) → {args.out}")
     return 0
 

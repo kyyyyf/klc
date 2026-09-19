@@ -154,3 +154,28 @@ def test_cap_project_dir_override_ignored(scopes):
     proj, fw = scopes
     _w(fw, "budgets.yml", "consecutive_auto_transitions: 20\n")
     assert settings.autorun_cap() == 20
+
+
+# --------------------------------------------------------- no-legacy (KLC-106)
+
+def test_resolve_without_legacy_args_reads_settings_layers_only(scopes):
+    """KLC-106 F-1 / D-201: a knob introduced after settings.yml has no legacy
+    file at all. Calling resolve() with neither legacy_file nor legacy_key
+    must not raise, and must resolve through the two settings.yml layers
+    only (project before framework) plus the caller's default."""
+    proj, fw = scopes
+    assert float(settings.resolve("index.coverage.min_ratio", default=0.25)) == 0.25
+    _w(fw, "settings.yml", "index:\n  coverage:\n    min_ratio: 0.4\n")
+    assert float(settings.resolve("index.coverage.min_ratio", default=0.25)) == 0.4
+    _w(proj, "settings.yml", "index:\n  coverage:\n    min_ratio: 0.6\n")
+    assert float(settings.resolve("index.coverage.min_ratio", default=0.25)) == 0.6
+
+
+def test_resolve_with_half_specified_legacy_raises_value_error(scopes):
+    """KLC-106 F-1 / D-201: supplying exactly one of legacy_file/legacy_key is
+    a programming error — it would silently drop a ladder layer, the same
+    dishonest degrade this ticket removes everywhere else."""
+    with pytest.raises(ValueError):
+        settings.resolve("some.key", legacy_file="x.yml")
+    with pytest.raises(ValueError):
+        settings.resolve("some.key", legacy_key="x")

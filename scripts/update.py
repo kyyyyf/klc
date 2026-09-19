@@ -35,6 +35,7 @@ from _paths import project_root, klc_index_dir, klc_logs_dir  # noqa: E402
 from module_edges import aggregate_module_edges  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 import index_lock as _index_lock  # noqa: E402  (KLC-107 D-201: one writer at a time)
+import index_coverage  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -290,6 +291,11 @@ def _build_planning_views(index_dir: Path) -> None:
                 log(f"  planning view: {name}")
         except (OSError, subprocess.TimeoutExpired) as e:
             log(f"  planning view '{name}' failed ({e})")
+
+    # KLC-106 AC-14: one summary line per builder, on EVERY deterministic
+    # run — a healthy index is visibly healthy rather than merely silent.
+    for v in index_coverage.collect_verdicts(index_dir):
+        log(index_coverage.format_summary(v).strip())
 
 
 # --------------------------------------------------------------------------- #

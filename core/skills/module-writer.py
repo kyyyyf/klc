@@ -31,7 +31,9 @@ from pathlib import Path
 _file_dir = Path(__file__).resolve().parent
 _project_root_dir = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root_dir))
+sys.path.insert(0, str(_file_dir))
 from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
+import index_coverage  # noqa: E402
 
 try:
     from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -249,11 +251,82 @@ def render_root(out_path: Path | None) -> Path:
         "cycles": mods.get("cycles", []),
         "adr_index": collect_adr_index(),
         "notes": inv.get("notes", []) + mods.get("notes", []),
+        "degraded_builders": [
+            v for v in index_coverage.collect_verdicts(klc_index_dir())
+            if v.get("degraded")
+        ],
     }
     out = out_path or (project_root() / "CLAUDE.md")
     out.write_text(tpl.render(**ctx), encoding="utf-8")
     print(f"WROTE {out}")
     return out
+
+
+_NOT_INDEXED = "not indexed (dependency graph unavailable)"
+
+
+def _graph_covers_files(entry: dict, module_files) -> bool:
+    """True when *entry* (one language's import graph) has a node for at
+    least one of the module's own files."""
+    node_ids = {(n.get("id") if isinstance(n, dict) else n)
+                for n in (entry.get("nodes") or [])}
+    return any(f in node_ids for f in module_files)
+
+
+def _deps_fallback(module: dict) -> str:
+    """What an EMPTY dependency list means for this module (AC-12). '_none_'
+    is a measurement; when no graph covers this module's files, there was no
+    measurement at all, and the document must not read as one. When SOME but
+    not all of the covering graphs are healthy, the module is only partly
+    measured, and the document must say so rather than pick one extreme.
+
+    D-213 (review round 1, HIGH finding #2): a modules.json module record
+    never carries a `language` field — no builder writes one (this repo's
+    own live `.klc/index/modules.json` has none, and modules_build.py's own
+    output shape has none either) — so keying the depgraph lookup off
+    `module.get('language')` always resolved to the empty string, which
+    always rendered "not indexed", even when the graph was perfectly
+    healthy. Coverage is decided instead by which per-language import
+    graph(s) actually have a node for one of this module's OWN files
+    (`module['files']`, a field every real record does carry).
+
+    D-214 (review round 2, MEDIUM): the round-1 fix's completeness check
+    (`all(g.get('degraded') for g in covering)`) only fell back to "not
+    indexed" when EVERY covering graph was degraded, so a two-language
+    module with one healthy and one degraded covering graph rendered
+    `_none_` — claiming a full, clean measurement when half the module's
+    dependency picture was actually unmeasured. Now: zero covering graphs
+    (including a module with no files at all, or a producer whose graph
+    nodes are keyed by something other than a repo-relative file path — the
+    cpp-unreal `*.Build.cs` walk's module-name node ids, for one) stays "not
+    indexed"; some-but-not-all covering graphs degraded names the degraded
+    ones explicitly instead of picking either extreme; only when EVERY
+    covering graph is healthy does an empty `depends_on`/`depended_by`
+    become the genuine measurement `_none_`.
+
+    `load_json()` is NOT used here: it exits the process on a missing file,
+    which is right for `inventory.json`/`modules.json` and wrong for
+    `depgraph.json`, whose absence is exactly the case this function must
+    render (C-002/C-003, review F-3/D-203)."""
+    depgraph = index_coverage.load_json_or_none(klc_index_dir() / "depgraph.json")
+    if not depgraph:
+        return _NOT_INDEXED
+    module_files = module.get("files") or []
+    if not module_files:
+        return _NOT_INDEXED
+    graphs = {name: g for name, g in (depgraph.get("import_graphs") or {}).items()
+              if isinstance(g, dict)}
+    covering = {name: g for name, g in graphs.items()
+                if _graph_covers_files(g, module_files)}
+    if not covering:
+        return _NOT_INDEXED
+    degraded_names = sorted(name for name, g in covering.items()
+                            if g.get("degraded") is True)
+    if len(degraded_names) == len(covering):
+        return _NOT_INDEXED
+    if degraded_names:
+        return "deps partial: " + ", ".join(degraded_names) + " not indexed"
+    return "_none_"
 
 
 def render_module(module: dict, out_path: Path | None = None) -> Path:
@@ -268,6 +341,7 @@ def render_module(module: dict, out_path: Path | None = None) -> Path:
         "generated_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "manual_block": manual,
         "adrs": adrs_mentioning(module["name"], module["path"]),
+        "deps_fallback": _deps_fallback(module),
     }
     if not mod_path.exists():
         sys.stderr.write(

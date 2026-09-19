@@ -39,6 +39,15 @@
 #   hook_location: .git/hooks/pre-commit   # resolved hooks dir or detected manager name.
 #   refresh_budget_seconds: 30         # wall-clock budget for the verb-side lazy refresh.
 
+# Index coverage floor (KLC-106). This knob has NO legacy file: it was
+# introduced after settings.yml, so its ladder is
+# .klc/config/settings.yml -> config/settings.yml -> built-in 0.25.
+# index:
+#   coverage:
+#     min_ratio: 0.25          # share of the file universe a builder must cover.
+#     per_builder:             # optional per-builder override, unset by default.
+#       dep_graph: 0.25
+
 # Ack advisory severity threshold (KLC-117). At or above this severity the
 # `advisory` gate signal is dirty and a conditional gate pauses. No legacy file.
 # advisory:

@@ -150,7 +150,28 @@ _SETTINGS_SCHEMA = {
     "verify.step_budget_seconds": ("posint", None),
     "verify.node_budget_seconds": ("posint", None),
     "verify.arm_budget_seconds": ("posint", None),
+    # KLC-106: the index-coverage floor and its optional per-builder override.
+    "index.coverage.min_ratio": ("ratio", None),
+    # Trailing dot = PREFIX key: one override per builder name, so the family
+    # cannot be enumerated here (KLC-106 F-5, D-205).
+    "index.coverage.per_builder.": ("ratio", None),
 }
+
+
+def _settings_spec(dotted: str):
+    """Look up *dotted*'s validation spec in `_SETTINGS_SCHEMA`.
+
+    Exact match first — a prefix must never shadow a concrete key — then the
+    trailing-dot prefix families (KLC-106 F-5/D-205). Returns None for a
+    genuinely unknown key, so the existing 'unknown key' warning keeps firing
+    for real typos."""
+    spec = _SETTINGS_SCHEMA.get(dotted)
+    if spec is not None:
+        return spec
+    for key, candidate in _SETTINGS_SCHEMA.items():
+        if key.endswith(".") and dotted.startswith(key) and len(dotted) > len(key):
+            return candidate
+    return None
 
 
 def _flatten_settings(data: dict, prefix: str = ""):
@@ -172,6 +193,25 @@ def _check_settings_type(dotted: str, value: Any, spec: tuple) -> str | None:
         return f"settings.yml: {dotted}={value!r} invalid; use one of {sorted(extra)}"
     if kind == "posint" and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
         return f"settings.yml: {dotted} must be a positive integer"
+    if kind == "ratio":
+        # KLC-106 D-208: core/shared/yaml.py's minimal parser has no float
+        # literal, so a real ratio like `0.4` parses as the STRING "0.4",
+        # not a Python float. Accept int/float directly and coerce a
+        # numeric string; reject bool (a bool IS an int in Python) and
+        # anything non-numeric.
+        if isinstance(value, bool):
+            return f"settings.yml: {dotted} must be a number between 0 and 1"
+        num = value if isinstance(value, (int, float)) else None
+        if num is None and isinstance(value, str):
+            try:
+                num = float(value)
+            except ValueError:
+                num = None
+        if num is None:
+            return f"settings.yml: {dotted} must be a number between 0 and 1"
+        if not 0 <= num <= 1:
+            return (f"settings.yml: {dotted}={value!r} out of range; "
+                    f"use a ratio between 0 and 1 (0 disables the floor)")
     return None
 
 
@@ -202,7 +242,7 @@ def validate_settings(config_dir: Path | None = None) -> list[str]:
         return ["settings.yml: root element must be a dictionary"]
     warnings: list[str] = []
     for dotted, value in _flatten_settings(data):
-        spec = _SETTINGS_SCHEMA.get(dotted)
+        spec = _settings_spec(dotted)
         if spec is None:
             warnings.append(f"settings.yml: unknown key {dotted!r}")
         else:

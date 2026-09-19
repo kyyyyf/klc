@@ -61,8 +61,10 @@ _project_root = _file_dir.parent.parent
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir, framework_root, project_root  # noqa: E402
+from core.shared import inventory as _inv  # noqa: E402  — KLC-103's canonical accessor
 import tools as _tools  # noqa: E402
 import file_universe  # noqa: E402
+import index_coverage  # noqa: E402
 
 # KLC-105: ast-grep is invoked with an explicit positional PATHS list (chunked under
 # this budget) instead of scanning "." — a builder must not decide the universe by
@@ -368,8 +370,27 @@ def _sort_key(s: dict) -> tuple:
     return (s["file"], s["line"], s["name"], s["rule"])
 
 
+def inventory_coverage_verdicts(symbols: list[dict], structural: dict | None) -> list[dict]:
+    """One coverage verdict PER LANGUAGE present in `structural.languages`
+    (KLC-106 AC-7, D-005): distinct files carrying at least one symbol over
+    that language's file count. A single project-wide ratio would be diluted
+    by documentation/config files and would hide exactly the failure this
+    metric exists to catch — one language's rule set matching nothing while
+    another language's symbols keep the ratio healthy."""
+    grouped = _inv.symbols_by_language({"symbols": symbols})
+    verdicts = []
+    for lang in sorted((structural or {}).get("languages") or {}):
+        files_with_symbols = {s.get("file") for s in grouped.get(lang, ())}
+        verdicts.append(index_coverage.verdict(
+            f"inventory:{lang}", "inventory.json", len(files_with_symbols),
+            index_coverage.universe_for(lang, structural),
+            metric="files-with-symbols"))
+    return verdicts
+
+
 def build_inventory(root: Path, ruleset: dict, astgrep_path: str | None,
-                    files: list[str] | None = None) -> dict:
+                    files: list[str] | None = None,
+                    structural: dict | None = None) -> dict:
     """Deterministically inventory *root*. Pure w.r.t. (root, ruleset, astgrep_path,
     files): no timestamp, byte-identical on re-run (AC-11).
 
@@ -381,6 +402,10 @@ def build_inventory(root: Path, ruleset: dict, astgrep_path: str | None,
 
     ``astgrep_path=None`` (or an ast-grep failure) → regex fallback with a note in
     ``errors[]`` and ``source_of_truth`` marked ``regex`` per language touched.
+
+    ``structural`` (KLC-106 AC-7, optional and additive): when given, one
+    coverage verdict per language present in ``structural.languages`` is
+    appended to ``errors[]`` — see ``inventory_coverage_verdicts``.
     """
     errors: list[str] = []
     notes: list[str] = []
@@ -417,6 +442,8 @@ def build_inventory(root: Path, ruleset: dict, astgrep_path: str | None,
         sot.setdefault(s["lang"] or "unknown", s["source_of_truth"])
 
     symbols.sort(key=_sort_key)
+    if structural is not None:
+        errors.extend(inventory_coverage_verdicts(symbols, structural))
     return {
         "root": str(root),
         "profile": ruleset.get("profile", ""),
@@ -443,7 +470,10 @@ def main(argv: list[str] | None = None) -> int:
 
     ruleset = resolve_ruleset()
     astgrep = _tools.resolve_tool("ast-grep")
-    result = build_inventory(root, ruleset, str(astgrep) if astgrep else None)
+    structural = index_coverage.load_json_or_none(
+        klc_index_dir() / "structural.json")
+    result = build_inventory(root, ruleset, str(astgrep) if astgrep else None,
+                              structural=structural)
 
     payload = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc)
@@ -454,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     args.out.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     for e in result["errors"]:
-        sys.stderr.write(f"deterministic_inventory: warning: {e}\n")
+        sys.stderr.write(f"deterministic_inventory: warning: {index_coverage.render_error(e)}\n")
     print(f"deterministic_inventory: wrote {len(result['symbols'])} symbol(s) to "
           f"{args.out}")
     return 0
