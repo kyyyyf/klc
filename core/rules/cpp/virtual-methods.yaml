@@ -22,9 +22,17 @@ language: cpp
 metadata:
   extensions: [".cpp", ".h", ".hpp", ".cc", ".cxx", ".hxx"]
 rule:
-  pattern:
-    context: "class C { virtual $RET $NAME($$$ARGS) $$$MODS; };"
-    selector: field_declaration
+  all:
+    - pattern:
+        context: "class C { virtual $RET $NAME($$$ARGS) $$$MODS; };"
+        selector: field_declaration
+    # KLC-108 step-2 (AC-1/AC-3): a virtual method declared on a LOCAL class
+    # (one whose class body sits inside a free function) is still legal C++
+    # but not module-scope public surface. `stopBy: end` walks every
+    # ancestor, not just the immediate parent — the class body sits between
+    # the field_declaration and the enclosing function.
+    - not:
+        inside: {kind: function_definition, stopBy: end}
 message: Virtual method declaration
 
 tests:
@@ -42,3 +50,11 @@ tests:
       class Plain { public: double Area() const { return 1.0; } };
     - |
       struct Z { void NotVirtual(); };
+    - |
+      // KLC-108 AC-1: in-body case
+      void MakeLocalClass() {
+        class LocalShape {
+        public:
+          virtual double Area() const = 0;
+        };
+      }

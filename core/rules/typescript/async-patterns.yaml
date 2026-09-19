@@ -7,11 +7,18 @@ language: typescript
 metadata:
   extensions: [".ts"]
 rule:
-  any:
-    - pattern: async function $NAME($$$ARGS) { $$$BODY }
-    - pattern: export async function $NAME($$$ARGS) { $$$BODY }
-    - pattern: async ($$$ARGS) => { $$$BODY }
-    - pattern: const $NAME = async ($$$ARGS) => { $$$BODY }
+  all:
+    - any:
+        - pattern: async function $NAME($$$ARGS) { $$$BODY }
+        - pattern: export async function $NAME($$$ARGS) { $$$BODY }
+        - pattern: async ($$$ARGS) => { $$$BODY }
+        - pattern: const $NAME = async ($$$ARGS) => { $$$BODY }
+    # KLC-108 step-2 (AC-1/AC-3): none of the four patterns above is
+    # anchored on `export`/a top-level `kind`, so an async function/arrow
+    # nested inside another function's body would otherwise match too.
+    # `stopBy: end` walks every ancestor, not just the immediate parent.
+    - not:
+        inside: {kind: statement_block, stopBy: end}
 message: Async function / arrow boundary
 
 tests:
@@ -23,3 +30,8 @@ tests:
   invalid:
     - |
       function syncFetch() { return 1; }
+    - |
+      // KLC-108 AC-1: in-body case
+      function outer() {
+        async function inner() { return 1; }
+      }

@@ -25,37 +25,46 @@ language: typescript
 metadata:
   extensions: [".ts"]
 rule:
-  any:
-    - kind: export_statement
-      has:
-        any:
-          - kind: function_declaration
-            has: {field: name, pattern: $NAME}
-          - kind: class_declaration
-            has: {field: name, pattern: $NAME}
-          - kind: abstract_class_declaration
-            has: {field: name, pattern: $NAME}
-          - kind: interface_declaration
-            has: {field: name, pattern: $NAME}
-          - kind: type_alias_declaration
-            has: {field: name, pattern: $NAME}
-          - kind: enum_declaration
-            has: {field: name, pattern: $NAME}
-          - kind: lexical_declaration
-            has:
-              kind: variable_declarator
-              has: {field: name, pattern: $NAME}
-    # `export default React.memo(X)` / `export default 42` — guarded so a
-    # named default declaration is not captured twice (the export_statement
-    # clause above already owns `export default class/function X {}`).
-    - all:
-        - pattern: export default $EXPR
-        - not:
-            has:
-              any:
-                - kind: function_declaration
-                - kind: class_declaration
-    - pattern: module.exports.$NAME = $RHS
+  all:
+    - any:
+        - kind: export_statement
+          has:
+            any:
+              - kind: function_declaration
+                has: {field: name, pattern: $NAME}
+              - kind: class_declaration
+                has: {field: name, pattern: $NAME}
+              - kind: abstract_class_declaration
+                has: {field: name, pattern: $NAME}
+              - kind: interface_declaration
+                has: {field: name, pattern: $NAME}
+              - kind: type_alias_declaration
+                has: {field: name, pattern: $NAME}
+              - kind: enum_declaration
+                has: {field: name, pattern: $NAME}
+              - kind: lexical_declaration
+                has:
+                  kind: variable_declarator
+                  has: {field: name, pattern: $NAME}
+        # `export default React.memo(X)` / `export default 42` — guarded so a
+        # named default declaration is not captured twice (the export_statement
+        # clause above already owns `export default class/function X {}`).
+        - all:
+            - pattern: export default $EXPR
+            - not:
+                has:
+                  any:
+                    - kind: function_declaration
+                    - kind: class_declaration
+        - pattern: module.exports.$NAME = $RHS
+    # KLC-108 step-2 (AC-1/AC-3): top-level only. The export_statement /
+    # export-default clauses above can never sit inside a function body in
+    # the first place (a nested statement is never an `export_statement`),
+    # so this clause's real job is the bare `module.exports.$NAME = $RHS`
+    # pattern, which has no such anchor of its own. `stopBy: end` walks
+    # every ancestor, not just the immediate parent.
+    - not:
+        inside: {kind: statement_block, stopBy: end}
 message: Exported TS declaration
 
 tests:
@@ -93,4 +102,11 @@ tests:
       function notExported() {
         const local = 1;
         class LocalCls {}
+      }
+    - |
+      // KLC-108 AC-1: in-body case
+      function wrapper() {
+        if (true) {
+          module.exports.sneaky = 1;
+        }
       }

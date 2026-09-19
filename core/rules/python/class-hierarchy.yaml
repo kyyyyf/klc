@@ -7,7 +7,12 @@ language: python
 metadata:
   extensions: [".py"]
 rule:
-  pattern: "class $NAME($$$BASES): $$$BODY"
+  all:
+    - pattern: "class $NAME($$$BASES): $$$BODY"
+    # KLC-108 step-2 (AC-1/AC-2): top-level (module- or class-scope) only —
+    # see public-api.yaml's comment for why `stopBy: end` is required.
+    - not:
+        inside: {kind: function_definition, stopBy: end}
 message: Class with explicit bases
 
 tests:
@@ -22,3 +27,9 @@ tests:
     - |
       class Orphan:
           pass
+    - |
+      # KLC-108 AC-1: in-body case
+      def build():
+          class Nested(Base):
+              pass
+          return Nested

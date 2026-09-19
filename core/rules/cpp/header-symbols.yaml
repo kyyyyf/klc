@@ -13,10 +13,17 @@ language: cpp
 metadata:
   extensions: [".hpp", ".h", ".hxx"]
 rule:
-  any:
-    - pattern: "class $NAME"
-    - pattern: "struct $NAME"
-    - pattern: "namespace $NS { $$$BODY }"
+  all:
+    - any:
+        - pattern: "class $NAME"
+        - pattern: "struct $NAME"
+        - pattern: "namespace $NS { $$$BODY }"
+    # KLC-108 step-2 (AC-1/AC-3): top-level only — a local class/struct
+    # declared inside a free function's body is legal C++ but not header
+    # surface. `stopBy: end` walks every ancestor, not just the immediate
+    # parent.
+    - not:
+        inside: {kind: function_definition, stopBy: end}
 message: Header-visible C++ symbol
 
 tests:
@@ -32,3 +39,9 @@ tests:
       int add(int a, int b);
     - |
       int total = 0;
+    - |
+      // KLC-108 AC-1: in-body case
+      void Impl() {
+        class LocalC { int y; };
+        struct LocalS { int z; };
+      }

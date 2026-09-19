@@ -265,32 +265,129 @@ def compute_coverage(files: list[str], modules_data) -> dict:
 # --------------------------------------------------------------------------- #
 # retrieval-metrics seam (KLC-068 populates the traces)
 # --------------------------------------------------------------------------- #
+def rank_metrics(candidates: list, truth: set, k: int) -> dict:
+    """THE ranking scorer (KLC-108 AC-13/D-008). One implementation, taking a
+    candidate list, a ground-truth set and a cut-off ``k`` — the shape
+    KLC-110's AC-1 requires, so that ticket calls this rather than adding a
+    second implementation.
+
+    ``precision`` is ``None``, not ``1.0``, on an empty candidate list:
+    nothing was ranked, so there is nothing to be right about, and an empty
+    slice must never read as a perfect one. ``recall`` is ``None`` when
+    ``truth`` is empty (nothing to recall)."""
+    topk = [c for c in (candidates or []) if c][:k]
+    t = set(truth or ())
+    inter = set(topk) & t
+    return {
+        "precision": (len(inter) / len(topk)) if topk else None,
+        "recall": (len(inter) / len(t)) if t else None,
+        "matched": sorted(inter),
+        "missed": sorted(t - set(topk)),
+        "extra": sorted(set(topk) - t),
+        "candidates": len(topk),
+    }
+
+
 def _retrieval_for_ticket(trace: dict, relevant: set[str]) -> dict | None:
     """Per-ticket retrieval metrics from a retrieval_trace.json. `relevant` is the
     set of files the ticket actually changed (ground truth for recall). Returns
-    None when the trace has no usable candidate ranking."""
+    None when the trace has no usable candidate ranking. `relevant` is always
+    non-empty at the caller (checked before this is invoked), so every
+    `rank_metrics(..., relevant, ...)` call below has a non-empty `truth` and
+    never reports a `None` recall — preserving the pre-KLC-108 numeric
+    contract exactly (this function's return values are unchanged for the
+    four pre-existing keys)."""
     candidates = [c for c in (trace.get("files_to_read_first") or []) if c]
     if not candidates or not relevant:
         return None
 
-    def recall_at(n: int) -> float:
-        topn = set(candidates[:n])
-        return len(topn & relevant) / len(relevant)
+    r5 = rank_metrics(candidates, relevant, 5)
+    r10 = rank_metrics(candidates, relevant, 10)
+    # AC-13: precision_at_5 over files_likely_to_edit (the EDIT slice), not
+    # files_to_read_first — a ticket with no edit candidates reports None,
+    # never a fabricated 0 or 1.0 (rank_metrics's own contract).
+    edit_candidates = [c for c in (trace.get("files_likely_to_edit") or []) if c]
+    edit5 = rank_metrics(edit_candidates, relevant, 5)
 
-    top10 = set(candidates[:10])
-    precision_at_10 = len(top10 & relevant) / min(10, len(candidates))
     first = next((i for i, f in enumerate(candidates, 1) if f in relevant), None)
     files_before_first_edit = (first - 1) if first is not None else len(candidates)
     return {
-        "recall_at_5": recall_at(5),
-        "recall_at_10": recall_at(10),
-        "precision_at_10": precision_at_10,
+        "recall_at_5": r5["recall"],
+        "recall_at_10": r10["recall"],
+        "precision_at_10": r10["precision"],
+        "precision_at_5": edit5["precision"],
         "files_before_first_edit": files_before_first_edit,
+        "confidence": trace.get("confidence"),
     }
 
 
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+# --------------------------------------------------------------------------- #
+# AC-14 — re-score path: regenerate a trace from the ticket's own
+# description against the CURRENT index, so BEFORE and AFTER cover the
+# same corpus instead of comparing stored traces from different vintages.
+# --------------------------------------------------------------------------- #
+def _ticket_query(ticket_dir: Path) -> str | None:
+    """A-104: the ticket's own description is the `query` already recorded
+    in `retrieval_trace.json` (this is also what KLC-110's AC-17 calls a
+    'replayed' trace), falling back to `raw.md`'s body. None when neither
+    source is available."""
+    trace_path = ticket_dir / "retrieval_trace.json"
+    if trace_path.exists():
+        try:
+            stored = json.loads(trace_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            stored = {}
+        query = (stored or {}).get("query")
+        if query:
+            return query
+    raw = ticket_dir / "raw.md"
+    if raw.exists():
+        text = raw.read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    return None
+
+
+def _load_index_json(index_dir: Path, name: str) -> dict:
+    p = index_dir / name
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def rescore_trace(ticket_dir: Path, index_dir: Path) -> dict | None:
+    """AC-14: regenerate `retrieval_trace.json` from the ticket's own
+    description (`_ticket_query`) against the planning views under
+    `index_dir` — never the stored trace on disk. Fails closed (returns
+    None) when no query source is available (A-104), so a ticket with
+    neither a recorded query nor a `raw.md` is reported as skipped rather
+    than scored against an empty or fabricated query."""
+    query = _ticket_query(ticket_dir)
+    if not query:
+        return None
+
+    import importlib.util
+    retriever_path = _FILE_DIR / "planning-retriever.py"
+    spec = importlib.util.spec_from_file_location(
+        "planning_retriever_rescore", retriever_path)
+    retriever = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(retriever)
+
+    modules = _load_index_json(index_dir, "modules.json")
+    file_roles = _load_index_json(index_dir, "file_roles.json")
+    module_edges = _load_index_json(index_dir, "module_edges.json")
+    test_map = _load_index_json(index_dir, "test_map.json")
+    inventory = _load_index_json(index_dir, "inventory.json")
+    token_idf = _load_index_json(index_dir, "token_idf.json")
+
+    return retriever.build_trace(query, "deterministic", modules, file_roles,
+                                 module_edges, test_map, inventory, token_idf)
 
 
 # --------------------------------------------------------------------------- #
@@ -316,7 +413,13 @@ def _generated_at() -> str:
 
 
 def build_report(tickets_root: Path, modules_data, repo: Path,
-                 errors: list[str]) -> dict:
+                 errors: list[str], rescore_index: Path | None = None) -> dict:
+    """`rescore_index` (KLC-108 AC-14, optional): when given, every ticket's
+    retrieval metrics are computed from a trace FRESHLY regenerated against
+    this index directory (`rescore_trace`) instead of the stored
+    `retrieval_trace.json` — the corpus SELECTION (which tickets carry a
+    usable query) is decided before any trace is read, so a BEFORE run and
+    an AFTER run against the same ticket set are comparable."""
     report: dict = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "generated_at": _generated_at(),
@@ -328,7 +431,9 @@ def build_report(tickets_root: Path, modules_data, repo: Path,
         "retrieval_metrics": {
             "status": "unavailable", "reason": "",
             "recall_at_5": None, "recall_at_10": None,
-            "precision_at_10": None, "mean_files_before_first_edit": None,
+            "precision_at_10": None, "precision_at_5": None,
+            "mean_files_before_first_edit": None,
+            "high_confidence_zero_precision_at_5": [],
             "per_ticket": [],
         },
         "errors": errors,
@@ -418,14 +523,29 @@ def build_report(tickets_root: Path, modules_data, repo: Path,
                 micro_computed += len(set(computed))
                 micro_truth += len(set(truth))
 
-        # retrieval seam
-        trace_path = d / "retrieval_trace.json"
-        if trace_path.exists():
-            try:
-                trace = json.loads(trace_path.read_text(encoding="utf-8"))
-                row = _retrieval_for_ticket(trace, relevant)
-            except (OSError, json.JSONDecodeError):
-                row = None
+        # retrieval seam (KLC-108 AC-14: rescore_index re-generates the trace
+        # from the ticket's own description against the CURRENT index; the
+        # ticket-set SELECTION only depends on whether a query is available,
+        # never on the index content, so a BEFORE and an AFTER rescore run
+        # select the identical corpus).
+        if rescore_index is not None:
+            trace = rescore_trace(d, rescore_index)
+            if trace is None:
+                skipped.append({"ticket": key,
+                                "reason": "rescore: no ticket description available "
+                                          "(no retrieval_trace.json query and no raw.md)"})
+                trace = None
+        else:
+            trace_path = d / "retrieval_trace.json"
+            trace = None
+            if trace_path.exists():
+                try:
+                    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    trace = None
+
+        if trace is not None:
+            row = _retrieval_for_ticket(trace, relevant)
             if row is None:
                 skipped.append({"ticket": key,
                                 "reason": "retrieval_trace.json unusable (no candidates or no edits)"})
@@ -476,14 +596,23 @@ def build_report(tickets_root: Path, modules_data, repo: Path,
 
     # --- retrieval section ---
     if retrieval_rows:
+        precision_at_5_values = [r["precision_at_5"] for r in retrieval_rows
+                                 if r.get("precision_at_5") is not None]
+        violators = sorted(
+            r["ticket"] for r in retrieval_rows
+            if r.get("confidence") == "high" and r.get("precision_at_5") == 0)
         report["retrieval_metrics"] = {
             "status": "ok",
             "recall_at_5": _mean([r["recall_at_5"] for r in retrieval_rows]),
             "recall_at_10": _mean([r["recall_at_10"] for r in retrieval_rows]),
             "precision_at_10": _mean([r["precision_at_10"] for r in retrieval_rows]),
+            "precision_at_5": _mean(precision_at_5_values) if precision_at_5_values else None,
             "mean_files_before_first_edit": _mean(
                 [r["files_before_first_edit"] for r in retrieval_rows]),
             "tickets": len(retrieval_rows),
+            # AC-16: names every ticket reporting confidence:high together
+            # with precision_at_5 == 0 on files_likely_to_edit.
+            "high_confidence_zero_precision_at_5": violators,
             "per_ticket": retrieval_rows,
         }
     else:
@@ -517,6 +646,14 @@ def main(argv: list[str] | None = None) -> int:
                     help="git repo root for diff derivation + coverage walk")
     ap.add_argument("--out", type=Path, default=idx / "planning" / "eval_report.json",
                     help="output report path ('-' for stdout)")
+    ap.add_argument("--rescore", action="store_true",
+                    help="KLC-108 AC-14: regenerate every ticket's retrieval trace "
+                         "from its own description against --index, instead of "
+                         "reading the stored retrieval_trace.json off disk")
+    ap.add_argument("--index", type=Path, default=idx,
+                    help="planning-views directory the --rescore path reads "
+                         "(modules/file_roles/module_edges/test_map/inventory/"
+                         "token_idf.json); ignored without --rescore")
     args = ap.parse_args(argv)
 
     # Bad argument: --tickets is not a directory -> exit 2 (like file_scanner.py).
@@ -539,7 +676,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         errors.append(f"modules.json not found at {args.modules}; coverage + diff metrics degraded")
 
-    report = build_report(args.tickets, modules_data, args.repo, errors)
+    rescore_index = args.index if args.rescore else None
+    report = build_report(args.tickets, modules_data, args.repo, errors, rescore_index)
     payload = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
 
     if str(args.out) == "-":

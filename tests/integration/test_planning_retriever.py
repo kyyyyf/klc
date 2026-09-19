@@ -581,3 +581,264 @@ def test_missing_required_query_exits_2(tmp_path):
          "--in-modules", str(in_args["modules"]), "--out", str(out)],
         capture_output=True, text=True)
     assert proc.returncode == 2
+
+
+# --------------------------------------------------------------------------- #
+# KLC-108 AC-11 — a >= 80% is_test module never reaches primary_modules; its
+# tests still reach tests_to_read_or_run; a missing is_test fails closed
+# (counts toward the test side, per D-009).
+# --------------------------------------------------------------------------- #
+_HEAVY_MODULES = {
+    "modules": [
+        {"name": "heavytest", "path": "tests/heavy/",
+         "keywords": ["heavy", "widget"]},
+        {"name": "other", "path": "core/other/", "keywords": ["other"]},
+    ],
+}
+
+
+def _heavy_file_roles(n_test: int, *, omit_is_test: bool = False) -> dict:
+    files: dict[str, dict] = {}
+    for i in range(10):
+        is_test = i < n_test
+        rec = {
+            "module_name": "heavytest",
+            "roles": ["test"] if is_test else ["domain_logic"],
+            "is_entrypoint": False, "is_generated": False, "is_config": False,
+            "eligible_as_primary": not is_test,
+            "keywords": ["heavy", "widget"],
+            "symbols": [f"heavy_widget_symbol_{i}"],
+            "confidence": "high",
+        }
+        if not omit_is_test:
+            rec["is_test"] = is_test
+        files[f"tests/heavy/f{i}.py"] = rec
+    files["core/other/o.py"] = {
+        "module_name": "other", "roles": ["domain_logic"],
+        "is_entrypoint": False, "is_test": False, "is_generated": False,
+        "is_config": False, "eligible_as_primary": True,
+        "keywords": ["other"], "symbols": ["other_fn"], "confidence": "high",
+    }
+    return {"files": files}
+
+
+@pytest.mark.parametrize("n_test,should_exclude", [(8, True), (7, False)])
+def test_high_test_ratio_module_excluded_from_primary_modules(n_test, should_exclude):
+    """AC-11 + edge case: >= 80% (8/10) excludes the module from
+    `primary_modules` despite a raw score that would otherwise rank it #1;
+    just under (7/10) does not."""
+    mod = _load_skill()
+    file_roles = _heavy_file_roles(n_test)
+    module_edges = {"edges": []}
+    test_map = {"module_to_tests": {"heavytest": ["tests/heavy/test_x.py"]}}
+    trace = mod.build_trace("heavy widget", "deterministic", _HEAVY_MODULES,
+                            file_roles, module_edges, test_map)
+    primary = {m["module_name"] for m in trace["primary_modules"]}
+    if should_exclude:
+        assert "heavytest" not in primary, trace["primary_modules"]
+    else:
+        assert "heavytest" in primary, trace["primary_modules"]
+
+
+def test_test_heavy_module_tests_still_reach_tests_to_read_or_run():
+    mod = _load_skill()
+    file_roles = _heavy_file_roles(8)
+    module_edges = {"edges": []}
+    test_map = {"module_to_tests": {"heavytest": ["tests/heavy/test_x.py"]}}
+    trace = mod.build_trace("heavy widget", "deterministic", _HEAVY_MODULES,
+                            file_roles, module_edges, test_map)
+    primary = {m["module_name"] for m in trace["primary_modules"]}
+    assert "heavytest" not in primary
+    assert "tests/heavy/test_x.py" in trace["tests_to_read_or_run"]
+
+
+def test_module_test_ratio_gate_fails_closed_on_missing_is_test_data():
+    """D-009: a record with no `is_test` key counts toward the test side —
+    a malformed record can keep a module OUT of `primary_modules`, never
+    sneak one IN. All 10 records omit `is_test` entirely here."""
+    mod = _load_skill()
+    file_roles = _heavy_file_roles(0, omit_is_test=True)
+    module_edges = {"edges": []}
+    test_map = {"module_to_tests": {"heavytest": ["tests/heavy/test_x.py"]}}
+    trace = mod.build_trace("heavy widget", "deterministic", _HEAVY_MODULES,
+                            file_roles, module_edges, test_map)
+    primary = {m["module_name"] for m in trace["primary_modules"]}
+    assert "heavytest" not in primary, trace["primary_modules"]
+
+
+# --------------------------------------------------------------------------- #
+# KLC-108 step-6 — AC-12: `confidence: high` requires BOTH a named module
+# separation ratio AND a strong (keyword/symbol) hit inside
+# `files_likely_to_edit`; `reasons[]` states which condition decided it.
+# --------------------------------------------------------------------------- #
+def test_high_separation_ratio_is_a_named_constant():
+    mod = _load_skill()
+    assert isinstance(mod._HIGH_SEPARATION_RATIO, float)
+    assert mod._HIGH_SEPARATION_RATIO > 1.0
+
+
+def test_confidence_high_requires_separation_ratio_and_strong_edit_hit():
+    mod = _load_skill()
+    # runner_up chosen relative to the ACTUAL constant (D-108-7 retuned it
+    # against real-corpus evidence) so this test never hardcodes a stale
+    # threshold value.
+    runner_up = 100.0 / (mod._HIGH_SEPARATION_RATIO * 2.0)
+    conf, decided_by = mod._confidence_from_signal(
+        top=100.0, runner_up=runner_up, strong_edit_hit=True)  # ratio 2x the bar
+    assert conf == "high"
+    assert decided_by
+
+
+def test_confidence_no_runner_up_counts_as_separated():
+    mod = _load_skill()
+    conf, _ = mod._confidence_from_signal(top=5.0, runner_up=0.0, strong_edit_hit=True)
+    assert conf == "high"
+
+
+def test_confidence_not_high_when_separation_below_ratio():
+    mod = _load_skill()
+    conf, decided_by = mod._confidence_from_signal(
+        top=10.0, runner_up=6.0, strong_edit_hit=True)  # ratio 1.67 < any sane bar
+    assert conf != "high"
+    assert "separat" in decided_by.lower()
+
+
+def test_confidence_not_high_when_no_strong_edit_slice_hit():
+    mod = _load_skill()
+    conf, decided_by = mod._confidence_from_signal(
+        top=10.0, runner_up=2.0, strong_edit_hit=False)  # ratio 5.0, separated, no hit
+    assert conf != "high"
+    assert "hit" in decided_by.lower()
+
+
+def test_reasons_state_which_confidence_condition_decided():
+    """The two negative cases must be decided by DIFFERENT stated reasons —
+    the trace `reasons[]` names which of the two AC-12 conditions settled
+    it, not a single generic 'not high'."""
+    mod = _load_skill()
+    _, decided_low_sep = mod._confidence_from_signal(
+        top=10.0, runner_up=6.0, strong_edit_hit=True)
+    _, decided_no_hit = mod._confidence_from_signal(
+        top=10.0, runner_up=2.0, strong_edit_hit=False)
+    assert decided_low_sep != decided_no_hit
+    _, decided_high = mod._confidence_from_signal(
+        top=10.0, runner_up=2.0, strong_edit_hit=True)
+    assert decided_high not in (decided_low_sep, decided_no_hit)
+
+
+def test_confidence_condition_reaches_trace_reasons():
+    """End-to-end: `build_trace`'s `reasons[]` actually carries the decided_by
+    string from `_confidence_from_signal`, not just the helper's own return
+    value."""
+    mod = _load_skill()
+    trace = mod.build_trace(QUERY, "deterministic", MODULES, FILE_ROLES,
+                            MODULE_EDGES, TEST_MAP, INVENTORY)
+    assert trace["confidence"] == "high"
+    assert any("separated from runner-up" in r or "edit slice" in r
+              for r in trace["reasons"]), trace["reasons"]
+
+
+# --------------------------------------------------------------------------- #
+# KLC-108 review round 1, HIGH #1 (D-108-8) — `top <= 0` must floor confidence
+# at `low` BEFORE the no-runner-up shortcut runs. A shared-file-only match
+# leaves `mod_score` empty (no module ever carries the shared file's score),
+# so `top == 0` and `runner_up == 0`; `separated = runner_up <= 0 or ...` was
+# trivially True at `runner_up <= 0` with no floor on `top` itself, so a
+# strong edit-slice hit alone (surfaced via the shared file's member modules,
+# not via any scored module) reported `confidence: high` with
+# `primary_modules == []` — actively misleading, since AC-12's `high` implies
+# a top module with real signal exists.
+# --------------------------------------------------------------------------- #
+def test_confidence_never_high_when_top_scored_zero():
+    """AC-12: `_confidence_from_signal` must floor confidence at `low` when the
+    top module never scored above zero, even when `strong_edit_hit` is True and
+    there is no runner-up — the no-runner-up shortcut must not stand in for a
+    real top-module score."""
+    mod = _load_skill()
+    conf, decided_by = mod._confidence_from_signal(
+        top=0.0, runner_up=0.0, strong_edit_hit=True)
+    assert conf == "low"
+    assert "zero" in decided_by.lower() or "no module" in decided_by.lower()
+
+
+def test_confidence_positive_twin_one_module_real_hit_no_runner_up_stays_high():
+    """AC-12 positive twin: a genuine top-module score with no runner-up (and
+    a strong edit-slice hit) must still report `high` — the D-108-8 floor
+    only holds `top <= 0` cases below high, it must not additionally demote
+    the legitimate no-runner-up case `test_confidence_no_runner_up_counts_as_separated`
+    already covers."""
+    mod = _load_skill()
+    conf, decided_by = mod._confidence_from_signal(
+        top=8.0, runner_up=0.0, strong_edit_hit=True)
+    assert conf == "high"
+    assert decided_by
+
+
+_SHARED_ONLY_MODULES = {
+    "modules": [
+        {"name": "consumerA", "path": "core/a/", "summary": "Consumer A module.",
+         "keywords": []},
+        {"name": "consumerB", "path": "core/b/", "summary": "Consumer B module.",
+         "keywords": []},
+    ],
+    "files": {
+        "core/shared/util.py": {"primary_module": None,
+                                "member_of": ["consumerA", "consumerB"]},
+    },
+}
+
+_SHARED_ONLY_FILE_ROLES = {
+    "files": {
+        "core/shared/util.py": {
+            "module_name": None, "roles": ["domain_logic"],
+            "is_entrypoint": False, "is_test": False, "is_generated": False,
+            "is_config": False, "eligible_as_primary": True,
+            "keywords": ["frobnicate", "widget"],
+            "symbols": ["frobnicate_thing"], "confidence": "high"},
+        # a real, strongly-matching domain file that belongs to a TEST-HEAVY
+        # module (4 of 5 consumerA files are tests, >= _TEST_MODULE_RATIO):
+        # it is barred from ranked_mods/primary_modules by AC-11/D-009, but it
+        # still reaches files_likely_to_edit via the shared-member focus path,
+        # which is exactly how `strong_edit_hit` went True while `mod_score`
+        # stayed empty of any RANKED module (reviewer's repro).
+        "core/a/domain.py": {
+            "module_name": "consumerA", "roles": ["domain_logic"],
+            "is_entrypoint": False, "is_test": False, "is_generated": False,
+            "is_config": False, "eligible_as_primary": True,
+            "keywords": ["frobnicate", "widget"],
+            "symbols": ["frobnicate_other"], "confidence": "high"},
+    },
+}
+for _i in range(4):
+    _SHARED_ONLY_FILE_ROLES["files"][f"core/a/test_{_i}.py"] = {
+        "module_name": "consumerA", "roles": ["test"],
+        "is_entrypoint": False, "is_test": True, "is_generated": False,
+        "is_config": False, "eligible_as_primary": False,
+        "keywords": [], "symbols": [], "confidence": "low"}
+
+_SHARED_ONLY_MODULE_EDGES = {
+    "edges": [{"from": "consumerA", "to": "consumerB",
+              "edge_types": ["runtime_import"],
+              "evidence": [{"source": "import_graph", "type": "runtime_import",
+                            "from": "core/a/domain.py", "to": "core/b/x.py",
+                            "confidence": "high"}],
+              "evidence_count": 1, "confidence": "high",
+              "direction": "outbound", "expand_by_default": True}]}
+
+
+def test_shared_only_match_with_strong_edit_hit_never_reports_high():
+    """AC-12 regression (code review round 1, HIGH #1): a query that surfaces
+    a strong edit-slice hit ONLY through a shared file's member-module focus
+    path — with no module ever reaching `ranked_mods` (here because the only
+    matching domain file's module is barred as test-heavy) — must not report
+    `confidence: high`. Pre-fix this returned `high` with `primary_modules ==
+    []`; the pre-ticket retriever (e102e70) returns `low` for the same input."""
+    mod = _load_skill()
+    trace = mod.build_trace(
+        "frobnicate widget", "deterministic", _SHARED_ONLY_MODULES,
+        _SHARED_ONLY_FILE_ROLES, _SHARED_ONLY_MODULE_EDGES,
+        {"production_to_tests": {}, "module_to_tests": {}})
+    assert trace["primary_modules"] == []
+    assert "core/a/domain.py" in trace["files_likely_to_edit"]
+    assert trace["confidence"] != "high", trace["reasons"]
+    assert trace["confidence"] == "low", trace["reasons"]

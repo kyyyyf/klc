@@ -22,6 +22,13 @@ import index_coverage  # noqa: E402
 VIEWS = ("inventory.json", "test_map.json", "file_roles.json",
          "module_edges.json", "symbol_usage.json")
 
+# KLC-108 review round 1, MEDIUM (D-108-10): token_idf.json is a KLC-108
+# addition. An index built before this ticket never had it, so its absence
+# must WARN (optional view — the retriever tolerates a missing table with a
+# uniform-weight fallback), never hard-FAIL `klc doctor`'s index-views check
+# for every pre-existing project the moment this ticket's code lands.
+_OPTIONAL_VIEWS = ("token_idf.json",)
+
 
 def _uninitialised(index_dir: Path):
     """D-003 / Q-007: no index at all is a different diagnosis from a stale
@@ -71,25 +78,34 @@ def freshness(index_dir: Path, repo: Path) -> tuple[list[str], str]:
              f"({n} commit(s) apart) — run `klc update`"], "fail")
 
 
+def _check_view(index_dir: Path, name: str, absent_reason: str = "missing") -> str | None:
+    """Return the offending reason string for *name*, or None when it's fine."""
+    p = index_dir / name
+    if not p.exists():
+        return f"{name}: {absent_reason}"
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return f"{name}: unparseable"
+    if not data:
+        return f"{name}: empty"
+    return None
+
+
 def views(index_dir: Path) -> tuple[list[str], str]:
     pre = _uninitialised(index_dir)
     if pre:
         return pre
-    bad = []
-    for name in VIEWS:
-        p = index_dir / name
-        if not p.exists():
-            bad.append(f"{name}: missing")
-            continue
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            bad.append(f"{name}: unparseable")
-            continue
-        if not data:
-            bad.append(f"{name}: empty")
+    bad = [r for r in (_check_view(index_dir, name) for name in VIEWS) if r]
+    # D-108-10: an OPTIONAL view's absence/malformation only ever WARNs — it
+    # can soften a clean "pass" to "warn", but never escalate to "fail" and
+    # never gets swallowed by a required-view "fail" either (both are surfaced).
+    warn = [r for r in (_check_view(index_dir, name, absent_reason="absent (optional)")
+                       for name in _OPTIONAL_VIEWS) if r]
     if bad:
-        return (bad + ["run `klc update --force` to rebuild the planning views"], "fail")
+        return (bad + warn + ["run `klc update --force` to rebuild the planning views"], "fail")
+    if warn:
+        return (warn + ["run `klc update --force` to add the optional planning views"], "warn")
     return ([], "pass")
 
 

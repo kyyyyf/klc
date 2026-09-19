@@ -123,3 +123,44 @@ def test_merged_ts_tsx_js_ruleset_scan_exits_zero():
     assert by_file["sample.tsx"] == {"Comp", "Button", "Widget",
                                      "export default React.memo"}
     assert by_file["sample.js"] == {"PLAIN", "fn", "Foo", "Named", "Bar"}
+
+
+# --------------------------------------------------------------------------- #
+# KLC-108 step-2 — AC-3: the `module.exports.$NAME = $RHS` clause (the one
+# clause in this rule family with no `export_statement`/`kind` anchor) must
+# not match once nested inside a function body; a class's own method is not
+# collateral damage of the restriction (AC-5).
+# --------------------------------------------------------------------------- #
+def test_ts_function_body_locals_not_captured():
+    """AC-3: `scope.ts`'s in-body `const local` and in-body
+    `module.exports.sneaky = local` must not be captured."""
+    names = _symbol_names(["scope.ts"])["scope.ts"]
+    assert "local" not in names and "sneaky" not in names, names
+
+
+def test_ts_module_scope_export_still_captured():
+    """AC-5 regression guard: the fixture's own top-level exports survive."""
+    names = _symbol_names(["scope.ts"])["scope.ts"]
+    assert {"add", "MAX", "Widget"} <= names, names
+
+
+def test_ts_class_method_stays_top_level_surface():
+    """Q-003 analogue for TS: `Widget`'s method is not a spurious extra
+    capture, and the class itself is unaffected by the restriction."""
+    names = _symbol_names(["scope.ts"])["scope.ts"]
+    assert "Widget" in names
+    assert "render" not in names
+
+
+def test_tsx_function_body_locals_not_captured():
+    """AC-3, `.tsx`: same property via `exported-symbols-tsx.yaml`."""
+    names = _symbol_names(["scope.tsx"])["scope.tsx"]
+    assert "sneaky" not in names
+    assert {"Button", "Comp"} <= names, names
+
+
+def test_js_function_body_locals_not_captured():
+    """AC-3, plain JS: same property via `exported-symbols-js.yaml`."""
+    names = _symbol_names(["scope.js"])["scope.js"]
+    assert "sneaky" not in names
+    assert {"Bar", "PLAIN"} <= names, names

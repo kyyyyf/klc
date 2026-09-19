@@ -244,3 +244,136 @@ A ticket's diff is derived from an **authoritative** stored-patch seam
 and `derivation_confidence` so a consumer knows which numbers to trust. This is the
 `degrade-not-fail` invariant applied to metrics: a bad data source is reported as
 `unavailable`, never as a valid section of zeros.
+
+## Retrieval scoring (KLC-108)
+
+The retriever's precision problem had two independent causes: the symbol index
+carried mostly function-body locals, and the module score was an unnormalised
+sum that always favoured the biggest directory. KLC-108 fixed both, then made
+the confidence label mean something.
+
+**The rules capture top-level declarations only.** Every rule file under
+`core/rules` states `not: {inside: {kind: <the language's function-body node>,
+stopBy: end}}` and proves it with an executed `invalid` case that places the
+captured declaration form inside a function or method body
+(`tests.rule_test_executor.run_rule_tests`, the same production scan path
+`klc init` uses). `stopBy: end` is load-bearing: a declaration's immediate AST
+parent is a block/statement node, never the enclosing function itself, so a
+plain `inside` (no `stopBy`) fails to exclude even a single-level-nested local.
+A class's own methods and class-scope constants are not "inside a function
+body" and stay captured.
+
+**Keywords are ranked by salience, not the alphabet.** `file_roles.keywords`
+is derived from a file's basename tokens (never dropped by the cap), its
+top-level symbol names, and the first line of its docstring or leading
+comment, then capped at `_KEYWORD_CAP` (12) and ordered by descending inverse
+document frequency — the file's OWN name always survives; a repository-common
+token is what gets dropped. The IDF table itself
+(`.klc/index/token_idf.json`) is built in the same traversal that produces the
+keywords, from the pre-cap candidate-token pool, so the two artifacts can
+never disagree about their vocabulary: `idf(t) = log((N+1)/(df(t)+1)) + 1`,
+rounded to six decimals, strictly positive even for a token in every file. An
+index built before this artifact existed still scores — the retriever falls
+back to a uniform weight when the table is absent.
+
+**The module score is one stated, size-normalising formula:**
+
+```text
+module_score = own_signal + best_file + aggregate / sqrt(n_matched)
+```
+
+`own_signal` is the module's own keyword/summary/name match; `best_file` is
+the single highest-scoring matched file in the module; `aggregate` is the sum
+of every matched file's score; `n_matched` is the COUNT of the module's files
+that scored above zero (not the module's total file count), so one genuine
+hit inside a 122-file module is not punished for the module's size while the
+"many weak hits" bag effect — the defect that made `tests/integration` (122
+files) outrank a module that actually matched the query — still is. Every
+token's contribution is weighted by its IDF (above), so a token common across
+the repository contributes strictly less than a rare one. Design's original
+divisor was natural-log damping (`aggregate / log(1 + n_matched)`); measuring
+it against the repository's own real worst-case module size showed the bag
+still winning (26.35 vs. 24.43 for a genuinely strong single file) — `sqrt`
+damping grows faster for large `n` and comfortably reverses that (12.05 vs.
+20 at the same scale). Module scores are floats; the ranking key is the score
+rounded to six decimals so a last-ulp libm difference between builds cannot
+reorder a near-tie and break the trace's byte-stability.
+
+**A module that is mostly tests is never a place to start.** A module whose
+`file_roles` records are at least 80% `is_test` (a record with no `is_test`
+key counts toward the test side — a malformed record can only keep a module
+OUT, never sneak one in) never appears in `primary_modules`; its own tests
+still reach `tests_to_read_or_run` through the module-to-tests lookup.
+
+**`confidence: high` requires separation AND a real hit in the edit slice.**
+The top module's normalised score must exceed the runner-up's by at least
+`_HIGH_SEPARATION_RATIO` (`4.0` — retuned from an initial design estimate of
+`2.0` against a real measurement over 110 archived klc tickets, where `2.0`
+let 27 of them claim `high` confidence with zero precision on their edit
+candidates; `4.0` clears the highest observed false-positive separation
+[3.97x] with margin) **and** at least one `files_likely_to_edit` entry must
+carry a keyword/symbol (strong) hit; `top <= 0` is floored to `low` before
+either condition is even checked, so a query that only surfaces a shared
+(cross-module) file — which scores no module directly — can never read as
+`high` on the strength of an unrelated edit-slice hit alone
+(`[!DECISION D-108-8]`, review round 1). When there is no runner-up, or the
+runner-up scores zero, the separation condition counts as met (this still
+requires `top > 0`). The trace's `reasons[]` names which of the two
+conditions decided the outcome. This is a precondition for `high`, not a
+replacement for KLC-106's cap: `_cap_confidence` still forces `low` whenever
+an upstream input is degraded or vacuous, regardless of separation or
+edit-slice evidence.
+
+**`_HIGH_SEPARATION_RATIO = 4.0` is a calibration on today's corpus, not a
+universal constant.** It was chosen as the smallest round value strictly
+above the highest false-positive separation observed on the exact 111-ticket
+corpus AC-16 is graded against — there is no held-out set. That is legitimate
+threshold calibration (design's own assumption A-102 pre-authorized retuning
+"in the open, against AC-16 rather than against an impression"), and it is
+conservative in one direction only: raising the ratio can only turn a false
+`high` into an honest `medium`/`low`, never the reverse, and it does not
+touch `precision_at_5`/`recall_at_10` at all (those are pure ranking
+numbers, unaffected by the confidence label). But a threshold tuned to zero
+violators on the yardstick corpus is calibration only for as long as it is
+re-measured: as new tickets accumulate, `4.0` should be re-checked against
+AC-16 the same way `2.0` was found wanting, not assumed permanent.
+
+**The yardstick measures the edit slice, not just the read list.**
+`planning-eval` reports `precision_at_5` over `files_likely_to_edit` beside
+the pre-existing `files_to_read_first` metrics, computed through one shared
+`rank_metrics(candidates, truth, k)` scorer (also used for `recall_at_5`,
+`recall_at_10` and `precision_at_10`) that returns `precision: null` — never
+a fabricated `0` or `1.0` — on an empty candidate list. `--rescore` replays a
+ticket's own recorded query against the CURRENT index instead of reading a
+stored `retrieval_trace.json` built from an older index vintage, so a BEFORE
+run and an AFTER run can cover the same corpus.
+
+**Honest measurement method and numbers (review round 1, replacing the
+ticket's original step-8 evidence).** The step-8 build measured AFTER over
+the full 110-archived-ticket corpus but used the spec's stale 3-probe-ticket
+BEFORE baseline (`0.133`) as the denominator for the `1.5x` bar — comparing
+two different corpora, not the same corpus before and after the change. A
+follow-up measurement re-derived BEFORE the same way AFTER was measured:
+both sides reconstructed in isolated git worktrees (BEFORE at the pre-ticket
+commit, AFTER at the shipped commit), scanning the identical file tree, and
+scored with the SAME `rank_metrics` function over the SAME 111-ticket corpus
+(every archived ticket with a git-recoverable diff) and the SAME
+`git_touched`-derived ground truth. The honest numbers: corpus mean
+`precision_at_5` rose from `0.196` (BEFORE) to `0.241` (AFTER) — a `1.23x`
+gain, which does **not** clear the `1.5x` bar AC-15 states (recorded as
+`[!QUESTION Q-108-1] blocks=ack` for the operator, not silently passed or
+forced by retuning a scoring constant). Corpus mean `recall_at_10` held at
+`0.104` against a `0.088` baseline — AC-15's non-regression clause holds.
+Zero tickets report `confidence: high` together with `precision_at_5 == 0`
+after the change, against **45 of 111** before it — AC-16 holds, and by a
+wide margin, in the specific "confidently wrong" failure mode AC-12/AC-16
+target. The original 3-probe subset (KLC-100/101/102) is not wrong on its
+own terms — re-extracting it from the honest 111-ticket BEFORE run
+reproduces the spec's pinned FACT-table mean (`0.133`) exactly — it is
+simply unrepresentative of the OLD retriever's corpus-wide behaviour
+(`0.196`, 47% higher), because that retriever's near-blanket `high`
+confidence label surfaced edit-slice candidates on nearly every ticket, not
+just the ones it was actually right about. The full method, per-ticket data
+and the reconciliation table are recorded in
+`.klc/tickets/KLC-108/measure/README.md` and
+`.klc/tickets/KLC-108/build-log.md`.

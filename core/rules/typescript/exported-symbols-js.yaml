@@ -25,26 +25,32 @@ language: javascript
 metadata:
   extensions: [".js"]
 rule:
-  any:
-    - kind: export_statement
-      has:
-        any:
-          - kind: function_declaration
-            has: {field: name, pattern: $NAME}
-          - kind: class_declaration
-            has: {field: name, pattern: $NAME}
-          - kind: lexical_declaration
-            has:
-              kind: variable_declarator
-              has: {field: name, pattern: $NAME}
-    - all:
-        - pattern: export default $EXPR
-        - not:
-            has:
-              any:
-                - kind: function_declaration
-                - kind: class_declaration
-    - pattern: module.exports.$NAME = $RHS
+  all:
+    - any:
+        - kind: export_statement
+          has:
+            any:
+              - kind: function_declaration
+                has: {field: name, pattern: $NAME}
+              - kind: class_declaration
+                has: {field: name, pattern: $NAME}
+              - kind: lexical_declaration
+                has:
+                  kind: variable_declarator
+                  has: {field: name, pattern: $NAME}
+        - all:
+            - pattern: export default $EXPR
+            - not:
+                has:
+                  any:
+                    - kind: function_declaration
+                    - kind: class_declaration
+        - pattern: module.exports.$NAME = $RHS
+    # KLC-108 step-2 (AC-1/AC-3): see exported-symbols.yaml's sibling comment
+    # — the bare `module.exports.$NAME = $RHS` clause has no export/kind
+    # anchor of its own, so this is the clause that actually changes.
+    - not:
+        inside: {kind: statement_block, stopBy: end}
 message: Exported JS declaration
 
 tests:
@@ -68,3 +74,10 @@ tests:
       }
     - |
       class PrivateThing {}
+    - |
+      // KLC-108 AC-1: in-body case
+      function wrapper() {
+        if (true) {
+          module.exports.sneaky = 1;
+        }
+      }

@@ -31,6 +31,12 @@ rule:
         - pattern: "pub static $NAME: $T = $RHS;"
     - not:
         regex: "^pub\\("
+    # KLC-108 step-2 (AC-1/AC-3): top-level only — a `pub fn`/`pub struct`
+    # NESTED inside another function's body is legal Rust but not module
+    # scope. `stopBy: end` walks every ancestor, not just the immediate
+    # parent.
+    - not:
+        inside: {kind: function_item, stopBy: end}
 message: Public Rust item
 
 tests:
@@ -48,3 +54,9 @@ tests:
       pub(crate) fn crate_only() {}
     - |
       pub(super) struct Restricted { x: i32 }
+    - |
+      // KLC-108 AC-1: in-body case
+      fn wrapper() {
+          let local = 1;
+          pub fn helper() -> i32 { local }
+      }

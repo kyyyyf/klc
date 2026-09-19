@@ -3,18 +3,38 @@
 # Treats `def foo`, `async def foo`, `class Foo`, and simple assignment targets
 # as public when the identifier does not start with `_`. This is the
 # convention followed by most codebases and by tools like pdoc.
+#
+# KLC-108 step-1 ([!CONFLICT C-101], resolved by design D-201): anchored on
+# `kind: function_definition` / `kind: class_definition` / `kind: assignment`
+# instead of the literal text patterns this rule carried before — the old
+# `pattern: "def $NAME($$$ARGS): $$$BODY"` form has no return-annotation slot,
+# so every annotated definition (`def f(x) -> int:`, typed parameters, `async
+# def f(x: int) -> None:`) was silently missed (F-002). Anchoring on the node
+# kind is the same technique KLC-103 applied to
+# `core/rules/typescript/exported-symbols.yaml`, and it captures every
+# annotated/unannotated form in one clause regardless of the signature text.
 
 id: py-public-api
 language: python
 metadata:
   extensions: [".py"]
 rule:
-  any:
-    - pattern: "def $NAME($$$ARGS): $$$BODY"
-    - pattern: "async def $NAME($$$ARGS): $$$BODY"
-    - pattern: "class $NAME: $$$BODY"
-    - pattern: "class $NAME($$$BASES): $$$BODY"
-    - pattern: "$NAME = $RHS"
+  all:
+    - any:
+        - kind: function_definition
+          has: {field: name, pattern: $NAME}
+        - kind: class_definition
+          has: {field: name, pattern: $NAME}
+        - kind: assignment
+          has: {field: left, pattern: $NAME}
+    # KLC-108 step-2 (AC-1/AC-2): top-level (module- or class-scope) only.
+    # `stopBy: end` walks EVERY ancestor, not just the immediate parent — an
+    # assignment/def's immediate parent is a block/suite node, never the
+    # enclosing `function_definition` itself, so a plain `inside` (no
+    # `stopBy`) would fail to exclude even a single-level-nested local
+    # (verified empirically before this file was written).
+    - not:
+        inside: {kind: function_definition, stopBy: end}
 constraints:
   NAME:
     regex: '^[A-Za-z][A-Za-z0-9_]*$'
@@ -32,6 +52,15 @@ tests:
           pass
     - |
       MAX_SIZE = 1024
+    - |
+      def annotated(args) -> int:
+          return args
+    - |
+      def typed_args(a: int, b: str = "x") -> dict:
+          return {}
+    - |
+      async def a_annotated(x: int) -> None:
+          return None
   invalid:
     - |
       def _internal():
@@ -39,3 +68,16 @@ tests:
     - |
       class _Hidden:
           pass
+    - |
+      # KLC-108 AC-1: in-body case
+      def _wrapper():
+          def run(argv):
+              out = []
+              d = {}
+
+              def helper():
+                  nested = 1
+                  return nested
+
+              out.append(helper())
+              return out, d

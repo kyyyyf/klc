@@ -464,6 +464,55 @@ def test_retrieval_metrics_computed_with_trace(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# KLC-108 AC-13/AC-16 — precision_at_5 over files_likely_to_edit
+# --------------------------------------------------------------------------- #
+def test_precision_at_5_reported_per_ticket_and_corpus_mean(tmp_path):
+    """AC-13: `planning-eval` reports `precision_at_5` over
+    `files_likely_to_edit` per ticket and as a corpus mean."""
+    fx = _build_corpus(tmp_path, with_trace=True)
+    out = tmp_path / "eval_report.json"
+    proc = _run_harness(fx, out)
+    assert proc.returncode == 0, proc.stderr
+    rm = json.loads(out.read_text())["retrieval_metrics"]
+    assert rm["status"] == "ok"
+    assert "precision_at_5" in rm
+    row = next(r for r in rm["per_ticket"] if r["ticket"] == "TCK-1")
+    assert "precision_at_5" in row
+    # fixture: files_likely_to_edit=["core/intake/parser.py"],
+    # truth={core/intake/parser.py, core/routing/router.py} -> 1/1
+    assert row["precision_at_5"] == pytest.approx(1.0)
+    assert rm["precision_at_5"] == pytest.approx(1.0)
+
+
+def test_existing_metric_keys_unchanged_after_precision_at_5_added(tmp_path):
+    """AC-13: the existing metric keys are unchanged after precision_at_5 is
+    added."""
+    fx = _build_corpus(tmp_path, with_trace=True)
+    out = tmp_path / "eval_report.json"
+    _run_harness(fx, out)
+    rm = json.loads(out.read_text())["retrieval_metrics"]
+    assert rm["recall_at_5"] == pytest.approx(1.0)
+    assert rm["recall_at_10"] == pytest.approx(1.0)
+    assert rm["precision_at_10"] == pytest.approx(2 / 3)
+    assert rm["mean_files_before_first_edit"] == pytest.approx(0.0)
+
+
+def test_report_names_every_high_confidence_zero_precision_violator(tmp_path):
+    fx = _build_corpus(tmp_path, with_trace=True)
+    (fx["tickets_root"] / "TCK-1" / "retrieval_trace.json").write_text(json.dumps({
+        "status": "ok",
+        "files_to_read_first": ["core/intake/parser.py"],
+        "files_likely_to_edit": ["nowhere/near.py"],
+        "confidence": "high",
+    }))
+    out = tmp_path / "eval_report.json"
+    proc = _run_harness(fx, out)
+    assert proc.returncode == 0, proc.stderr
+    rm = json.loads(out.read_text())["retrieval_metrics"]
+    assert "TCK-1" in rm["high_confidence_zero_precision_at_5"]
+
+
+# --------------------------------------------------------------------------- #
 # AC-4: CLI contract
 # --------------------------------------------------------------------------- #
 def test_exit_2_on_bad_tickets_arg(tmp_path):

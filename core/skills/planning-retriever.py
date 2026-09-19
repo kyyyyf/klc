@@ -64,6 +64,7 @@ sys.path.insert(0, str(_FILE_DIR))
 from core.shared.inventory import InventorySchemaError, load as inv_load  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 import index_coverage  # noqa: E402
+import math  # noqa: E402
 
 # Role priority for ranking eligible files (planning_indexer.md §"Retrieval
 # workflow" step 4/5: entry points and public surfaces first, then domain logic).
@@ -79,6 +80,32 @@ _STOP_TOKENS = {
 }
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9]+")
 _MODES = ("deterministic", "assisted")
+
+# KLC-108: a module whose file-roles records are at least this fraction
+# `is_test` never reaches `primary_modules` (AC-11, D-009).
+_TEST_MODULE_RATIO = 0.8
+# KLC-108 D-010: at most this many of a file's (uncapped) `symbols` fold into
+# its strong signal — a large file's genuine identity should not drown in
+# volume once IDF weighting already carries most of the down-weighting.
+_SYMBOL_SIGNAL_CAP = 25
+# KLC-108 AC-12/D-006, retuned by [!DECISION D-108-7] (step-8, real-corpus
+# measurement): `confidence: high` requires the top module's normalised
+# score to exceed the runner-up's by at least this ratio. Design's original
+# `2.0` was derived from the spec's SIMULATED separations
+# (1.79/2.23/2.47) — assumption A-102 explicitly licensed retuning it
+# against step-8's real measurement "in the open, against AC-16 rather
+# than against an impression". That measurement (110 archived klc tickets,
+# each ticket's own recorded query replayed against the shipped retriever)
+# found `2.0` insufficient: 27 of 110 tickets reported `confidence: high`
+# together with `precision_at_5 == 0` (AC-16 requires 0) — including
+# KLC-101 itself (separation 2.04x), the exact probe Q-005 says must
+# demote. The highest separation among all 27 violators was 3.97x; `4.0`
+# is the smallest round value strictly above it, and applying it to the
+# same corpus drops violators to 0 of 110 while leaving every ranking
+# number (precision_at_5, recall_at_10) UNCHANGED — the ratio only gates
+# the confidence LABEL, never the ranking itself. See build-log.md step-8
+# for the full before/after table.
+_HIGH_SEPARATION_RATIO = 4.0
 
 # Known role vocabulary (planning_indexer.md §3 file_roles roles). The generic
 # ≥3-char length gate below would drop the only SHORT role token ('ui'), so a
@@ -128,15 +155,46 @@ def _path_tokens(path: str) -> set[str]:
 # --------------------------------------------------------------------------- #
 # scoring
 # --------------------------------------------------------------------------- #
-def _file_signal(path: str, rec: dict) -> tuple[set[str], set[str], set[str]]:
+def load_token_idf(path: Path) -> dict:
+    """Tolerant reader (D-005): an index built before this ticket, or one
+    simply missing the artifact, must still score — every token then falls
+    back to a uniform weight via `_weight`'s own default. Never raises."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _weight(token: str, idf: dict | None) -> float:
+    """A token's scoring weight: its recorded IDF, or the table's own
+    `default_idf` for a token absent from it, or a bare 1.0 when no table was
+    loaded at all (AC-9's 'no literal stop-word list' — down-weighting comes
+    only from this lookup)."""
+    table = (idf or {}).get("tokens") or {}
+    default = (idf or {}).get("default_idf", 1.0)
+    return table.get(token, default)
+
+
+def _file_signal(path: str, rec: dict,
+                 idf: dict | None = None) -> tuple[set[str], set[str], set[str]]:
     """Return (strong, role, weak) token sets for a file. Strong = keyword/symbol
     hits (semantic); role = the file's file_roles roles (coarse but real — a
     role-only query like 'adapter'/'persistence' must still match); weak = path
-    tokens (positional)."""
+    tokens (positional). D-010: at most `_SYMBOL_SIGNAL_CAP` of the file's
+    (possibly much larger) `symbols` list fold into the strong signal, rarest
+    first by IDF weight — a large file's genuine identity should not drown in
+    volume."""
     strong: set[str] = set()
     for kw in rec.get("keywords") or []:
         strong |= tokenize(kw)
-    for sym in rec.get("symbols") or []:
+    symbol_names = rec.get("symbols") or []
+    if len(symbol_names) > _SYMBOL_SIGNAL_CAP:
+        symbol_names = sorted(
+            symbol_names,
+            key=lambda n: (-max((_weight(t, idf) for t in tokenize(n)), default=0.0), n),
+        )[:_SYMBOL_SIGNAL_CAP]
+    for sym in symbol_names:
         strong |= tokenize(sym)
     role: set[str] = set()
     for r in rec.get("roles") or []:
@@ -145,15 +203,29 @@ def _file_signal(path: str, rec: dict) -> tuple[set[str], set[str], set[str]]:
     return strong, role, weak
 
 
-def score_file(qtokens: set[str], path: str, rec: dict) -> tuple[int, list[str]]:
+def strong_hits(qtokens: set[str], path: str, rec: dict,
+               idf: dict | None = None) -> list[str]:
+    """The keyword/symbol (strong) token intersection for one file — factored
+    out of `score_file` so "strong hit" has exactly one definition, reused by
+    AC-12's confidence rule (KLC-108 step-6, D-006)."""
+    strong, _role, _weak = _file_signal(path, rec, idf)
+    return sorted(qtokens & strong)
+
+
+def score_file(qtokens: set[str], path: str, rec: dict,
+              idf: dict | None = None) -> tuple[float, list[str]]:
     """Deterministic file score + human reasons. Strong (keyword/symbol) matches
-    weigh 2; role and path matches weigh 1 — a semantic hit beats a coarser
-    role/positional one. A token is counted once, at its strongest signal."""
-    strong, role, weak = _file_signal(path, rec)
+    weigh 2x; role and path matches weigh 1x — a semantic hit beats a coarser
+    role/positional one. Each matched token additionally weighs by its IDF
+    (AC-9): a token present in more files contributes strictly less than one
+    present in fewer. A token is counted once, at its strongest signal."""
+    strong, role, weak = _file_signal(path, rec, idf)
     s_hits = sorted(qtokens & strong)
     r_hits = sorted((qtokens & role) - set(s_hits))
     w_hits = sorted((qtokens & weak) - set(s_hits) - set(r_hits))
-    score = 2 * len(s_hits) + len(r_hits) + len(w_hits)
+    score = (2 * sum(_weight(t, idf) for t in s_hits)
+            + sum(_weight(t, idf) for t in r_hits)
+            + sum(_weight(t, idf) for t in w_hits))
     reasons: list[str] = []
     if s_hits:
         reasons.append(f"keyword/symbol match: {', '.join(s_hits)}")
@@ -164,8 +236,10 @@ def score_file(qtokens: set[str], path: str, rec: dict) -> tuple[int, list[str]]
     return score, reasons
 
 
-def _module_signal(qtokens: set[str], m: dict) -> tuple[int, list[str]]:
-    """Score a module's own signal: keywords + summary + name/path tokens."""
+def _module_signal(qtokens: set[str], m: dict,
+                   idf: dict | None = None) -> tuple[float, list[str]]:
+    """Score a module's own signal: keywords + summary + name/path tokens,
+    each weighted by IDF (AC-9)."""
     kw: set[str] = set()
     for k in m.get("keywords") or []:
         kw |= tokenize(k)
@@ -174,12 +248,112 @@ def _module_signal(qtokens: set[str], m: dict) -> tuple[int, list[str]]:
     reasons: list[str] = []
     kw_hits = sorted(qtokens & (kw | summ))
     name_hits = sorted((qtokens & name_toks) - set(kw_hits))
-    score = 2 * len(kw_hits) + len(name_hits)
+    score = (2 * sum(_weight(t, idf) for t in kw_hits)
+            + sum(_weight(t, idf) for t in name_hits))
     if kw_hits:
         reasons.append(f"module keyword/summary match: {', '.join(kw_hits)}")
     if name_hits:
         reasons.append(f"module name/path match: {', '.join(name_hits)}")
     return score, reasons
+
+
+def module_score(own: float, best: float, aggregate: float, n_matched: int) -> float:
+    """THE size-normalising module-score formula (AC-10):
+
+        own_signal + best_file + aggregate / sqrt(n_matched)
+
+    ``n_matched`` counts the module's files that scored above zero (not the
+    module's total file count), so one genuine hit inside a 122-file module
+    is not punished for the module's size, while the "many weak hits" bag
+    effect the spec measured (`tests/integration`, 122 files) still is.
+
+    [!DECISION D-108-4] owner=impl-agent refs=step-5, impl-plan-review F-2:
+    design/options.md D-003 specified natural-log damping
+    (``aggregate / log(1 + n_matched)``). Measured directly against the
+    repository's own real worst case (122 files, each scoring 1, vs. one
+    genuinely strong file scoring 10): log-damping gives the 122-file bag
+    26.35 against the strong file's 24.43 — the bag WINS, which is exactly
+    what AC-10 forbids and exactly the gap impl-plan-review finding F-2
+    (low) flagged as under-tested. `sqrt` damping grows the divisor faster
+    for large ``n`` (`sqrt(122) = 11.05` vs `log(123) = 4.81`), giving the
+    same 122-file bag 12.05 against the strong file's 20 — comfortably
+    ranked below — while leaving the 50:1 fixture's margin intact (8.07 vs
+    20). `n_matched <= 0` short-circuits to ``own`` alone; `n_matched == 1`
+    needs no special case (``sqrt(1) == 1``, so the divisor is never zero
+    for any ``n_matched >= 1``)."""
+    if n_matched <= 0:
+        return own
+    return own + best + aggregate / math.sqrt(n_matched)
+
+
+def _test_heavy_modules(roles: dict) -> set[str]:
+    """Modules whose file-roles records are >= `_TEST_MODULE_RATIO` tests
+    (AC-11). A record with no `is_test` key counts toward the test side —
+    D-009's fail-closed direction: a malformed record can keep a module OUT
+    of `primary_modules`, never sneak one IN."""
+    tally: dict[str, list[int]] = {}
+    for rec in (roles or {}).values():
+        name = (rec or {}).get("module_name")
+        if not name:
+            continue
+        slot = tally.setdefault(name, [0, 0])
+        slot[1] += 1
+        if (rec or {}).get("is_test", True):
+            slot[0] += 1
+    return {n for n, (t, total) in tally.items()
+           if total and t / total >= _TEST_MODULE_RATIO}
+
+
+def _confidence_from_signal(top: float, runner_up: float,
+                            strong_edit_hit: bool) -> tuple[str, str]:
+    """AC-12: `confidence: high` requires BOTH the top module's score to
+    exceed the runner-up's by at least `_HIGH_SEPARATION_RATIO` AND at
+    least one `files_likely_to_edit` entry to carry a strong (keyword/
+    symbol) hit. Returns (confidence, decided_by) — `decided_by` is the
+    string `reasons[]` carries, naming which of the two conditions settled
+    the outcome (D-006). When there is no runner-up, or the runner-up
+    scores zero, the separation condition counts as met.
+
+    D-108-8 (review round 1, HIGH #1): `top <= 0` is floored to `low`
+    BEFORE that no-runner-up shortcut runs. Without this floor, a query
+    that matches only a shared (cross-module) file never scores any
+    module (the shared file's own score populates `shared_members`, not
+    `mod_score`), so `top == runner_up == 0`; `separated` was trivially
+    True at `runner_up <= 0` with no check that a real top module even
+    exists, so a strong edit-slice hit alone (reached via the shared
+    file's member-module focus path) reported `high` with
+    `primary_modules == []` — the pre-ticket retriever returned `low` for
+    the identical input."""
+    if top <= 0:
+        return "low", ("confidence held below high: no module scored "
+                       "above zero")
+    separated = runner_up <= 0 or (top / runner_up) >= _HIGH_SEPARATION_RATIO
+    if separated and strong_edit_hit:
+        ratio_text = f"{(top / runner_up):.2f}x" if runner_up > 0 else "no runner-up"
+        return "high", (
+            f"top module separated from runner-up by {ratio_text} "
+            f"(>= {_HIGH_SEPARATION_RATIO}) and the edit slice carries a "
+            f"keyword/symbol hit")
+    if not separated:
+        ratio = top / runner_up if runner_up > 0 else 0.0
+        return ("medium" if top > 0 else "low"), (
+            f"confidence held below high: separation {ratio:.2f}x is under "
+            f"the {_HIGH_SEPARATION_RATIO} ratio")
+    return ("medium" if top > 0 else "low"), (
+        "confidence held below high: no files_likely_to_edit entry carries "
+        "a keyword/symbol (strong) hit")
+
+
+def _module_confidence(score: float, eligible_here: list[str]) -> str:
+    """Per-module confidence (each `primary_modules[]` entry) — the same
+    threshold this ticket found in place, factored into one named function
+    (D-007) so KLC-106's `_cap_confidence` wraps it without either ticket
+    rewriting the other."""
+    if score >= 4 and eligible_here:
+        return "high"
+    if score >= 2:
+        return "medium"
+    return "low"
 
 
 def _role_rank(rec: dict) -> int:
@@ -235,10 +409,29 @@ def _neighbor_condition(edge: dict) -> str:
 
 def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
                 module_edges: dict, test_map: dict,
-                inventory: dict | None = None) -> dict:
+                inventory: dict | None = None,
+                token_idf: dict | None = None) -> dict:
     """Pure, byte-stable retrieval trace (see module docstring). ``inventory`` is
     accepted for parity with the CLI/plan but the deterministic ranking is driven
-    by file_roles (which already derives keywords/symbols from inventory)."""
+    by file_roles (which already derives keywords/symbols from inventory).
+
+    ``token_idf`` (KLC-108, optional) is the ``.klc/index/token_idf.json``
+    table: every matched token is weighted by its recorded inverse document
+    frequency (AC-9) rather than by a flat count. A missing/absent table
+    degrades to a uniform weight (D-005's tolerant fallback) — an index built
+    before this ticket still scores.
+
+    The module score is ONE stated, size-normalising formula (AC-10; see
+    `module_score`'s own docstring for D-108-4, which revises D-003's
+    log-based divisor to sqrt after measuring it against the repository's
+    real worst-case module size):
+
+        own_signal + best_file + aggregate / sqrt(n_matched)
+
+    ``n_matched`` is the count of the module's files that scored above zero.
+    A module whose file-roles records are >= 80% ``is_test`` never reaches
+    ``primary_modules`` (AC-11) — its tests still reach
+    ``tests_to_read_or_run`` via the module-to-tests lookup."""
     reasons: list[str] = []
     effective_mode = mode
 
@@ -292,7 +485,7 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
     # --- score every known file ------------------------------------------------
     scored: dict[str, dict] = {}   # path -> {score, reasons, rec, membership}
     for path, rec in roles.items():
-        score, freasons = score_file(qtokens, path, rec)
+        score, freasons = score_file(qtokens, path, rec, token_idf)
         membership = _mm.file_to_module(path, modules)
         scored[path] = {"score": score, "reasons": freasons, "rec": rec,
                         "membership": membership}
@@ -305,34 +498,54 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
         widened = True
         reasons.append("weak prime match — widened keyword search over paths/roles")
 
-    # --- aggregate to modules --------------------------------------------------
-    mod_score: dict[str, int] = {}
+    # --- aggregate to modules (AC-10: own_signal + best_file + normalised) ----
+    own_signal: dict[str, float] = {}
     mod_reasons: dict[str, list[str]] = {}
     for m in modules_list:
         name = m.get("name")
         if not name:
             continue
-        s, r = _module_signal(qtokens, m)
+        s, r = _module_signal(qtokens, m, token_idf)
         if s:
-            mod_score[name] = mod_score.get(name, 0) + s
+            own_signal[name] = own_signal.get(name, 0.0) + s
             mod_reasons.setdefault(name, []).extend(r)
     # A matched SHARED file (primary_module=None, member_of set) must not be
     # stranded: the KLC-066 resolver models it via member_of precisely so its
     # consumer modules surface. Track them to seed the hint + conditional neighbours
     # (the shared file itself stays out of files_to_read_first — it is not eligible).
     shared_members: dict[str, list[str]] = {}
+    file_aggregate: dict[str, float] = {}
+    file_best: dict[str, float] = {}
+    file_n_matched: dict[str, int] = {}
     for path, d in matched.items():
         mem = d["membership"]
         pm = mem["primary_module"]
         if pm:
-            mod_score[pm] = mod_score.get(pm, 0) + d["score"]
+            file_aggregate[pm] = file_aggregate.get(pm, 0.0) + d["score"]
+            file_best[pm] = max(file_best.get(pm, 0.0), d["score"])
+            file_n_matched[pm] = file_n_matched.get(pm, 0) + 1
             mod_reasons.setdefault(pm, [])
         elif mem["member_of"]:
             for mod in mem["member_of"]:
                 shared_members.setdefault(mod, []).append(path)
 
-    # Primary modules: top by score (deterministic tie-break by name), max 3.
-    ranked_mods = sorted(mod_score.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
+    mod_score: dict[str, float] = {
+        name: module_score(own_signal.get(name, 0.0), file_best.get(name, 0.0),
+                           file_aggregate.get(name, 0.0), file_n_matched.get(name, 0))
+        for name in set(own_signal) | set(file_aggregate)
+    }
+
+    # AC-11: a module whose file-roles records are >= 80% is_test never
+    # reaches primary_modules — its tests still reach tests_to_read_or_run
+    # via module_to_tests below (the bar excludes it only from RANKING).
+    test_heavy_modules = _test_heavy_modules(roles)
+
+    # Primary modules: top by score (rounded key so a last-ulp libm
+    # difference cannot reorder a near-tie, D-003), tie-break by name, max 3.
+    ranked_mods = sorted(
+        ((n, s) for n, s in mod_score.items() if n not in test_heavy_modules),
+        key=lambda kv: (-round(kv[1], 6), kv[0]),
+    )[:3]
 
     primary_modules: list[dict] = []
     primary_names: list[str] = []
@@ -344,7 +557,7 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
             if d["membership"]["primary_module"] == name
             and d["rec"].get("eligible_as_primary")
         ]
-        conf = "high" if (sc >= 4 and eligible_here) else ("medium" if sc >= 2 else "low")
+        conf = _module_confidence(sc, eligible_here)
         conf = _cap_confidence(conf, trace_degraded_inputs)
         pr = sorted(set(mod_reasons.get(name, [])))
         if not pr:
@@ -405,9 +618,11 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
             if row.get("test_file"):
                 tests.add(row["test_file"])
     # Module-level tests for every surfaced module: primary modules PLUS the member
-    # modules of a matched shared file (FIX-B) — otherwise a shared-only match
-    # surfaces the member modules in the hint but omits their module-level tests.
-    for name in set(primary_names) | set(shared_members):
+    # modules of a matched shared file (FIX-B), PLUS any matched test-heavy module
+    # barred from primary_modules by AC-11/D-009 — its tests still reach this list,
+    # they just arrive as tests rather than as a focus module.
+    barred_but_matched = {n for n in mod_score if n in test_heavy_modules}
+    for name in set(primary_names) | set(shared_members) | barred_but_matched:
         for tf in m2t.get(name) or []:
             tests.add(tf)
     tests_to_read_or_run = sorted(tests)
@@ -449,19 +664,27 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
     })
 
     # --- overall confidence + reasons -----------------------------------------
+    # AC-12: high requires BOTH separation (top vs. runner-up) AND a strong
+    # edit-slice hit, via the ONE helper `_confidence_from_signal` (D-006/
+    # D-007) — its `decided_by` string is what names the deciding condition.
     top_score = ranked_mods[0][1] if ranked_mods else 0
+    runner_up_score = ranked_mods[1][1] if len(ranked_mods) > 1 else 0
+    strong_edit_hit = any(
+        strong_hits(qtokens, p, scored[p]["rec"], token_idf)
+        for p in files_likely_to_edit
+    )
     if not matched:
         confidence = "low"
+        decided_by = ""
         if not widened:
             reasons.append("no keyword/symbol match for the query")
-    elif top_score >= 4 and files_likely_to_edit:
-        confidence = "high"
-    elif top_score >= 2:
-        confidence = "medium"
     else:
-        confidence = "low"
+        confidence, decided_by = _confidence_from_signal(
+            top_score, runner_up_score, strong_edit_hit)
 
     confidence = _cap_confidence(confidence, trace_degraded_inputs)
+    if decided_by:
+        reasons.append(decided_by)
     if trace_degraded_inputs:
         reasons.append("degraded inputs — confidence capped at low: "
                        + ", ".join(trace_degraded_inputs))
@@ -554,6 +777,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--in-module-edges", type=Path, default=idx / "module_edges.json")
     ap.add_argument("--in-test-map", type=Path, default=idx / "test_map.json")
     ap.add_argument("--in-inventory", type=Path, default=idx / "inventory.json")
+    ap.add_argument("--in-token-idf", type=Path, default=idx / "token_idf.json")
     ap.add_argument("--out", type=Path, default=None,
                     help="output trace path (default .klc/tickets/<KEY>/retrieval_trace.json)")
     args = ap.parse_args(argv)
@@ -565,9 +789,10 @@ def main(argv: list[str] | None = None) -> int:
     module_edges = _load(args.in_module_edges)
     test_map = _load(args.in_test_map)
     inventory = _load_inventory(args.in_inventory)
+    token_idf = load_token_idf(args.in_token_idf)
 
     trace = build_trace(args.query, args.mode, modules, file_roles,
-                        module_edges, test_map, inventory)
+                        module_edges, test_map, inventory, token_idf)
 
     # Authority: the retriever writes ONLY the trace. It never opens or writes
     # meta.json / meta.affected_modules (planning_indexer.md §Authority).
