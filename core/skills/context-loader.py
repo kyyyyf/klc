@@ -57,6 +57,7 @@ sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 from core.shared.paths import framework_root, klc_index_dir, project_root  # noqa: E402, F401
 from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
+import file_scanner as _fs  # noqa: E402  (KLC-124 D-4: the one EXT_LANG source)
 
 
 def load_json(p: Path) -> dict:
@@ -309,21 +310,17 @@ def load_call_graph(language: str) -> dict | None:
 
 
 def detect_language_from_file(file_path: str) -> str | None:
-    """Detect language from file extension."""
-    ext = Path(file_path).suffix.lower()
-    mapping = {
-        ".py": "python",
-        ".rs": "rust",
-        ".cpp": "cpp",
-        ".cc": "cpp",
-        ".h": "cpp",
-        ".hpp": "cpp",
-        ".ts": "typescript",
-        ".tsx": "typescript",
-        ".js": "typescript",
-        ".jsx": "typescript",
-    }
-    return mapping.get(ext)
+    """Detect language from file extension, via the ONE canonical
+    extension->language table (`file_scanner.EXT_LANG`, KLC-124 D-4) —
+    this function used to hand-author its own second copy, which mapped
+    `.js`/`.jsx` to `"typescript"` where `EXT_LANG` says `"javascript"`; no
+    `callgraph/{javascript,typescript}.json` builder exists for either name
+    today, so both always hit `load_call_graph`'s "no call graph" fallback
+    regardless — the correction is behaviourally inert until a JS/TS
+    call-graph builder exists, and then it will be a real bug fix rather
+    than a live divergence."""
+    ext = Path(file_path).suffix.lower().lstrip(".")
+    return _fs.EXT_LANG.get(ext)
 
 
 def bfs_call_graph(

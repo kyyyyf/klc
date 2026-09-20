@@ -80,6 +80,22 @@ def _read(name):
 
 
 def test_python_only_query_reaches_high_confidence_on_live_index():
+    """[!DECISION D-124-1] owner=impl-agent date=2026-09-20 refs=KLC-124-step-6
+
+    test-plan.md's own "Regression scenarios" section for KLC-124 anticipated
+    this exact edit: "its `coverage_advisories` assertion (`any("'c'" in a
+    for a in trace["coverage_advisories"])`) is EXPECTED TO CHANGE MEANING
+    once 'c' no longer exists as a language on this repo ... the KLC-123 test
+    itself is a build-time regression check for whoever lands this ticket."
+    KLC-124 fixed `EXT_LANG["h"]` from `c` to `cpp`, so this repo's live
+    index (rebuilt via the direct builders, see KLC-124's build-log.md
+    step-6) no longer has a `c` language at all — `coverage_advisories` can
+    never again honestly name it. The remaining repo-minority languages with
+    no rule-set coverage are `csharp` and `ruby` (each ~0.4% share, verified
+    live post-rebuild), so the assertion now checks for one of THOSE — same
+    invariant (an honest, non-capping advisory for a genuinely-uncovered
+    minority language), different language, because the language that used
+    to be the uncovered one no longer exists."""
     data = {name: _read(name) for name in _FILES}
     if any(v is None for v in data.values()):
         pytest.skip("no built .klc/index/ on this checkout")
@@ -97,7 +113,10 @@ def test_python_only_query_reaches_high_confidence_on_live_index():
     assert trace["confidence"] == "high", trace
     assert trace["files_likely_to_edit"], trace
     assert all(f.endswith(".py") for f in trace["files_likely_to_edit"]), trace
-    assert any("'c'" in a for a in trace["coverage_advisories"]), trace["coverage_advisories"]
+    # D-124-1: 'c' no longer exists as a language on this repo (KLC-124) —
+    # 'csharp'/'ruby' are the remaining genuinely-uncovered minorities.
+    assert any("'csharp'" in a or "'ruby'" in a for a in trace["coverage_advisories"]), \
+        trace["coverage_advisories"]
 
 
 def test_original_ac8_literal_query_reaches_high_confidence_on_live_index():

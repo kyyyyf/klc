@@ -107,6 +107,51 @@ def _profile_manifest() -> list[str]:
     return errs
 
 
+@check("language-map-agreement")
+def _language_map_agreement() -> tuple[list[str], str]:
+    """KLC-124 AC-7: `file_scanner.EXT_LANG` (the single extension-to-language
+    source of truth) cross-checked against the active profile's `sgconfig.yml`
+    `languageGlobs` override, via the ONE shared comparator
+    (`file_scanner.ext_lang_sgconfig_disagreements`) AC-2/AC-3's own guard
+    test uses — same rule, defined once. Warn-only by construction (never
+    flips doctor's default exit code, exactly like index-degraded/index-hook):
+    returns ("pass") whenever nothing to report, and only returns ("warn")
+    when a genuine disagreement is found, mirroring `index_health.degraded`'s
+    own pass/warn convention so --strict's WARN->FAIL promotion never fires on
+    an empty result."""
+    import file_scanner
+    try:
+        import yaml
+    except ImportError:
+        return ([], "pass")  # can't parse sgconfig without pyyaml; not a hard failure
+    import settings as _settings
+
+    name = _settings.profile()
+    if not name:
+        return ([], "pass")
+    manifest_path = framework_root() / "profiles" / name / "manifest.yml"
+    if not manifest_path.exists():
+        return ([], "pass")
+    try:
+        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return ([], "pass")
+    sgconfig_rel = manifest.get("sgconfig")
+    if not sgconfig_rel:
+        return ([], "pass")
+    sg_path = framework_root() / sgconfig_rel
+    if not sg_path.exists():
+        return ([], "pass")
+    try:
+        sg = yaml.safe_load(sg_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return ([], "pass")
+    disagreements = file_scanner.ext_lang_sgconfig_disagreements(sg.get("languageGlobs") or {})
+    if disagreements:
+        return (disagreements, "warn")
+    return ([], "pass")
+
+
 @check("reviewer-allowlist")
 def _reviewer_allowlist() -> list[str]:
     cfg = CONFIG / "reviewer-allowlist.yml"

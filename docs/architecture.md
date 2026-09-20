@@ -270,6 +270,15 @@ collision on a file that DOES land in a presented slice (its module is
 selected and the file is `eligible_as_primary`) still caps, because the
 reader is being told to read or edit that file.
 
+`file_scanner.EXT_LANG` is now cross-checked against the active profile's
+`sgconfig.yml` (KLC-124): the two tables used to disagree on `.h`
+(`EXT_LANG` said `c`, `sgconfig.yml`'s `languageGlobs` said `cpp`), which
+manufactured exactly the kind of permanently-uncovered, phantom minority
+language this section describes on every repo with C++ headers.
+`file_scanner.ext_lang_sgconfig_disagreements` is the one comparator both a
+mechanical test and a warn-only `klc doctor` check consult, so the `c`/`cpp`
+header split cannot silently drift apart again.
+
 ---
 
 ## Planning-index evaluation (measurement before tuning)

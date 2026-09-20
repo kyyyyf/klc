@@ -38,6 +38,7 @@ from _paths import (  # noqa: E402
     project_root, klc_dir, klc_knowledge_dir, klc_reports_dir,
 )
 from findings import aggregate, dedupe, sort_for_report, Finding  # noqa: E402
+import file_scanner as _fs  # noqa: E402  (KLC-124 D-4: the one EXT_LANG source)
 
 
 # --- logging -----------------------------------------------------------------
@@ -451,23 +452,18 @@ def _build_callgraph_slice(diff_path: Path, pending_dir: Path) -> Path | None:
     if not changed_files:
         return None
 
-    # Detect languages from changed files
+    # Detect languages from changed files, via the ONE canonical
+    # extension->language table (file_scanner.EXT_LANG, KLC-124 D-4) —
+    # this used to hand-author its own second copy, which mapped .js/.jsx
+    # to "typescript" where EXT_LANG says "javascript"; no
+    # callgraph/{javascript,typescript}.json builder exists for either name
+    # today, so both always fall through to `available_graphs` being empty
+    # regardless — the correction is behaviourally inert until a JS/TS
+    # call-graph builder exists.
     lang_to_files: dict[str, list[str]] = {}
     for fpath in changed_files:
-        ext = Path(fpath).suffix.lower()
-        lang_map = {
-            ".py": "python",
-            ".rs": "rust",
-            ".cpp": "cpp",
-            ".cc": "cpp",
-            ".h": "cpp",
-            ".hpp": "cpp",
-            ".ts": "typescript",
-            ".tsx": "typescript",
-            ".js": "typescript",
-            ".jsx": "typescript",
-        }
-        lang = lang_map.get(ext)
+        ext = Path(fpath).suffix.lower().lstrip(".")
+        lang = _fs.EXT_LANG.get(ext)
         if lang:
             lang_to_files.setdefault(lang, []).append(fpath)
 

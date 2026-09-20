@@ -62,7 +62,9 @@ EXT_LANG = {
     "cjs":   "javascript",
     "rs":    "rust",
     "c":     "c",
-    "h":     "c",
+    "h":     "cpp",   # was "c" — profiles/generic/sgconfig.yml already routes
+                      # **/*.h to cpp (KLC-124); core/rules/cpp/header-symbols.yaml
+                      # is the only rule set that covers header syntax
     "cc":    "cpp",
     "cpp":   "cpp",
     "cxx":   "cpp",
@@ -79,6 +81,32 @@ EXT_LANG = {
     "uproject": "unreal",
     "uplugin":  "unreal",
 }
+
+
+def ext_lang_sgconfig_disagreements(language_globs: dict) -> list[str]:
+    """Disagreements between EXT_LANG (the single extension->language source
+    of truth) and a parsed sgconfig.yml `languageGlobs` dict
+    ({lang: [glob, ...]}) — the ONE place the KLC-124 agreement rule lives,
+    reused by this module's own guard tests and by `klc doctor`'s
+    language-map-agreement check.
+
+    An extension present on only one side is NOT a disagreement (a profile
+    may legitimately extend language coverage to an extension EXT_LANG has
+    no entry for yet) — only a shared extension mapped to two DIFFERENT
+    languages is flagged. Pure and tolerant: a malformed `language_globs`
+    shape yields []."""
+    if not isinstance(language_globs, dict):
+        return []
+    out = []
+    for lang, globs in language_globs.items():
+        for g in (globs or []):
+            name = str(g).rsplit("*", 1)[-1].lstrip(".")
+            ext_lang_value = EXT_LANG.get(name)
+            if ext_lang_value and ext_lang_value != lang:
+                out.append(
+                    f"extension '.{name}': EXT_LANG says '{ext_lang_value}', "
+                    f"sgconfig languageGlobs says '{lang}'")
+    return sorted(out)
 
 ENTRY_CANDIDATES = (
     "package.json", "pyproject.toml", "setup.py", "Cargo.toml",
