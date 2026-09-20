@@ -224,6 +224,52 @@ it, not the check's registered name). There is no `index_health.json`;
 escalating a degraded index to a hard failure, and detecting staleness, are
 KLC-107's.
 
+**The inventory cap is language-scoped, not whole-artifact (KLC-123).**
+`inventory.json` carries one coverage verdict PER LANGUAGE (via
+`deterministic_inventory.inventory_coverage_verdicts`), but the retriever's
+own cap used to fold ALL of them into a single flat pass/fail with
+`artifact_degraded` — one repo-wide minority language with no rule set (this
+framework's own `.h` fixtures, classified as `c`, 0 files with symbols) forced
+`confidence: low` on every trace, regardless of which languages that trace's
+own evidence actually touched. `index_coverage.scoped_inventory_degradation
+(inventory, candidate_languages)` replaces that whole-artifact OR with a
+language-scoped decision: a degraded language caps only when it is relevant
+to THIS trace — one of `planning-retriever.build_trace`'s own candidate
+languages, or, when no candidate files are known, one of the repo's dominant
+languages by share of the code universe (the
+`index.coverage.language_share_threshold` settings knob, default `0.05`). A
+degraded language outside that relevance set never caps; it surfaces as an
+additive `coverage_advisories` entry on the trace instead (naming the
+language and its share), an `info`-level honesty signal that never
+participates in `_cap_confidence`'s decision. An inventory built before this
+change (no per-language verdicts in `errors[]`) falls back to the original,
+unscoped `artifact_degraded` check unchanged.
+
+**`candidate_languages` is scoped to the trace's PRESENTED slices, not every
+matched file (KLC-123 step-5, D-123-4).** The first cut derived
+`candidate_languages` from every file that merely scored `> 0` during
+matching, which re-admitted a narrower version of the same over-reach this
+section exists to fix: a file that only weak-matches a query token through
+its path (e.g. an orphaned fixture that shares a directory-name token with
+the query, never read or edited for that query) could still drag its
+language into scope and cap confidence. `build_trace` now resolves module
+selection and both presented slices — `files_to_read_first` and
+`files_likely_to_edit` — first, then computes `candidate_languages` from
+`set(files_to_read_first) | set(files_likely_to_edit)` (via
+`_candidate_languages(paths)`, `file_scanner.EXT_LANG` still the map used to
+classify each path's extension) **before** `trace_degraded_inputs` is
+assembled; the loop that produces each module's confidence value still runs
+strictly after `trace_degraded_inputs` is known, so KLC-106 D-204's ordering
+constraint (no confidence value produced before the degraded-inputs list is
+final) is preserved — only module/file *selection*, never a confidence
+value, moved earlier. Practically: a weak path-token collision on a file
+that never lands in either presented slice (e.g. it belongs to no module, or
+its module isn't selected) never enters `candidate_languages` and never caps
+confidence — it is invisible to the cap, not merely advisory. The same
+collision on a file that DOES land in a presented slice (its module is
+selected and the file is `eligible_as_primary`) still caps, because the
+reader is being told to read or edit that file.
+
 ---
 
 ## Planning-index evaluation (measurement before tuning)

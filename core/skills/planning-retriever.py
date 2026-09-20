@@ -65,6 +65,7 @@ from core.shared.inventory import InventorySchemaError, load as inv_load  # noqa
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 import index_coverage  # noqa: E402
 import math  # noqa: E402
+import file_scanner  # noqa: E402  (KLC-123: the SAME extension-to-language map structural.json uses)
 
 # Role priority for ranking eligible files (planning_indexer.md §"Retrieval
 # workflow" step 4/5: entry points and public surfaces first, then domain logic).
@@ -356,6 +357,25 @@ def _module_confidence(score: float, eligible_here: list[str]) -> str:
     return "low"
 
 
+def _candidate_languages(paths) -> set[str]:
+    """The languages of the trace's PRESENTED slices (KLC-123 AC-6, narrowed
+    per review round-1 F-1 / operator ruling: `files_likely_to_edit` ∪
+    `files_to_read_first`, not every matched (score > 0) file), via
+    `file_scanner.EXT_LANG` — the SAME map `structural.json`'s own language
+    classification uses, so no second, divergent mapping exists. `paths` is
+    any iterable of path strings. An extensionless or unrecognised-extension
+    path contributes nothing."""
+    langs = set()
+    for path in paths:
+        name = path.rsplit("/", 1)[-1]
+        if "." not in name:
+            continue
+        lang = file_scanner.EXT_LANG.get(name.rsplit(".", 1)[1].lower())
+        if lang:
+            langs.add(lang)
+    return langs
+
+
 def _role_rank(rec: dict) -> int:
     """Lowest (best) role-priority index among a file's roles."""
     ranks = [_ROLE_PRIORITY[r] for r in (rec.get("roles") or []) if r in _ROLE_PRIORITY]
@@ -384,6 +404,7 @@ def _empty_trace(query: str, mode: str, status: str, confidence: str,
         "confidence": confidence,
         "reasons": reasons,
         "degraded_inputs": degraded_inputs or [],
+        "coverage_advisories": [],
     }
 
 
@@ -467,18 +488,11 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
         return _empty_trace(query, effective_mode, "unavailable", "low", reasons)
 
     # --- honest evidence accounting (AC-9) --------------------------------
-    # Placed BEFORE the ranking loop: primary_modules[].confidence is produced
-    # in that loop and is capped by the same value as the top-level field.
+    # `edges`/`roles_vacuous` are needed both here and further down (AC-11's
+    # name-match-only mode), so they stay computed at this point.
     edges = (module_edges or {}).get("edges") or []
     roles_vacuous = bool(roles) and not any(
         (rec or {}).get("roles") for rec in roles.values())
-    trace_degraded_inputs = index_coverage.degraded_inputs([
-        ("module_edges.json", module_edges, not edges),
-        ("file_roles.json", file_roles, roles_vacuous),
-        ("test_map.json", test_map, False),
-        ("inventory.json", inventory, False),
-        ("modules.json", modules, False),
-    ])
 
     qtokens = tokenize(query)
 
@@ -491,6 +505,7 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
                         "membership": membership}
 
     matched = {p: d for p, d in scored.items() if d["score"] > 0}
+
     widened = False
     if not matched and qtokens:
         # Weak prime match: widen the search to eligible domain files so the slice
@@ -547,22 +562,28 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
         key=lambda kv: (-round(kv[1], 6), kv[0]),
     )[:3]
 
-    primary_modules: list[dict] = []
+    # Module SELECTION (which modules rank, and which of their files are
+    # eligible_as_primary) is independent of trace_degraded_inputs and is
+    # resolved here, before the cap. Only the CONFIDENCE VALUE attached to
+    # each selected module (the primary_modules loop below) is produced
+    # strictly after trace_degraded_inputs is known — KLC-106 D-204's
+    # ordering constraint is unchanged, it now applies to that later loop
+    # instead of this selection step. KLC-123 needs the split because
+    # candidate_languages (AC-6) is scoped to the trace's PRESENTED slices
+    # (files_likely_to_edit ∪ files_to_read_first — review round-1 F-1 /
+    # operator ruling, see D-123-4 in build-log.md), and those slices are
+    # themselves derived from primary_names/eligible_here, so module
+    # selection must run before the cap is computed.
     primary_names: list[str] = []
+    eligible_here_by_module: dict[str, list[str]] = {}
     for name, sc in ranked_mods:
         if sc <= 0:
             continue
-        eligible_here = [
+        eligible_here_by_module[name] = [
             p for p, d in matched.items()
             if d["membership"]["primary_module"] == name
             and d["rec"].get("eligible_as_primary")
         ]
-        conf = _module_confidence(sc, eligible_here)
-        conf = _cap_confidence(conf, trace_degraded_inputs)
-        pr = sorted(set(mod_reasons.get(name, [])))
-        if not pr:
-            pr = [f"aggregate file-match score {sc} in module {name}"]
-        primary_modules.append({"module_name": name, "confidence": conf, "reasons": pr})
         primary_names.append(name)
 
     # --- files_to_read_first ---------------------------------------------------
@@ -608,6 +629,48 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
              & {"domain_logic", "public_surface", "entrypoint"})
     ]
     files_likely_to_edit = [p for p, _ in edit_candidates][:5]
+
+    # The trace_degraded_inputs assembly (KLC-106 D-204's ordering
+    # constraint: strictly BEFORE the loop that produces
+    # primary_modules[].confidence, since both are capped by the same value)
+    # is placed HERE — now that the trace's PRESENTED slices are known — so
+    # the inventory candidate can be scoped to those slices (KLC-123 AC-6,
+    # narrowed per review round-1 F-1 / operator ruling: confidence is a
+    # claim about the slice the reader is told to edit, so a file that
+    # merely scored > 0 for an incidental weak path-segment token — e.g. a
+    # fixture/test file that never surfaces in either read slice — must not
+    # pull its language into scope; see D-123-4 in build-log.md). A degraded
+    # language outside the relevant set surfaces as an additive advisory
+    # (AC-7) rather than capping.
+    candidate_languages = _candidate_languages(
+        set(files_to_read_first) | set(files_likely_to_edit))
+    inv_degraded, coverage_advisories, inv_scoped = (
+        index_coverage.scoped_inventory_degradation(inventory, candidate_languages))
+    if not inv_scoped:
+        inv_degraded = index_coverage.artifact_degraded(inventory)
+
+    trace_degraded_inputs = index_coverage.degraded_inputs([
+        ("module_edges.json", module_edges, not edges),
+        ("file_roles.json", file_roles, roles_vacuous),
+        ("test_map.json", test_map, False),
+        ("modules.json", modules, False),
+    ])
+    if inv_degraded:
+        trace_degraded_inputs = sorted(set(trace_degraded_inputs) | {"inventory.json"})
+
+    # primary_modules confidence — produced strictly AFTER trace_degraded_inputs
+    # (KLC-106 D-204), reusing the module selection and eligible-file sets
+    # already resolved above.
+    primary_modules: list[dict] = []
+    for name in primary_names:
+        sc = mod_score[name]
+        eligible_here = eligible_here_by_module[name]
+        conf = _module_confidence(sc, eligible_here)
+        conf = _cap_confidence(conf, trace_degraded_inputs)
+        pr = sorted(set(mod_reasons.get(name, [])))
+        if not pr:
+            pr = [f"aggregate file-match score {sc} in module {name}"]
+        primary_modules.append({"module_name": name, "confidence": conf, "reasons": pr})
 
     # --- tests -----------------------------------------------------------------
     p2t = (test_map or {}).get("production_to_tests") or {}
@@ -729,6 +792,7 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
         "confidence": confidence,
         "reasons": reasons,
         "degraded_inputs": trace_degraded_inputs,
+        "coverage_advisories": coverage_advisories,
     }
 
 

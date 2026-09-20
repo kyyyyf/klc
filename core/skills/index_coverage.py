@@ -32,6 +32,7 @@ if str(_SKILLS) not in sys.path:
 import settings  # noqa: E402
 
 DEFAULT_THRESHOLD = 0.25
+DEFAULT_LANGUAGE_SHARE_THRESHOLD = 0.05
 NOT_APPLICABLE = "not-applicable"
 
 _VERDICT_ARTIFACTS = ("depgraph.json", "inventory.json", "module_edges.json",
@@ -49,26 +50,111 @@ def load_json_or_none(path) -> dict | None:
         return None
 
 
-def threshold_for(builder: str) -> float:
-    """Coverage floor for *builder*: per-builder override, then the shared
-    default, then the built-in — resolved through the settings ladder
-    (AC-2). The built-in lives HERE, in one place, so no builder carries a
-    hard-coded number."""
-    value = settings.index_coverage_threshold(builder)
-    # core/shared/yaml.py's minimal parser has no float literal (KLC-106
-    # build-time finding, not in the design): a bare `0.4` scalar comes back
-    # as the STRING "0.4", not a float. Tolerate that shape here rather than
-    # widen the shared parser, which is out of this ticket's affected set.
+def _coerce_ratio(value, default):
+    """Shared yaml-string-ratio coercion (KLC-123): core/shared/yaml.py's
+    minimal parser has no float literal (KLC-106 build-time finding, not in
+    the design), so a bare `0.4` scalar comes back as the STRING "0.4", not a
+    float. Tolerate that shape here rather than widen the shared parser,
+    which is out of this ticket's affected set. Used by every ratio-shaped
+    settings knob in this module, so the quirk is handled once."""
     if isinstance(value, bool):
-        return DEFAULT_THRESHOLD
+        return default
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
         try:
             return float(value)
         except ValueError:
-            return DEFAULT_THRESHOLD
-    return DEFAULT_THRESHOLD
+            return default
+    return default
+
+
+def threshold_for(builder: str) -> float:
+    """Coverage floor for *builder*: per-builder override, then the shared
+    default, then the built-in — resolved through the settings ladder
+    (AC-2). The built-in lives HERE, in one place, so no builder carries a
+    hard-coded number."""
+    return _coerce_ratio(settings.index_coverage_threshold(builder), DEFAULT_THRESHOLD)
+
+
+def language_share_threshold() -> float:
+    """The dominant-language floor (KLC-123 AC-9): the share of the code
+    universe a language must reach, in the absence of any live candidate
+    files, for its own degradation to still cap confidence. Same settings
+    ladder and yaml-string-ratio coercion as `threshold_for`."""
+    return _coerce_ratio(settings.index_coverage_language_share_threshold(),
+                          DEFAULT_LANGUAGE_SHARE_THRESHOLD)
+
+
+def inventory_language_verdicts(inventory) -> dict:
+    """Every per-language coverage verdict recorded in `inventory.json`'s
+    `errors[]` (KLC-106 AC-7 / `deterministic_inventory.inventory_coverage_verdicts`),
+    keyed by language. Returns `{}` for an old-shape inventory (no
+    `inventory:<lang>` entries at all) or a non-dict input — tolerant read,
+    never a crash (KLC-123 AC-5)."""
+    out = {}
+    if not isinstance(inventory, dict):
+        return out
+    for e in inventory.get("errors") or []:
+        if isinstance(e, dict) and isinstance(e.get("builder"), str) \
+                and e["builder"].startswith("inventory:"):
+            out[e["builder"].split(":", 1)[1]] = e
+    return out
+
+
+def language_shares(per_lang: dict) -> dict:
+    """Each language's share of the code universe covered by *per_lang*'s
+    own `universe` counts. A missing/malformed `universe` degrades that
+    language's contribution to `0` (fail-closed: never a ZeroDivisionError,
+    never `None` propagating into a comparison — KLC-123 edge case)."""
+    denom = sum((v.get("universe") or 0) for v in per_lang.values())
+    if denom <= 0:
+        return {}
+    return {lang: (v.get("universe") or 0) / denom for lang, v in per_lang.items()}
+
+
+def dominant_languages(per_lang: dict, floor=None) -> set:
+    """Languages at or above the dominant-share floor (KLC-123 AC-4) — the
+    fallback relevance set used when a trace has no candidate files of its
+    own to scope by."""
+    bar = language_share_threshold() if floor is None else floor
+    return {lang for lang, share in language_shares(per_lang).items() if share >= bar}
+
+
+def scoped_inventory_degradation(inventory, candidate_languages, share_threshold=None):
+    """The language-scoped decision (KLC-123 AC-2..AC-5) that replaces
+    feeding the WHOLE inventory artifact into `degraded_inputs`: a language's
+    degraded verdict caps only when that language is relevant to this trace
+    — one of its own candidate languages, or, when none are known, one of
+    the repo's dominant languages by share of the code universe. A degraded
+    language outside that relevance set surfaces as an additive advisory
+    (naming itself and its share) instead of capping.
+
+    Returns `(degraded, advisories, scoped)`. `scoped=False` means the
+    inventory carries no per-language verdicts at all (an old-shape
+    artifact) — the caller must fall back to the unchanged
+    `artifact_degraded(inventory)` check (AC-5)."""
+    per_lang = inventory_language_verdicts(inventory)
+    if not per_lang:
+        return False, [], False
+    relevant = set(candidate_languages) or dominant_languages(per_lang, share_threshold)
+    shares = language_shares(per_lang)
+    floor = language_share_threshold() if share_threshold is None else share_threshold
+    degraded = False
+    notes = []
+    for lang in sorted(per_lang):
+        v = per_lang[lang]
+        if not v.get("degraded"):
+            continue
+        if lang in relevant:
+            degraded = True
+        else:
+            notes.append(
+                f"inventory.json: language '{lang}' uncovered "
+                f"(share {shares.get(lang, 0.0):.1%} of the code universe, "
+                f"below index.coverage.language_share_threshold {floor:.0%} "
+                f"— not capped)")
+    return degraded, notes, True
 
 
 def universe_for(scope, structural, universe_artifact=None):

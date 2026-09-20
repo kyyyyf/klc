@@ -155,6 +155,9 @@ _SETTINGS_SCHEMA = {
     # Trailing dot = PREFIX key: one override per builder name, so the family
     # cannot be enumerated here (KLC-106 F-5, D-205).
     "index.coverage.per_builder.": ("ratio", None),
+    # KLC-123: the dominant-language floor for the retriever's language-scoped
+    # inventory-degradation cap.
+    "index.coverage.language_share_threshold": ("ratio", None),
 }
 
 

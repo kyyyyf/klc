@@ -47,6 +47,13 @@
 #     min_ratio: 0.25          # share of the file universe a builder must cover.
 #     per_builder:             # optional per-builder override, unset by default.
 #       dep_graph: 0.25
+#     language_share_threshold: 0.05   # KLC-123: dominant-language floor for the
+#                               # retriever's inventory cap. A degraded language
+#                               # among the trace's OWN candidate files always
+#                               # caps; a degraded language outside them caps
+#                               # only if its share of the code universe is at
+#                               # or above this floor, otherwise it surfaces as
+#                               # an advisory instead. Default: 0.05.
 
 # Ack advisory severity threshold (KLC-117). At or above this severity the
 # `advisory` gate signal is dirty and a conditional gate pauses. No legacy file.

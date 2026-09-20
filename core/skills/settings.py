@@ -227,6 +227,14 @@ def index_coverage_threshold(builder=None):
     return resolve("index.coverage.min_ratio")
 
 
+def index_coverage_language_share_threshold():
+    """Dominant-language floor for the retriever's language-scoped inventory
+    cap (KLC-123 AC-9). Settings-only ladder, same shape as
+    `index_coverage_threshold`: this knob is new, so there is no legacy file
+    to consult. The built-in default lives in index_coverage, not here."""
+    return resolve("index.coverage.language_share_threshold")
+
+
 def autorun_cap():
     """Autonomous-runner consecutive-auto-transition cap, or None if unset.
 
