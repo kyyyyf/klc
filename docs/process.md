@@ -281,6 +281,14 @@ directly; M/L follow the plan steps).
   failing test and committing the fix that makes it pass. Because both a
   commit's own tree and its parent's tree are immutable once made, this
   answer is stable forever without anchoring to any moving "tip".
+  **Git-status-aware classification (KLC-126):** the per-path status this
+  rule reads is real git status (`A`/`M`/`D`/`R###`/`C###`, via `git show
+  --first-parent -M -C --name-status`), not a bare name-only file list — a
+  pure rename or copy of a production file to a test-shaped basename no
+  longer grants a free `added=` pass (it still needs a confirmed sibling),
+  and a non-conflicting merge commit is classified from its
+  first-parent diff instead of the empty file list `git show --name-only`
+  produces for a clean merge.
 - **Ack options:** `--pick 1` approve → review · (block when a budget limit is hit
   or the plan is invalid).
 - **Pitfalls:** a red-test loop over the budget; scope creep; silent plan changes

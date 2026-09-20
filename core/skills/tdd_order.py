@@ -175,9 +175,40 @@ def classify(commit_sha: str, repo: Path | None = None) -> str:
     Both trees belong to commits that, once made, never change — so this
     answer is stable forever for a given `commit_sha`, regardless of what any
     OTHER commit (earlier, later, same step or a different one) does.
+
+    KLC-126 (code-review-findings.json MEDIUM, KLC-109 round 4): the touched-path
+    list and each path's "was this freshly added" status are no longer derived
+    from a bare ``git show --name-only`` file list — that command silently
+    collapses a rename to its DESTINATION only (the source never appears, not
+    even as a deletion), so `added = lambda p: p not in parent_tree` was True
+    for a pure `git mv production.go production_test.go`'s destination despite
+    zero new content. ``classify`` now runs ``git show --first-parent -M -C
+    --name-status --format=``, parses each line's real git status (``A`` / ``M``
+    / ``D`` / ``R###`` / ``C###``), derives ``added=`` from status ``A`` ONLY —
+    never from tree-absence — and excludes a rename's SOURCE path from the
+    parent-tree side of ``exists_set`` so a renamed test-shaped file cannot
+    confirm a sibling against its own former identity. Because ``--first-parent``
+    also forces a normal (non-combined) diff for a merge commit, this same
+    change fixes the pre-existing INFO finding that a non-conflicting merge
+    classified `impl` from an empty combined-diff file list rather than from
+    its real first-parent diff.
     """
-    out = _git(["show", "--name-only", "--format=", commit_sha], repo)
-    files = [f.strip() for f in out.splitlines() if f.strip()]
+    out = _git(
+        ["show", "--first-parent", "-M", "-C", "--name-status", "--format=", commit_sha],
+        repo,
+    )
+    status_by_path: dict[str, str] = {}
+    rename_sources: set[str] = set()
+    for line in out.splitlines():
+        fields = [f.strip() for f in line.split("\t") if f.strip()]
+        if len(fields) < 2:
+            continue  # skip blank / status-only lines
+        status, *paths = fields
+        dest = paths[-1]
+        status_by_path[dest] = status
+        if status[:1] == "R" and len(paths) == 2:
+            rename_sources.add(paths[0])
+    files = list(status_by_path.keys())
     if not files:
         return "impl"
     table = _tc.active_table()
@@ -185,8 +216,17 @@ def classify(commit_sha: str, repo: Path | None = None) -> str:
     own_tree = _commit_tree_members(commit_sha, repo_str)
     parent_sha = _commit_parent_sha(commit_sha, repo_str)
     parent_tree = _commit_tree_members(parent_sha, repo_str)
-    exists_set = own_tree | parent_tree
-    added = lambda p: p not in parent_tree  # noqa: E731 — path absent from the parent tree
+    # A rename's SOURCE path must not double as a "confirmed sibling" for its
+    # own destination — it is the very file that moved, not a distinct
+    # production file that still exists (the MEDIUM finding: the pre-fix
+    # exists_set union found the source's OWN former self via parent_tree,
+    # which would still falsely "confirm" a sibling even with added=
+    # correctly disabled below).
+    exists_set = own_tree | (parent_tree - rename_sources)
+    # added=True only for a REAL git "A" (add) status — never inferred from
+    # simple absence-from-parent-tree, which a rename's destination also
+    # satisfies despite carrying zero new content.
+    added = lambda p: status_by_path.get(p, "")[:1] == "A"  # noqa: E731
     has_test = any(_tc.is_test_path(f, table=table, exists=exists_set.__contains__,
                                     added=added) for f in files)
     has_impl = any(not _tc.is_test_path(f, table=table, exists=exists_set.__contains__,
