@@ -1,0 +1,1545 @@
+{
+  "generated_at": "2026-09-20T19:02:25Z",
+  "modules": [
+    {
+      "name": "config",
+      "path": "config/",
+      "files": [
+        "config/README.md",
+        "config/budgets.yml",
+        "config/clarify.yml",
+        "config/constitution.yml",
+        "config/coverage-taxonomy.yml",
+        "config/elicitation-techniques.csv",
+        "config/jira.yml",
+        "config/models.yml",
+        "config/phases.yml",
+        "config/profile.yml",
+        "config/reviewer-allowlist.seed.yml",
+        "config/reviewers.yml",
+        "config/sentinels.yml",
+        "config/settings.yml",
+        "config/ticket-id.yml",
+        "config/tiers.yml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "core/agents",
+      "path": "core/agents/",
+      "files": [
+        "core/agents/adr.md",
+        "core/agents/consistency.md",
+        "core/agents/decompose.md",
+        "core/agents/design-scout.md",
+        "core/agents/design.md",
+        "core/agents/discovery-lite.md",
+        "core/agents/discovery.md",
+        "core/agents/docgen.md",
+        "core/agents/drift-reviewer.md",
+        "core/agents/external-review.md",
+        "core/agents/impl-plan-reviewer.md",
+        "core/agents/impl.md",
+        "core/agents/intake-triage.md",
+        "core/agents/intake.md",
+        "core/agents/inventory.md",
+        "core/agents/manual-check.md",
+        "core/agents/retrospective.md",
+        "core/agents/review-lite.md",
+        "core/agents/review.md",
+        "core/agents/spec-reviewer.md",
+        "core/agents/task.md",
+        "core/agents/test-plan-reviewer.md",
+        "core/agents/test-planner.md",
+        "core/agents/test.md",
+        "core/agents/xs-fasttrack.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "core/agents/_includes",
+      "path": "core/agents/_includes/",
+      "files": [
+        "core/agents/_includes/.gitkeep",
+        "core/agents/_includes/completion-signal.md",
+        "core/agents/_includes/provenance-discipline.md",
+        "core/agents/_includes/provenance-review.md",
+        "core/agents/_includes/review-findings-assessment.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "core/agents/review",
+      "path": "core/agents/review/",
+      "files": [
+        "core/agents/review/architecture.md",
+        "core/agents/review/cheap.md",
+        "core/agents/review/deep-impact.md",
+        "core/agents/review/per-step.md",
+        "core/agents/review/performance.md",
+        "core/agents/review/security.md",
+        "core/agents/review/test-coverage.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "core/deps",
+      "path": "core/deps/",
+      "files": [
+        "core/deps/__init__.py",
+        "core/deps/bootstrap.py",
+        "core/deps/dev.py",
+        "core/deps/project.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/skills"
+      ],
+      "depended_by": []
+    },
+    {
+      "name": "core/phases",
+      "path": "core/phases/",
+      "files": [
+        "core/phases/__init__.py",
+        "core/phases/abort.py",
+        "core/phases/ack.py",
+        "core/phases/board.py",
+        "core/phases/build_run.py",
+        "core/phases/doctor.py",
+        "core/phases/heartbeat.py",
+        "core/phases/install.py",
+        "core/phases/intake.py",
+        "core/phases/jira.py",
+        "core/phases/jira_sync_cmd.py",
+        "core/phases/jump.py",
+        "core/phases/migrate_notes.py",
+        "core/phases/next.py",
+        "core/phases/publish.py",
+        "core/phases/remind.py",
+        "core/phases/retrack.py",
+        "core/phases/run.py",
+        "core/phases/scope_fix.py",
+        "core/phases/setup.py",
+        "core/phases/ship.py",
+        "core/phases/state.py",
+        "core/phases/status.py",
+        "core/phases/steal.py",
+        "core/phases/step.py",
+        "core/phases/task_brief.py",
+        "core/phases/work.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/shared",
+        "core/skills"
+      ],
+      "depended_by": [
+        "core/skills",
+        "tests",
+        "tests/e2e",
+        "tests/integration"
+      ]
+    },
+    {
+      "name": "core/rules/cpp",
+      "path": "core/rules/cpp/",
+      "files": [
+        "core/rules/cpp/header-symbols.yaml",
+        "core/rules/cpp/virtual-methods.yaml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "core/rules/python",
+      "path": "core/rules/python/",
+      "files": [
+        "core/rules/python/class-hierarchy.yaml",
+        "core/rules/python/public-api.yaml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "core/rules/rust",
+      "path": "core/rules/rust/",
+      "files": [
+        "core/rules/rust/exported-symbols.yaml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "core/rules/typescript",
+      "path": "core/rules/typescript/",
+      "files": [
+        "core/rules/typescript/async-patterns.yaml",
+        "core/rules/typescript/exported-symbols-js.yaml",
+        "core/rules/typescript/exported-symbols-tsx.yaml",
+        "core/rules/typescript/exported-symbols.yaml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "core/shared",
+      "path": "core/shared/",
+      "files": [
+        "core/shared/__init__.py",
+        "core/shared/artefacts.py",
+        "core/shared/inventory.py",
+        "core/shared/paths.py",
+        "core/shared/yaml.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": [
+        "core/phases",
+        "core/skills",
+        "profiles/generic/hooks",
+        "tests",
+        "tests/integration"
+      ]
+    },
+    {
+      "name": "core/skills",
+      "path": "core/skills/",
+      "files": [
+        "core/skills/_paths.py",
+        "core/skills/_yaml.py",
+        "core/skills/ac_test_coverage.py",
+        "core/skills/advisories.py",
+        "core/skills/artefacts.py",
+        "core/skills/autorunner.py",
+        "core/skills/budget.py",
+        "core/skills/budget_guard.py",
+        "core/skills/build_ledger.py",
+        "core/skills/build_orchestrator.py",
+        "core/skills/callgraph_cpp.py",
+        "core/skills/callgraph_python.py",
+        "core/skills/callgraph_rust_async.py",
+        "core/skills/clarify_config.py",
+        "core/skills/classify_tier.py",
+        "core/skills/consistency_check.py",
+        "core/skills/constitution.py",
+        "core/skills/context-loader.py",
+        "core/skills/coverage_taxonomy.py",
+        "core/skills/dep_graph.py",
+        "core/skills/detect_languages.py",
+        "core/skills/deterministic_inventory.py",
+        "core/skills/diff-modules.py",
+        "core/skills/drift_check.py",
+        "core/skills/drift_review.py",
+        "core/skills/elicitation.py",
+        "core/skills/elicitation_techniques.py",
+        "core/skills/epic_deps.py",
+        "core/skills/epic_plan.py",
+        "core/skills/epic_view.py",
+        "core/skills/evidence_gate.py",
+        "core/skills/fact_verify.py",
+        "core/skills/file_roles.py",
+        "core/skills/file_scanner.py",
+        "core/skills/file_universe.py",
+        "core/skills/filter-build-overrides.py",
+        "core/skills/filter-diff.py",
+        "core/skills/findings.py",
+        "core/skills/gate_policy.py",
+        "core/skills/gen_tracks_doc.py",
+        "core/skills/holder.py",
+        "core/skills/holder_display.py",
+        "core/skills/hook_install.py",
+        "core/skills/identity.py",
+        "core/skills/impl_plan_check.py",
+        "core/skills/implplan_review.py",
+        "core/skills/import-graph.py",
+        "core/skills/index_coverage.py",
+        "core/skills/index_fingerprint.py",
+        "core/skills/index_health.py",
+        "core/skills/index_lock.py",
+        "core/skills/index_refresh.py",
+        "core/skills/items.py",
+        "core/skills/items_verify.py",
+        "core/skills/jira_artifacts.py",
+        "core/skills/jira_client.py",
+        "core/skills/jira_config.py",
+        "core/skills/jira_sync.py",
+        "core/skills/lifecycle.py",
+        "core/skills/lint_review_prompts.py",
+        "core/skills/metrics.py",
+        "core/skills/model_guard.py",
+        "core/skills/models.py",
+        "core/skills/module-writer.py",
+        "core/skills/module_edges.py",
+        "core/skills/module_membership.py",
+        "core/skills/modules_build.py",
+        "core/skills/per_module_hash.py",
+        "core/skills/per_step_review.py",
+        "core/skills/phase_completion.py",
+        "core/skills/phase_resolver.py",
+        "core/skills/phases.py",
+        "core/skills/plan_quality.py",
+        "core/skills/planning-eval.py",
+        "core/skills/planning-retriever.py",
+        "core/skills/planning_validate.py",
+        "core/skills/plugin_gen.py",
+        "core/skills/profile-resolve.py",
+        "core/skills/profile_cache.py",
+        "core/skills/prompt_honesty.py",
+        "core/skills/provenance.py",
+        "core/skills/public-api-filter.py",
+        "core/skills/publish_github.py",
+        "core/skills/review_cascade.py",
+        "core/skills/route_heuristic.py",
+        "core/skills/run-hook.py",
+        "core/skills/run_signal.py",
+        "core/skills/runner.py",
+        "core/skills/scan_sentinels.py",
+        "core/skills/scope_delta.py",
+        "core/skills/scout_check.py",
+        "core/skills/scratch.py",
+        "core/skills/settings.py",
+        "core/skills/spec_review.py",
+        "core/skills/spec_saoc.py",
+        "core/skills/spec_selfcheck.py",
+        "core/skills/spec_selfreview.py",
+        "core/skills/spec_structure.py",
+        "core/skills/state_feature.py",
+        "core/skills/state_sync.py",
+        "core/skills/state_tx.py",
+        "core/skills/step_verify.py",
+        "core/skills/symbol_usage.py",
+        "core/skills/task_brief.py",
+        "core/skills/tdd_order.py",
+        "core/skills/test-writer.py",
+        "core/skills/test_conventions.py",
+        "core/skills/test_map.py",
+        "core/skills/testplan_review.py",
+        "core/skills/timing_report.py",
+        "core/skills/token_backfill.py",
+        "core/skills/token_journal.py",
+        "core/skills/tools.py",
+        "core/skills/track_classifier.py",
+        "core/skills/validate_config.py",
+        "core/skills/verify_runner.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/phases",
+        "core/shared"
+      ],
+      "depended_by": [
+        "core/deps",
+        "core/phases",
+        "klc-plugin/hooks",
+        "profiles/generic/hooks",
+        "scripts",
+        "tests",
+        "tests/e2e",
+        "tests/integration"
+      ]
+    },
+    {
+      "name": "core/templates",
+      "path": "core/templates/",
+      "files": [
+        "core/templates/ADR.md.j2",
+        "core/templates/CLAUDE.md.j2",
+        "core/templates/external-review-prompt.j2",
+        "core/templates/impl-step.md.j2",
+        "core/templates/module-CLAUDE.md.j2",
+        "core/templates/options.md.j2",
+        "core/templates/retrospective.md.j2",
+        "core/templates/review-report.md.j2",
+        "core/templates/scratch-session.md.j2",
+        "core/templates/spec-short.md.j2",
+        "core/templates/spec.md.j2",
+        "core/templates/step-impl-report.md.j2",
+        "core/templates/step-review-package.md.j2",
+        "core/templates/step-review.md.j2",
+        "core/templates/task-brief.md.j2",
+        "core/templates/test-plan-short.md.j2",
+        "core/templates/test-plan.md.j2",
+        "core/templates/ticket-readme.md.j2"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "docs",
+      "path": "docs/",
+      "files": [
+        "docs/20260717_quality_improvements_proposal.md",
+        "docs/20260721_epic_feature_proposal.md",
+        "docs/20260724_epic_feature_impl_plan.md",
+        "docs/architecture.md",
+        "docs/constitution.md",
+        "docs/coverage-taxonomy.md",
+        "docs/process.md",
+        "docs/severity-rubric.md",
+        "docs/tracks.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "docs/adr",
+      "path": "docs/adr/",
+      "files": [
+        "docs/adr/ADR-001-phase-resolver-two-executors.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "hooks",
+      "path": "hooks/",
+      "files": [
+        "hooks/pre-commit",
+        "hooks/pre-commit.ps1"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin",
+      "path": "klc-plugin/",
+      "files": [
+        "klc-plugin/README.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/.claude-plugin",
+      "path": "klc-plugin/.claude-plugin/",
+      "files": [
+        "klc-plugin/.claude-plugin/plugin.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/agents",
+      "path": "klc-plugin/agents/",
+      "files": [
+        "klc-plugin/agents/adr.md",
+        "klc-plugin/agents/consistency.md",
+        "klc-plugin/agents/decompose.md",
+        "klc-plugin/agents/design-scout.md",
+        "klc-plugin/agents/design.md",
+        "klc-plugin/agents/discovery-lite.md",
+        "klc-plugin/agents/discovery.md",
+        "klc-plugin/agents/docgen.md",
+        "klc-plugin/agents/drift-reviewer.md",
+        "klc-plugin/agents/external-review.md",
+        "klc-plugin/agents/impl-plan-reviewer.md",
+        "klc-plugin/agents/impl.md",
+        "klc-plugin/agents/intake-triage.md",
+        "klc-plugin/agents/intake.md",
+        "klc-plugin/agents/inventory.md",
+        "klc-plugin/agents/manual-check.md",
+        "klc-plugin/agents/retrospective.md",
+        "klc-plugin/agents/review-lite.md",
+        "klc-plugin/agents/review.md",
+        "klc-plugin/agents/spec-reviewer.md",
+        "klc-plugin/agents/task.md",
+        "klc-plugin/agents/test-plan-reviewer.md",
+        "klc-plugin/agents/test-planner.md",
+        "klc-plugin/agents/test.md",
+        "klc-plugin/agents/xs-fasttrack.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/commands",
+      "path": "klc-plugin/commands/",
+      "files": [
+        "klc-plugin/commands/abort.md",
+        "klc-plugin/commands/ack.md",
+        "klc-plugin/commands/intake.md",
+        "klc-plugin/commands/jump.md",
+        "klc-plugin/commands/next.md",
+        "klc-plugin/commands/publish.md",
+        "klc-plugin/commands/run.md",
+        "klc-plugin/commands/ship.md",
+        "klc-plugin/commands/status.md",
+        "klc-plugin/commands/step.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/hooks",
+      "path": "klc-plugin/hooks/",
+      "files": [
+        "klc-plugin/hooks/gate.py",
+        "klc-plugin/hooks/heartbeat.py",
+        "klc-plugin/hooks/hooks.json",
+        "klc-plugin/hooks/remind.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/skills"
+      ],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/abort",
+      "path": "klc-plugin/skills/abort/",
+      "files": [
+        "klc-plugin/skills/abort/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/ack",
+      "path": "klc-plugin/skills/ack/",
+      "files": [
+        "klc-plugin/skills/ack/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/discuss-feature",
+      "path": "klc-plugin/skills/discuss-feature/",
+      "files": [
+        "klc-plugin/skills/discuss-feature/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/intake",
+      "path": "klc-plugin/skills/intake/",
+      "files": [
+        "klc-plugin/skills/intake/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/jump",
+      "path": "klc-plugin/skills/jump/",
+      "files": [
+        "klc-plugin/skills/jump/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/next",
+      "path": "klc-plugin/skills/next/",
+      "files": [
+        "klc-plugin/skills/next/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/run",
+      "path": "klc-plugin/skills/run/",
+      "files": [
+        "klc-plugin/skills/run/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/ship",
+      "path": "klc-plugin/skills/ship/",
+      "files": [
+        "klc-plugin/skills/ship/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/status",
+      "path": "klc-plugin/skills/status/",
+      "files": [
+        "klc-plugin/skills/status/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "klc-plugin/skills/step",
+      "path": "klc-plugin/skills/step/",
+      "files": [
+        "klc-plugin/skills/step/SKILL.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "profiles/generic",
+      "path": "profiles/generic/",
+      "files": [
+        "profiles/generic/manifest.yml",
+        "profiles/generic/mcp.json",
+        "profiles/generic/sgconfig.yml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "profiles/generic/hooks",
+      "path": "profiles/generic/hooks/",
+      "files": [
+        "profiles/generic/hooks/validate_syntax.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/shared",
+        "core/skills"
+      ],
+      "depended_by": []
+    },
+    {
+      "name": "scripts",
+      "path": "scripts/",
+      "files": [
+        "scripts/init.py",
+        "scripts/install_deps.py",
+        "scripts/klc",
+        "scripts/klc-completion.bash",
+        "scripts/klc-completion.ps1",
+        "scripts/review-runner.py",
+        "scripts/review.py",
+        "scripts/update.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/skills"
+      ],
+      "depended_by": [
+        "tests",
+        "tests/integration"
+      ]
+    },
+    {
+      "name": "tests",
+      "path": "tests/",
+      "files": [
+        "tests/_env.py",
+        "tests/conftest.py",
+        "tests/e2e_pipeline.py",
+        "tests/prompt_harness.py",
+        "tests/rule_test_executor.py",
+        "tests/smoke.py",
+        "tests/test_ac_test_coverage.py",
+        "tests/test_budget_guard.py",
+        "tests/test_callgraph_cpp_lsp.py",
+        "tests/test_callgraph_rust_lsp.py",
+        "tests/test_config_hygiene.py",
+        "tests/test_constitution.py",
+        "tests/test_coverage_taxonomy.py",
+        "tests/test_detect_languages_malformed.py",
+        "tests/test_detect_languages_real_key.py",
+        "tests/test_detect_languages_threshold.py",
+        "tests/test_docs_consolidation.py",
+        "tests/test_docs_retrieval_scoring.py",
+        "tests/test_drift_check.py",
+        "tests/test_drift_review.py",
+        "tests/test_elicitation.py",
+        "tests/test_elicitation_techniques.py",
+        "tests/test_epic_plan.py",
+        "tests/test_epic_view.py",
+        "tests/test_epics_doc.py",
+        "tests/test_holder.py",
+        "tests/test_holder_steal.py",
+        "tests/test_identity.py",
+        "tests/test_impl_plan_check.py",
+        "tests/test_install_deps.py",
+        "tests/test_intake_identity.py",
+        "tests/test_intake_retrieval.py",
+        "tests/test_intake_routing.py",
+        "tests/test_jira_sync.py",
+        "tests/test_klc003_publish.py",
+        "tests/test_klc076_cancel_unit.py",
+        "tests/test_klc077_epic_deps.py",
+        "tests/test_klc077_intake_flags.py",
+        "tests/test_klc079_skill_structure.py",
+        "tests/test_klc081_rework.py",
+        "tests/test_klc090_discovery_elicitation.py",
+        "tests/test_klc091_design_sa_enrichment.py",
+        "tests/test_klc093_build_assesses_testplan_findings.py",
+        "tests/test_klc094_implplan_review.py",
+        "tests/test_klc113_byte_budget.py",
+        "tests/test_klc113_includes.py",
+        "tests/test_klc113_prompt_honesty.py",
+        "tests/test_klc113_step_parser.py",
+        "tests/test_klc119_estimator.py",
+        "tests/test_klc119_run_signal_purity.py",
+        "tests/test_phase_completion_drift.py",
+        "tests/test_plugin_agents_in_sync.py",
+        "tests/test_plugin_gen_skills.py",
+        "tests/test_precommit_plugin_sync.py",
+        "tests/test_prompt_regression.py",
+        "tests/test_route_heuristic_confidence.py",
+        "tests/test_route_heuristic_length_ceiling.py",
+        "tests/test_rules_cpp.py",
+        "tests/test_rules_python.py",
+        "tests/test_rules_rust.py",
+        "tests/test_rules_typescript.py",
+        "tests/test_settings.py",
+        "tests/test_spec_review.py",
+        "tests/test_spec_saoc.py",
+        "tests/test_spec_selfcheck.py",
+        "tests/test_state_feature.py",
+        "tests/test_state_sync.py",
+        "tests/test_state_tx.py",
+        "tests/test_tdd_order.py",
+        "tests/test_test_conventions.py",
+        "tests/test_testplan_review.py",
+        "tests/test_tracks_drift.py",
+        "tests/test_yaml_shadow.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/phases",
+        "core/shared",
+        "core/skills",
+        "scripts"
+      ],
+      "depended_by": [
+        "tests/integration"
+      ]
+    },
+    {
+      "name": "tests/deps",
+      "path": "tests/deps/",
+      "files": [
+        "tests/deps/test_bootstrap.py",
+        "tests/deps/test_dev.py",
+        "tests/deps/test_utils.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/e2e",
+      "path": "tests/e2e/",
+      "files": [
+        "tests/e2e/test_discovery_split.py",
+        "tests/e2e/test_klc119_run_dispatch_flow.py",
+        "tests/e2e/test_orchestrator.py",
+        "tests/e2e/test_runner_parks_interactive.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/phases",
+        "core/skills"
+      ],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures",
+      "path": "tests/fixtures/",
+      "files": [
+        "tests/fixtures/klc-034-socratic-input.md",
+        "tests/fixtures/klc074_cutover_baseline.json",
+        "tests/fixtures/klc105_baseline_test_ids.txt"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/fake-agent-outputs",
+      "path": "tests/fixtures/fake-agent-outputs/",
+      "files": [
+        "tests/fixtures/fake-agent-outputs/acceptance-test-plan.md",
+        "tests/fixtures/fake-agent-outputs/build.md",
+        "tests/fixtures/fake-agent-outputs/design.md",
+        "tests/fixtures/fake-agent-outputs/detailed-test-plan.md",
+        "tests/fixtures/fake-agent-outputs/discovery.md",
+        "tests/fixtures/fake-agent-outputs/impl-plan.md",
+        "tests/fixtures/fake-agent-outputs/integrate.md",
+        "tests/fixtures/fake-agent-outputs/observe.md",
+        "tests/fixtures/fake-agent-outputs/retrospective.md",
+        "tests/fixtures/fake-agent-outputs/review.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc106-degraded-py/legacy",
+      "path": "tests/fixtures/klc106-degraded-py/legacy/",
+      "files": [
+        "tests/fixtures/klc106-degraded-py/legacy/dup0.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup1.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup10.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup11.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup12.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup13.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup14.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup15.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup16.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup17.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup18.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup19.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup2.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup3.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup4.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup5.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup6.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup7.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup8.py",
+        "tests/fixtures/klc106-degraded-py/legacy/dup9.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc106-degraded-py/src",
+      "path": "tests/fixtures/klc106-degraded-py/src/",
+      "files": [
+        "tests/fixtures/klc106-degraded-py/src/main.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc106-degraded-ts/legacy",
+      "path": "tests/fixtures/klc106-degraded-ts/legacy/",
+      "files": [
+        "tests/fixtures/klc106-degraded-ts/legacy/f0.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f1.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f10.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f11.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f12.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f13.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f14.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f15.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f16.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f17.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f18.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f19.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f2.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f3.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f4.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f5.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f6.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f7.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f8.ts",
+        "tests/fixtures/klc106-degraded-ts/legacy/f9.ts"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc106-degraded-ts/src",
+      "path": "tests/fixtures/klc106-degraded-ts/src/",
+      "files": [
+        "tests/fixtures/klc106-degraded-ts/src/index.ts"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc108",
+      "path": "tests/fixtures/klc108/",
+      "files": [
+        "tests/fixtures/klc108/before_after_report.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-cpp",
+      "path": "tests/fixtures/klc109-cpp/",
+      "files": [
+        "tests/fixtures/klc109-cpp/foo.cpp",
+        "tests/fixtures/klc109-cpp/foo_test.cpp",
+        "tests/fixtures/klc109-cpp/history.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-csharp",
+      "path": "tests/fixtures/klc109-csharp/",
+      "files": [
+        "tests/fixtures/klc109-csharp/Foo.cs",
+        "tests/fixtures/klc109-csharp/FooTests.cs",
+        "tests/fixtures/klc109-csharp/history.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-engine-profile",
+      "path": "tests/fixtures/klc109-engine-profile/",
+      "files": [
+        "tests/fixtures/klc109-engine-profile/manifest.yml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-go",
+      "path": "tests/fixtures/klc109-go/",
+      "files": [
+        "tests/fixtures/klc109-go/foo.go",
+        "tests/fixtures/klc109-go/foo_test.go",
+        "tests/fixtures/klc109-go/history.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-java-kotlin",
+      "path": "tests/fixtures/klc109-java-kotlin/",
+      "files": [
+        "tests/fixtures/klc109-java-kotlin/Foo.java",
+        "tests/fixtures/klc109-java-kotlin/FooTest.java",
+        "tests/fixtures/klc109-java-kotlin/history.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-js-ts",
+      "path": "tests/fixtures/klc109-js-ts/",
+      "files": [
+        "tests/fixtures/klc109-js-ts/Foo.test.tsx",
+        "tests/fixtures/klc109-js-ts/Foo.tsx",
+        "tests/fixtures/klc109-js-ts/history.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-profile",
+      "path": "tests/fixtures/klc109-profile/",
+      "files": [
+        "tests/fixtures/klc109-profile/manifest.yml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-python",
+      "path": "tests/fixtures/klc109-python/",
+      "files": [
+        "tests/fixtures/klc109-python/foo.py",
+        "tests/fixtures/klc109-python/history.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": [
+        "tests/fixtures/klc109-python/tests",
+        "tests/integration"
+      ]
+    },
+    {
+      "name": "tests/fixtures/klc109-python/tests",
+      "path": "tests/fixtures/klc109-python/tests/",
+      "files": [
+        "tests/fixtures/klc109-python/tests/test_foo.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "tests/fixtures/klc109-python"
+      ],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-ruby",
+      "path": "tests/fixtures/klc109-ruby/",
+      "files": [
+        "tests/fixtures/klc109-ruby/foo.rb",
+        "tests/fixtures/klc109-ruby/foo_spec.rb",
+        "tests/fixtures/klc109-ruby/history.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc109-rust",
+      "path": "tests/fixtures/klc109-rust/",
+      "files": [
+        "tests/fixtures/klc109-rust/foo.rs",
+        "tests/fixtures/klc109-rust/foo_test.rs",
+        "tests/fixtures/klc109-rust/history.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc116",
+      "path": "tests/fixtures/klc116/",
+      "files": [
+        "tests/fixtures/klc116/options-assumed.md",
+        "tests/fixtures/klc116/options-observed.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/klc118/golden",
+      "path": "tests/fixtures/klc118/golden/",
+      "files": [
+        "tests/fixtures/klc118/golden/design_prompt.md",
+        "tests/fixtures/klc118/golden/integrate_prompt.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/rules/coverage",
+      "path": "tests/fixtures/rules/coverage/",
+      "files": [
+        "tests/fixtures/rules/coverage/sample.cpp",
+        "tests/fixtures/rules/coverage/sample.h",
+        "tests/fixtures/rules/coverage/sample.py",
+        "tests/fixtures/rules/coverage/sample.rs"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/rules/cpp",
+      "path": "tests/fixtures/rules/cpp/",
+      "files": [
+        "tests/fixtures/rules/cpp/scope.cpp",
+        "tests/fixtures/rules/cpp/scope.h"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/rules/python",
+      "path": "tests/fixtures/rules/python/",
+      "files": [
+        "tests/fixtures/rules/python/sample.py",
+        "tests/fixtures/rules/python/scope.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/rules/rust",
+      "path": "tests/fixtures/rules/rust/",
+      "files": [
+        "tests/fixtures/rules/rust/scope.rs"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/rules/synthetic",
+      "path": "tests/fixtures/rules/synthetic/",
+      "files": [
+        "tests/fixtures/rules/synthetic/invalid-matches.yaml",
+        "tests/fixtures/rules/synthetic/no-cases.yaml",
+        "tests/fixtures/rules/synthetic/valid-no-match.yaml"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/rules/typescript",
+      "path": "tests/fixtures/rules/typescript/",
+      "files": [
+        "tests/fixtures/rules/typescript/ambient.d.ts",
+        "tests/fixtures/rules/typescript/barrel.ts",
+        "tests/fixtures/rules/typescript/sample.js",
+        "tests/fixtures/rules/typescript/sample.ts",
+        "tests/fixtures/rules/typescript/sample.tsx",
+        "tests/fixtures/rules/typescript/scope.js",
+        "tests/fixtures/rules/typescript/scope.ts",
+        "tests/fixtures/rules/typescript/scope.tsx"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/tiny-py/src/app",
+      "path": "tests/fixtures/tiny-py/src/app/",
+      "files": [
+        "tests/fixtures/tiny-py/src/app/__init__.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/tiny-py/src/util",
+      "path": "tests/fixtures/tiny-py/src/util/",
+      "files": [
+        "tests/fixtures/tiny-py/src/util/__init__.py",
+        "tests/fixtures/tiny-py/src/util/helper.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/fixtures/tiny-py/tests",
+      "path": "tests/fixtures/tiny-py/tests/",
+      "files": [
+        "tests/fixtures/tiny-py/tests/test_app.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "tests/integration",
+      "path": "tests/integration/",
+      "files": [
+        "tests/integration/_klc121_spawn_probe.py",
+        "tests/integration/conftest.py",
+        "tests/integration/test_ack_risk_tags.py",
+        "tests/integration/test_autorunner.py",
+        "tests/integration/test_board_epic.py",
+        "tests/integration/test_board_holder.py",
+        "tests/integration/test_build_evidence_gate.py",
+        "tests/integration/test_build_orchestrator.py",
+        "tests/integration/test_clarify_gate.py",
+        "tests/integration/test_clarify_style.py",
+        "tests/integration/test_context_loader_neighbours.py",
+        "tests/integration/test_deep_impact_findings.py",
+        "tests/integration/test_deep_impact_merge.py",
+        "tests/integration/test_deep_impact_trigger.py",
+        "tests/integration/test_design_scout_no_prune.py",
+        "tests/integration/test_design_scout_schema.py",
+        "tests/integration/test_design_scout_trigger.py",
+        "tests/integration/test_deterministic_inventory.py",
+        "tests/integration/test_discovery_downgrade_gate.py",
+        "tests/integration/test_discovery_floor_guard.py",
+        "tests/integration/test_doctor_integration.py",
+        "tests/integration/test_doctor_tests_check.py",
+        "tests/integration/test_file_roles.py",
+        "tests/integration/test_gate_policy.py",
+        "tests/integration/test_happy_path_doc.py",
+        "tests/integration/test_heartbeat.py",
+        "tests/integration/test_heartbeat_race.py",
+        "tests/integration/test_holder_display.py",
+        "tests/integration/test_init_integration.py",
+        "tests/integration/test_jira_core.py",
+        "tests/integration/test_jira_managed.py",
+        "tests/integration/test_jira_pull.py",
+        "tests/integration/test_klc057_fuzz.py",
+        "tests/integration/test_klc057_fuzz_concurrent.py",
+        "tests/integration/test_klc057_hardening.py",
+        "tests/integration/test_klc057_real_repo.py",
+        "tests/integration/test_klc057_sync_holder.py",
+        "tests/integration/test_klc061_wrap_verbs.py",
+        "tests/integration/test_klc066_fuzz.py",
+        "tests/integration/test_klc069_non_origin_remote.py",
+        "tests/integration/test_klc072_dispatch.py",
+        "tests/integration/test_klc075_retrack_cas.py",
+        "tests/integration/test_klc075_scope_fix.py",
+        "tests/integration/test_klc076_cancel_cas.py",
+        "tests/integration/test_klc077_enforcement.py",
+        "tests/integration/test_klc077_postpull.py",
+        "tests/integration/test_klc081_rework_cas.py",
+        "tests/integration/test_klc103_init_write_once.py",
+        "tests/integration/test_klc103_nested_capture_floor.py",
+        "tests/integration/test_klc103_root_doc_totals.py",
+        "tests/integration/test_klc103_rule_coverage.py",
+        "tests/integration/test_klc103_rule_executor.py",
+        "tests/integration/test_klc103_schema_canonical.py",
+        "tests/integration/test_klc103_shared_accessor.py",
+        "tests/integration/test_klc105_builder_universe.py",
+        "tests/integration/test_klc105_docs_invariant.py",
+        "tests/integration/test_klc105_edge_cases.py",
+        "tests/integration/test_klc105_file_universe.py",
+        "tests/integration/test_klc105_no_regression.py",
+        "tests/integration/test_klc105_non_python_backends.py",
+        "tests/integration/test_klc105_planning_validate_warnings.py",
+        "tests/integration/test_klc105_real_repo_closure.py",
+        "tests/integration/test_klc105_reproducibility.py",
+        "tests/integration/test_klc105_retrieval_closure.py",
+        "tests/integration/test_klc105_scan_only_closure.py",
+        "tests/integration/test_klc105_walk_fallback.py",
+        "tests/integration/test_klc106_builder_verdicts.py",
+        "tests/integration/test_klc106_cli_summary.py",
+        "tests/integration/test_klc106_coverage_module.py",
+        "tests/integration/test_klc106_degraded_propagation.py",
+        "tests/integration/test_klc106_dep_graph_degrade.py",
+        "tests/integration/test_klc106_doctor.py",
+        "tests/integration/test_klc106_fixtures_e2e.py",
+        "tests/integration/test_klc106_retriever_degraded.py",
+        "tests/integration/test_klc106_templates.py",
+        "tests/integration/test_klc107_docs.py",
+        "tests/integration/test_klc107_doctor.py",
+        "tests/integration/test_klc107_incremental.py",
+        "tests/integration/test_klc107_install.py",
+        "tests/integration/test_klc107_lock.py",
+        "tests/integration/test_klc107_meta.py",
+        "tests/integration/test_klc107_refresh.py",
+        "tests/integration/test_klc107_stale.py",
+        "tests/integration/test_klc108_before_after_corpus.py",
+        "tests/integration/test_klc108_build_log_evidence.py",
+        "tests/integration/test_klc108_eval_rescore_path.py",
+        "tests/integration/test_klc108_idf_artifact.py",
+        "tests/integration/test_klc108_idf_scoring.py",
+        "tests/integration/test_klc108_inventory_scope_assertion.py",
+        "tests/integration/test_klc108_keywords_salience.py",
+        "tests/integration/test_klc108_module_score_normalisation.py",
+        "tests/integration/test_klc108_probe_traces.py",
+        "tests/integration/test_klc108_recall_not_regressed.py",
+        "tests/integration/test_klc108_rule_executor_scope.py",
+        "tests/integration/test_klc109_ac_coverage.py",
+        "tests/integration/test_klc109_docs.py",
+        "tests/integration/test_klc109_file_roles.py",
+        "tests/integration/test_klc109_fixtures.py",
+        "tests/integration/test_klc109_guard.py",
+        "tests/integration/test_klc109_scope_delta.py",
+        "tests/integration/test_klc109_tdd_order.py",
+        "tests/integration/test_klc109_test_map.py",
+        "tests/integration/test_klc109_test_writer_sample.py",
+        "tests/integration/test_klc113_step_card_fields.py",
+        "tests/integration/test_klc115_ac_budget.py",
+        "tests/integration/test_klc115_docs_contract.py",
+        "tests/integration/test_klc115_evidence_gate.py",
+        "tests/integration/test_klc115_evidence_parser.py",
+        "tests/integration/test_klc115_fact_source.py",
+        "tests/integration/test_klc115_items_verify_metric.py",
+        "tests/integration/test_klc115_klc105_mapping.py",
+        "tests/integration/test_klc115_runner.py",
+        "tests/integration/test_klc115_settings_budgets.py",
+        "tests/integration/test_klc115_step_verify.py",
+        "tests/integration/test_klc115_track_scaling.py",
+        "tests/integration/test_klc116_consistency_evidence.py",
+        "tests/integration/test_klc116_counts_advisory.py",
+        "tests/integration/test_klc116_design_ack_gate.py",
+        "tests/integration/test_klc116_docs_and_template.py",
+        "tests/integration/test_klc116_evidence_attribute.py",
+        "tests/integration/test_klc116_load_bearing_set.py",
+        "tests/integration/test_klc116_precommit_legacy.py",
+        "tests/integration/test_klc116_prompt_content.py",
+        "tests/integration/test_klc116_real_fixture_migration.py",
+        "tests/integration/test_klc116_retrospective_count.py",
+        "tests/integration/test_klc117_ack_note_cap.py",
+        "tests/integration/test_klc117_aggregator_single_path.py",
+        "tests/integration/test_klc117_artifact_write.py",
+        "tests/integration/test_klc117_gate_threshold.py",
+        "tests/integration/test_klc117_klc105_fixture_replay.py",
+        "tests/integration/test_klc117_migration.py",
+        "tests/integration/test_klc117_producer_degrade.py",
+        "tests/integration/test_klc117_producer_records.py",
+        "tests/integration/test_klc117_run_orchestrator.py",
+        "tests/integration/test_klc117_run_orchestrator_doc.py",
+        "tests/integration/test_klc117_severity_normalisation.py",
+        "tests/integration/test_klc117_status_work_verbs.py",
+        "tests/integration/test_klc117_summary_line.py",
+        "tests/integration/test_klc117_threshold_settings.py",
+        "tests/integration/test_klc118_artefact_universe.py",
+        "tests/integration/test_klc118_card_metrics.py",
+        "tests/integration/test_klc118_card_migration.py",
+        "tests/integration/test_klc118_card_modes.py",
+        "tests/integration/test_klc118_card_path_parity.py",
+        "tests/integration/test_klc118_card_size_regression.py",
+        "tests/integration/test_klc118_headless_paste.py",
+        "tests/integration/test_klc118_phase_resolver.py",
+        "tests/integration/test_klc118_scratch_root.py",
+        "tests/integration/test_klc119_attempts_list.py",
+        "tests/integration/test_klc119_backfill.py",
+        "tests/integration/test_klc119_completion_signal.py",
+        "tests/integration/test_klc119_docs.py",
+        "tests/integration/test_klc119_estimator_calibration.py",
+        "tests/integration/test_klc119_legacy_meta.py",
+        "tests/integration/test_klc119_render_sites.py",
+        "tests/integration/test_klc119_rollup.py",
+        "tests/integration/test_klc119_run_budget_order.py",
+        "tests/integration/test_klc119_run_signal_recorder.py",
+        "tests/integration/test_klc119_single_writer.py",
+        "tests/integration/test_klc119_transaction_safety.py",
+        "tests/integration/test_klc121_docs.py",
+        "tests/integration/test_klc121_fallback.py",
+        "tests/integration/test_klc121_fingerprints.py",
+        "tests/integration/test_klc121_full_flag.py",
+        "tests/integration/test_klc121_language_agnostic.py",
+        "tests/integration/test_klc121_lock_budget.py",
+        "tests/integration/test_klc121_profile_once.py",
+        "tests/integration/test_klc121_reader_compat.py",
+        "tests/integration/test_klc121_timing.py",
+        "tests/integration/test_klc122_generic_profile_wiring.py",
+        "tests/integration/test_klc122_profile_removed.py",
+        "tests/integration/test_klc123_language_scoped_confidence.py",
+        "tests/integration/test_klc123_live_repo_dogfood.py",
+        "tests/integration/test_klc124_doctor_language_agreement.py",
+        "tests/integration/test_klc124_dogfood_no_c_language.py",
+        "tests/integration/test_klc124_header_language_fixture.py",
+        "tests/integration/test_klc124_language_map_agreement.py",
+        "tests/integration/test_klc126_merge_commit_classification.py",
+        "tests/integration/test_klc126_sweep_regression.py",
+        "tests/integration/test_klc126_tdd_order_rename_merge.py",
+        "tests/integration/test_klc_doctor_profile.py",
+        "tests/integration/test_metrics_cheap_escape_rate.py",
+        "tests/integration/test_model_guard.py",
+        "tests/integration/test_model_ranks.py",
+        "tests/integration/test_model_subagent_guard.py",
+        "tests/integration/test_module_edges.py",
+        "tests/integration/test_module_edges_v2.py",
+        "tests/integration/test_module_membership.py",
+        "tests/integration/test_module_writer_dot_module.py",
+        "tests/integration/test_modules_cutover_gate.py",
+        "tests/integration/test_modules_v2.py",
+        "tests/integration/test_no_mcp.py",
+        "tests/integration/test_no_pre_judgment_lint.py",
+        "tests/integration/test_orchestrator_dispatch.py",
+        "tests/integration/test_orchestrator_failure.py",
+        "tests/integration/test_orchestrator_run_to_gate.py",
+        "tests/integration/test_orchestrator_signal.py",
+        "tests/integration/test_orchestrator_stop.py",
+        "tests/integration/test_per_step_review.py",
+        "tests/integration/test_pipeline_wiring.py",
+        "tests/integration/test_plan_completeness_gate.py",
+        "tests/integration/test_plan_quality.py",
+        "tests/integration/test_planning_eval.py",
+        "tests/integration/test_planning_retriever.py",
+        "tests/integration/test_planning_single_source.py",
+        "tests/integration/test_planning_validation.py",
+        "tests/integration/test_planning_validation_crossartifact.py",
+        "tests/integration/test_plugin_gen.py",
+        "tests/integration/test_plugin_hooks.py",
+        "tests/integration/test_plugin_manifest.py",
+        "tests/integration/test_remind.py",
+        "tests/integration/test_retrack.py",
+        "tests/integration/test_review_cascade.py",
+        "tests/integration/test_review_external_default.py",
+        "tests/integration/test_scope_delta_shared.py",
+        "tests/integration/test_setup_integration.py",
+        "tests/integration/test_socratic_gate.py",
+        "tests/integration/test_spec_quality_gate.py",
+        "tests/integration/test_spec_review_gate.py",
+        "tests/integration/test_spec_selfreview.py",
+        "tests/integration/test_state_init.py",
+        "tests/integration/test_status_holder.py",
+        "tests/integration/test_step_card_compression.py",
+        "tests/integration/test_symbol_usage.py",
+        "tests/integration/test_task_brief.py",
+        "tests/integration/test_tdd_order_gate.py",
+        "tests/integration/test_test_map.py",
+        "tests/integration/test_testplan_coverage_gate.py",
+        "tests/integration/test_token_telemetry.py",
+        "tests/integration/test_update_stale.py",
+        "tests/integration/test_verbs_json.py",
+        "tests/integration/test_work_verb.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [
+        "core/phases",
+        "core/shared",
+        "core/skills",
+        "scripts",
+        "tests",
+        "tests/fixtures/klc109-python",
+        "tests/shared"
+      ],
+      "depended_by": []
+    },
+    {
+      "name": "tests/shared",
+      "path": "tests/shared/",
+      "files": [
+        "tests/shared/inventory_scope.py",
+        "tests/shared/test_artefacts.py",
+        "tests/shared/test_module_import.py",
+        "tests/shared/test_paths.py",
+        "tests/shared/test_yaml.py"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": [
+        "tests/integration"
+      ]
+    },
+    {
+      "name": "vscode-extension",
+      "path": "vscode-extension/",
+      "files": [
+        "vscode-extension/.gitignore",
+        "vscode-extension/.vscodeignore",
+        "vscode-extension/package-lock.json",
+        "vscode-extension/package.json",
+        "vscode-extension/tsconfig.json"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": "vscode-extension/src",
+      "path": "vscode-extension/src/",
+      "files": [
+        "vscode-extension/src/extension.ts",
+        "vscode-extension/src/klcReader.ts",
+        "vscode-extension/src/statusBar.ts",
+        "vscode-extension/src/treeProvider.ts",
+        "vscode-extension/src/watcher.ts"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    },
+    {
+      "name": ".",
+      "path": ".",
+      "files": [
+        ".gitattributes",
+        ".gitignore",
+        "CLAUDE.md",
+        "README.md"
+      ],
+      "primary_entrypoints": [],
+      "source": "file_listing",
+      "depends_on": [],
+      "depended_by": []
+    }
+  ],
+  "files": {
+    ".gitattributes": {
+      "primary_module": "."
+    },
+    ".gitignore": {
+      "primary_module": "."
+    },
+    "CLAUDE.md": {
+      "primary_module": "."
+    },
+    "README.md": {
+      "primary_module": "."
+    }
+  },
+  "errors": [],
+  "notes": [
+    "membership is directory-level (KLC-074 cut-over: intentional — file-stem modules need a non-reproducible semantic judgement); finer per-file targeting is delivered by the KLC-070/071 file-level views (file_roles, inventory, symbol_usage), a separate layer from the module SET.",
+    "shared-file classification (member_of) is not emitted yet — the scope_delta shared branch is inert until the KLC-070 inventory feeds it; scope expansion is coarser at directory granularity (KLC-074 review)."
+  ]
+}

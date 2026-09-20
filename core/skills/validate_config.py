@@ -158,6 +158,10 @@ _SETTINGS_SCHEMA = {
     # KLC-123: the dominant-language floor for the retriever's language-scoped
     # inventory-degradation cap.
     "index.coverage.language_share_threshold": ("ratio", None),
+    # KLC-111: the scope-guard/discovery-ack infra path list. A trailing slash
+    # means a directory prefix; no trailing slash means an exact repo-relative
+    # file. Outside `index.` on purpose (KLC-106/KLC-107 own that namespace).
+    "scope.infra_paths": ("list", str),
 }
 
 
@@ -196,6 +200,14 @@ def _check_settings_type(dotted: str, value: Any, spec: tuple) -> str | None:
         return f"settings.yml: {dotted}={value!r} invalid; use one of {sorted(extra)}"
     if kind == "posint" and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
         return f"settings.yml: {dotted} must be a positive integer"
+    if kind == "list":
+        if not isinstance(value, list):
+            return (f"settings.yml: {dotted} must be a list of strings "
+                    f"(got {type(value).__name__})")
+        for i, item in enumerate(value):
+            if not isinstance(item, extra):
+                return (f"settings.yml: {dotted}[{i}]={item!r} must be a string "
+                        f"(got {type(item).__name__})")
     if kind == "ratio":
         # KLC-106 D-208: core/shared/yaml.py's minimal parser has no float
         # literal, so a real ratio like `0.4` parses as the STRING "0.4",

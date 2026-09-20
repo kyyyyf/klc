@@ -30,6 +30,7 @@ sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 from core.shared.paths import klc_index_dir, project_root  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
+import module_vocabulary as _mv  # noqa: E402  (KLC-111: the one infra/vocabulary rule)
 import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
 
 
@@ -159,25 +160,15 @@ def compare(ticket: str) -> dict:
         }
 
     changed_files = _git_changed_files(project_root())
-    # Drop framework INFRA paths that are not application scope, so a legitimate
-    # infra edit does not false-positive the review scope-guard as expansion:
-    #   - `.klc/`  — klc's own state (ticket metadata, index, reports); klc
-    #     dirties it on every phase transition (it maps to the `.klc/tickets/`
-    #     module), so counting it would flag a false expansion on every review ack.
-    #   - `hooks/` — git hooks are delivery/process infra outside the module
-    #     graph; they resolve to no module and would otherwise land in
-    #     unknown_files → expansion, hard-failing any ticket that touches a hook
-    #     (KLC-102: the plugin-sync pre-commit step is such a legitimate edit).
-    #   - root `README.md` — a top-level project doc in no module; a legitimate
-    #     edit (e.g. a docs ticket) would otherwise land in unknown_files →
-    #     expansion (KLC-101). Only the ROOT README is dropped (exact match);
-    #     nested `<module>/README.md` stay in their module.
-    _INFRA_PREFIXES = (".klc/", "hooks/")
-    _INFRA_FILES = ("README.md",)
-    changed_files = [
-        f for f in changed_files
-        if not f.startswith(_INFRA_PREFIXES) and f not in _INFRA_FILES
-    ]
+    # Framework INFRA paths are dropped BEFORE module resolution, so a
+    # legitimate infra edit is not read as scope expansion. The list itself
+    # and the match rule live in module_vocabulary (KLC-111 AC-3), including
+    # WHY each entry is there — `.klc/`, `hooks/` and root `README.md` are
+    # byte-identical to what this file used to hard-code; `.github/` and
+    # `.gitlab/` are AC-1's mandated, deliberate widening (D-202): both
+    # resolve to no module and hard-fail as expansion today, so excusing them
+    # only ever removes a hard failure, never adds one.
+    changed_files = [f for f in changed_files if not _mv.is_infra(f)]
     if not changed_files:
         return {
             "planned": planned, "actual": [], "drift": [], "expansion": [],

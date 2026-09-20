@@ -215,6 +215,16 @@ def verify_arm_budget() -> int:
         return 600
 
 
+def scope_infra_paths():
+    """Framework/delivery paths outside the module graph (KLC-111 AC-1).
+
+    Settings-only ladder: this knob is new, so there is no legacy file to
+    consult. Returns the raw ladder value, including None when unset; the
+    built-in default and the degrade live in module_vocabulary, so this
+    layer stays pure resolution (D-003)."""
+    return resolve("scope.infra_paths")
+
+
 def index_coverage_threshold(builder=None):
     """Index-coverage floor (KLC-106 AC-2). Settings-only ladder: this knob is
     new, so there is no legacy file to consult. The per-builder override wins

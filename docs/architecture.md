@@ -106,6 +106,15 @@ posture; a new feature is expected to preserve all of them.
   function, `impl_plan_check.extract_step_fields` (KLC-113 — it replaced a
   second, incompatible fork that used to live in `core/skills/artefacts.py`).
   A second divergent copy is the recurring #1 risk.
+- **one module vocabulary (KLC-111).** A module name is the `name` of an entry
+  in the deterministic `.klc/index/modules.json`, plus the framework/delivery
+  paths configured under the `scope.infra_paths` settings knob (default
+  `.klc/`, `hooks/`, `.github/`, `.gitlab/`, `README.md`). Nothing else is a
+  module name, and no producer or consumer keeps its own private list:
+  `module_vocabulary.py` is the one place that answers "is this path infra"
+  and "what module name does this path have", wrapping
+  `module_membership.file_to_module` exactly once so a gate's decision for a
+  file and the scope-guard's decision for that same file can never diverge.
 - **fail-open (advisory) vs fail-closed (gates).** The independent reviewers are
   fail-open: they surface and record, they never block the ack. The review
   cascade and gate-policy signals are fail-closed: "unavailable" is treated as

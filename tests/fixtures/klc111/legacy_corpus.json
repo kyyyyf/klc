@@ -1,0 +1,850 @@
+{
+  "schema": "klc111-legacy-corpus-v1",
+  "note": "Frozen KLC-111 fixture reproducing the spec's measured snapshot: 79 distinct affected_modules names, 544 entries, 391 in-vocabulary (71.9%), 153 entries over 45 out-of-vocabulary names (35 mappable covering 128 entries, 9 unmappable covering 22 entries, 1 directory-prefix-ambiguous name covering 3 entries).",
+  "tickets": [
+    {
+      "ticket": "KLC-3000",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "autorunner",
+        "core/agents/review",
+        "core/rules/python",
+        "core/skills",
+        "hooks",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/status",
+        "models",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3001",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "barrel",
+        "core/agents/review",
+        "core/rules/python",
+        "core/skills",
+        "hooks",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/status",
+        "models",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3002",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "barrel",
+        "core/agents/review",
+        "core/rules/python",
+        "core/skills",
+        "hooks",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/status",
+        "models",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3003",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "before_after_report",
+        "core/agents/review",
+        "core/rules/python",
+        "core/skills",
+        "hooks",
+        "intake",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/status",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3004",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "before_after_report",
+        "core/agents/review",
+        "core/rules/python",
+        "core/skills",
+        "intake",
+        "klc-plugin",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/status",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3005",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "board",
+        "core/agents/review",
+        "core/rules/python",
+        "core/skills",
+        "intake",
+        "klc-plugin",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/status",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3006",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "board",
+        "core/agents/review",
+        "core/rules/python",
+        "core/templates",
+        "intake",
+        "klc-plugin",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/status",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3007",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "bootstrap",
+        "core/agents/review",
+        "core/rules/python",
+        "core/templates",
+        "intake",
+        "klc-plugin",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/status",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3008",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "bootstrap",
+        "core/agents/review",
+        "core/rules/rust",
+        "core/templates",
+        "intake",
+        "klc-plugin",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/step",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3009",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "budget",
+        "core/agents/review",
+        "core/rules/rust",
+        "core/templates",
+        "intake",
+        "klc-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/step",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3010",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "CLAUDE",
+        "budget",
+        "core/deps",
+        "core/rules/rust",
+        "core/templates",
+        "klc-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/step",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3011",
+      "phase": "archived",
+      "affected_modules": [
+        ".",
+        "CLAUDE",
+        "budget_guard",
+        "core/deps",
+        "core/rules/rust",
+        "core/templates",
+        "klc-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/step",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3012",
+      "phase": "archived",
+      "affected_modules": [
+        "CLAUDE",
+        "budget_guard",
+        "config",
+        "core/deps",
+        "core/rules/rust",
+        "core/templates",
+        "klc-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/step",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3013",
+      "phase": "archived",
+      "affected_modules": [
+        "CLAUDE",
+        "budgets",
+        "config",
+        "core/deps",
+        "core/rules/rust",
+        "core/templates",
+        "klc-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/jump",
+        "klc-plugin/skills/step",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3014",
+      "phase": "archived",
+      "affected_modules": [
+        "CLAUDE",
+        "budgets",
+        "config",
+        "core/deps",
+        "core/rules/rust",
+        "core/templates",
+        "klc-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/next",
+        "klc-plugin/skills/step",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3015",
+      "phase": "archived",
+      "affected_modules": [
+        "CLAUDE",
+        "build",
+        "config",
+        "core/deps",
+        "core/rules/rust",
+        "core/templates",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/next",
+        "klc-plugin/skills/step",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3016",
+      "phase": "archived",
+      "affected_modules": [
+        "CLAUDE",
+        "build",
+        "config",
+        "core/deps",
+        "core/rules/rust",
+        "core/templates",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/next",
+        "klc-plugin/skills/step",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3017",
+      "phase": "archived",
+      "affected_modules": [
+        "build_ledger",
+        "config",
+        "core/deps",
+        "core/rules/rust",
+        "core/templates",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/next",
+        "klc-plugin/skills/step",
+        "review",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3018",
+      "phase": "archived",
+      "affected_modules": [
+        "build_ledger",
+        "config",
+        "core/deps",
+        "core/rules/rust",
+        "docs",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/next",
+        "klc-plugin/skills/step",
+        "review",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3019",
+      "phase": "archived",
+      "affected_modules": [
+        "agents",
+        "config",
+        "core/deps",
+        "core/rules/rust",
+        "docs",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/abort",
+        "klc-plugin/skills/next",
+        "profiles/generic",
+        "review",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3020",
+      "phase": "archived",
+      "affected_modules": [
+        "agents",
+        "config",
+        "core/deps",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/next",
+        "profiles/generic",
+        "review",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3021",
+      "phase": "archived",
+      "affected_modules": [
+        "agents",
+        "config",
+        "core/deps",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/next",
+        "profiles/generic",
+        "review",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3022",
+      "phase": "archived",
+      "affected_modules": [
+        "agents",
+        "config",
+        "core/phases",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/next",
+        "profiles/generic",
+        "review",
+        "runner"
+      ]
+    },
+    {
+      "ticket": "KLC-3023",
+      "phase": "archived",
+      "affected_modules": [
+        "ack",
+        "build_run_phase",
+        "config",
+        "core/phases",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/next",
+        "profiles/generic",
+        "review"
+      ]
+    },
+    {
+      "ticket": "KLC-3024",
+      "phase": "archived",
+      "affected_modules": [
+        "ack",
+        "build_run_phase",
+        "core/agents",
+        "core/phases",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/next",
+        "profiles/generic",
+        "scope_delta"
+      ]
+    },
+    {
+      "ticket": "KLC-3025",
+      "phase": "archived",
+      "affected_modules": [
+        "ack",
+        "build_run_phase",
+        "core/agents",
+        "core/phases",
+        "core/rules/typescript",
+        "docs",
+        "jira",
+        "klc-plugin/.claude-plugin",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/run",
+        "profiles/generic"
+      ]
+    },
+    {
+      "ticket": "KLC-3026",
+      "phase": "archived",
+      "affected_modules": [
+        "ack",
+        "artefacts",
+        "callgraph_rust",
+        "core/agents",
+        "core/phases",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/agents",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/run",
+        "profiles/generic"
+      ]
+    },
+    {
+      "ticket": "KLC-3027",
+      "phase": "archived",
+      "affected_modules": [
+        "ack",
+        "callgraph_rust",
+        "core/agents",
+        "core/phases",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/agents",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/run",
+        "phases",
+        "profiles/generic"
+      ]
+    },
+    {
+      "ticket": "KLC-3028",
+      "phase": "archived",
+      "affected_modules": [
+        "ADR-001-phase-resolver-two-executors",
+        "ack",
+        "callgraph_rust",
+        "core/agents",
+        "core/phases",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/agents",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/run",
+        "profiles/generic"
+      ]
+    },
+    {
+      "ticket": "KLC-3029",
+      "phase": "archived",
+      "affected_modules": [
+        "Foo",
+        "ack",
+        "core",
+        "core/agents",
+        "core/phases",
+        "core/rules/typescript",
+        "docs",
+        "klc-plugin/agents",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/run",
+        "profiles/generic"
+      ]
+    },
+    {
+      "ticket": "KLC-3030",
+      "phase": "archived",
+      "affected_modules": [
+        "FooTest",
+        "ack",
+        "core",
+        "core/agents",
+        "core/phases",
+        "core/rules/typescript",
+        "docs/adr",
+        "klc-plugin/agents",
+        "klc-plugin/skills/ack",
+        "klc-plugin/skills/run",
+        "profiles/generic/hooks"
+      ]
+    },
+    {
+      "ticket": "KLC-3031",
+      "phase": "archived",
+      "affected_modules": [
+        "FooTests",
+        "ack",
+        "core",
+        "core/agents",
+        "core/phases",
+        "core/rules/typescript",
+        "docs/adr",
+        "klc-plugin/agents",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/run",
+        "profiles/generic/hooks"
+      ]
+    },
+    {
+      "ticket": "KLC-3032",
+      "phase": "archived",
+      "affected_modules": [
+        "README",
+        "ack",
+        "core/agents",
+        "core/phases",
+        "core/shared",
+        "docs/adr",
+        "klc-plugin/agents",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/run",
+        "klc_cli",
+        "profiles/generic/hooks"
+      ]
+    },
+    {
+      "ticket": "KLC-3033",
+      "phase": "archived",
+      "affected_modules": [
+        "SKILL",
+        "ack",
+        "core/agents",
+        "core/phases",
+        "core/shared",
+        "docs/adr",
+        "klc-plugin/agents",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/run",
+        "klc_cli",
+        "profiles/generic/hooks"
+      ]
+    },
+    {
+      "ticket": "KLC-3034",
+      "phase": "archived",
+      "affected_modules": [
+        "SKILL",
+        "core/agents",
+        "core/rules/cpp",
+        "core/shared",
+        "docs/adr",
+        "install",
+        "klc-plugin/agents",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/run",
+        "knowledge",
+        "profiles/generic/hooks"
+      ]
+    },
+    {
+      "ticket": "KLC-3035",
+      "phase": "archived",
+      "affected_modules": [
+        "abort",
+        "core/agents",
+        "core/rules/cpp",
+        "core/shared",
+        "docs/adr",
+        "install",
+        "klc-plugin/agents",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/run",
+        "knowledge",
+        "profiles/generic/hooks"
+      ]
+    },
+    {
+      "ticket": "KLC-3036",
+      "phase": "archived",
+      "affected_modules": [
+        "abort",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/shared",
+        "docs/adr",
+        "install",
+        "klc-plugin/agents",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/ship",
+        "profiles/generic/hooks",
+        "tickets"
+      ]
+    },
+    {
+      "ticket": "KLC-3037",
+      "phase": "archived",
+      "affected_modules": [
+        "ac_test_coverage",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/shared",
+        "docs/adr",
+        "install",
+        "klc-plugin/commands",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/ship",
+        "profiles/generic/hooks",
+        "tickets"
+      ]
+    },
+    {
+      "ticket": "KLC-3038",
+      "phase": "archived",
+      "affected_modules": [
+        "ac_test_coverage",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/shared",
+        "docs/adr",
+        "install",
+        "klc-plugin/commands",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/ship",
+        "profiles/generic/hooks",
+        "task_brief_phase"
+      ]
+    },
+    {
+      "ticket": "KLC-3039",
+      "phase": "archived",
+      "affected_modules": [
+        "acceptance-test-plan",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/shared",
+        "docs/adr",
+        "install",
+        "klc-plugin/commands",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/ship",
+        "profiles/generic/hooks",
+        "task_brief_phase"
+      ]
+    },
+    {
+      "ticket": "KLC-3040",
+      "phase": "archived",
+      "affected_modules": [
+        "acceptance-test-plan",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/shared",
+        "docs/adr",
+        "install",
+        "klc-plugin/commands",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/ship",
+        "profiles/generic/hooks",
+        "retro_notes"
+      ]
+    },
+    {
+      "ticket": "KLC-3041",
+      "phase": "archived",
+      "affected_modules": [
+        "adr",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/shared",
+        "docs/adr",
+        "install",
+        "klc-plugin/commands",
+        "klc-plugin/skills",
+        "klc-plugin/skills/discuss-feature",
+        "klc-plugin/skills/ship",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3042",
+      "phase": "archived",
+      "affected_modules": [
+        "adr",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/shared",
+        "hooks",
+        "install",
+        "klc-plugin/commands",
+        "klc-plugin/skills",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/ship",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3043",
+      "phase": "archived",
+      "affected_modules": [
+        "advisories",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/shared",
+        "hooks",
+        "install",
+        "klc-plugin/commands",
+        "klc-plugin/skills",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/ship",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3044",
+      "phase": "archived",
+      "affected_modules": [
+        "advisories",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/skills",
+        "hooks",
+        "klc-plugin/commands",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/ship",
+        "models",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3045",
+      "phase": "archived",
+      "affected_modules": [
+        "architecture",
+        "core/agents/_includes",
+        "core/rules/cpp",
+        "core/skills",
+        "hooks",
+        "klc-plugin/commands",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/ship",
+        "models",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3046",
+      "phase": "archived",
+      "affected_modules": [
+        "architecture",
+        "core/agents/_includes",
+        "core/rules/python",
+        "core/skills",
+        "hooks",
+        "klc-plugin/commands",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/ship",
+        "models",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3047",
+      "phase": "archived",
+      "affected_modules": [
+        "async-patterns",
+        "core/agents/_includes",
+        "core/rules/python",
+        "core/skills",
+        "hooks",
+        "klc-plugin/commands",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/status",
+        "models",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3048",
+      "phase": "archived",
+      "affected_modules": [
+        "async-patterns",
+        "core/agents/review",
+        "core/rules/python",
+        "core/skills",
+        "hooks",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/status",
+        "models",
+        "phase_completion"
+      ]
+    },
+    {
+      "ticket": "KLC-3049",
+      "phase": "archived",
+      "affected_modules": [
+        "autorunner",
+        "core/agents/review",
+        "core/rules/python",
+        "core/skills",
+        "hooks",
+        "klc-plugin/hooks",
+        "klc-plugin/skills/intake",
+        "klc-plugin/skills/status",
+        "models",
+        "phase_completion"
+      ]
+    }
+  ]
+}

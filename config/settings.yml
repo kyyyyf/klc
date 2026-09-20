@@ -70,3 +70,10 @@
 #   arm_budget_seconds: 600     # the whole verification arm at one ack — ONE shared
 #                               # ceiling split across ac-coverage/evidence/step-verify
 #                               # (KLC-115 review-fix), not one per checker. Default: 600.
+
+# Scope-guard infra paths (KLC-111). Paths outside the module graph, dropped
+# before module resolution by the scope-guard and accepted as valid module
+# names by the discovery-ack check. A trailing slash is a directory prefix;
+# no trailing slash is an exact repo-relative file. No legacy file.
+# scope:
+#   infra_paths: [".klc/", "hooks/", ".github/", ".gitlab/", "README.md"]

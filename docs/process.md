@@ -500,6 +500,9 @@ klc state init [<remote>]      # materialize the klc-state branch as a .klc/ wor
 klc jira-sync [--dry-run]      # flush Jira push queue
 klc jira-sync status           # queue size + oldest entry age
 klc scope-fix <key> (--modules a,b,c | --add a,b | --remove a,b) [--reason ...]
+klc scope-fix --migrate-vocabulary [--dry-run] [--json]   # batch: rewrite every
+                                          # archived ticket's affected_modules to
+                                          # the module vocabulary (see below)
 klc migrate-notes [--dry-run] [--json]   # one-time: cap over-long phase-history
                                           # notes to a pointer at their ack
                                           # advisory artifact (see below)
@@ -534,6 +537,43 @@ scope-expansion hard-fail). Three mutually-exclusive modes: `--modules a,b,c`
 (replace), `--add a,b` (union), `--remove a,b` (drop). Malformed lists are rejected
 before any write; unknown module names are a non-fatal advisory; each correction is
 a `scope-fix` entry in `meta.phase_history`.
+
+### One-time vocabulary migration — `klc scope-fix --migrate-vocabulary`
+
+A fourth mode on the same verb (KLC-111), for the one-time cut-over from the
+pre-KLC-074 file-stem `modules.json` to the deterministic directory-level one. It
+takes NO ticket argument — it batch-rewrites `meta.affected_modules` of every
+**archived** ticket whose entries fall outside the module vocabulary (the `name`
+set of `.klc/index/modules.json` plus the configured `scope.infra_paths` list),
+mapping a legacy name by exact module name, tracked file path, or basename stem.
+A name matching only as a directory prefix of other module names is reported
+**ambiguous** and never auto-expanded; a name matching none of the three rules is
+reported **unmappable**. Both lists are printed, never silently dropped. Each
+rewritten ticket is corrected inside its own `acquire_lock → state_tx`, exactly
+like the three ticket-scoped modes, and gets exactly one `vocabulary-migration`
+entry in `meta.phase_history`; a re-run over an already-migrated ticket is a true
+no-op (the audit entry is the sentinel). A live (non-archived) ticket is refused,
+same as the three ticket-scoped modes.
+
+The operator sequence, run once, from `/home/ek/projects/klc` (or your
+`PROJECT_ROOT`):
+
+```text
+# 1. rebuild the deterministic index in the .klc worktree (bound to klc-state).
+#    This replaces the STALE, pre-KLC-074, 29-name file-stem modules.json with
+#    the current directory-level module set — review this step on its own
+#    before any archived ticket is rewritten against it.
+klc init --scan-only
+
+# 2. commit the rebuilt index on klc-state
+git -C .klc add index/
+git -C .klc commit -m "KLC-111: rebuild modules.json at directory granularity"
+
+# 3. dry-run the migration first — read the unmappable and ambiguous lists,
+#    and confirm the projected in-vocabulary share, before applying
+klc scope-fix --migrate-vocabulary --dry-run --json
+klc scope-fix --migrate-vocabulary
+```
 
 ---
 

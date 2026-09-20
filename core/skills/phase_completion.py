@@ -34,6 +34,7 @@ import module_membership as _mm  # noqa: E402  (KLC-098: file→module resolver,
 import drift_review as _drift_review  # noqa: E402  (KLC-099: DRIFT_CHECK ReviewKind seam)
 import advisories as _adv  # noqa: E402  (KLC-117: the one advisory aggregator)
 import provenance as _provenance  # noqa: E402  (KLC-116: the design-ack provenance gate)
+import module_vocabulary as _mv  # noqa: E402  (KLC-111: the one vocabulary/mapper module)
 
 
 def _provenance_gate_records(ticket: str, persist: bool) -> tuple[str, list[dict]]:
@@ -57,6 +58,29 @@ def _provenance_gate_records(ticket: str, persist: bool) -> tuple[str, list[dict
     records = [{"source": "provenance", "severity": "info",
                "code": "provenance.warn", "message": w, "ref": ""} for w in warns]
     return block, records
+
+
+def _vocabulary_records(ticket: str) -> list[dict]:
+    """One `medium` advisory record per out-of-vocabulary `affected_modules`
+    entry (KLC-111 AC-14/AC-15); exactly one `info` record when the module
+    index cannot be read (AC-16). Never blocks the ack — this is a pure
+    producer, degrade-not-fail by construction (C-004)."""
+    data, reason = _mv.load_modules()
+    if data is None:
+        return [{"source": "scope-vocabulary", "severity": "info",
+                 "code": "scope-vocabulary.index-unavailable",
+                 "message": f"module vocabulary unchecked — {reason}", "ref": ""}]
+    vocab = _mv.vocabulary(data)
+    planned = _lc.read_meta_ro(ticket).get("affected_modules") or []
+    out = []
+    for name in _mv.unknown_names(planned, data):
+        hit = _mv.nearest(name, vocab)
+        tail = f"did you mean {hit!r}?" if hit else "no candidate found in the current vocabulary"
+        out.append({"source": "scope-vocabulary", "severity": "medium",
+                    "code": "scope-vocabulary.unknown-module",
+                    "message": f"affected_modules entry {name!r} is not a module name — {tail}",
+                    "ref": name})
+    return out
 
 
 def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -240,6 +264,7 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
         ("spec-self-check", _spec_warnings),
         ("discovery", _decompose_records),
         ("spec-review", _spec_review_records(ticket, persist)),
+        ("scope-vocabulary", _vocabulary_records(ticket)),
     ]
     _records, _summary = _adv.finish(ticket, "discovery", _sources, persist)
     return True, _summary
@@ -678,6 +703,7 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
         ("spec-review", _spec_review_records(ticket, persist)),
         ("impl-plan-review", _implplan_review_records(ticket, persist)),
         ("provenance", _prov_records),
+        ("scope-vocabulary", _vocabulary_records(ticket)),
     ]
     _records, _summary = _adv.finish(ticket, "discovery-lite", _sources, persist)
     return True, _summary

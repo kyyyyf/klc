@@ -182,6 +182,7 @@ klc publish <key>                 # push the review verdict to the ticket's GitH
 klc retrack <key> <track> --reason "..."     # operator-only track change
 klc steal  <key>                  # take over a stale holder slot
 klc scope-fix <key> (--modules|--add|--remove ...)  # correct affected_modules
+klc scope-fix --migrate-vocabulary [--dry-run]      # batch: legacy names -> module vocabulary
 klc board [--epic <ROOT>]         # kanban, or epic-scoped view
 klc doctor
 klc metrics <key> / --rollup
