@@ -111,12 +111,21 @@ def test_collect_files_fallback_decision_ignores_test_hits(tmp_path):
     source_roots-vs-fallback decision is 'computed over non-test hits
     only', but the code computed `under` from ALL hits, test files
     included. A test-convention-named file that happens to sit under a
-    source_root (`pkg/test_helpers.py`) made `under` non-empty and
-    suppressed the intended whole-universe fallback for a real non-test
-    source file that sits under NO source_root (`weirdplace/mod.py`) —
-    the reviewer's exact repro."""
+    source_root (`pkg/conftest.py`) made `under` non-empty and suppressed
+    the intended whole-universe fallback for a real non-test source file
+    that sits under NO source_root (`weirdplace/mod.py`) — the reviewer's
+    exact repro.
+
+    KLC-109 review-fix round 2 (D-109-9): uses `pkg/conftest.py`, not
+    `pkg/test_helpers.py` — `conftest.py` is the 'sibling: none' bucket (it
+    has no derivable production stem at all, so it stays a confirmed test
+    unconditionally under the NEW conservative default too), whereas
+    `test_helpers.py` derives a `helpers.py` sibling that this synthetic
+    2-file universe cannot confirm, and confirming it for real would require
+    adding real non-test code under `pkg` — defeating the very fallback
+    scenario this test exists to prove."""
     ig = _load_import_graph_module()
-    universe = ["pkg/test_helpers.py", "weirdplace/mod.py"]
+    universe = ["pkg/conftest.py", "weirdplace/mod.py"]
     source_roots = ["pkg"]
     collected = ig._collect_files(tmp_path, source_roots, (".py",), universe)
     rels = {str(p.relative_to(tmp_path)) for p in collected}

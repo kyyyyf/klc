@@ -51,7 +51,8 @@ sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir  # noqa: E402
 from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
 import module_membership as _mm  # noqa: E402
-import test_map as _tm  # noqa: E402  (reuse is_test_file + load_callgraph_dir)
+import test_map as _tm  # noqa: E402  (reuse load_callgraph_dir)
+import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
 import index_coverage  # noqa: E402
 
 # Re-export the KLC-070 loader so callers/tests use one merge implementation.
@@ -130,15 +131,19 @@ def _change_risk(visibility: str, n_users: int) -> str:
 
 def build_symbol_usage(inventory: dict, modules: dict,
                        callgraph: dict | None, depgraph: dict | None,
-                       structural: dict | None = None) -> dict:
+                       structural: dict | None = None, *, table=None) -> dict:
     """Deterministic symbol impact-radius map. Pure; no timestamp (AC-8).
 
     ``structural`` (KLC-105, additive) — when its ``files_rel`` is present, a symbol
     DEFINED outside the universe is dropped entirely, and every ``used_by`` /
     ``tested_by`` file reference outside the universe is filtered out (AC-2's
-    "symbol_usage defining and using files" category)."""
+    "symbol_usage defining and using files" category). ``table=`` (KLC-109 D-203) is
+    the profile-extended test-path table used to decide `tested_by` vs `used_by`;
+    defaults to the built-in table (purity, C-002); `main()` passes
+    `test_conventions.active_table()`."""
     errors: list[str] = []
     notes: list[str] = []
+    tbl = table if table is not None else _tc.builtin_table()
 
     declared = (structural or {}).get("files_rel")
     member: set[str] | None = set(declared) if isinstance(declared, list) and declared else None
@@ -173,6 +178,11 @@ def build_symbol_usage(inventory: dict, modules: dict,
 
         used_by: list[dict] = []
         tested_by: set[str] = set()
+        # KLC-109 review-fix round 2 (D-109-11, MEDIUM): exists= is membership
+        # in the SAME `structural.files_rel` universe already resolved above
+        # (a pure set lookup — None when unavailable, matching D-109-9's
+        # conservative default rather than silently trusting every name).
+        exists = member.__contains__ if member is not None else None
         if not degraded:
             for caller in cg_idx.get(key, []):
                 cf = _caller_file(caller)
@@ -180,7 +190,7 @@ def build_symbol_usage(inventory: dict, modules: dict,
                     continue
                 if member is not None and cf not in member:
                     continue
-                if _tm.is_test_file(cf):
+                if _tc.is_test_path(cf, table=tbl, exists=exists):
                     tested_by.add(cf)
                 else:
                     used_by.append({"file": cf, "module_name": _mod(cf),
@@ -189,7 +199,7 @@ def build_symbol_usage(inventory: dict, modules: dict,
             for cf in import_consumers.get(defined_in, []):
                 if member is not None and cf not in member:
                     continue
-                if _tm.is_test_file(cf):
+                if _tc.is_test_path(cf, table=tbl, exists=exists):
                     tested_by.add(cf)
                 else:
                     used_by.append({"file": cf, "module_name": _mod(cf),
@@ -271,7 +281,8 @@ def main(argv: list[str] | None = None) -> int:
     depgraph = _load(args.in_depgraph)
     structural = _load(args.in_structural) if args.in_structural.exists() else None
 
-    result = build_symbol_usage(inventory, modules, callgraph, depgraph, structural)
+    result = build_symbol_usage(inventory, modules, callgraph, depgraph, structural,
+                                table=_tc.active_table())
     payload = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc)
         .strftime("%Y-%m-%dT%H:%M:%SZ"),

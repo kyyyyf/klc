@@ -66,7 +66,7 @@ sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir  # noqa: E402
 from core.shared.inventory import InventorySchemaError, symbols as inv_symbols  # noqa: E402
 import module_membership as _mm  # noqa: E402
-import test_map as _tm  # noqa: E402  (reuse the one is_test_file convention)
+import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
 
 # Generated / vendored path markers (deterministic; the profile excludes already keep
 # most of these out of inventory, but a path check catches the rest without a subprocess).
@@ -232,7 +232,8 @@ def _file_universe(inventory: dict, modules: dict, structural: dict) -> set[str]
 
 
 def _confidence(path: str, roles: list[str], is_generated: bool, is_test: bool,
-                is_config: bool, is_shared: bool, public_surface_backed: bool) -> str:
+                is_config: bool, is_shared: bool, public_surface_backed: bool,
+                *, table=None, exists=None) -> str:
     """Confidence in the classification = strength of the DECIDING signal.
 
     Priority-based and independent of role-append order (the deciding rule is the one
@@ -248,8 +249,13 @@ def _confidence(path: str, roles: list[str], is_generated: bool, is_test: bool,
     if is_generated:
         return "medium"            # generated/vendor is a path heuristic
     if is_test:
-        # a test under a test dir is a path signal; a bare test-name only, filename.
-        return "medium" if _tm._TEST_DIR_RE.search(path) else "low"
+        # KLC-109: decided via the shared module's public test_signal (was: a
+        # private reach-in into another module's directory regex) — a test
+        # under a test DIRECTORY is a path signal (medium); a bare
+        # test-name-only filename convention is 'low'. `exists=` is threaded
+        # through for consistency with `_classify`'s own is_test call (D-109-11)
+        # even though the 'dir' check itself never consults it.
+        return "medium" if _tc.test_signal(path, table=table, exists=exists) == "dir" else "low"
     if is_config:
         return "medium"            # config-by-extension is a path heuristic
     if is_shared:
@@ -266,11 +272,18 @@ def _confidence(path: str, roles: list[str], is_generated: bool, is_test: bool,
 
 def _classify(path: str, syms: list[dict], modules: dict,
               entrypoints: set[str], public_surfaces: set[str],
-              purpose: str = "", idf: dict | None = None) -> dict:
-    """Return the role record for one file (see module docstring)."""
+              purpose: str = "", idf: dict | None = None, *, table=None,
+              exists=None) -> dict:
+    """Return the role record for one file (see module docstring).
+
+    KLC-109 review-fix round 2 (D-109-11): ``exists=`` (the KLC-105 universe
+    this file's caller resolved — a pure set-membership check, no I/O) is
+    forwarded to ``is_test_path`` so a basename-only match is confirmed
+    against the same universe ``build_file_roles`` already closed against,
+    matching D-109-9's conservative default."""
     membership = _mm.file_to_module(path, modules)
     is_generated = bool(_GENERATED_RE.search(path))
-    is_test = _tm.is_test_file(path)
+    is_test = _tc.is_test_path(path, table=table, exists=exists)  # KLC-109: shared public predicate
     is_config = Path(path).suffix.lower() in _CONFIG_EXT
     is_entry = path in entrypoints
     is_shared = membership["is_shared"]
@@ -311,7 +324,7 @@ def _classify(path: str, syms: list[dict], modules: dict,
         roles.append("shared")
 
     signal = _confidence(path, roles, is_generated, is_test, is_config, is_shared,
-                         public_surface_backed)
+                         public_surface_backed, table=table, exists=exists)
 
     # Eligibility: a positive role AND no disqualifier (disqualifiers WIN).
     positive = {"entrypoint", "public_surface", "domain_logic", "adapter",
@@ -334,7 +347,8 @@ def _classify(path: str, syms: list[dict], modules: dict,
 
 
 def build_file_roles(inventory: dict, modules: dict, structural: dict,
-                     source_texts: dict[str, str] | None = None) -> dict:
+                     source_texts: dict[str, str] | None = None, *,
+                     table=None) -> dict:
     """Deterministic per-file role map. Pure; no timestamp (AC-8).
 
     KLC-108 D-004: `source_texts` (an optional ``{path: leading bytes}`` map)
@@ -345,7 +359,9 @@ def build_file_roles(inventory: dict, modules: dict, structural: dict,
     over the ranked set": pass 1 collects every file's uncapped candidate
     tokens and builds the token-frequency table (`token_idf`, returned under
     that key — AC-8); pass 2 ranks and caps each file's `keywords` against
-    that table (AC-6/AC-7)."""
+    that table (AC-6/AC-7). KLC-109 D-203: `table=` is the profile-extended
+    test-path table (defaults to the built-in table, preserving purity);
+    `main()` passes `test_conventions.active_table()`."""
     source_texts = source_texts or {}
     errors: list[str] = []
     notes: list[str] = []
@@ -391,7 +407,8 @@ def build_file_roles(inventory: dict, modules: dict, structural: dict,
     for path in sorted(universe_files):
         files_out[path] = _classify(
             path, by_file.get(path, []), modules, entrypoints, public_surfaces,
-            purposes.get(path, ""), token_idf)
+            purposes.get(path, ""), token_idf, table=table,
+            exists=universe_files.__contains__)
 
     return {"files": files_out, "errors": errors, "notes": notes,
             "token_idf": token_idf}
@@ -457,7 +474,8 @@ def main(argv: list[str] | None = None) -> int:
     universe = _file_universe(inventory, modules, structural)
     source_texts = _read_source_texts(args.root, universe)
 
-    result = build_file_roles(inventory, modules, structural, source_texts=source_texts)
+    result = build_file_roles(inventory, modules, structural, source_texts=source_texts,
+                              table=_tc.active_table())
     if not args.in_modules.exists():
         result["errors"].append(f"modules.json not found at {args.in_modules}")
     if not args.in_structural.exists():

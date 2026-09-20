@@ -40,7 +40,7 @@ sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_file_dir))
 from core.shared.paths import framework_root, klc_index_dir  # noqa: E402, F401
 import file_universe  # noqa: E402
-import test_map as _tm  # noqa: E402  (reuse is_test_file — KLC-122 step-6)
+import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
 
 
 # ---- tiny regex-based parsers ----------------------------------------------
@@ -88,7 +88,13 @@ def _collect_files(root: Path, source_roots: list[str], extensions: tuple[str, .
     original "no source root covers any file -> whole universe" escape hatch keeps
     working exactly as before for languages with no test file at all."""
     hits = [f for f in universe if f.endswith(extensions)]
-    test_files = {f for f in hits if _tm.is_test_file(f)}
+    tbl = _tc.active_table()
+    # KLC-109 review-fix round 2 (D-109-11, MEDIUM): exists= is membership in
+    # the KLC-105 universe this function was already handed — a pure set
+    # lookup, matching D-109-9's conservative default for a basename-only
+    # match instead of trusting the name signal unconditionally.
+    member = set(universe)
+    test_files = {f for f in hits if _tc.is_test_path(f, table=tbl, exists=member.__contains__)}
     non_test_hits = [f for f in hits if f not in test_files]
     under = {f for f in non_test_hits
              if any(f == sr or f.startswith(sr + "/") for sr in source_roots)}

@@ -147,6 +147,21 @@ def test_ac_token_right_boundary_rejects_trailing_letters(tmp_path):
     assert m2["AC-1"] != "covered", m2
 
 
+def test_python_scoping_and_node_id_verification_unchanged_after_shared_module_migration(tmp_path):
+    """AC-9 regression: existing python `tests/` scoping and pytest node-id
+    verification behave byte-identically to today after ac_test_coverage's
+    discovery filter moves to the shared test_conventions module (KLC-109)."""
+    root = tmp_path / "tests"
+    _write(root, "test_holder.py", "def test_ac1_x():\n    assert True\n")
+    m = acov.build_map(_spec("AC-1"),
+                       _test_plan(("AC-1", "tests/test_holder.py::test_ac1_x")), root)
+    assert m["AC-1"] == "covered", m
+    implemented, scanned = acov._scan_tests_for_ac_ids(
+        root, ["AC-1"], {"tests/test_holder.py"})
+    assert implemented["AC-1"] == ["tests/test_holder.py::test_ac1_x"]
+    assert "tests/test_holder.py" in scanned
+
+
 def test_ac_token_boundary_accepts_valid_separators(tmp_path):
     """FIX-B counterpart: `ac1_foo` and body `AC-1.` / `AC-1 ` still DO cover AC-1."""
     root = tmp_path / "tests"

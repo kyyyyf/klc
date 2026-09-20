@@ -42,6 +42,7 @@ sys.path.insert(0, str(_file_dir))
 # dir-module, which the boundary-aware match missed.
 import module_membership as _mm
 import index_coverage  # noqa: E402
+import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
 
 
 def aggregate_module_edges(modules_data: dict, depgraph: dict) -> dict:
@@ -99,13 +100,6 @@ _EVIDENCE_CONFIDENCE = {
 }
 
 
-def _is_test_file(path: str) -> bool:
-    """Local, cheap test-file check (kept private; test_map owns the richer one)."""
-    import re
-    return bool(re.search(r"(^|/)(tests?|__tests__|spec)(/|$)", path)
-                or re.match(r"(test_.*|.*_test|conftest)$", Path(path).stem))
-
-
 def _confidence_from_classes(n_classes: int) -> str:
     """Edge confidence enum from the count of DISTINCT evidence classes."""
     if n_classes >= 3:
@@ -116,7 +110,7 @@ def _confidence_from_classes(n_classes: int) -> str:
 
 
 def _collect_evidence(modules_data: dict, depgraph: dict,
-                      callgraph: dict | None) -> list[dict]:
+                      callgraph: dict | None, table=None) -> list[dict]:
     """Evidence records from DETERMINISTIC sources only.
 
     Each record is ``{source, type, from(file), to(file), confidence, from_module,
@@ -124,6 +118,22 @@ def _collect_evidence(modules_data: dict, depgraph: dict,
     ``depends_on`` in modules.json is deliberately NOT a source here.
     """
     records: list[dict] = []
+    tbl = table if table is not None else _tc.builtin_table()
+
+    # KLC-109 review-fix round 2 (D-109-11, MEDIUM): the universe this
+    # consumer already holds is every file mentioned as a node/endpoint in
+    # the depgraph it was handed — a pure set-membership check (no I/O), so
+    # a basename-only match (Foo.spec.js, foo_test.go, ...) can confirm its
+    # sibling and D-109-9's conservative default does not silently starve
+    # `test_import` classification.
+    member: set[str] = set()
+    for g in (depgraph.get("import_graphs") or {}).values():
+        for e in g.get("edges") or []:
+            frm, to = e.get("from"), e.get("to")
+            if frm:
+                member.add(frm)
+            if to:
+                member.add(to)
 
     def _emit(source: str, type_: str, frm: str, to: str) -> None:
         fm = _mm.primary_module(frm, modules_data)
@@ -142,7 +152,9 @@ def _collect_evidence(modules_data: dict, depgraph: dict,
             frm, to = e.get("from"), e.get("to")
             if frm and to:
                 _emit("import_graph",
-                      "test_import" if _is_test_file(frm) else "runtime_import",
+                      "test_import" if _tc.is_test_path(frm, table=tbl,
+                                                         exists=member.__contains__)
+                      else "runtime_import",
                       frm, to)
 
     # package graph → build_time (coarse; module-level packages absent here)
@@ -168,16 +180,18 @@ def _collect_evidence(modules_data: dict, depgraph: dict,
 
 def build_detailed_edges(modules_data: dict, depgraph: dict,
                          callgraph: dict | None = None,
-                         advisory: dict | None = None) -> dict:
+                         advisory: dict | None = None, *, table=None) -> dict:
     """Ranked, evidence-backed module edges. Pure; no timestamp (AC-11).
 
     ``advisory`` maps ``(from_module, to_module) -> reason`` (an LLM/decompose hint).
     It is attached as ``advisory_reason`` for context but NEVER contributes to
     ``evidence_count`` or ``confidence`` — the model guess must not re-enter the
     planning graph (planning_indexer.md §2 "LLM/decompose evidence в ранжирование не
-    входит").
+    входит"). ``table=`` (KLC-109 D-203) is the profile-extended test-path table used
+    to classify an import edge as ``test_import`` vs ``runtime_import``; ``main()``
+    passes ``test_conventions.active_table()``.
     """
-    records = _collect_evidence(modules_data, depgraph, callgraph)
+    records = _collect_evidence(modules_data, depgraph, callgraph, table=table)
 
     by_pair: dict[tuple[str, str], list[dict]] = {}
     for r in records:
@@ -287,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(base, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Detailed layer.
-    detailed = build_detailed_edges(base, depgraph, callgraph)
+    detailed = build_detailed_edges(base, depgraph, callgraph, table=_tc.active_table())
     payload = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc)
         .strftime("%Y-%m-%dT%H:%M:%SZ"),

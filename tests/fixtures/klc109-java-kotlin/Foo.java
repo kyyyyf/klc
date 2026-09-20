@@ -1,0 +1,5 @@
+public class Foo {
+    public static int foo() {
+        return 42;
+    }
+}

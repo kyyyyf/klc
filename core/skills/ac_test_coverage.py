@@ -85,6 +85,7 @@ import spec_saoc as _saoc  # noqa: E402
 import testplan_review as _tpr  # noqa: E402
 import settings  # noqa: E402  (KLC-115: verify.node_budget_seconds / verify.arm_budget_seconds)
 import verify_runner  # noqa: E402  (KLC-115: the bounded, language-agnostic runner)
+import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
 
 # Reuse the SAME AC-id class the plan review anchors on — no second parser (C-001).
 _AC_ID_RE = _tpr._AC_ID_RE  # AC-\d+
@@ -206,6 +207,13 @@ def _scan_tests_for_ac_ids(tests_root, ac_ids: list[str], candidate_files,
         path = _resolve_candidate(cand, tests_root, project_root)
         if path is None:
             continue  # a declared-but-absent test → drift territory, never a block basis
+        if path.suffix != ".py":
+            # KLC-109 AC-9: a non-python candidate (discovery is now
+            # language-agnostic, via test_conventions) is ADMITTED here but
+            # never parsed, never enters `scanned`, and can therefore never
+            # substantiate a block — pytest node-id verification stays
+            # python-only per the Non-goals.
+            continue
         rp = path.resolve()
         if rp in ok_paths:
             scanned.add(cand)  # same file, different spelling — still successfully scanned
@@ -265,6 +273,28 @@ def _git(args: list[str], repo=None) -> tuple[str, bool]:
         return "", False
 
 
+def _head_tree_members(cwd: Path) -> frozenset[str]:
+    """The set of paths in HEAD's git tree (``git ls-tree -r --name-only
+    HEAD``) — the sibling-existence probe `_changed_test_files` passes as
+    `exists=` (KLC-109 review-fix round 2, D-109-10, drift F-4).
+
+    Never `Path.exists()` on a path list that came from git: a basename-only
+    match (e.g. `core/skills/test_conventions.py`'s own `test_*.py`-shaped
+    filename) is confirmed a test only when its derived sibling
+    (`conventions.py`) already existed in HEAD's tree BEFORE this diff — a
+    stable, git-object-backed answer, never today's live working-tree
+    checkout. This is strictly additive supplementary evidence (the module
+    docstring's STRUCTURAL INVARIANT): a colocated pair added together in
+    the SAME uncommitted diff (sibling not yet in HEAD) simply does not get
+    counted here — no git condition can turn that into a false BLOCK, it
+    only means one fewer additive candidate. Returns an empty frozenset on
+    any git failure (never raises)."""
+    out, ok = _git(["ls-tree", "-r", "--name-only", "HEAD"], cwd)
+    if not ok:
+        return frozenset()
+    return frozenset(line.strip() for line in out.splitlines() if line.strip())
+
+
 def _repo_root(repo=None) -> Path:
     """The git working directory for changed-file discovery: the explicit *repo* if
     given, else the PROJECT root the ticket/tests are read from — NEVER the process
@@ -308,6 +338,13 @@ def _changed_test_files(repo=None) -> set[str] | None:
             break
     if base is None:
         return None  # no confirmable base → uncertain → unavailable, never empty
+    table = _tc.active_table()        # D-203: the same table every other gate uses
+    # KLC-109 review-fix round 2 (D-109-10, drift F-4): a GATE-adjacent
+    # consumer opts in with exists= backed by HEAD's git tree, never a bare
+    # default call (which would let a `test_signal`-shaped production
+    # function in `core/skills/test_conventions.py` satisfy the discovery
+    # filter on a coincidental AC-id token match — the exact drift finding).
+    head_members = _head_tree_members(cwd)
     files: set[str] = set()
     for args in (
         ["diff", "--name-only", f"{base}..HEAD"],       # committed vs base
@@ -320,7 +357,12 @@ def _changed_test_files(repo=None) -> set[str] | None:
             return None  # any command failure → uncertain → unavailable, never partial
         for line in block.splitlines():
             s = line.strip()
-            if s.endswith(".py") and (s.startswith("tests/") or "/tests/" in s):
+            # KLC-109 AC-9: discovery goes through the shared convention module
+            # (was: `.py` + a `tests/`-prefix/substring check) — so a colocated
+            # non-python test (`src/Foo.test.tsx`) is admitted on a project with
+            # no top-level `tests/` directory. Python-only parsing/verification
+            # still happens downstream, in `_scan_tests_for_ac_ids`.
+            if s and _tc.is_test_path(s, table=table, exists=head_members.__contains__):
                 files.add(s)
     return files
 

@@ -30,6 +30,7 @@ sys.path.insert(0, str(_file_dir))  # so `import module_membership` resolves
 from core.shared.paths import klc_index_dir, project_root  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
+import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
 
 
 def _git_changed_files(root: Path) -> list[str]:
@@ -98,6 +99,37 @@ def _bucket_changed(
     return sorted(owned), sorted(shared), sorted(unknown)
 
 
+def _attribute_tests(files: list[str], *, table=None) -> list[str]:
+    """Map each changed TEST path onto the production file it pairs with, resolved
+    against the other CHANGED files — the only universe available here (this runs
+    on a diff, not on an index, so there is no file_universe call and no walk).
+    Deterministic: candidates arrive in the D-204 order and ties break on the
+    smallest matching path. An unresolvable test file keeps its own path so real
+    scope drift stays visible (AC-11)."""
+    tbl = table if table is not None else _tc.active_table()
+    # KLC-109 review-fix round 2 (D-109-11, MEDIUM): exists= is membership in
+    # *files* itself — the same "only universe available here" this
+    # function's own docstring already names — a pure set lookup, matching
+    # D-109-9's conservative default.
+    member = set(files)
+    is_test = lambda f: _tc.is_test_path(f, table=tbl, exists=member.__contains__)  # noqa: E731
+    prod = [f for f in files if not is_test(f)]
+    by_key: dict[tuple[str, str], list[str]] = {}
+    for p in prod:
+        by_key.setdefault((Path(p).stem, Path(p).suffix), []).append(p)
+    out: list[str] = []
+    for f in files:
+        if not is_test(f):
+            out.append(f)
+            continue
+        hit = next((m for cand in _tc.production_candidates(f, table=tbl)
+                    for m in ([cand] if cand in prod
+                              else sorted(by_key.get(
+                                  (Path(cand).stem, Path(cand).suffix), [])))), None)
+        out.append(hit or f)
+    return sorted(set(out))
+
+
 def compare(ticket: str) -> dict:
     """Compare planned scope with actual diff scope.
 
@@ -152,6 +184,12 @@ def compare(ticket: str) -> dict:
             "shared_touched": [],
             "skipped": "no changed files detected",
         }
+
+    # KLC-109 AC-11: a changed test file is attributed to its production
+    # counterpart's module (resolved against the OTHER changed files) rather
+    # than bucketing into a bare `tests` module — a test-only branch change
+    # must not surface as unplanned scope drift.
+    changed_files = _attribute_tests(changed_files)
 
     actual, shared_touched, unknown_files = _bucket_changed(changed_files, modules_data)
     planned_set = set(planned)

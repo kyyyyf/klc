@@ -48,7 +48,6 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -59,6 +58,8 @@ sys.path.insert(0, str(_file_dir))
 from core.shared.paths import klc_index_dir, project_root  # noqa: E402
 import module_membership as _mm  # noqa: E402
 import index_coverage  # noqa: E402
+import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
+import file_universe as _fu  # noqa: E402  (KLC-105: the one universe resolver)
 
 # Full relationship enum + confidence (planning_indexer.md §4). Priority high→low:
 #   direct_import > call > same_module > name_similarity > cochange
@@ -74,20 +75,11 @@ _REL_CONFIDENCE = {
 _FILE_REL_ORDER = ["direct_import", "call", "name_similarity"]
 _DIRECT_COVERAGE = {"direct_import", "call"}
 _MODULE_COVERAGE = {"name_similarity"}
-
-_TEST_BASENAME_RE = re.compile(
-    r"(^test_.*|.*_test$|^conftest$|.*\.test$|.*\.spec$|.*_spec$)"
-)
-_TEST_DIR_RE = re.compile(r"(^|/)(tests?|__tests__|spec)(/|$)")
-
-
-def is_test_file(path: str) -> bool:
-    """True for a test/spec file by directory or basename convention."""
-    if _TEST_DIR_RE.search(path):
-        return True
-    stem = Path(path).stem
-    return bool(_TEST_BASENAME_RE.match(stem))
-
+# KLC-109 AC-8: every row's provenance, independent of its (unchanged) relationship
+# name/confidence tier — "name_similarity" is now driven by the shared convention
+# table (test_conventions.production_candidates), not a private stem matcher.
+_REL_SOURCE = {"direct_import": "import", "call": "callgraph",
+              "name_similarity": "convention"}
 
 def _candidate_files(depgraph: dict) -> set[str]:
     files: set[str] = set()
@@ -113,20 +105,6 @@ def _import_edges(depgraph: dict) -> list[tuple[str, str]]:
     return out
 
 
-def _prod_stem_candidates(test_stem: str) -> set[str]:
-    """The production stems a test filename could pair with by name similarity."""
-    cands = set()
-    if test_stem.startswith("test_"):
-        cands.add(test_stem[len("test_"):])
-    if test_stem.endswith("_test"):
-        cands.add(test_stem[: -len("_test")])
-    if test_stem.endswith(".test") or test_stem.endswith(".spec"):
-        cands.add(test_stem.rsplit(".", 1)[0])
-    if test_stem.endswith("_spec"):
-        cands.add(test_stem[: -len("_spec")])
-    return {c for c in cands if c}
-
-
 def _callgraph_call_links(callgraph: dict, prod_files: set[str],
                           test_files: set[str]) -> set[tuple[str, str]]:
     """(prod_file, test_file) pairs where a test symbol calls a prod symbol."""
@@ -147,31 +125,55 @@ def _callgraph_call_links(callgraph: dict, prod_files: set[str],
 
 
 def build_test_map(structural: dict, depgraph: dict, modules: dict,
-                   callgraph: dict | None) -> dict:
-    """Deterministic production↔tests map. Pure; no timestamp (AC-11)."""
+                   callgraph: dict | None, *, universe: list[str] | None = None,
+                   table=None) -> dict:
+    """Deterministic production↔tests map. Pure; no timestamp (AC-11).
+
+    KLC-109 (D-201): the file universe comes from the caller-supplied
+    ``universe=`` (``main()`` fills it from ``file_universe.resolve``) or else
+    ``structural["files_rel"]`` — the field ``file_scanner.scan()`` ships
+    (KLC-074) — and from NOWHERE else. There is deliberately NO
+    filesystem-walk fallback: when neither is available, the convention layer
+    degrades to graph-derived candidates only (or empty, with no depgraph
+    either), with an honest ``errors[]`` note, never a guessed file list.
+    ``table=`` (KLC-109 D-203) is the profile-extended test-path table;
+    ``main()`` passes ``test_conventions.active_table()``, every other caller
+    defaults to the built-in table (purity/determinism, C-002)."""
     errors: list[str] = []
     notes: list[str] = []
 
-    files = _candidate_files(depgraph or {})
-    # KLC-105: intersect with the resolved universe. The depgraph already inherits
-    # it (import-graph builds from file_universe), so this makes that inheritance a
-    # CHECKED fact rather than a hope — a stale/foreign depgraph cannot smuggle an
-    # out-of-universe file back in.
-    declared = (structural or {}).get("files_rel")
+    graph_files = _candidate_files(depgraph or {})
+    # KLC-109/D-201: the declared universe (when present) is AUTHORITATIVE — it
+    # is the full convention base layer, not merely a filter over graph-derived
+    # candidates (which is empty on exactly the unindexed project AC-7 exists
+    # for). A depgraph node OUTSIDE the declared universe still gets dropped
+    # (KLC-105's own closure guarantee, kept verbatim).
+    declared = universe if universe is not None else (structural or {}).get("files_rel")
     if isinstance(declared, list) and declared:
-        member = set(declared)
-        dropped = sorted(f for f in files if f not in member)
+        files = {f for f in declared if f}
+        dropped = sorted(f for f in graph_files if f not in files)
         if dropped:
             notes.append(f"{len(dropped)} out-of-universe candidate file(s) dropped "
                          f"(not in structural.files_rel)")
-        files = {f for f in files if f in member}
     else:
-        notes.append("structural.files_rel unavailable — candidate files unfiltered")
+        files = graph_files
+        errors.append("structural.files_rel unavailable — convention layer empty; "
+                      "production_to_tests covers graph-derived edges only")
 
     if not files:
         errors.append("depgraph absent/empty — no import-graph file listing; "
                       "production_to_tests will be empty")
-    test_files = {f for f in files if is_test_file(f)}
+    tbl = table if table is not None else _tc.builtin_table()
+    # KLC-109 review-fix round 2 (D-109-11, MEDIUM): exists= is membership in
+    # `files` — the SAME KLC-105 universe this function already resolved
+    # above — so a basename-only match (Foo.spec.js, foo_test.go, ...) is
+    # confirmed against the declared universe, never the live filesystem
+    # (AC-1 holds: this is a pure set lookup). This is what makes AC-7's
+    # "convention alone, no callgraph/import-graph" per-language pairs work
+    # under D-109-9's conservative default, and what stops test_map.py/
+    # test_conventions.py from self-classifying as tests (no map.py/
+    # conventions.py sibling anywhere in `files`).
+    test_files = {f for f in files if _tc.is_test_path(f, table=tbl, exists=files.__contains__)}
     prod_files = {f for f in files if f not in test_files}
 
     # FILE-SPECIFIC relationships only (FIX-6): rel[(prod, test)] = set of names.
@@ -193,13 +195,20 @@ def build_test_map(structural: dict, depgraph: dict, modules: dict,
         notes.append("callgraph absent — 'call' relationship skipped "
                      "(import/name/module signals only)")
 
-    # 3. name_similarity — test stem pairs with production stem.
-    prod_by_stem: dict[str, list[str]] = {}
+    # 3. name_similarity — the ALWAYS-AVAILABLE convention base layer (AC-7),
+    # driven by the SHARED test_conventions.production_candidates (KLC-109),
+    # not a private python-only stem matcher — works for every AC-2 language
+    # with no callgraph and no import graph at all.
+    prod_by_key: dict[tuple[str, str], list[str]] = {}
     for p in prod_files:
-        prod_by_stem.setdefault(Path(p).stem, []).append(p)
-    for t in test_files:
-        for stem in _prod_stem_candidates(Path(t).stem):
-            for p in prod_by_stem.get(stem, []):
+        prod_by_key.setdefault((Path(p).stem, Path(p).suffix), []).append(p)
+    for t in sorted(test_files):
+        for cand in _tc.production_candidates(t, table=tbl):
+            if cand in prod_files:
+                add(cand, t, "name_similarity")
+                continue
+            key = (Path(cand).stem, Path(cand).suffix)
+            for p in sorted(prod_by_key.get(key, [])):
                 add(p, t, "name_similarity")
 
     prod_mod = {p: _mm.primary_module(p, modules or {}) for p in prod_files}
@@ -215,6 +224,7 @@ def build_test_map(structural: dict, depgraph: dict, modules: dict,
                 continue
             best = min(names, key=_FILE_REL_ORDER.index)
             rows.append({"test_file": t, "relationship": best,
+                         "source": _REL_SOURCE[best],
                          "confidence": _REL_CONFIDENCE[best]})
         rel_names = {r["relationship"] for r in rows}
         cov = "direct" if (rel_names & _DIRECT_COVERAGE) else (
@@ -312,7 +322,14 @@ def main(argv: list[str] | None = None) -> int:
     modules = _load(args.in_modules)
     callgraph = load_callgraph_dir(args.in_callgraph_dir)  # merges all languages
 
-    result = build_test_map(structural, depgraph, modules, callgraph)
+    # KLC-109: the ONE universe resolver (file_universe.resolve, KLC-105) and the
+    # ONE profile-table resolution point (test_conventions.active_table, D-203) —
+    # main() never enumerates files or reads a manifest itself.
+    resolved = _fu.resolve(args.root, structural=structural)
+    result = build_test_map(structural, depgraph, modules, callgraph,
+                            universe=resolved["files"], table=_tc.active_table())
+    result["notes"] = [f"file universe source: {resolved['source']}",
+                       *resolved["notes"], *result["notes"]]
     payload = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc)
         .strftime("%Y-%m-%dT%H:%M:%SZ"),

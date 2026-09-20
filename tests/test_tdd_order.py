@@ -10,7 +10,12 @@ _FW_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_FW_ROOT))
 sys.path.insert(0, str(_FW_ROOT / "core" / "skills"))
 
-from core.skills.tdd_order import classify, step_commits, verify_step  # noqa: E402
+from core.skills.tdd_order import (  # noqa: E402
+    _commit_parent_sha,
+    classify,
+    step_commits,
+    verify_step,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -216,3 +221,33 @@ def test_verify_step_degrades_on_missing_repo(tmp_path):
     ok, reason = verify_step("KLC-T06", 1, missing)
     assert not ok
     assert "KLC-T06 step-1" in reason
+
+
+# ---------------------------------------------------------------------------
+# D-109-12 (round 4): classify's parent-tree probe.
+# ---------------------------------------------------------------------------
+
+def test_commit_parent_sha_resolves_to_first_parent_for_merge_commits(tmp_path):
+    """D-109-12: `git rev-parse <sha>^` is always the FIRST parent, including
+    for a merge commit — classify must anchor exists=/added= to the MAINLINE
+    parent, never whichever branch happened to be merged in."""
+    repo = _make_repo(tmp_path)
+    base = _commit(repo, {"README.md": "# base"}, "base")
+    mainline_tip = _commit(repo, {"a.py": "# a"}, "mainline commit")
+    _run(["git", "checkout", "-b", "side", base], repo)
+    side_tip = _commit(repo, {"b.py": "# b"}, "side commit")
+    _run(["git", "checkout", "-"], repo)  # back to the branch holding mainline_tip
+    _run(["git", "merge", "--no-ff", "-m", "merge side into mainline", "side"], repo)
+    merge_sha = _run(["git", "rev-parse", "HEAD"], repo)
+
+    parent = _commit_parent_sha(merge_sha, str(repo))
+    assert parent == mainline_tip, (parent, mainline_tip, side_tip)
+
+
+def test_commit_parent_sha_empty_for_root_commit(tmp_path):
+    """D-109-12: a root commit has no parent — `_commit_parent_sha` degrades
+    to `""` (never raises), which `_commit_tree_members` in turn degrades to
+    an empty frozenset (no parent tree)."""
+    repo = _make_repo(tmp_path)
+    sha = _commit(repo, {"a.py": "# a"}, "root commit")
+    assert _commit_parent_sha(sha, str(repo)) == ""

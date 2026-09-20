@@ -1,0 +1,12 @@
+name: klc109-profile
+summary: >
+  KLC-109 step-2 fixture -- a minimal manifest declaring a test_conventions
+  key that adds one glob/dir/stem rule the built-in python table misses. Never a
+  real shipped profile; read only by tests/test_test_conventions.py.
+
+test_conventions:
+  extensions: [".py"]
+  test_dirs: ["qa"]
+  test_globs: ["check_*.py"]
+  stem_rules:
+    - ["check_*", "{rest}"]

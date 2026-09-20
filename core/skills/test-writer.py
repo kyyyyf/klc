@@ -41,7 +41,10 @@ from typing import Any
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
+sys.path.insert(0, str(_file_dir))
 from core.shared.paths import framework_root, klc_index_dir, project_root  # noqa: E402, F401
+import test_conventions as _tc  # noqa: E402  (KLC-109: the shared test-path table)
+import file_universe as _fu  # noqa: E402  (KLC-105: the one universe resolver)
 
 
 def load_json(p: Path) -> Any:
@@ -136,38 +139,36 @@ def detect_framework_if_missing() -> dict:
 
 
 def sample_existing_tests(module_paths: list[Path]) -> list[str]:
-    """List paths of existing tests inside the affected modules. Uses ast-grep
-    if available; falls back to glob heuristics."""
-    found: list[str] = []
-    patterns = [
-        "**/test_*.py",
-        "**/*_test.py",
-        "**/*.test.ts",
-        "**/*.test.tsx",
-        "**/*.test.js",
-        "**/*.spec.ts",
-        "**/*.spec.js",
-        "**/tests/**/*.rs",
-        "**/test_*.cpp",
-        "**/*Test.cpp",
-        "**/Tests/*.cpp",
-        "**/*Tests/*.cpp",
-        "**/LowLevelTests/**/*.cpp",
-    ]
+    """Existing test files inside the affected modules, selected from the
+    SHARED file universe (KLC-105's file_universe) and filtered by the
+    SHARED predicate (KLC-109's test_conventions) — no hand-written
+    per-language glob list and no private directory walk (copy number five
+    of "is this a test?" is deleted, AC-12).
+
+    KLC-109 review-fix round 2 (D-109-11, supersedes D-109-8, AC-10/AC-12):
+    passes `exists=` bound to the SAME universe set this function already
+    resolved (`_fu.members(root)`) — a pure set-membership check, never
+    `root=`/`Path.exists()` against the live filesystem — so a NAME-only
+    basename match outside a declared test directory is trusted only when
+    its derived sibling production file is a member of the universe. This
+    is what stops this sampler from mistaking `core/skills/test_map.py`/
+    `core/skills/test_conventions.py` themselves for a test to imitate."""
+    root = project_root()
+    tbl = _tc.active_table()
+    prefixes: list[str] = []
     for mp in module_paths:
-        if not mp.exists():
+        try:
+            prefixes.append(str(Path(mp).resolve().relative_to(root)).replace("\\", "/"))
+        except ValueError:
             continue
-        for pat in patterns:
-            for f in mp.glob(pat):
-                if f.is_file():
-                    found.append(str(f.relative_to(project_root())))
-    # dedupe preserving order
-    seen: set[str] = set()
+    universe = _fu.members(root)
     out: list[str] = []
-    for f in found:
-        if f not in seen:
-            out.append(f)
-            seen.add(f)
+    for rel in sorted(universe):
+        if not _tc.is_test_path(rel, table=tbl, exists=universe.__contains__):
+            continue
+        if prefixes and not any(rel == p or rel.startswith(p + "/") for p in prefixes):
+            continue
+        out.append(rel)
     return out
 
 

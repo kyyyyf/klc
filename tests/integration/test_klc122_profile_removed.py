@@ -25,7 +25,22 @@ def test_no_profiles_ue_path_reference_outside_historical_docs():
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     hits = [h for h in out.stdout.splitlines() if h]
-    allowed = {"docs/20260804_framework-hygiene-epic-plan.md"}
+    allowed = {
+        "docs/20260804_framework-hygiene-epic-plan.md",
+        # KLC-109 D-OP-1: the UE profile was deleted by THIS ticket (KLC-122,
+        # integrated 2026-09-19) after KLC-109's design already picked
+        # profiles/ue/manifest.yml as its AC-5 end-to-end proof. D-OP-1
+        # documents the substitution — a SYNTHETIC engine-style fixture
+        # (tests/fixtures/klc109-engine-profile/manifest.yml) stands in for
+        # the now-nonexistent path — and these four files explain that
+        # substitution in prose; none of them reads from profiles/ue/ at
+        # runtime (verified: only the synthetic fixture's own manifest.yml is
+        # ever parsed).
+        "tests/fixtures/klc109-engine-profile/manifest.yml",
+        "tests/integration/test_klc109_tdd_order.py",
+        "tests/integration/test_klc109_test_map.py",
+        "tests/test_test_conventions.py",
+    }
     assert set(hits) <= allowed, f"unexpected profiles/ue reference(s): {hits}"
 
 

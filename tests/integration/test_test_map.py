@@ -16,7 +16,8 @@ _MODULES = {"modules": [
 
 _DEPGRAPH = {"import_graphs": {"python": {
     "nodes": [
-        {"id": "pkg/mod.py"}, {"id": "pkg/other.py"}, {"id": "pkg/test_inline.py"},
+        {"id": "pkg/mod.py"}, {"id": "pkg/other.py"}, {"id": "pkg/inline.py"},
+        {"id": "pkg/test_inline.py"},
         {"id": "tests/test_mod.py"}, {"id": "solo/thing.py"}, {"id": "cg/target.py"},
     ],
     "edges": [
@@ -86,7 +87,14 @@ def test_call_relationship_from_callgraph():
 def test_same_module_is_module_level_not_per_file_row():
     """FIX-6: a file whose only association is a co-located test reports coverage:none
     (a visible hole); same_module lives in module_to_tests, not per-file rows, and the
-    O(prod×test) cross-product never appears."""
+    O(prod×test) cross-product never appears.
+
+    KLC-109 review-fix round 2 (D-109-9): pkg/test_inline.py's derived
+    sibling pkg/inline.py is now a real node in _DEPGRAPH so build_test_map's
+    exists=files.__contains__ confirms it as a test (the conservative
+    default requires a confirmable sibling for a basename-only match); it
+    still carries no direct/call/name link of its own, so it stays a pure
+    module-level (same_module) signal, exactly as this test asserts."""
     result = _build()
     other = result["production_to_tests"]["pkg/other.py"]
     # pkg/other.py has no direct/call/name link → a genuine hole stays visible.

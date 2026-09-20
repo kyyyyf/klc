@@ -38,6 +38,19 @@ reviewers:
 
 excludes: []
 
+# KLC-109 AC-5: a profile may extend the shared per-language test-path
+# convention table (core/skills/test_conventions.py) by declaring extra test
+# directory globs, test basename globs and test-stem rewrite rules here.
+# Absent (as here) or malformed, the built-in table is used unchanged — no
+# exception ever escapes the resolver. Shape:
+#   test_conventions:
+#     extensions: [".ext", ...]        # which built-in language records to extend
+#     test_dirs:  ["glob", ...]        # extra path-SEGMENT globs
+#     test_globs: ["glob", ...]        # extra basename globs
+#     stem_rules: [["glob", "{head}"], ...]  # extra test->production stem rewrites
+# generic declares no extension — the built-in table already covers its
+# scanned languages.
+
 # Advisory threshold. Above this count ticket-time agents prefer LSP
 # for symbol verification over full-file reads.
 large_project_threshold_files: 500

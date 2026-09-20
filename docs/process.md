@@ -242,6 +242,45 @@ directly; M/L follow the plan steps).
   for a ticket created on or after `items_verify.FACT_SOURCE_RULE_EPOCH`, or any item
   carrying `evidence=read`, a bad source fails consistency — for an older ticket it
   is warned, not failed (`consistency_check.py`, `items_verify.py`).
+- **A gate that misfires is fixed in the framework, never waived per project.**
+  KLC-109 is the worked example: the red-before-green ordering gate
+  (`core/skills/tdd_order.py`) recognised only a `tests/` path segment, so every
+  colocated-test project (`Foo.test.tsx`, `foo_test.go`, `FooTest.java`,
+  `foo_spec.rb`) was blocked, and the observed response was a standing
+  per-project waiver that took five tickets through integrate with no review.
+  A new language layout is added in ONE place: `core/skills/test_conventions.py`,
+  or a profile's `test_conventions:` manifest key — never a per-project
+  workaround. A basename match outside any declared test directory is trusted
+  only when the caller supplies `exists=`, a predicate confirming its derived
+  sibling production file — the review-fix that closed a self-referential
+  collision where the shared module's own filename (`test_conventions.py`,
+  `test_map.py`) satisfied the bare python `test_*.py` glob with no sibling
+  beside it. **Conservative default (KLC-109 review round 2, D-109-9):**
+  calling `is_test_path`/`test_signal` with NO `exists=` at all is NOT the
+  same as "trust the name" — it is the safe failure mode, treating a
+  basename-only match outside a test directory as NOT a test. Every real
+  consumer opts in: a hard GATE (`tdd_order.classify`, `ac_test_coverage`)
+  passes a predicate backed by a git tree, never today's working-tree
+  checkout (an already-acked step's verdict must not depend on what an
+  unrelated LATER commit does to the sibling); an INDEX builder (`test_map`,
+  `file_roles`, `module_edges`, `symbol_usage`, `import-graph`, `scope_delta`,
+  `test-writer`) passes membership in the KLC-105 file universe it already
+  holds — a pure set lookup, no filesystem I/O. The directory signal and a
+  "sibling: none" layout (`conftest.py`, `tests.rs`, `test.rs`) never depend
+  on `exists=` at all. **Per-commit new-file rule (KLC-109 review round 4,
+  D-109-12):** `tdd_order.classify` looks at ONE commit and its immediate
+  parent only — never a step's tip, never the whole step's commit list. A
+  basename match that is freshly ADDED in that commit (absent from its
+  parent tree) is a test with no sibling required yet, because an honest
+  RED commit is, by construction, added before its GREEN sibling exists; a
+  PRE-EXISTING path (already in the parent tree) still needs a confirmed
+  sibling. This closes a false sanction the ticket's own round-2 fix
+  introduced: a step whose only landed commit was its RED test, with the
+  GREEN commit not yet committed, was misclassified `impl` because its own
+  tip had no confirmed sibling — the ordinary window between committing a
+  failing test and committing the fix that makes it pass. Because both a
+  commit's own tree and its parent's tree are immutable once made, this
+  answer is stable forever without anchoring to any moving "tip".
 - **Ack options:** `--pick 1` approve → review · (block when a budget limit is hit
   or the plan is invalid).
 - **Pitfalls:** a red-test loop over the budget; scope creep; silent plan changes

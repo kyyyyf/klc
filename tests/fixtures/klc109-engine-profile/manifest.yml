@@ -1,0 +1,17 @@
+name: klc109-engine-profile
+summary: KLC-109 D-OP-1 synthetic engine-style profile fixture. Stands in for the
+  real UE profile, which KLC-122 deleted from profiles/ue/** (integrated
+  2026-09-19, main e102e70) — `generic` is now the only shipped profile. This
+  fixture is never a real shipped profile; it exists only so
+  tests/test_test_conventions.py, tests/integration/test_klc109_tdd_order.py and
+  tests/integration/test_klc109_test_map.py can prove the profile-extension
+  end-to-end wiring (D-203/F-2) against a real, on-disk manifest.yml, the same way
+  the original design intended to prove it against profiles/ue/manifest.yml.
+
+test_conventions:
+  extensions: [".cpp", ".h"]
+  test_dirs: ["Tests", "*Tests", "LowLevelTests", "FunctionalTests"]
+  test_globs: ["*Spec.cpp", "*Test.cpp", "*Tests.cpp"]
+  stem_rules:
+    - ["*Spec", "{head}"]
+    - ["*Tests", "{head}"]
