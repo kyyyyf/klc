@@ -79,7 +79,6 @@ could otherwise widen a glob into a substring match.
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
@@ -87,6 +86,9 @@ from pathlib import Path, PurePosixPath
 
 _file_dir = Path(__file__).resolve().parent
 _FRAMEWORK_ROOT = _file_dir.parent.parent
+if str(_file_dir) not in sys.path:
+    sys.path.insert(0, str(_file_dir))
+import profile_cache  # noqa: E402  (KLC-121: the one profile accessor)
 
 
 @dataclass(frozen=True)
@@ -462,20 +464,18 @@ def _read_profile_conventions():
     """The parsed `test_conventions:` block of the active profile manifest, or
     None.
 
-    Reuses the existing profile-resolve.py field resolver (a dict field is
-    printed as JSON; a missing field exits 1 with empty stdout), so PyYAML
-    never enters the ack gate's import chain. The bare `except Exception` is
-    deliberate and is what C-001 demands: tdd_order.verify_step is a HARD
-    ack block, so no profile problem may ever propagate out of here — every
-    failure means 'use the built-in table'."""
-    script = _FRAMEWORK_ROOT / "core" / "skills" / "profile-resolve.py"
+    Reads it through `profile_cache.field()` (KLC-121 D-101/D-102) — the
+    handed-down payload when a run resolved one, a fresh spawn of
+    profile-resolve.py otherwise — so PyYAML never enters the ack gate's
+    import chain either way. The bare `except Exception` is deliberate and
+    is what C-001 demands: tdd_order.verify_step is a HARD ack block, so no
+    profile problem may ever propagate out of here — every failure means
+    'use the built-in table'."""
     try:
-        r = subprocess.run([sys.executable, str(script),
-                            "--field", "test_conventions"],
-                           capture_output=True, text=True, timeout=10)
-        if r.returncode != 0 or not r.stdout.strip():
+        raw = profile_cache.field("test_conventions")
+        if not raw.strip():
             return None
-        return json.loads(r.stdout)
+        return json.loads(raw)
     except Exception:
         return None
 

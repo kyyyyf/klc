@@ -37,7 +37,12 @@ import verify_runner as _verify_runner  # noqa: E402  (KLC-115 D-002: promoted k
 _FRAMEWORK_ROOT = _SKILLS.parent.parent
 _UPDATE_SCRIPT = _FRAMEWORK_ROOT / "scripts" / "update.py"   # monkeypatchable in tests
 
-DEFAULT_BUDGET_S = 30.0          # spec Q-004: a full run here measures ~6.5s
+DEFAULT_BUDGET_S = 30.0          # a full run measures ~1.9s median here (KLC-121
+                                  # F-014, superseding the prior estimate this
+                                  # comment carried in from KLC-107's design
+                                  # (roughly 2.9x pessimistic); every refresh
+                                  # is still a FULL rebuild until KLC-125
+                                  # lands the incremental merge
 LOCK_WAIT_S = 2.0                # D-201: a verb never blocks on the index lock
 ENV_SUPPRESS = "KLC_NO_INDEX_REFRESH"
 

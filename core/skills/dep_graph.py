@@ -38,17 +38,13 @@ FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
 import file_universe  # noqa: E402
 import index_coverage  # noqa: E402
+import profile_cache  # noqa: E402  (KLC-121: the one profile accessor)
+
 
 def _resolve(field: str) -> str:
-    script = FRAMEWORK_ROOT / "core" / "skills" / "profile-resolve.py"
-    try:
-        r = subprocess.run(
-            [sys.executable, str(script), "--field", field],
-            capture_output=True, text=True, timeout=10,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return r.stdout.strip()
+    """Read the profile field this run already resolved, or resolve it for
+    ourselves when no run handed one down (KLC-121 D-101/D-102)."""
+    return profile_cache.field(field)
 
 
 def _import_graphs_from_scanner(root: Path) -> tuple[dict, list[str]]:

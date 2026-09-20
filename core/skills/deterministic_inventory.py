@@ -65,6 +65,7 @@ from core.shared import inventory as _inv  # noqa: E402  — KLC-103's canonical
 import tools as _tools  # noqa: E402
 import file_universe  # noqa: E402
 import index_coverage  # noqa: E402
+import profile_cache  # noqa: E402  (KLC-121: the one profile accessor)
 
 # KLC-105: ast-grep is invoked with an explicit positional PATHS list (chunked under
 # this budget) instead of scanning "." — a builder must not decide the universe by
@@ -89,20 +90,10 @@ _HIDDEN_OR_NOISE = re.compile(r"(^|/)(\.[^/]+|node_modules|__pycache__)(/|$)")
 # --- profile resolution -------------------------------------------------------
 
 def _resolve_field(field: str) -> str:
-    """Run ``profile-resolve.py --field <field>`` and return stdout (stripped).
-
-    Returns "" on any failure — the caller degrades (this mirrors dep_graph.py's
-    ``_resolve`` so the inventory never hard-fails on a profile hiccup).
-    """
-    script = framework_root() / "core" / "skills" / "profile-resolve.py"
-    try:
-        r = subprocess.run(
-            [sys.executable, str(script), "--field", field],
-            capture_output=True, text=True, timeout=15,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return r.stdout.strip() if r.returncode == 0 else ""
+    """Read the profile field this run already resolved, or resolve it for
+    ourselves when no run handed one down (KLC-121 D-101/D-102). Returns ""
+    on any failure — the caller degrades, exactly as before."""
+    return profile_cache.field(field)
 
 
 def resolve_ruleset() -> dict:

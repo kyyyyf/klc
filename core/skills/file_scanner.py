@@ -46,6 +46,10 @@ from pathlib import Path
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent.parent
 
+sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
+import profile_cache  # noqa: E402  (KLC-121: the one profile accessor)
+import index_fingerprint  # noqa: E402  (KLC-121: per-file fingerprint map)
+
 # Baseline excludes always on; profile extends.
 BASELINE_RE = re.compile(
     r"(^|/)(\.git|\.klc|node_modules|\.venv|venv|__pycache__|target|build|"
@@ -119,16 +123,11 @@ ENTRY_CANDIDATES = (
 
 
 def _resolve_profile_field(field: str) -> str:
-    """Shell out to profile-resolve.py. Returns stdout verbatim."""
-    script = FRAMEWORK_ROOT / "core" / "skills" / "profile-resolve.py"
-    try:
-        r = subprocess.run(
-            [sys.executable, str(script), "--field", field],
-            capture_output=True, text=True, timeout=10,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return r.stdout.strip()
+    """Read the profile field this run already resolved, or resolve it for
+    ourselves when no run handed one down (KLC-121 D-101/D-102). Signature
+    and name unchanged, so `file_universe.py:80` and `modules_build.py:130`
+    are covered by this repoint without an edit of their own."""
+    return profile_cache.field(field)
 
 
 def _to_posix(rel: str) -> str:
@@ -324,6 +323,17 @@ def scan(root: Path) -> dict:
         "source_roots":      source_roots,
         "files_rel":         files_rel,
         "files_rel_source":  files_rel_source,
+        # KLC-121: per-file fingerprints (AC-1). NOTE — this top-level "files" is
+        # a MAP (path -> {sha256, size}); "languages.<lang>.files" and
+        # "directory_tree[].files" above are COUNTS. The name collision is an
+        # unfortunate but deliberate choice (KLC-121 design D-002): it is fixed
+        # by KLC-107's deferred design and this ticket's test-plan, not chosen
+        # here. Nothing consumes this map to skip work on this ticket — it is
+        # written and read back for the AC-6 fallback comparison only.
+        "files":             index_fingerprint.build_map(root, files_rel),
+        "schema_version":    index_fingerprint.SCHEMA_VERSION,
+        "fingerprint_algo":  index_fingerprint.FINGERPRINT_ALGO,
+        "profile_identity":  profile_cache.identity(),
     }
 
 

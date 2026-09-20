@@ -281,6 +281,42 @@ header split cannot silently drift apart again.
 
 ---
 
+## Per-file fingerprints and the full-rebuild decision (KLC-121)
+
+`structural.json` publishes a `files` map: one SHA-256 digest and byte size
+per member of `files_rel`, alongside the scalars `schema_version`,
+`fingerprint_algo` and `profile_identity`. It is the substrate a later
+incremental merge will consume — KLC-125 is the ticket that adds that
+merge. Nothing consumes it to skip work today: every refresh is still a full rebuild, and every run says so in one line.
+
+The fingerprints and the fallback are keyed by path and the recorded digest
+only. They never branch on a file extension, a language or an external
+tool, so a repository in a language klc has no extractor for is
+fingerprinted exactly like any other (`core/skills/index_fingerprint.py` is
+the one module a static test polices for this).
+
+A run rebuilds everything and names one of seven reasons, in this
+precedence: the `--full` flag, the previous artifact being absent, it being
+unparseable, or a change in `schema_version`, `fingerprint_algo`,
+`files_rel_source` or the resolved profile identity. `klc update --full`
+also runs when `HEAD` has not moved since the last run, because asking for
+a full rebuild is asking for one to happen; `klc update --force` keeps its
+separate meaning of running an unmoved `HEAD` through the ordinary
+fingerprint comparison. The two flags are independent, and combining them
+is well defined. When none of the seven fired, the line reads `full
+rebuild (incremental merge not yet implemented — KLC-125)`, because a line
+that reads like a skip when nothing was skipped is the defect this section
+exists to prevent.
+
+The profile that a run resolves is also handed to every child builder
+exactly once, through `core/skills/profile_cache.py` and the
+`KLC_PROFILE_PAYLOAD` environment variable (`profile_cache.run_scope()`).
+This closed thirteen separate `profile-resolve.py` spawns per run down to
+one, and removed the correctness hazard of one run's artifacts being built
+against two different profile reads. Every builder still resolves the
+profile itself when run standalone from a shell — the handoff is an
+optimisation the run performs, never a precondition a builder may assume.
+
 ## Planning-index evaluation (measurement before tuning)
 
 `core/skills/planning-eval.py` is the **measurement layer** of the planning index,

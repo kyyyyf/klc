@@ -44,6 +44,8 @@ from _paths import (  # noqa: E402
 from module_edges import aggregate_module_edges  # noqa: E402
 import index_lock as _index_lock  # noqa: E402  (KLC-107 D-201: one writer at a time)
 import index_coverage  # noqa: E402
+import profile_cache  # noqa: E402  (KLC-121: resolve the profile once per run)
+import index_fingerprint  # noqa: E402  (KLC-121: fingerprint map + fallback decision)
 
 
 def log(msg: str) -> None:
@@ -283,117 +285,134 @@ def main(argv: list[str]) -> int:
     if args.finalize:
         return _finalize(index_dir)
 
-    # Step 1: structural scan.
-    rc = _run_scanner(
-        FRAMEWORK_ROOT / "core" / "skills" / "file_scanner.py",
-        index_dir / "structural.json",
-        "Step 1/3:" if args.scan_only else "Step 1/5:",
-    )
-    if rc:
-        return rc
-
-    # Step 2: MCP bootstrap hint (advisory).
-    log("Step 2/3: MCP configuration (advisory)" if args.scan_only
-        else "Step 2/5: MCP configuration (advisory)")
-    if (root / ".mcp.json").exists():
-        log("  .mcp.json present; ast-grep configured.")
-    else:
-        log("  No project-level .mcp.json found — init will still work without it.")
-        log("  When you're ready for ticket work, copy profiles/<profile>/mcp.json")
-        log("  to .mcp.json (gives you ast-grep).")
-
-    # Step 3: dep graph.
-    rc = _run_scanner(
-        FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
-        index_dir / "depgraph.json",
-        "Step 3/3:" if args.scan_only else "Step 3/5:",
-    )
-    if rc:
-        log("  WARN: dep_graph failed; inventory will note this")
-
-    # KLC-074: build the deterministic module SET (replaces the LLM decompose agent).
-    # Runs on the scan-only path too, so `init --scan-only` now produces modules.json.
-    log("Building deterministic modules.json (modules_build)")
-    _build_modules(index_dir)
-
-    # Aggregate module reverse edges from depgraph (non-fatal; no-op if
-    # modules.json is absent — e.g. modules_build degraded).
-    _aggregate_and_write_module_edges(index_dir)
-
-    # KLC-070: build the deterministic planning views (inventory always; test_map /
-    # module_edges degrade if modules.json is not yet present). Runs on the
-    # scan-only deterministic path so `init --scan-only` produces inventory.json.
-    _build_planning_views(index_dir)
-
-    # KLC-074 review LOW-1: validate modules.json AFTER the views exist so the
-    # cross-artifact checks see this run's file_roles/module_edges (advisory).
-    _validate_modules(index_dir)
-
-    # --scan-only: record baseline and stop — no LLM needed.
-    if args.scan_only:
-        rc = _finalize(index_dir)
+    # KLC-121 D-101/D-102: the profile is resolved exactly ONCE per run,
+    # here, and handed to every builder below (and to their own subprocess
+    # children) through KLC_PROFILE_PAYLOAD — no spawn site below needs an
+    # edit, since none of them pass env= and every child simply inherits it
+    # (AC-3).
+    with profile_cache.run_scope() as _profile:
+        log(f"Profile resolved once for this run: {_profile['identity']['name']}")
+        # Step 1: structural scan.
+        structural_path = index_dir / "structural.json"
+        # KLC-121: read the PREVIOUS artifact before the scan overwrites it (AC-6).
+        # D-008: on init.py this happens OUTSIDE any lock — file_scanner already
+        # writes structural.json unlocked here today, and widening init's critical
+        # section would change KLC-107's lock semantics (C-003).
+        previous_structural = index_fingerprint.read_previous_structural(structural_path)
+        rc = _run_scanner(
+            FRAMEWORK_ROOT / "core" / "skills" / "file_scanner.py",
+            structural_path,
+            "Step 1/3:" if args.scan_only else "Step 1/5:",
+        )
         if rc:
             return rc
-        log("Scan-only init complete. No LLM agents were run.")
-        log("CLAUDE.md files will be generated on first ticket (klc intake)")
-        log("or run `klc init --auto` to generate them now.")
-        print("INIT_SCAN_OK")
-        return 0
+        current_structural = json.loads(structural_path.read_text(encoding="utf-8"))
+        log(index_fingerprint.format_line(
+            index_fingerprint.decide(previous_structural, current_structural,
+                                     forced_full=False)))
 
-    # Steps 4-5: LLM agents.
-    if args.auto:
-        sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
-        from runner import run_agent  # noqa: E402
+        # Step 2: MCP bootstrap hint (advisory).
+        log("Step 2/3: MCP configuration (advisory)" if args.scan_only
+            else "Step 2/5: MCP configuration (advisory)")
+        if (root / ".mcp.json").exists():
+            log("  .mcp.json present; ast-grep configured.")
+        else:
+            log("  No project-level .mcp.json found — init will still work without it.")
+            log("  When you're ready for ticket work, copy profiles/<profile>/mcp.json")
+            log("  to .mcp.json (gives you ast-grep).")
 
-        log("Step 4/5: running indexing agents via core/skills/runner.py "
-            "(inventory + docgen; module SET already built deterministically)")
-        for name, prompt_rel, out_desc, trailer in _INDEXING_AGENTS:
-            prompt_path = FRAMEWORK_ROOT / prompt_rel
-            out_path = index_dir / f"_{name}.out.md"
-            log(f"  [{name}] prompt={prompt_rel} → {out_path.relative_to(root)}")
-            rc = run_agent(
-                phase_id="indexing",
-                prompt_path=prompt_path,
-                out_path=out_path,
-            )
-            if rc != 0:
-                return die(
-                    f"agent {name!r} failed (exit {rc}); "
-                    f"see {out_path.relative_to(root)}"
-                )
-            text = out_path.read_text(encoding="utf-8") if out_path.exists() else ""
-            if trailer and trailer not in text:
-                return die(
-                    f"agent {name!r} did not emit trailer {trailer!r}; "
-                    f"inspect {out_path.relative_to(root)}"
-                )
-            log(f"  [{name}] {trailer} ✓")
-        # modules.json was already built deterministically above; re-aggregate
-        # reverse edges and rebuild the planning views so they see the module set.
-        # KLC-103 AC-8: inventory is excluded here — it does not depend on
-        # modules.json, so it was already written correctly by the pre-agent call
-        # above and rebuilding it a second time would just repeat that write.
+        # Step 3: dep graph.
+        rc = _run_scanner(
+            FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
+            index_dir / "depgraph.json",
+            "Step 3/3:" if args.scan_only else "Step 3/5:",
+        )
+        if rc:
+            log("  WARN: dep_graph failed; inventory will note this")
+
+        # KLC-074: build the deterministic module SET (replaces the LLM decompose agent).
+        # Runs on the scan-only path too, so `init --scan-only` now produces modules.json.
+        log("Building deterministic modules.json (modules_build)")
+        _build_modules(index_dir)
+
+        # Aggregate module reverse edges from depgraph (non-fatal; no-op if
+        # modules.json is absent — e.g. modules_build degraded).
         _aggregate_and_write_module_edges(index_dir)
-        _build_planning_views(index_dir, include_inventory=False)
-        _validate_modules(index_dir)  # LOW-1: after views are refreshed
-        log("Step 5/5: recording baseline sha")
-        return _finalize(index_dir)
 
-    log("Step 4/5: run the LLM agents in Claude Code "
-        "(module SET already built deterministically by modules_build)")
-    for name, prompt, out, ok in _INDEXING_AGENTS:
-        print(f"  [{name}]  prompt: {prompt}")
-        print(f"           outputs: {out}")
-        print(f"           trailer: {ok}")
+        # KLC-070: build the deterministic planning views (inventory always; test_map /
+        # module_edges degrade if modules.json is not yet present). Runs on the
+        # scan-only deterministic path so `init --scan-only` produces inventory.json.
+        _build_planning_views(index_dir)
 
-    log("Step 5/5: record baseline sha after the agents finish")
-    log(f"  klc init --finalize     # writes HEAD to {index_dir / '.last-run'}")
-    log("init done. Next: run the agents above inside Claude Code.")
-    log("")
-    log("TIP: for a quick start without LLM, run:")
-    log("  klc init --scan-only")
-    log("  (generates structural.json + depgraph.json, no CLAUDE.md files)")
-    return 0
+        # KLC-074 review LOW-1: validate modules.json AFTER the views exist so the
+        # cross-artifact checks see this run's file_roles/module_edges (advisory).
+        _validate_modules(index_dir)
+
+        # --scan-only: record baseline and stop — no LLM needed.
+        if args.scan_only:
+            rc = _finalize(index_dir)
+            if rc:
+                return rc
+            log("Scan-only init complete. No LLM agents were run.")
+            log("CLAUDE.md files will be generated on first ticket (klc intake)")
+            log("or run `klc init --auto` to generate them now.")
+            print("INIT_SCAN_OK")
+            return 0
+
+        # Steps 4-5: LLM agents.
+        if args.auto:
+            sys.path.insert(0, str(FRAMEWORK_ROOT / "core" / "skills"))
+            from runner import run_agent  # noqa: E402
+
+            log("Step 4/5: running indexing agents via core/skills/runner.py "
+                "(inventory + docgen; module SET already built deterministically)")
+            for name, prompt_rel, out_desc, trailer in _INDEXING_AGENTS:
+                prompt_path = FRAMEWORK_ROOT / prompt_rel
+                out_path = index_dir / f"_{name}.out.md"
+                log(f"  [{name}] prompt={prompt_rel} → {out_path.relative_to(root)}")
+                rc = run_agent(
+                    phase_id="indexing",
+                    prompt_path=prompt_path,
+                    out_path=out_path,
+                )
+                if rc != 0:
+                    return die(
+                        f"agent {name!r} failed (exit {rc}); "
+                        f"see {out_path.relative_to(root)}"
+                    )
+                text = out_path.read_text(encoding="utf-8") if out_path.exists() else ""
+                if trailer and trailer not in text:
+                    return die(
+                        f"agent {name!r} did not emit trailer {trailer!r}; "
+                        f"inspect {out_path.relative_to(root)}"
+                    )
+                log(f"  [{name}] {trailer} ✓")
+            # modules.json was already built deterministically above; re-aggregate
+            # reverse edges and rebuild the planning views so they see the module set.
+            # KLC-103 AC-8: inventory is excluded here — it does not depend on
+            # modules.json, so it was already written correctly by the pre-agent call
+            # above and rebuilding it a second time would just repeat that write.
+            _aggregate_and_write_module_edges(index_dir)
+            _build_planning_views(index_dir, include_inventory=False)
+            _validate_modules(index_dir)  # LOW-1: after views are refreshed
+            log("Step 5/5: recording baseline sha")
+            return _finalize(index_dir)
+
+        log("Step 4/5: run the LLM agents in Claude Code "
+            "(module SET already built deterministically by modules_build)")
+        for name, prompt, out, ok in _INDEXING_AGENTS:
+            print(f"  [{name}]  prompt: {prompt}")
+            print(f"           outputs: {out}")
+            print(f"           trailer: {ok}")
+
+        log("Step 5/5: record baseline sha after the agents finish")
+        log(f"  klc init --finalize     # writes HEAD to {index_dir / '.last-run'}")
+        log("init done. Next: run the agents above inside Claude Code.")
+        log("")
+        log("TIP: for a quick start without LLM, run:")
+        log("  klc init --scan-only")
+        log("  (generates structural.json + depgraph.json, no CLAUDE.md files)")
+        return 0
 
 
 if __name__ == "__main__":

@@ -36,6 +36,8 @@ from module_edges import aggregate_module_edges  # noqa: E402
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 import index_lock as _index_lock  # noqa: E402  (KLC-107 D-201: one writer at a time)
 import index_coverage  # noqa: E402
+import profile_cache  # noqa: E402  (KLC-121: resolve the profile once per run)
+import index_fingerprint  # noqa: E402  (KLC-121: fingerprint map + fallback decision)
 
 
 def log(msg: str) -> None:
@@ -309,6 +311,12 @@ def main(argv: list[str]) -> int:
                          "(deterministic, no LLM).")
     ap.add_argument("--force", action="store_true",
                     help="Run even if HEAD == .last-run (useful after manual edits).")
+    ap.add_argument("--full", action="store_true",
+                    help="Rebuild every artifact regardless of the recorded "
+                         "fingerprints, and log the flag as the rebuild reason. "
+                         "Implies running: --full alone rebuilds even when HEAD "
+                         "has not moved since the last run. Independent of "
+                         "--force, and the two may be combined (KLC-121 D-201).")
     args = ap.parse_args(argv)
 
     root = project_root()
@@ -327,7 +335,11 @@ def main(argv: list[str]) -> int:
     if not head:
         return err("git rev-parse HEAD failed — is this a git repo?")
 
-    if last == head and not args.force:
+    # KLC-121 D-201 (spec AC-7 amendment, supersedes D-007): each flag
+    # independently suppresses the no-op — an operator asking for a full
+    # rebuild is asking for one to run. --force keeps its KLC-107 meaning;
+    # --full additionally names the reason below. Neither absorbs the other.
+    if last == head and not args.force and not args.full:
         print("UPDATE_NOOP")
         return 0
 
@@ -335,82 +347,97 @@ def main(argv: list[str]) -> int:
     # critical section — one writer at a time for `.klc/index/`, so a direct
     # `klc update` and a verb-triggered refresh (index_refresh.py) can never
     # interleave their writes into the same artifacts (finding F-1).
+    #
+    # KLC-121 D-101/D-102: the profile is resolved exactly ONCE per run, here,
+    # and handed to every builder below (and to their own subprocess children)
+    # through KLC_PROFILE_PAYLOAD — no spawn site below needs an edit, since
+    # none of them pass env= and every child simply inherits it (AC-3).
     try:
-        with _index_lock.acquire_index_lock(index_dir, wait_s=0.0):
-            log(f"Change window: {last[:8]}..{head[:8]}")
-            changed = _changed_files(root, last, head)
+        with profile_cache.run_scope() as _profile:
+            log(f"Profile resolved once for this run: {_profile['identity']['name']}")
+            with _index_lock.acquire_index_lock(index_dir, wait_s=0.0):
+                log(f"Change window: {last[:8]}..{head[:8]}")
+                changed = _changed_files(root, last, head)
 
-            # Filter out .klc/ internal files — they are not project source
-            changed = [f for f in changed if not f.startswith(".klc/")]
+                # Filter out .klc/ internal files — they are not project source
+                changed = [f for f in changed if not f.startswith(".klc/")]
 
-            changed_file = index_dir / "changed-files.txt"
-            changed_file.write_text("\n".join(changed) + "\n", encoding="utf-8")
-            log(f"Changed source files: {len(changed)}")
+                changed_file = index_dir / "changed-files.txt"
+                changed_file.write_text("\n".join(changed) + "\n", encoding="utf-8")
+                log(f"Changed source files: {len(changed)}")
 
-            # Step 1: re-scan structure
-            log("Step 1/3: file_scanner")
-            rc = _run_scanner(
-                FRAMEWORK_ROOT / "core" / "skills" / "file_scanner.py",
-                index_dir / "structural.json",
-            )
-            if rc:
-                return err("file_scanner failed")
-
-            # Step 2: re-scan dep graph (non-fatal)
-            log("Step 2/4: dep_graph")
-            rc = _run_scanner(
-                FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
-                index_dir / "depgraph.json",
-            )
-            if rc:
-                log("  WARN: dep_graph failed; stale detection may be less precise")
-
-            # KLC-074: rebuild the deterministic module SET before edge aggregation / stale
-            # detection, so both see the current directory layout (non-fatal).
-            log("Rebuilding deterministic modules.json (modules_build)")
-            _build_modules(index_dir)
-
-            # Step 3: aggregate module-level reverse edges from depgraph (non-fatal)
-            log("Step 3/5: aggregating module reverse edges")
-            _aggregate_and_write_module_edges(index_dir)
-
-            # KLC-070: refresh the deterministic planning views (non-fatal)
-            log("Step 4/5: refreshing planning views (inventory, test_map, file_roles, "
-                "module_edges, symbol_usage)")
-            _build_planning_views(index_dir)
-
-            # KLC-074 review LOW-1: validate modules.json AFTER the views are refreshed so the
-            # cross-artifact checks see this run's file_roles/module_edges (advisory).
-            _validate_modules(index_dir)
-
-            # Step 5: compute stale modules
-            log("Step 5/5: computing stale modules")
-            stale = _compute_stale(index_dir, changed)
-            stale_file = index_dir / "stale.json"
-            stale_file.write_text(json.dumps(stale, indent=2, ensure_ascii=False),
-                                  encoding="utf-8")
-
-            n_stale = len(stale["stale_modules"])
-            if n_stale:
-                log(f"  {n_stale} stale module(s): {', '.join(stale['stale_modules'])}")
-            else:
-                log("  No modules affected.")
-
-            # Optional: regenerate skeletons
-            if args.regen and n_stale:
-                rc = _regen_skeleton(index_dir, stale["stale_modules"])
+                # Step 1: re-scan structure
+                log("Step 1/3: file_scanner")
+                structural_path = index_dir / "structural.json"
+                # KLC-121: read the PREVIOUS artifact before the scan overwrites it —
+                # None | "unparseable" | dict (AC-6).
+                previous_structural = index_fingerprint.read_previous_structural(structural_path)
+                rc = _run_scanner(
+                    FRAMEWORK_ROOT / "core" / "skills" / "file_scanner.py",
+                    structural_path,
+                )
                 if rc:
-                    return rc
+                    return err("file_scanner failed")
+                current_structural = json.loads(structural_path.read_text(encoding="utf-8"))
+                log(index_fingerprint.format_line(
+                    index_fingerprint.decide(previous_structural, current_structural,
+                                             forced_full=args.full)))
 
-            # Advance baseline only after everything succeeded
-            last_file.write_text(head + "\n", encoding="utf-8")
+                # Step 2: re-scan dep graph (non-fatal)
+                log("Step 2/4: dep_graph")
+                rc = _run_scanner(
+                    FRAMEWORK_ROOT / "core" / "skills" / "dep_graph.py",
+                    index_dir / "depgraph.json",
+                )
+                if rc:
+                    log("  WARN: dep_graph failed; stale detection may be less precise")
 
-            if n_stale:
-                print(f"UPDATE_OK {n_stale} module(s) stale"
-                      + ("" if args.regen else " — run `klc update --regen` to refresh docs"))
-            else:
-                print("UPDATE_OK no stale modules")
-            return 0
+                # KLC-074: rebuild the deterministic module SET before edge aggregation / stale
+                # detection, so both see the current directory layout (non-fatal).
+                log("Rebuilding deterministic modules.json (modules_build)")
+                _build_modules(index_dir)
+
+                # Step 3: aggregate module-level reverse edges from depgraph (non-fatal)
+                log("Step 3/5: aggregating module reverse edges")
+                _aggregate_and_write_module_edges(index_dir)
+
+                # KLC-070: refresh the deterministic planning views (non-fatal)
+                log("Step 4/5: refreshing planning views (inventory, test_map, file_roles, "
+                    "module_edges, symbol_usage)")
+                _build_planning_views(index_dir)
+
+                # KLC-074 review LOW-1: validate modules.json AFTER the views are refreshed so the
+                # cross-artifact checks see this run's file_roles/module_edges (advisory).
+                _validate_modules(index_dir)
+
+                # Step 5: compute stale modules
+                log("Step 5/5: computing stale modules")
+                stale = _compute_stale(index_dir, changed)
+                stale_file = index_dir / "stale.json"
+                stale_file.write_text(json.dumps(stale, indent=2, ensure_ascii=False),
+                                      encoding="utf-8")
+
+                n_stale = len(stale["stale_modules"])
+                if n_stale:
+                    log(f"  {n_stale} stale module(s): {', '.join(stale['stale_modules'])}")
+                else:
+                    log("  No modules affected.")
+
+                # Optional: regenerate skeletons
+                if args.regen and n_stale:
+                    rc = _regen_skeleton(index_dir, stale["stale_modules"])
+                    if rc:
+                        return rc
+
+                # Advance baseline only after everything succeeded
+                last_file.write_text(head + "\n", encoding="utf-8")
+
+                if n_stale:
+                    print(f"UPDATE_OK {n_stale} module(s) stale"
+                          + ("" if args.regen else " — run `klc update --regen` to refresh docs"))
+                else:
+                    print("UPDATE_OK no stale modules")
+                return 0
     except _index_lock.IndexBusy as busy:
         print(f"UPDATE_BUSY another index refresh is in progress (PID {busy.pid}); "
               f"it will advance .last-run — nothing to do here")

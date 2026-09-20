@@ -14,6 +14,7 @@ script exits non-zero with a message on stderr if the field is missing.
 
 from __future__ import annotations
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -78,32 +79,51 @@ def load_manifest() -> tuple[dict, Path]:
     return yaml.safe_load(man.read_text(encoding="utf-8")) or {}, man.parent
 
 
+def _format_field(data: dict, field: str) -> str | None:
+    """The exact string ``--field <field>`` prints today, or ``None`` when
+    *field* is absent from the manifest (``excludes-regex`` is always
+    defined, even as ``""``). Shared by BOTH CLI modes (KLC-121 D-003) so
+    the pre-formatted payload ``--all-fields`` emits and the standalone
+    ``--field`` output can never drift apart — every consumer keeps
+    parsing the same string it parses today."""
+    if field == "excludes-regex":
+        ex = data.get("excludes", []) or []
+        return "(^|/)(" + "|".join(ex) + ")(/|$)" if ex else ""
+    if field not in data:
+        return None
+    v = data[field]
+    if isinstance(v, list):
+        return "\n".join(str(x) for x in v)
+    if isinstance(v, dict):
+        return json.dumps(v, ensure_ascii=False)
+    return str(v)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--field", required=True)
+    ap.add_argument("--field")
+    ap.add_argument("--all-fields", action="store_true",
+                    help="Print every manifest key (plus the derived "
+                         "excludes-regex) as one JSON object mapping each "
+                         "to the exact string --field <key> would print "
+                         "(KLC-121: the run-scoped resolve-once payload).")
     args = ap.parse_args()
+    if not args.all_fields and not args.field:
+        ap.error("one of --field or --all-fields is required")
     data, _ = load_manifest()
 
-    if args.field == "excludes-regex":
-        ex = data.get("excludes", []) or []
-        if not ex:
-            print("")
-        else:
-            print("(^|/)(" + "|".join(ex) + ")(/|$)")
+    if args.all_fields:
+        keys = sorted(set(data) | {"excludes-regex"})
+        payload = {k: _format_field(data, k) for k in keys
+                   if _format_field(data, k) is not None}
+        print(json.dumps(payload, ensure_ascii=False))
         return 0
 
-    if args.field not in data:
+    value = _format_field(data, args.field)
+    if value is None:
         sys.stderr.write(f"profile-resolve: field `{args.field}` not in manifest\n")
         return 1
-    v = data[args.field]
-    if isinstance(v, list):
-        for x in v:
-            print(x)
-    elif isinstance(v, dict):
-        import json
-        print(json.dumps(v, ensure_ascii=False))
-    else:
-        print(v)
+    print(value)
     return 0
 
 
