@@ -10,7 +10,14 @@
 #   hard_limits — hard block; runner refuses dispatch and writes a
 #                 [!QUESTION] item to out_path instead of calling the model.
 #
-# Estimation: len(prompt_chars) // 4.
+# Estimation (KLC-119 D-006): budget_guard.estimate_tokens is the ONE
+# size-to-token rule in the framework — max(1, len(text.encode("utf-8")) // 4),
+# i.e. UTF-8 BYTES divided by four, not characters. Every caller that
+# converts a prompt/card size to a token count (the card renderer, the
+# step-brief renderer, the headless runner, the budget check) shares this
+# one function; its calibration status against real usage is derived from
+# the corpus, not hardcoded — see budget_guard.calibration_statement() and
+# docs/process.md's "Token telemetry & budget guard" section.
 # Phase-level budget counters (rework loops, retries) live in
 # meta.json:budgets and are defined per-ticket; this file only holds
 # the static per-track input-size limits.

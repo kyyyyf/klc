@@ -64,22 +64,31 @@ Repeat until STOP or archived:
      above is the one case where "you are the park" means "you do the
      asking," not "you do nothing").
 5. **Work state — dispatch.** If `state == "work"`:
-   a. Advisory budget check: estimate the phase's prompt size and call
-      `core.skills.budget_guard.check_prompt_budget(track, estimated)`.
-      If `verdict.hard_breach`: surface a blocking question and STOP
-      (do not dispatch).
+   a. Prepare and gate the dispatch. Unless `resolved.runs_inline` (in
+      which case go straight to b): re-render the card in
+      `resolved.card_mode` right before dispatching — a card `klc
+      next`/`klc step` last wrote is `paste` mode and stale by
+      definition; you need a fresh `dispatch`-mode card. Call
+      `core.skills.artefacts.render_card(<KEY>, phase_id, meta,
+      step=<step, build only>, mode=resolved.card_mode)` and keep the
+      result as `card_render` (its `est_tokens`/`card_bytes`). Then the
+      advisory budget check, on THAT card's own number:
+      `core.skills.budget_guard.gate_card_dispatch(track,
+      card_render.est_tokens if card_render else None)` — a render
+      failure passes `None`, which the gate treats as a hard breach
+      (fail-closed), never as zero. If `verdict.hard_breach`: surface
+      a blocking question and STOP (do not dispatch).
    b. If `resolved.runs_inline` (XS fast-track): do the phase's work
       yourself, inline, in this loop. Then construct the same
       completion-signal JSON a subagent would emit (see below).
-   c. Otherwise: re-render the card in `resolved.card_mode` right before
-      dispatching — a card `klc next`/`klc step` last wrote is `paste` mode
-      and stale by definition; you need a fresh `dispatch`-mode card. Call
-      `core.skills.artefacts.write_prompt_card(<KEY>, phase_id, meta,
-      step=<step, build only>, mode=resolved.card_mode)` (or
-      `write_step_card(..., inline=False)` for a build step — it already
-      references `impl.md` by path). Read that file's text and
-      `Task(subagent_type=resolved.agent_type, prompt=<the card's text>)`.
-      Take the subagent's returned text as `result`.
+   c. Otherwise: read the text of the card rendered in (a) and
+      `Task(subagent_type=resolved.agent_type, prompt=<the card's
+      text>)`. Take the subagent's returned text as `result`. After
+      parsing in (d), call
+      `core.skills.run_signal.record_signal_tokens(signal, <KEY>,
+      phase_id, card_render)` — a `signal.tokens` block records a
+      `signal`-sourced attempt; its absence falls back to the card's
+      own `estimated` attempt from (a).
    d. Parse: `core.skills.run_signal.parse_signal(result, expected_phase
       =phase_id)`.
       - If `None` (unparseable / missing keys / phase mismatch / bad

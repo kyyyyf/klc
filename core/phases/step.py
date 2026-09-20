@@ -19,7 +19,7 @@ SKILLS = Path(__file__).resolve().parent.parent / "skills"
 sys.path.insert(0, str(SKILLS))
 from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
-from artefacts import write_step_card  # noqa: E402
+from artefacts import render_card  # noqa: E402
 
 
 def run(argv: list[str]) -> int:
@@ -36,7 +36,10 @@ def run(argv: list[str]) -> int:
         return 1
 
     meta = _lc.read_meta(args.ticket)
-    card = write_step_card(args.ticket, args.step, meta)
+    # KLC-119 AC-6/C-002: render_card() measures the card (records an
+    # `estimated` attempt) without ever opening a transaction — `klc step`
+    # stays a local, offline-safe command; the write lands in the journal.
+    card = render_card(args.ticket, "build", meta, step=args.step).path
     print(f"→ step-{args.step} card written")
     print(f"  cat {card}")
     print(f"    # paste into your agent")

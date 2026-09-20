@@ -887,8 +887,8 @@ the clarify pass (one `AskUserQuestion`, style from `config/clarify.yml`, fail-c
 
 ## Token telemetry & budget guard
 
-Before dispatching any agent call, `runner.py` estimates the prompt size
-(`len(chars) // 4` tokens) and applies two tiers from `config/budgets.yml`:
+Before dispatching any agent call, the budget guard estimates the prompt size
+and applies two tiers from `config/budgets.yml`:
 
 | Track | Soft (warn) | Hard (block) |
 |-------|-------------|--------------|
@@ -898,12 +898,98 @@ Before dispatching any agent call, `runner.py` estimates the prompt size
 | L     | 150 000     | 300 000      |
 
 A **soft** breach warns on stderr and proceeds; a **hard** breach refuses dispatch
-and writes `[!QUESTION] context too large` — no model call is made. After every
-successful run, token counts are written to `meta.json:metrics.tokens.<phase_id>`
-(`{in, out, cache_hit, source}`; `source` is `provider` when parsed from a real
-`usage` block, else `estimated`). `klc metrics --rollup` aggregates tokens by phase
-per track into `.klc/knowledge/process-metrics.json` with per-phase
-`source_counts`.
+and writes `[!QUESTION] context too large` — no model call is made. The `/klc:run`
+orchestrator's own advisory check (`budget_guard.gate_card_dispatch`) treats a
+missing estimate (a card that failed to render) as a hard breach too — never
+as zero, fail-closed.
+
+**One estimator, one shape (KLC-119).** `budget_guard.estimate_tokens` is the
+ONE size-to-token rule in the whole framework: `max(1, len(text.encode("utf-8"))
+// 4)`, over UTF-8 bytes (not characters — the two differ by under 1.1% on this
+project's own cards, but non-ASCII text, e.g. this project's Russian
+documentation, makes the choice matter). Every call site — the card renderer,
+the step-brief renderer, the headless runner and the budget check — calls this
+one function.
+
+`meta.json:metrics.tokens.<phase_id>` is an append-only **attempts list**
+(`{"attempts": [...], "legacy": <pre-KLC-119 record, if one existed>}`), not a
+single overwritten record: a rework or retry pass is counted, never erased.
+Each attempt carries an id (assigned by the writer), `in`/`out`/`cache_hit`,
+`source`, and the measured card size where one exists. `write_token_metrics`
+is the single writer of this key; nothing else in the codebase assigns into
+it (`budget_guard.find_second_writers` is the source-level gate).
+
+**Attempts, the journal and the drain.** A telemetry write must never modify
+`meta.json` — a tracked file on the shared `klc-state` branch — outside an
+open `state_tx` transaction (that exact mistake shipped once, in KLC-118, and
+was caught only by the soak/fuzz concurrency suites). So the writer is
+transaction-aware: when a transaction is open for the ticket it appends
+directly into `meta.json`; otherwise it buffers the attempt into a derived,
+untracked per-ticket journal (`<card root>/<KEY>/telemetry.jsonl`). The next
+`state_tx` for that ticket drains the journal into `meta.json` before its own
+body runs, on BOTH of its branches (feature-ON and the headless runner's
+feature-OFF path) and inside the same rollback protection as the rest of the
+transaction — a drain failure is restored and swallowed, never taking the
+verb down, and the journal simply keeps the attempt for a later retry.
+
+**What each dispatch path can honestly report:**
+
+| path | what produces the number | honest `source` |
+|---|---|---|
+| headless runner, provider returns a usage block | real API usage | `provider` |
+| headless runner, no usage block | the prompt's measured size | `estimated` |
+| `/klc:run` Task dispatch | the dispatch card's measured size | `estimated` |
+| a subagent whose host reports its own usage | the completion signal's `tokens` | `signal` |
+| human copy-paste (`klc next` / `klc step` / `klc jump`) | the paste card's measured size | `estimated` |
+
+The `provider` row lands in `meta.json` only on the ticket's *next*
+`state_tx` — `runner.py` opens no transaction of its own, so a headless
+`provider` attempt is buffered in the journal first and promoted by the
+following transition (in practice, `autorunner`'s own `ack --auto` right
+after the dispatch).
+
+A Claude Code Task subagent is not shown its own token usage, so on this host
+the interactive `/klc:run` path is **`estimated`-only** — the completion
+signal's `tokens` field is a forward-compatible channel for a host that DOES
+expose usage to the agent (the shared `completion-signal.md` include asks for
+it only conditionally, exactly for this reason), and it is expected to record
+**zero** `signal` attempts on this host today. That is a host property, not a
+bug, and a reader of the rollup should not mistake the resulting large
+`estimated` share for something the framework could trivially "fix" — the
+next honest number needs a host that shows an agent its own usage.
+
+**The rollup.** `klc metrics --rollup` aggregates attempts (committed
+`meta.json` UNION any still-undrained journal entries, de-duplicated by id)
+by phase per track into `.klc/knowledge/process-metrics.json`, with a
+per-phase `source_counts` split three ways (`provider`/`signal`/`estimated`)
+so an estimate is never presented as a measurement. It also reports two
+numbers KLC-120 is scoped to move: `prompt_bytes_per_ticket` (the average
+measured card size per ticket in the track) and `review_passes_per_ticket`
+(`{actual, expected, ratio}`, with `expected` derived from the track's own
+phase list crossed with a table of review artefacts, their host phases and
+the ordinal of the first ticket that carries them — a degraded review only
+ever lowers `actual`, never `expected`, so a degrade reads as a degrade
+rather than a saving). `estimator_calibration` per track states the
+estimator's accuracy against real usage, derived from the corpus rather than
+claimed: the ratio of `estimated` to `provider` attempts when any
+provider-sourced attempt exists, and "uncalibrated" when none does — which is
+this project's real state today (no tokenizer library is installed and 0 of
+109 pre-KLC-119 `meta.json` files carried any `provider` record).
+
+**The BEFORE baseline is machine-local, by construction.** A backfill pass
+(`core/skills/token_backfill.py`) records one `estimated` attempt per stored
+prompt card for a ticket, reproducing a "how much have we been sending"
+baseline without inventing a number. Because it runs with no transaction
+open, its attempts land in each ticket's untracked journal rather than a
+committed `meta.json`, so a teammate does not see this baseline by pulling
+`klc-state` — they reproduce it by re-running the backfill over whatever
+cards are on their own disk. Measured at build time on host `CY1-WL-1184`
+(`KLC_CARD_ROOT` unset, `.klc/scratch/`): 99 archived tickets, 94 with at
+least one card on disk, 4 748 230 bytes / ≈1 186 848 estimated tokens in
+total (within 3% of the ticket's sealed spec-time baseline); the eight
+archived M tickets from the epic (KLC-103 onward) average 89 623 bytes /
+≈22 403 estimated tokens per ticket. See
+`.klc/tickets/KLC-119/build-log.md` for the full re-measurement and delta.
 
 ---
 

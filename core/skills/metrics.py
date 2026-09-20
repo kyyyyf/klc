@@ -19,6 +19,7 @@ import argparse
 import datetime as _dt
 import json
 import os
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -29,9 +30,112 @@ _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
 from core.shared.paths import (  # noqa: E402
     klc_knowledge_dir,
+    klc_ticket_dir,
     klc_ticket_meta_file,
     klc_tickets_dir,
 )
+
+sys.path.insert(0, str(_file_dir))
+import budget_guard  # noqa: E402
+import phases  # noqa: E402
+import spec_review  # noqa: E402
+import token_journal  # noqa: E402
+
+
+# --- KLC-119 AC-11: the review-artefact crosswalk (D-204) -------------------
+#
+# Columns: artefact path relative to the ticket dir · the config/phases.yml
+# phase ids that HOST it · the ordinal of the first ticket whose directory
+# carries it (measured over .klc/tickets/ on 2026-09-18, design/options.md
+# F-D6) · whether spec_review.review_mode can gate it off for a track.
+_REVIEW_ARTEFACTS = (
+    ("spec-review.md",        ("discovery", "discovery-lite"),  96, True),
+    ("test-plan-review.md",   ("acceptance-test-plan",),        96, True),
+    ("impl-plan-review.md",   ("design", "discovery-lite"),     96, True),
+    ("drift-review.md",       ("integrate",),                  103, True),
+    ("review/code-review.md", ("review",),                     103, False),
+    ("review-report.md",      ("review",),                       1, False),
+    ("review-lite-report.md", ("review-lite",),                 40, False),
+)
+
+_TICKET_ORDINAL_RE = re.compile(r"(\d+)\s*$")
+
+
+def _ticket_ordinal(ticket: str) -> int:
+    """The numeric suffix of a ticket key (`KLC-119` -> 119). Unparseable
+    keys sort as ordinal 0 — treated as pre-dating every table entry, which
+    is the conservative (smaller `expected`) direction."""
+    m = _TICKET_ORDINAL_RE.search(str(ticket) or "")
+    return int(m.group(1)) if m else 0
+
+
+def _review_signals(meta: dict) -> dict:
+    """The signals `spec_review.should_run` needs, recovered from the
+    ticket's own meta.json (design/options.md A-D3) — an S ticket with none
+    of these recorded reads "cascade not required", which is the
+    conservative (smaller `expected`) direction for a ratio KLC-120 wants
+    to move."""
+    return {
+        "risk_tags": meta.get("risk_tags") or [],
+        "scope_expansion": bool(meta.get("scope_expansion")),
+        "sentinel_hits": bool(meta.get("sentinel_hits")),
+    }
+
+
+def expected_review_artefacts(track: str, ticket: str, meta: dict) -> int:
+    """AC-11 denominator. Never a literal: the track's own phase list
+    (`phases.load_phases().track_phases(track)`) crossed with the table
+    above, filtered by the era the ticket actually ran in (F-018/F-019 —
+    the corpus's review-artefact set has already changed shape once)."""
+    model = phases.load_phases()
+    hosted = {p.id for p in model.track_phases(track)}
+    ordinal = _ticket_ordinal(ticket)
+    gated_on = spec_review.should_run(track, _review_signals(meta))
+    total = 0
+    for _path, hosts, since, gated in _REVIEW_ARTEFACTS:
+        if ordinal < since or not hosted.intersection(hosts):
+            continue
+        if gated and not gated_on:
+            continue
+        total += 1
+    return total
+
+
+def actual_review_artefacts(track: str, ticket: str, meta: dict,
+                            ticket_dir: Path) -> int:
+    """Numerator: the files that are actually there. A degraded review
+    lowers THIS and never the denominator (Q-004)."""
+    model = phases.load_phases()
+    hosted = {p.id for p in model.track_phases(track)}
+    ordinal = _ticket_ordinal(ticket)
+    ticket_dir = Path(ticket_dir)
+    return sum(1 for path, hosts, since, _g in _REVIEW_ARTEFACTS
+               if ordinal >= since and hosted.intersection(hosts)
+               and (ticket_dir / path).exists())
+
+
+def iter_attempts(meta: dict, ticket: str) -> list[tuple[str, dict]]:
+    """Committed attempts UNION undrained journal attempts, de-duplicated
+    by id (D-005/ADR-004 point 5) — this is what makes the AC-12 backfill
+    (journal-only records) visible to the rollup without a CAS push.
+
+    De-duplication tracks ids seen across BOTH sources as it goes (not just
+    meta-vs-journal): a re-run of an idempotent journal-only writer (the
+    backfill, D-004's deterministic id) can append more than one physical
+    JSONL line carrying the SAME id, and those must collapse to one attempt
+    here too (AC-12's own idempotency requirement)."""
+    seen: set = set()
+    out: list[tuple[str, dict]] = []
+    for phase, entry in (meta.get("metrics", {}).get("tokens") or {}).items():
+        for rec in budget_guard.normalize_attempts(entry)["attempts"]:
+            seen.add(rec.get("id"))
+            out.append((phase, rec))
+    for rec in token_journal.read(ticket):
+        rid = rec.get("id")
+        if rid not in seen:
+            seen.add(rid)
+            out.append((rec.get("phase", "unknown"), rec))
+    return out
 
 
 def _read_meta(ticket: str) -> dict:
@@ -92,6 +196,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 def cmd_rollup(args: argparse.Namespace) -> int:
     tickets_dir = klc_tickets_dir()
     rows: list[dict] = []
+    ticket_ids: list[str] = []
     cancelled_total = 0
     if tickets_dir.exists():
         for meta_file in tickets_dir.glob("*/meta.json"):
@@ -108,11 +213,12 @@ def cmd_rollup(args: argparse.Namespace) -> int:
                 cancelled_total += 1
                 continue
             rows.append(m)
+            ticket_ids.append(meta_file.parent.name)
 
-    tracks = {}
-    for m in rows:
+    tracks: dict[str, list[tuple[dict, str]]] = {}
+    for m, tid in zip(rows, ticket_ids):
         tr = m.get("track") or "unknown"
-        tracks.setdefault(tr, []).append(m)
+        tracks.setdefault(tr, []).append((m, tid))
 
     def _ct(m: dict) -> float | None:
         hist = m.get("phase_history") or []
@@ -143,21 +249,29 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             return None
 
     per_track = {}
-    for track, ms in tracks.items():
+    for track, pairs in tracks.items():
+        ms = [m for m, _tid in pairs]
         cts = [c for c in (_ct(m) for m in ms) if c is not None]
         rework_totals = [sum((m.get("rework_count") or {}).values()) for m in ms]
 
-        # Token rollup: sum tokens_in/out/cache_hit per phase across tickets
+        # KLC-119: attempts list UNION undrained journal, per phase, across
+        # every ticket in this track (D-005). `source_counts` now has a
+        # `signal` bucket alongside `provider`/`estimated` (AC-10).
         token_by_phase: dict[str, dict[str, list]] = {}
-        for m in ms:
-            for phase, tok in (m.get("metrics", {}).get("tokens") or {}).items():
+        card_bytes_total = 0
+        for m, tid in pairs:
+            for phase, rec in iter_attempts(m, tid):
                 bucket = token_by_phase.setdefault(
-                    phase, {"in": [], "out": [], "cache_hit": [], "source": []}
+                    phase, {"in": [], "out": [], "cache_hit": [], "source": [],
+                           "attempts": []}
                 )
-                bucket["in"].append(tok.get("in", 0))
-                bucket["out"].append(tok.get("out", 0))
-                bucket["cache_hit"].append(tok.get("cache_hit", 0))
-                bucket["source"].append(tok.get("source", "estimated"))
+                bucket["in"].append(rec.get("in", 0))
+                bucket["out"].append(rec.get("out", 0))
+                bucket["cache_hit"].append(rec.get("cache_hit", 0))
+                bucket["source"].append(rec.get("source", "estimated"))
+                bucket["attempts"].append(rec)
+                if rec.get("card_bytes"):
+                    card_bytes_total += rec["card_bytes"]
         tokens_summary = {
             phase: {
                 "avg_in":        round(statistics.mean(v["in"])) if v["in"] else 0,
@@ -166,6 +280,7 @@ def cmd_rollup(args: argparse.Namespace) -> int:
                 "samples":       len(v["in"]),
                 "source_counts": {
                     "provider":  v["source"].count("provider"),
+                    "signal":    v["source"].count("signal"),
                     "estimated": v["source"].count("estimated"),
                 },
             }
@@ -188,6 +303,31 @@ def cmd_rollup(args: argparse.Namespace) -> int:
         )
         cheap_escape_rate = (cheap_escaped / cheap_total) if cheap_total > 0 else None
 
+        # KLC-119 AC-11: the two numbers KLC-120 is scoped to reduce. Both
+        # per-ticket averages (F-018's own wording: "average 1.8 reviewer
+        # artefacts ... exactly 4.00 for every ticket"); `prompt_bytes_per_ticket`
+        # is None (not 0) when the track has no measured attempts at all, so
+        # "not measured" never reads as "costs nothing".
+        prompt_bytes_per_ticket = (
+            (card_bytes_total / len(ms)) if ms and token_by_phase else None
+        )
+        actual_sum = sum(
+            actual_review_artefacts(track, tid, m, klc_ticket_dir(tid))
+            for m, tid in pairs
+        )
+        expected_sum = sum(
+            expected_review_artefacts(track, tid, m) for m, tid in pairs
+        )
+        review_passes_per_ticket = {
+            "actual":   (actual_sum / len(ms)) if ms else None,
+            "expected": (expected_sum / len(ms)) if ms else None,
+            "ratio":    (actual_sum / expected_sum) if expected_sum else None,
+        }
+
+        estimator_calibration = budget_guard.calibration_statement(
+            {phase: v["attempts"] for phase, v in token_by_phase.items()}
+        )
+
         per_track[track] = {
             "tickets":               len(ms),
             "cycle_time_sec_median": statistics.median(cts) if cts else None,
@@ -195,6 +335,9 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             "rework_mean":           statistics.mean(rework_totals) if rework_totals else 0,
             "tokens_by_phase":       tokens_summary,
             "cheap_escape_rate":     cheap_escape_rate,
+            "prompt_bytes_per_ticket":    prompt_bytes_per_ticket,
+            "review_passes_per_ticket":   review_passes_per_ticket,
+            "estimator_calibration":      estimator_calibration,
         }
 
     payload = {

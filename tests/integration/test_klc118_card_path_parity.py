@@ -138,6 +138,60 @@ def test_all_card_readers_resolve_the_same_written_card_path(tmp_path,
         "KLC_CARD_ROOT override was not honoured by the writer"
 
 
+# --------------------------------------------------------------------------- #
+# KLC-119 review-fix round 1, MEDIUM #3 (D-2119-1 / drift D-1): `_paths.py`
+# (bare import, used by `token_journal.py`/`state_tx.py`/...) mirrors
+# `core.shared.paths` (dotted import, used by `artefacts.py`)'s
+# `klc_card_root`/`klc_card_path`/`CARD_ROOT_ENV` verbatim. The operator
+# ruled (review-report.md D-1) to keep the mirror for this ticket rather than
+# collapse the two path-helper modules, and to add a parity test so a future
+# edit to one copy without the other fails fast instead of silently splitting
+# journal storage (`token_journal.py`) from card storage (`artefacts.py`).
+# --------------------------------------------------------------------------- #
+
+def test_klc_card_root_and_klc_card_path_agree_between_shared_and_skills_path_modules(
+        tmp_path, monkeypatch):
+    """`core.shared.paths` and `core.skills._paths` must return byte-identical
+    results for `klc_card_root()`/`klc_card_path()` across a matrix of
+    `KLC_CARD_ROOT` values and project roots — the journal
+    (`token_journal.journal_path`, via bare `_paths`) and the card writer
+    (`artefacts.render_card`, via dotted `core.shared.paths`) must never
+    disagree on where `.klc/scratch/` (or its override) lives."""
+    import importlib
+    sys.path.insert(0, str(SKILLS_DIR))
+    _paths = importlib.import_module("_paths")
+    import core.shared.paths as _shared_paths
+    importlib.reload(_paths)
+    importlib.reload(_shared_paths)
+
+    assert _paths.CARD_ROOT_ENV == _shared_paths.CARD_ROOT_ENV
+
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    override = tmp_path / "elsewhere" / "cards"
+    matrix = [
+        None,                       # unset -> default .klc/scratch
+        "",                         # blank -> treated as unset
+        "   ",                      # whitespace-only -> treated as unset
+        str(override),              # absolute override
+        "relative-cards",           # relative override
+        "~/klc-card-root-parity",   # ~-expansion
+    ]
+    for value in matrix:
+        if value is None:
+            monkeypatch.delenv("KLC_CARD_ROOT", raising=False)
+        else:
+            monkeypatch.setenv("KLC_CARD_ROOT", value)
+        assert _paths.klc_card_root() == _shared_paths.klc_card_root(), \
+            f"klc_card_root() disagreement for KLC_CARD_ROOT={value!r}"
+        for ticket, phase, step in (
+            ("KLC-PARITY1", "design", None),
+            ("KLC-PARITY2", "build", 3),
+        ):
+            assert (_paths.klc_card_path(ticket, phase, step)
+                   == _shared_paths.klc_card_path(ticket, phase, step)), \
+                f"klc_card_path() disagreement for KLC_CARD_ROOT={value!r}"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

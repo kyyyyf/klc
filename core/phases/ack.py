@@ -20,7 +20,7 @@ from _paths import klc_ticket_meta_file, project_root  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import epic_deps as _edeps  # noqa: E402
-from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
+from artefacts import acquire_lock, render_card, LockedError  # noqa: E402
 import phase_completion  # noqa: E402
 import scope_delta as _sd  # noqa: E402
 import gate_policy as _gp  # noqa: E402
@@ -352,7 +352,12 @@ def run(argv: list[str]) -> int:
 
             if new_st == _ph.STATE_WORK:
                 step = 1 if new_pid == "build" else None
-                card = write_prompt_card(args.ticket, new_pid, meta, step=step)
+                # KLC-119 AC-6: render_card() measures the card (records an
+                # `estimated` attempt) — this render happens AFTER the tx
+                # above has already committed and pushed (F-013), so the
+                # write lands in the journal and the NEXT state_tx for this
+                # ticket drains it (AC-4/AC-5).
+                card = render_card(args.ticket, new_pid, meta, step=step).path
                 print(f"→ {new_state}")
                 print(f"  cat {card}")
                 if new_pid == "build":

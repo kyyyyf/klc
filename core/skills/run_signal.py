@@ -82,6 +82,32 @@ def parse_signal(text: str, expected_phase: str) -> Signal | None:
     )
 
 
+def record_signal_tokens(signal: Signal | None, ticket: str, phase_id: str,
+                         card_render=None) -> str:
+    """AC-3/AC-9: a sibling to `parse_signal`, never a side effect inside it
+    (C-007) — the parser stays pure and unit-tested in isolation.
+
+    `signal.tokens` present and well-formed (`{"in": <int>, ...}`) records
+    one `signal`-sourced attempt; absent or malformed falls back to the
+    dispatch card's own `estimated` attempt via *card_render* (an object
+    with `.est_tokens`/`.card_bytes`, e.g. `artefacts.CardRender`). Returns
+    the source actually recorded ("signal" or "estimated"), or "estimated"
+    with nothing recorded when neither is available.
+    """
+    import budget_guard
+    tok = signal.tokens if signal is not None else None
+    if isinstance(tok, dict) and isinstance(tok.get("in"), int):
+        budget_guard.write_token_metrics(
+            ticket, phase_id, tok.get("in", 0), tok.get("out", 0), 0,
+            source="signal")
+        return "signal"
+    if card_render is not None:
+        budget_guard.write_token_metrics(
+            ticket, phase_id, card_render.est_tokens, 0, 0,
+            source="estimated", card_bytes=card_render.card_bytes)
+    return "estimated"
+
+
 def should_retry(failure_count: int) -> bool:
     """AC-6: retry the same phase once on a dead/unparseable/mismatched
     signal; a second consecutive failure stops the loop.

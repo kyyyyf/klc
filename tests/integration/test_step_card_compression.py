@@ -210,10 +210,17 @@ def test_telemetry_source_provider() -> None:
             os.environ["PROJECT_ROOT"] = tmp
             runner.run_agent("build", prompt_file, out_file,
                              track="S", ticket="T-SRC-001")
+            # KLC-119 AC-4: runner.py opens no transaction around its
+            # telemetry write, so the attempt lands in the ticket's journal
+            # rather than directly in meta.json (drained by the next
+            # state_tx, if any) — read it BEFORE popping PROJECT_ROOT.
+            import token_journal
+            records = [r for r in token_journal.read("T-SRC-001")
+                      if r.get("phase") == "build"]
             os.environ.pop("PROJECT_ROOT", None)
 
-        saved = json.loads((tdir / "meta.json").read_text())
-        tok = saved["metrics"]["tokens"]["build"]
+        assert records, "expected at least one journalled build attempt"
+        tok = records[-1]
         assert tok["source"] == "provider", f"expected provider, got {tok['source']}"
         assert tok["cache_hit"] == 50
         print("PASS: telemetry source='provider' from real usage block")
@@ -250,10 +257,16 @@ def test_telemetry_source_estimated() -> None:
             os.environ["PROJECT_ROOT"] = tmp
             runner.run_agent("build", prompt_file, out_file,
                              track="S", ticket="T-EST-001")
+            # KLC-119 AC-4: read the journal BEFORE popping PROJECT_ROOT —
+            # runner.py opens no transaction, so the attempt lands there
+            # rather than directly in meta.json.
+            import token_journal
+            records = [r for r in token_journal.read("T-EST-001")
+                      if r.get("phase") == "build"]
             os.environ.pop("PROJECT_ROOT", None)
 
-        saved = json.loads((tdir / "meta.json").read_text())
-        tok = saved["metrics"]["tokens"]["build"]
+        assert records, "expected at least one journalled build attempt"
+        tok = records[-1]
         assert tok["source"] == "estimated", f"expected estimated, got {tok['source']}"
         assert tok["cache_hit"] == 0, f"cache_hit must be 0 for estimated, got {tok['cache_hit']}"
         print("PASS: telemetry source='estimated', cache_hit=0 for plain text")

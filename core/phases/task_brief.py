@@ -19,6 +19,7 @@ SKILLS = Path(__file__).resolve().parent.parent / "skills"
 sys.path.insert(0, str(SKILLS))
 from _paths import klc_ticket_meta_file, klc_ticket_dir  # noqa: E402
 import task_brief as _tb  # noqa: E402
+import budget_guard  # noqa: E402
 
 
 def run(argv: list[str]) -> int:
@@ -45,6 +46,13 @@ def run(argv: list[str]) -> int:
 
     brief_path = build_dir / f"step-{args.step}-brief.md"
     brief_path.write_text(text, encoding="utf-8")
+    # KLC-119 AC-6: the step brief is the second measured artefact a build
+    # phase produces. No transaction is opened here (mirrors klc step,
+    # C-002) — the write lands in the journal.
+    budget_guard.write_token_metrics(
+        args.ticket, "build", budget_guard.estimate_tokens(text), 0, 0,
+        source="estimated", card_bytes=len(text.encode("utf-8")),
+        step=args.step)
 
     report_path = build_dir / f"step-{args.step}-impl-report.md"
     if not report_path.exists() or not report_path.read_text(encoding="utf-8").strip():

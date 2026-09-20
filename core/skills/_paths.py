@@ -77,6 +77,28 @@ def klc_ticket_dir(ticket_id: str) -> Path:
     return klc_tickets_dir() / ticket_id
 
 
+CARD_ROOT_ENV = "KLC_CARD_ROOT"
+
+
+def klc_card_root() -> Path:
+    """Root for DERIVED prompt cards, outside the ticket artefact tree
+    (KLC-118). `.klc/scratch/` by default; overridable with `KLC_CARD_ROOT`.
+    A blank or whitespace-only override is treated as unset. Mirrors
+    `core.shared.paths.klc_card_root` (the dotted-path module `artefacts.py`
+    uses) — kept in sync here so bare-`_paths` callers in `core/skills`
+    (e.g. `token_journal.py`) need no second import mechanism."""
+    raw = (os.environ.get(CARD_ROOT_ENV) or "").strip()
+    return Path(raw).expanduser() if raw else klc_dir() / "scratch"
+
+
+def klc_card_path(ticket_id: str, phase_id: str, step: int | None = None) -> Path:
+    """Canonical location of a rendered prompt card (KLC-118), without any
+    existence check or ticket-directory fallback — see
+    `core/skills/artefacts.py:card_path` for the reader-facing resolver."""
+    name = f"_prompt_step_{step}.md" if step is not None else "_prompt.md"
+    return klc_card_root() / ticket_id / phase_id / name
+
+
 def klc_ticket_scratch_dir(ticket_id: str) -> Path:
     """In-session externalized memory for an agent: intermediate findings
     that should not pollute the final artefacts but must survive context

@@ -33,12 +33,14 @@ identical (AC-8).
 """
 from __future__ import annotations
 
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
 import lifecycle
 import state_feature
 import state_sync
+import token_journal
 from _paths import klc_dir
 
 
@@ -81,14 +83,76 @@ def _restore_subtree(snapshot: dict, ticket, kdir: Path) -> None:
         fp.write_bytes(prior)
 
 
+def _drain_journal(ticket) -> list[str]:
+    """KLC-119 (D-002/D-201/D-202): fold every attempt currently buffered in
+    the ticket's journal into `meta.json:metrics.tokens`, returning the
+    drained ids so the caller can `token_journal.consume` them once the
+    write is durable (after a confirmed commit+push on the feature-ON
+    branch; immediately on the feature-OFF branch, which has no push to
+    wait for). Must run INSIDE `token_journal.scope(ticket)` so the writer
+    routes straight into meta.json instead of re-buffering into the very
+    journal being drained.
+
+    `budget_guard` is imported here (function-local), not at module level:
+    ADR-004 point 1 keeps `budget_guard` a leaf that never imports
+    `state_tx`, and this keeps the DAG the same shape even though the
+    reverse direction (state_tx -> budget_guard) would not itself cycle.
+    """
+    import budget_guard
+    records = token_journal.read(ticket)
+    if not records:
+        return []
+    ids: list[str] = []
+    for rec in records:
+        phase_id = rec.get("phase") or "unknown"
+        budget_guard.write_token_metrics(
+            ticket, phase_id,
+            rec.get("in", 0), rec.get("out", 0), rec.get("cache_hit", 0),
+            source=rec.get("source", "estimated"),
+            card_bytes=rec.get("card_bytes"),
+            step=rec.get("step"), attempt_id=rec.get("id"))
+        ids.append(rec.get("id"))
+    return ids
+
+
+def _warn_drain_failed(ticket, exc: Exception) -> None:
+    """C-003: telemetry never takes a verb down. One stderr line naming the
+    journal path, so a repeated failure is diagnosable rather than merely
+    quiet."""
+    sys.stderr.write(
+        f"telemetry: drain failed ({exc}); attempts kept in "
+        f"{token_journal.journal_path(ticket)}\n")
+
+
 @contextmanager
 def state_tx(ticket, msg):
-    if not state_feature.enabled():
-        # AC-8 no-op: run the body, touch no git, write no holder.
-        yield None
-        return
-
     kdir = klc_dir()
+    if not state_feature.enabled():
+        # D-201: feature-OFF is the headless runner's ONLY mode
+        # (autorunner.run() refuses when the feature is ON) — the early
+        # return here would otherwise mean the drain NEVER runs on that
+        # path. This branch has no git, but it still owns the meta.json
+        # write, so it drains too: under its OWN local snapshot, inside its
+        # own try, truncating immediately on success (no push to wait for).
+        # On failure it restores that snapshot, leaves the journal intact,
+        # warns once and CONTINUES into the body — never fatal (C-003). The
+        # snapshot/restore exist only on the drain path, so the normal
+        # feature-OFF body keeps its current no-rollback semantics
+        # (KLC-057 AC-8 stays byte-for-byte identical).
+        snap = _snapshot_subtree(ticket, kdir)
+        with token_journal.scope(ticket):
+            try:
+                drained = _drain_journal(ticket)
+            except Exception as exc:
+                _restore_subtree(snap, ticket, kdir)
+                _warn_drain_failed(ticket, exc)
+            else:
+                try:
+                    token_journal.consume(ticket, drained)
+                except Exception:
+                    pass        # a failed truncate costs one idempotent re-drain
+            yield None
+        return
 
     # 0. CLASS-CLOSING stale-guard (capture BEFORE the pull). Record this
     #    ticket's committed subtree hash so we can tell, after the pull, whether
@@ -115,40 +179,70 @@ def state_tx(ticket, msg):
     # 5. Defer any Jira push the body triggers (via set_state) until AFTER the
     #    CAS push confirms — so a rejected/rolled-back push never leaves Jira
     #    advanced ahead of klc (P1). The flush below fires only on clean success.
-    with lifecycle.defer_jira_pushes() as pending:
-        try:
-            # 6. The verb's whole mutating body runs here.
-            yield _TxHandle()
-            # 7. Glob-commit the ticket subtree + single CAS push. The remote is
-            #    left to `commit_and_push_cas_subtree`, whose default now resolves
-            #    to the branch's CONFIGURED upstream remote (KLC-069) — the remote
-            #    `klc state init <remote>` bound klc-state to (e.g. `sm`), NOT a
-            #    hardcoded `origin`. Resolving inside the CAS layer keeps state_tx
-            #    from touching git directly (all git stays behind state_sync entry
-            #    points) and closes the class for every caller, not one call site;
-            #    it also takes the tested use_upstream @{upstream} CAS path rather
-            #    than the other-remote FETCH_HEAD path.
-            state_sync.commit_and_push_cas_subtree(ticket, msg, kdir)
-        except Exception:
-            # ANY terminal failure — StateConflictError, a first-grab
-            # HolderConflictError, or a non-CAS sync error (RuntimeError/
-            # ValueError/NothingToCommitError) — unwinds every local mutation the
-            # body made so the local tree never diverges ahead of the untouched
-            # remote, and the WHOLE index is reset so the next pull never hits a
-            # dirty index. commit_and_push_cas_subtree leaves its aborted commit
-            # STAGED via reset --soft, and that staged set includes the
-            # `rm --cached` untracking of the shared derived cache
-            # (knowledge/tickets-index.jsonl) which lives OUTSIDE tickets/<ticket>/
-            # on an upgraded worktree (state_sync.py:523). A subtree-scoped reset
-            # would leave that top-level staged deletion behind, contradicting the
-            # rollback contract; an UNSCOPED `git reset` clears it too. This is
-            # safe: stash-popped edits to other tickets and this ticket's snapshot
-            # restore both live in the WORKING TREE, not the index, so an
-            # index-only reset (no --hard) cannot destroy any in-progress work.
-            # The collected Jira push is DISCARDED (not flushed). The exception
-            # then propagates for a clean verb message.
-            _restore_subtree(snap, ticket, kdir)
-            state_sync._git(["reset", "-q"], kdir)
-            raise
+    with token_journal.scope(ticket):
+        with lifecycle.defer_jira_pushes() as pending:
+            drained: list[str] = []
+            try:
+                # 5b. KLC-119 D-002/D-202: the drain sits INSIDE this same try,
+                #     AFTER the snapshot (so a failure restores exactly like a
+                #     body mutation) and in its OWN inner try, so a drain
+                #     failure is restored and SWALLOWED — never propagated —
+                #     and the verb still runs. This is the whole safety
+                #     argument: the protection is what matters, not whether
+                #     the failure is re-raised.
+                try:
+                    drained = _drain_journal(ticket)
+                except Exception as exc:
+                    _restore_subtree(snap, ticket, kdir)
+                    # SCOPED reset: the unscoped one below (terminal failure)
+                    # exists to clear a staged top-level `rm --cached` a drain
+                    # never produces (the drain only writes meta.json, never
+                    # touches git directly).
+                    state_sync._git(
+                        ["reset", "-q", "--", str(_subtree_root(ticket, kdir))],
+                        kdir)
+                    _warn_drain_failed(ticket, exc)
+                    drained = []       # journal NOT truncated — retried next time
+                # 6. The verb's whole mutating body runs here.
+                yield _TxHandle()
+                # 7. Glob-commit the ticket subtree + single CAS push. The remote is
+                #    left to `commit_and_push_cas_subtree`, whose default now resolves
+                #    to the branch's CONFIGURED upstream remote (KLC-069) — the remote
+                #    `klc state init <remote>` bound klc-state to (e.g. `sm`), NOT a
+                #    hardcoded `origin`. Resolving inside the CAS layer keeps state_tx
+                #    from touching git directly (all git stays behind state_sync entry
+                #    points) and closes the class for every caller, not one call site;
+                #    it also takes the tested use_upstream @{upstream} CAS path rather
+                #    than the other-remote FETCH_HEAD path.
+                state_sync.commit_and_push_cas_subtree(ticket, msg, kdir)
+            except Exception:
+                # ANY terminal failure — StateConflictError, a first-grab
+                # HolderConflictError, or a non-CAS sync error (RuntimeError/
+                # ValueError/NothingToCommitError) — unwinds every local mutation the
+                # body made so the local tree never diverges ahead of the untouched
+                # remote, and the WHOLE index is reset so the next pull never hits a
+                # dirty index. commit_and_push_cas_subtree leaves its aborted commit
+                # STAGED via reset --soft, and that staged set includes the
+                # `rm --cached` untracking of the shared derived cache
+                # (knowledge/tickets-index.jsonl) which lives OUTSIDE tickets/<ticket>/
+                # on an upgraded worktree (state_sync.py:523). A subtree-scoped reset
+                # would leave that top-level staged deletion behind, contradicting the
+                # rollback contract; an UNSCOPED `git reset` clears it too. This is
+                # safe: stash-popped edits to other tickets and this ticket's snapshot
+                # restore both live in the WORKING TREE, not the index, so an
+                # index-only reset (no --hard) cannot destroy any in-progress work.
+                # The collected Jira push is DISCARDED (not flushed). The exception
+                # then propagates for a clean verb message.
+                _restore_subtree(snap, ticket, kdir)
+                state_sync._git(["reset", "-q"], kdir)
+                raise
+            # KLC-119: truncate the journal only AFTER a confirmed commit+push
+            # — a rejected CAS or a crash before this point leaves the
+            # attempts on disk for the next transaction (id-keyed idempotent
+            # re-drain), never lost and never double-counted.
+            try:
+                token_journal.consume(ticket, drained)
+            except Exception:
+                pass    # a failed truncate costs one idempotent re-drain
     # 8. CAS push succeeded → NOW fire the deferred Jira push (never on rollback).
     lifecycle.flush_jira_pushes(pending)

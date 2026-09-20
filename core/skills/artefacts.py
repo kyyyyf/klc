@@ -411,8 +411,13 @@ def render_card(ticket: str, phase_id: str, meta: dict,
     record its byte size + an estimated token count into
     `meta.json:metrics.tokens.<phase_id>` (`source="estimated"`, never
     downgrading a `provider` record — see `budget_guard.write_token_metrics`).
-    `klc next` is the one caller that needs the measured numbers; every other
-    call site keeps using `write_prompt_card`/`write_step_card` directly."""
+    KLC-119 AC-6 wires every render site through here: `klc next`
+    (`core/phases/next.py`), `klc ack` (`ack.py`), `klc jump` (`jump.py`),
+    `klc step` (`step.py`), the headless `autorunner.run`, and the
+    `/klc:run` dispatch (`klc-plugin/skills/run/SKILL.md`'s prose calls this
+    same function before its budget gate). No render site still writes a
+    card through `write_prompt_card`/`write_step_card` alone without also
+    routing through this measuring wrapper."""
     if phase_id == "build" and step is not None:
         path = write_step_card(ticket, step, meta)
     else:
@@ -479,11 +484,12 @@ def sweep_legacy_cards(ticket: str | None = None,
 def _record_card_metrics(ticket: str, phase_id: str, text: str,
                          card_bytes: int) -> int:
     """Non-fatal telemetry write (mirrors runner.py's own try/except around
-    write_token_metrics) — a metrics failure must never fail a card render."""
-    try:
-        import budget_guard
-    except ImportError:
-        return max(1, card_bytes // 4)
+    write_token_metrics) — a metrics failure must never fail a card render.
+
+    KLC-119 D-006: `budget_guard.estimate_tokens` is the ONE size-to-token
+    rule in `core/` (AC-7) — no second floor-division-by-four fallback
+    here."""
+    import budget_guard
     est_tokens = budget_guard.estimate_tokens(text)
     try:
         budget_guard.write_token_metrics(

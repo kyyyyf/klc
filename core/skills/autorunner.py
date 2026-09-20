@@ -155,8 +155,12 @@ def _card_path(ticket: str, phase_id: str) -> Path:
     meta = _lc.read_meta(ticket)
     resolved = _phase_resolver.resolve_phase(
         ticket, phase_id, executor=_phase_resolver.EXECUTOR_HEADLESS)
-    return _artefacts.write_prompt_card(ticket, phase_id, meta,
-                                        mode=resolved.card_mode)
+    # KLC-119 AC-6: render_card() measures the card (records an `estimated`
+    # attempt); the autorunner opens no transaction of its own around this
+    # call, so the write lands in the journal and drains on the next
+    # transactional verb (e.g. the ack --auto this loop iteration calls next).
+    return _artefacts.render_card(ticket, phase_id, meta,
+                                  mode=resolved.card_mode).path
 
 
 def _out_path(ticket: str, phase_id: str) -> Path:

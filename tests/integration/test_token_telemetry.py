@@ -75,7 +75,8 @@ def test_budget_guard_blocks_oversized_prompt() -> None:
 
 
 def test_token_metrics_written_to_meta() -> None:
-    """Successful run writes tokens_in/out/cache_hit to meta.json."""
+    """Successful run records tokens_in/out/cache_hit (KLC-119: journalled,
+    since runner.py opens no transaction of its own)."""
     import runner
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -106,12 +107,17 @@ def test_token_metrics_written_to_meta() -> None:
             )
 
         assert rc == 0, f"expected rc=0, got {rc}"
-        meta = json.loads((tdir / "meta.json").read_text())
-        tokens = meta.get("metrics", {}).get("tokens", {})
-        assert "build" in tokens, f"expected tokens.build in meta: {meta['metrics']}"
-        assert tokens["build"]["in"] > 0
-        assert tokens["build"]["out"] > 0
-        print("PASS: token metrics written to meta.json after successful run")
+        # KLC-119 AC-4: runner.py opens no transaction around its telemetry
+        # write, so the attempt lands in the ticket's journal (not directly
+        # in meta.json) until the next state_tx drains it — metrics.tokens
+        # is also now an append-only attempts list rather than one record.
+        import token_journal
+        records = [r for r in token_journal.read("T-TOK-001")
+                  if r.get("phase") == "build"]
+        assert records, "expected at least one journalled build attempt"
+        assert records[-1]["in"] > 0
+        assert records[-1]["out"] > 0
+        print("PASS: token metrics recorded after a successful headless run")
 
     os.environ.pop("PROJECT_ROOT", None)
 

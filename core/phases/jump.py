@@ -34,7 +34,7 @@ import identity  # noqa: E402
 import holder  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
-from artefacts import acquire_lock, write_prompt_card, LockedError  # noqa: E402
+from artefacts import acquire_lock, render_card, LockedError  # noqa: E402
 
 
 def _friendly_missing_ticket(ticket: str) -> int:
@@ -123,9 +123,12 @@ def run(argv: list[str]) -> int:
                     holder.heartbeat_holder(args.ticket)
             plan = applied["plan"]
 
-            # Applied. Render the prompt card and return.
+            # Applied. Render the prompt card and return. KLC-119 AC-6: this
+            # render happens AFTER the tx above closed (a journalling site,
+            # like ack.py — design/options.md F-D4), so render_card()'s
+            # attempt lands in the journal and the next state_tx drains it.
             meta = _lc.read_meta(args.ticket)
-            card = write_prompt_card(args.ticket, args.target_phase, meta)
+            card = render_card(args.ticket, args.target_phase, meta).path
             print(f"→ {plan['to']}")
             print(f"  cat {card}")
             print(f"    # paste into your agent, then run `klc ack {args.ticket}`")

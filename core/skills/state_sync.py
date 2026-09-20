@@ -155,6 +155,7 @@ _DERIVED_IGNORES = (
     "_prompt.md",                     # derived phase prompt card
     "_prompt_step_*.md",              # derived build step cards
     "scratch/",                       # per-session local agent memory
+    "telemetry.jsonl",                # KLC-119: derived token-telemetry journal
 )
 
 
@@ -221,6 +222,7 @@ def _derived_untrack_pathspecs(ticket: str) -> list[str]:
         f":(glob){t}/**/_prompt.md",
         f":(glob){t}/**/_prompt_step_*.md",
         f":(glob){t}/**/scratch/**",
+        f":(glob){t}/**/telemetry.jsonl",
     ]
 
 
