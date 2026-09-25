@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 _SHARED_PATH = str(Path(__file__).resolve().parent.parent / "core" / "shared")
+_SKILLS_PATH = str(Path(__file__).resolve().parent.parent / "core" / "skills")
 
 
 @pytest.fixture(autouse=True)
@@ -76,3 +77,25 @@ def _restore_real_pyyaml():
         for i in removed_indices:
             sys.path.insert(i, _SHARED_PATH)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _clear_lifecycle_meta_patches():
+    """Clear `lifecycle._meta_patches` before and after every test (KLC-110
+    review round 1, step-9a). It is a process-global dict keyed by ticket,
+    staged by `phase_completion`'s persisting advisory producers (e.g. the
+    KLC-110 retrieval-eval seam) and normally CONSUMED only by a successful
+    `lifecycle.set_state`. A test that stages a patch — directly, or by
+    exercising a code path that does — without driving a full successful
+    transition would otherwise leak it into the NEXT test that reuses the
+    same ticket key in the same pytest process: the same class of
+    process-global leak `_restore_project_root_env` above guards against,
+    for the same reason (module-global state outliving the test that set
+    it). This replaces the manual per-test `_lc._apply_meta_patch(ticket, {})`
+    drains some KLC-110 tests used to need."""
+    if _SKILLS_PATH not in sys.path:
+        sys.path.insert(0, _SKILLS_PATH)
+    import lifecycle as _lc
+    _lc._meta_patches.clear()
+    yield
+    _lc._meta_patches.clear()

@@ -94,7 +94,7 @@ def test_integrate_surfaces_drift_review_decisions(monkeypatch, tmp_path):
     import advisories as _adv_mod
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.setattr(pc._lc, "read_meta_ro", lambda t: {"track": "M", "risk_tags": []})
-    monkeypatch.setattr(pc, "_drift_advisories", lambda t, p: [])  # isolate the 099 part
+    monkeypatch.setattr(pc, "_drift_advisories", lambda t, p, **_kw: [])  # isolate the 099 part
     monkeypatch.setattr(
         pc._drift_review, "consume_records",
         lambda td, track, sig=None, persist=True: (
@@ -113,7 +113,7 @@ def test_records_findings_only_on_persist(monkeypatch):
     import phase_completion as pc
     seen = []
     monkeypatch.setattr(pc._lc, "read_meta_ro", lambda t: {"track": "M", "risk_tags": []})
-    monkeypatch.setattr(pc, "_drift_advisories", lambda t, p: [])
+    monkeypatch.setattr(pc, "_drift_advisories", lambda t, p, **_kw: [])
     monkeypatch.setattr(
         pc._drift_review, "consume_records",
         lambda td, track, sig=None, persist=True: (seen.append(persist) or ([], [])))

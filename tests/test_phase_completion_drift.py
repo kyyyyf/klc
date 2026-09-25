@@ -30,9 +30,14 @@ def test_integrate_appends_drift_advisory(monkeypatch, tmp_path):
 
     KLC-117: `_can_complete_generic`'s return value is now the aggregator's
     one-line summary; the actual advisory content is asserted from the
-    persisted artifact (requires `persist=True` to exist)."""
+    persisted artifact (requires `persist=True` to exist).
+
+    KLC-110 D-216: the integrate branch now calls `_drift_advisories` with a
+    keyword-only `committed=` cache — the stub tolerates it via `**_kw`
+    rather than pinning the old two-positional-arg shape."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(pc, "_drift_advisories", lambda ticket, persist: ["drift: core/foo"])
+    monkeypatch.setattr(pc, "_drift_advisories",
+                        lambda ticket, persist, **_kw: ["drift: core/foo"])
     ok, msg = pc._can_complete_generic("KLC-ANY", "integrate", persist=True)
     assert ok is True
     assert msg

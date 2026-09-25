@@ -345,6 +345,36 @@ and `derivation_confidence` so a consumer knows which numbers to trust. This is 
 `degrade-not-fail` invariant applied to metrics: a bad data source is reported as
 `unavailable`, never as a valid section of zeros.
 
+`planning-eval.py` was, until KLC-110, a standalone CLI with no caller anywhere in
+the lifecycle: a retrieval trace was written for every ticket at intake, the
+committed diff was computable at integrate, and nobody ever compared the two.
+KLC-110 closes that loop at the point both ends are already available — the
+integrate ack, reusing the KLC-096 report-only advisory precedent. A third
+advisory producer (`phase_completion._retrieval_advisories`, beside the two
+drift producers) evaluates the ticket's trace against
+`phase_completion._committed()`'s own committed-diff pair (the same ground truth
+drift-check reports on, so the two can never disagree about what a ticket
+changed), through the ONE canonical `rank_metrics` this scorer exposes
+(`retrieval_eval.load_planning_eval()`, KLC-110 D-213). The record lands in
+`meta.json:metrics.retrieval` — staged onto the ack's own transaction so a
+rolled-back push leaves no record — and a JSON line is appended to the derived,
+never-tracked `.klc/knowledge/retrieval-eval.jsonl`. `klc metrics --rollup`
+aggregates the per-ticket records into a `retrieval` sub-block under each
+`per_track.<track>` entry and a top-level `per_confidence` block keyed by the
+trace's own claimed confidence, so a *confidently wrong* retriever — `high` or
+`medium` confidence with zero edit-slice precision — is a named,
+machine-readable signature (`per_confidence.high.retrieval.zero_precision_at_5_tickets`) —
+that list also names a ticket whose edit-slice precision is null (an empty
+`files_likely_to_edit`, not a scored zero), since both readings are equally a
+retriever that named nothing useful. The whole addition is
+report-only: it never blocks an ack, never raises, and a read-only probe
+persists nothing (the same invariants KLC-096 established for drift-check).
+`planning-eval.py --backfill` runs the same scorer offline over the whole
+ticket corpus — both the `stored` traces written at intake and `replayed`
+traces re-run against the current index — and renders the pre-KLC-108 baseline
+table this repository's numbers are compared against going forward
+(`docs/20260920_klc110-retrieval-baseline.md`).
+
 ## Retrieval scoring (KLC-108)
 
 The retriever's precision problem had two independent causes: the symbol index

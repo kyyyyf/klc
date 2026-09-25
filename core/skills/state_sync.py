@@ -156,6 +156,7 @@ _DERIVED_IGNORES = (
     "_prompt_step_*.md",              # derived build step cards
     "scratch/",                       # per-session local agent memory
     "telemetry.jsonl",                # KLC-119: derived token-telemetry journal
+    "knowledge/retrieval-eval.jsonl",  # KLC-110: derived retrieval-score evidence log
 )
 
 

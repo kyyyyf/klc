@@ -160,6 +160,14 @@ def run(argv: list[str]) -> int:
                             RuntimeError):
                         sys.stderr.write("klc ack: state sync failed — retry.\n")
                         return 1
+                    finally:
+                        # KLC-110 review round 1, step-9a (D-110-9): `can_complete`
+                        # above may have staged a meta patch (persist=True); every
+                        # non-success path out of this transition attempt must
+                        # discard it, or it wrongly rides this ticket's NEXT
+                        # successful transition in the SAME process. A no-op on
+                        # the success path — `set_state` already consumed it.
+                        _lc.discard_meta_patch(args.ticket)
                     sys.stderr.write(f"→ {pid}:{new_state} (manual completion)\n")
                     # Recurse: now in ack-needed, apply normal ack logic
                     return run(argv)

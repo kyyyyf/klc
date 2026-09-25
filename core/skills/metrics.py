@@ -193,6 +193,75 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# KLC-110 step-6: the retrieval rollup (AC-13, AC-14, AC-20)
+# --------------------------------------------------------------------------- #
+_RETRIEVAL_MEANS = (
+    ("precision_at_5",          ("files_likely_to_edit", "precision")),
+    ("recall_at_5",             ("files_likely_to_edit", "recall")),
+    ("precision_at_10",         ("files_to_read_first", "precision")),
+    ("recall_at_10",            ("files_to_read_first", "recall")),
+    ("files_before_first_edit", ("files_to_read_first", "items_before_first_hit")),
+    ("tests_recall",            ("tests_to_read_or_run", "recall")),
+    ("modules_precision",       ("affected_modules_hint", "precision")),
+    ("modules_recall",          ("affected_modules_hint", "recall")),
+)
+
+# AC-14's four, plus one additive fifth. `no_record` is NOT a confidence value:
+# it is the count of tickets carrying no `metrics.retrieval` key at all — most
+# of the archived corpus today, and every XS/unsignalled-S ticket after the
+# KLC-110 track gate. Putting those in `unknown` would inflate the one raw
+# count AC-14 asks for by name with tickets that were never measured (D-303).
+_CONFIDENCE_BUCKETS = ("high", "medium", "low", "unknown")
+_NO_RECORD = "no_record"
+
+
+def _retrieval_rollup(metas: list[dict]) -> dict:
+    """AC-13 / AC-14. Aggregates ONLY status-ok records; an unavailable
+    record is counted, never averaged. A null metric (an empty candidate
+    list, AC-6) is excluded from its mean — counting it as a zero would
+    re-introduce the fake zero KLC-110 exists to remove — and a mean with no
+    samples reports null. `degraded_count` slices the honest question a
+    reader asks next: was this a weak retriever, or a degraded index
+    (D-217)?"""
+    recs = [(m, (m.get("metrics") or {}).get("retrieval") or {}) for m in metas]
+    ok = [(m, r) for m, r in recs if r.get("status") == "ok"]
+    out = {
+        "tickets_scored": len(ok),
+        "tickets_unavailable": sum(1 for _, r in recs if r.get("status") == "unavailable"),
+        "degraded_count": sum(1 for _, r in ok if r.get("degraded_inputs")),
+        "zero_precision_at_5_tickets": sorted(
+            m.get("ticket") for m, r in ok
+            if not (r.get("files_likely_to_edit") or {}).get("precision")),
+    }
+    for name, (arrow, key) in _RETRIEVAL_MEANS:
+        vals = [v for _, r in ok
+                if (v := (r.get(arrow) or {}).get(key)) is not None]
+        out[f"{name}_mean"] = statistics.mean(vals) if vals else None
+    return out
+
+
+def _per_confidence(rows: list[dict]) -> dict:
+    """Top-level AC-14 block, keyed by the confidence the trace CLAIMED. On
+    this repository today every live trace caps to `low`, so an empty `high`
+    bucket is the expected production reading until KLC-123 scopes that cap
+    (Q-211)."""
+    buckets: dict[str, list[dict]] = {b: [] for b in (*_CONFIDENCE_BUCKETS, _NO_RECORD)}
+    for m in rows:
+        metrics_block = m.get("metrics") or {}
+        if "retrieval" not in metrics_block or not isinstance(metrics_block["retrieval"], dict):
+            # Never measured: no trace was ever scored for this ticket.
+            # Membership is decided by the KEY's presence, not by a confidence
+            # lookup, because a missing key and a `confidence: unknown` record
+            # both read as None.
+            buckets[_NO_RECORD].append(m)
+            continue
+        claimed = metrics_block["retrieval"].get("confidence")
+        buckets[claimed if claimed in _CONFIDENCE_BUCKETS else "unknown"].append(m)
+    return {b: {"tickets": len(ms), "retrieval": _retrieval_rollup(ms)}
+            for b, ms in buckets.items()}
+
+
 def cmd_rollup(args: argparse.Namespace) -> int:
     tickets_dir = klc_tickets_dir()
     rows: list[dict] = []
@@ -338,6 +407,7 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             "prompt_bytes_per_ticket":    prompt_bytes_per_ticket,
             "review_passes_per_ticket":   review_passes_per_ticket,
             "estimator_calibration":      estimator_calibration,
+            "retrieval":                  _retrieval_rollup(ms),   # KLC-110 AC-13
         }
 
     payload = {
@@ -345,6 +415,7 @@ def cmd_rollup(args: argparse.Namespace) -> int:
         "tickets_total": len(rows),
         "cancelled_total": cancelled_total,   # KLC-076: excluded from tickets_total
         "per_track":     per_track,
+        "per_confidence": _per_confidence(rows),   # KLC-110 AC-14
     }
     out = klc_knowledge_dir() / "process-metrics.json"
     out.parent.mkdir(parents=True, exist_ok=True)

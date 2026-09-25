@@ -35,6 +35,7 @@ import drift_review as _drift_review  # noqa: E402  (KLC-099: DRIFT_CHECK Review
 import advisories as _adv  # noqa: E402  (KLC-117: the one advisory aggregator)
 import provenance as _provenance  # noqa: E402  (KLC-116: the design-ack provenance gate)
 import module_vocabulary as _mv  # noqa: E402  (KLC-111: the one vocabulary/mapper module)
+import retrieval_eval as _reval  # noqa: E402  (KLC-110: report-only retrieval scorer)
 
 
 def _provenance_gate_records(ticket: str, persist: bool) -> tuple[str, list[dict]]:
@@ -941,11 +942,17 @@ def _load_modules() -> dict:
         return {"modules": []}
 
 
-def _committed(repo=None) -> tuple[set, set]:
+def _committed(repo=None, *, cache: dict | None = None) -> tuple[set, set]:
     """Return (committed MODULE names, committed PATHS) for the branch vs origin/main
     (merge-base), used to restrict drift to the ticket's COMMITTED change — an
     uncommitted operator WIP is thus never surfaced (KLC-096 retrospective C-001).
-    Merge-base unavailable → (set(), set()) (surface nothing); never raises."""
+    Merge-base unavailable → (set(), set()) (surface nothing); never raises.
+
+    `cache` (KLC-110 review round 1, step-10, D-110-11, additive/optional):
+    when given, the parsed `modules.json` this call loads is ALSO stashed
+    under `cache['modules_data']`, so a sibling producer sharing the same
+    per-ack cache (`_modules_data_cached`) reuses it at zero extra I/O
+    instead of reading the file a second time."""
     if repo is None:
         # Run git in the PROJECT_ROOT checkout, not the caller's cwd — an installed
         # `klc` shim launched elsewhere would otherwise get an empty committed set and
@@ -960,7 +967,12 @@ def _committed(repo=None) -> tuple[set, set]:
         return set(), set()
     out = _git(["diff", "--name-only", base, "HEAD"], repo)
     paths = {p for p in out.split("\n") if p.strip() and not p.startswith(".klc/")}
-    modules_data = _load_modules()
+    if cache is not None and "modules_data" in cache:
+        modules_data = cache["modules_data"]
+    else:
+        modules_data = _load_modules()
+        if cache is not None:
+            cache["modules_data"] = modules_data
     mods: set = set()
     for p in paths:
         r = _mm.file_to_module(p, modules_data)
@@ -973,7 +985,43 @@ def _committed(repo=None) -> tuple[set, set]:
     return mods, paths
 
 
-def _drift_advisories(ticket: str, persist: bool) -> list[dict]:
+def _committed_cached(cache: dict | None) -> tuple[set, set]:
+    """`_committed()` at most ONCE per ack (KLC-110 AC-21, D-216).
+
+    `cache` is a dict the integrate branch creates fresh per ack and threads
+    through every advisory producer that needs the committed diff; each
+    fills it on first need. A module-level global here would be a stale-diff
+    bug across acks and across two tickets scored in one process. Callers
+    must resolve this only AFTER their own degrade checks pass (D-214, D-300),
+    so a ticket with no usable trace, or a track that skips, adds no git
+    invocation at all. `cache=None` (the default for every existing caller)
+    falls straight through to an uncached `_committed()` call, so callers
+    that never share a cache are unaffected.
+    """
+    if cache is None:
+        return _committed()
+    if "committed" not in cache:
+        cache["committed"] = _committed(cache=cache)
+    return cache["committed"]
+
+
+def _modules_data_cached(cache: dict | None) -> dict:
+    """The parsed `modules.json` this ack has already loaded (KLC-110 review
+    round 1, step-10, D-110-11) — reused by the retrieval evaluator's
+    colocated-test sibling-confirmation predicate (AC-21 explicitly
+    sanctions reading the module map). When `_committed_cached(cache)` has
+    already run this ack (the drift producer runs first in `_sources`), the
+    SAME dict `_committed()` loaded is already sitting in
+    `cache['modules_data']` and this costs zero extra I/O. `cache=None`, or
+    a cache `_committed_cached` was never called against (e.g. a track-
+    skipped ack that still somehow reaches here), falls back to a direct
+    `_load_modules()` call — never a git invocation."""
+    if cache is not None and "modules_data" in cache:
+        return cache["modules_data"]
+    return _load_modules()
+
+
+def _drift_advisories(ticket: str, persist: bool, *, committed: dict | None = None) -> list[dict]:
     """Surface the drift-check report (KLC-096) at the integrate ack (KLC-098 D-03).
 
     KLC-117: returns advisory RECORDS (severity medium — Q-003: a scope-drift
@@ -1017,7 +1065,7 @@ def _drift_advisories(ticket: str, persist: bool) -> list[dict]:
         rep = _drift.write_report(ticket) if persist else _drift.compare(ticket)
         scope = dict(rep.get("scope_drift") or {})
         steps = rep.get("step_without_commit") or {}
-        mods, paths = _committed()
+        mods, paths = _committed_cached(committed)
         surfaced_mods = [m for m in (scope.get("drifted_modules") or []) if m in mods]
         surfaced_orphans = [o for o in (scope.get("orphan_files") or []) if o in paths]
 
@@ -1083,6 +1131,65 @@ def _drift_review_advisories(ticket: str, persist: bool) -> list[dict]:
                 "message": f"drift-review: skipped — {type(exc).__name__}", "ref": ""}]
 
 
+def _retrieval_advisories(ticket: str, persist: bool, *, committed=None) -> list[dict]:
+    """Surface the retrieval score at the integrate ack (KLC-110), in the same
+    surface-only position as the two drift producers: never blocks, never raises,
+    and persist=False stages nothing and writes nothing.
+
+    TRACK-SCALED exactly like _drift_advisories: full on M/L, cascade-on-signal
+    on S, skip on XS. Fail-OPEN, since surfacing is safe.
+    """
+    # GATE 1 — TRACK, first, before anything reads a trace (D-300, revision-2
+    # review F-1). _drift_advisories returns [] here, twenty lines before its own
+    # _committed() call, so on a skipped track the ack issues ZERO git calls today.
+    # Gating only on trace status (revision 2) closed that hole only while traces
+    # are degraded; the moment an XS ticket's trace is `ok`, this producer becomes
+    # the ack's FIRST _committed() caller and AC-21's bound breaks.
+    try:
+        _meta = _lc.read_meta_ro(ticket)
+        _track = _meta.get("track")
+        _skip = bool(_track) and not _spec_review.should_run(
+            _track, {"risk_tags": _meta.get("risk_tags") or []}
+        )
+    except Exception:
+        _meta, _skip = {}, False       # fail-open: surfacing is safe, cost is not
+    if _skip:
+        return []                      # XS skip / S without an escalation signal
+
+    _meta_path = klc_ticket_meta_file(ticket)
+    try:
+        _snap = _meta_path.read_bytes() if (not persist and _meta_path.exists()) else None
+    except Exception:
+        _snap = None
+    try:
+        trace = _reval.read_trace(ticket)
+        # GATE 2 — DEGRADE, second (D-214). Orthogonal to gate 1, not a substitute
+        # for it: this one spares an M ticket whose trace is missing, which the
+        # track gate does not, and the track gate spares an XS ticket whose trace
+        # is fine, which this one does not. Both, in this order.
+        if not trace or trace.get("status") != "ok":
+            rec = _reval.evaluate(trace, set(), set())
+        else:
+            # Only now, past BOTH gates, is a git subprocess permissible.
+            mods, paths = _committed_cached(committed)
+            modules_data = _modules_data_cached(committed)
+            rec = _reval.consume(ticket, trace, mods, paths, _meta.get("track"),
+                                 persist=persist, modules_data=modules_data)
+        return _reval.advisory_records(ticket, rec)
+    except Exception as exc:    # surface-only: never propagate, never block
+        return [{"source": "retrieval-eval", "severity": "info",
+                 "code": "retrieval-eval.degraded",
+                 "message": f"retrieval-eval: skipped — {type(exc).__name__}",
+                 "ref": ""}]
+    finally:
+        if _snap is not None:
+            try:
+                if _meta_path.read_bytes() != _snap:
+                    _meta_path.write_bytes(_snap)
+            except Exception:
+                pass
+
+
 def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check that all phases.yml outputs exist and are non-empty.
 
@@ -1101,9 +1208,14 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
     # BEFORE the empty-outputs early return — integrate declares `outputs: []`, so the
     # advisory would be unreachable after it. Surface-only: always a completable (True, …).
     if phase_id == "integrate":
+        # KLC-110 D-216: one fresh cache dict per ack, threaded through every
+        # producer that may need the committed diff, so `_committed()` runs
+        # at most once total across drift-check and the retrieval evaluator.
+        _cache: dict = {}
         _sources = [
-            ("drift-check", _drift_advisories(ticket, persist)),
+            ("drift-check", _drift_advisories(ticket, persist, committed=_cache)),
             ("drift-review", _drift_review_advisories(ticket, persist)),
+            ("retrieval-eval", _retrieval_advisories(ticket, persist, committed=_cache)),
         ]
         _records, _summary = _adv.finish(ticket, "integrate", _sources, persist)
         return True, _summary

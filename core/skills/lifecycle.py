@@ -438,10 +438,60 @@ def _record_divergence_non_tty(ticket: str, plan: "SyncPlan") -> None:  # type: 
     })
 
 
+# KLC-110 D-219: a nested meta mutation an advisory producer stages so it
+# rides the SAME meta write `set_state` performs — never a direct write of
+# its own. `phase_completion.can_complete` runs BEFORE `state_tx` is entered
+# (core/phases/ack.py:93 vs :112), so a producer writing meta.json directly
+# would leave its record behind when a CAS push is rejected or a
+# stale-state abort fires — a metric on a ticket that never integrated.
+# Module-level and per-ticket, mirroring `_bump_rework`'s in-transaction
+# rationale; a patch staged for an ack that never calls `set_state` is
+# simply dropped (never applied to any OTHER ticket's transition, and never
+# a separate persistence path of its own).
+_meta_patches: dict = {}
+
+
+def stage_meta_patch(ticket: str, patch: dict) -> None:
+    """Stage a nested meta mutation to ride the caller's `state_tx` (D-219).
+
+    See the module-level `_meta_patches` docstring for the full rationale.
+    """
+    if patch:
+        _meta_patches.setdefault(ticket, {}).update(patch)
+
+
+def discard_meta_patch(ticket: str) -> None:
+    """Drop *ticket*'s staged patch WITHOUT applying it (KLC-110 review
+    round 1, step-9a, D-110-9). `_meta_patches` is normally CONSUMED only by
+    a successful `set_state` (via `_apply_meta_patch`); when the caller's
+    own transition aborts AFTER staging a patch — a holder conflict, a
+    stale-state abort, a rejected CAS push, or any other non-success path —
+    nothing else ever pops it, and it would wrongly ride the NEXT
+    successful transition of the SAME ticket in the SAME process (an
+    autorunner looping `ack.run`). `core/phases/ack.py` calls this in a
+    `finally` around its own transition attempt, so every non-success path
+    discards it; a no-op when nothing is staged, and harmless to call again
+    after a SUCCESS too (`_apply_meta_patch` has already popped it by
+    then)."""
+    _meta_patches.pop(ticket, None)
+
+
+def _apply_meta_patch(ticket: str, meta: dict) -> None:
+    """Merge and CONSUME this ticket's staged patch (D-219). One level of
+    nesting is merged (so e.g. `metrics` keeps its existing sibling keys);
+    anything deeper replaces wholesale. A no-op when nothing is staged."""
+    for key, value in (_meta_patches.pop(ticket, {}) or {}).items():
+        if isinstance(value, dict) and isinstance(meta.get(key), dict):
+            meta[key].update(value)
+        else:
+            meta[key] = value
+
+
 def set_state(ticket: str, phase_id: str, state: str, *,
               event: str = "set_state", note: str = "",
               extra: dict | None = None) -> None:
     meta = read_meta(ticket)
+    _apply_meta_patch(ticket, meta)      # rides this SAME write (D-219)
     new = _ph.format_state(phase_id, state)
     history = meta.setdefault("phase_history", [])
     if history and "finished_at" not in history[-1]:

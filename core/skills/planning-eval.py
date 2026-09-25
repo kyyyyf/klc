@@ -206,6 +206,15 @@ def ticket_touched_files(key: str, ticket_dir: Path, repo: Path) -> tuple[list[s
     return files, present, ("git-log-grep" if present else "none")
 
 
+def derivation_confidence(source_kind: str) -> str:
+    """The ONE rule mapping a `ticket_touched_files` `source_kind` to its
+    confidence label (KLC-110 review round 1, step-11a, D-110-12): `'stored-
+    patch'` is authoritative, everything else (`'git-log-grep'`, `'none'`)
+    is best-effort. Shared by `build_report` and `backfill_rows` so the
+    literal is never duplicated."""
+    return "authoritative" if source_kind == "stored-patch" else "best-effort"
+
+
 # --------------------------------------------------------------------------- #
 # coverage / orphan rate
 # --------------------------------------------------------------------------- #
@@ -274,10 +283,20 @@ def rank_metrics(candidates: list, truth: set, k: int) -> dict:
     ``precision`` is ``None``, not ``1.0``, on an empty candidate list:
     nothing was ranked, so there is nothing to be right about, and an empty
     slice must never read as a perfect one. ``recall`` is ``None`` when
-    ``truth`` is empty (nothing to recall)."""
-    topk = [c for c in (candidates or []) if c][:k]
+    ``truth`` is empty (nothing to recall).
+
+    ``items_before_first_hit`` (KLC-110 AC-1/D-212): the one ranking-position
+    metric that had no shared home before this — how far a reader must go
+    before the first candidate that matters. Scanned over the WHOLE candidate
+    list, deliberately independent of ``k`` (a cut-off would distort the
+    answer to "how far must a reader go"): ``len(cands)`` when no candidate
+    is in ``truth`` at all.
+    """
+    cands = [c for c in (candidates or []) if c]
+    topk = cands[:k]
     t = set(truth or ())
     inter = set(topk) & t
+    first = next((i for i, c in enumerate(cands, 1) if c in t), None)
     return {
         "precision": (len(inter) / len(topk)) if topk else None,
         "recall": (len(inter) / len(t)) if t else None,
@@ -285,6 +304,7 @@ def rank_metrics(candidates: list, truth: set, k: int) -> dict:
         "missed": sorted(t - set(topk)),
         "extra": sorted(set(topk) - t),
         "candidates": len(topk),
+        "items_before_first_hit": (first - 1) if first else len(cands),
     }
 
 
@@ -296,7 +316,13 @@ def _retrieval_for_ticket(trace: dict, relevant: set[str]) -> dict | None:
     `rank_metrics(..., relevant, ...)` call below has a non-empty `truth` and
     never reports a `None` recall — preserving the pre-KLC-108 numeric
     contract exactly (this function's return values are unchanged for the
-    four pre-existing keys)."""
+    four pre-existing keys).
+
+    KLC-110 D-212: `files_before_first_edit` is read off `rank_metrics`'s own
+    `items_before_first_hit` (independent of `k`, so reusing `r10`'s value is
+    exactly the manual scan this function used to do inline) rather than a
+    second, private first-hit loop — one scorer, one place that walks the
+    ranking (AC-1)."""
     candidates = [c for c in (trace.get("files_to_read_first") or []) if c]
     if not candidates or not relevant:
         return None
@@ -309,14 +335,12 @@ def _retrieval_for_ticket(trace: dict, relevant: set[str]) -> dict | None:
     edit_candidates = [c for c in (trace.get("files_likely_to_edit") or []) if c]
     edit5 = rank_metrics(edit_candidates, relevant, 5)
 
-    first = next((i for i, f in enumerate(candidates, 1) if f in relevant), None)
-    files_before_first_edit = (first - 1) if first is not None else len(candidates)
     return {
         "recall_at_5": r5["recall"],
         "recall_at_10": r10["recall"],
         "precision_at_10": r10["precision"],
         "precision_at_5": edit5["precision"],
-        "files_before_first_edit": files_before_first_edit,
+        "files_before_first_edit": r10["items_before_first_hit"],
         "confidence": trace.get("confidence"),
     }
 
@@ -388,6 +412,117 @@ def rescore_trace(ticket_dir: Path, index_dir: Path) -> dict | None:
 
     return retriever.build_trace(query, "deterministic", modules, file_roles,
                                  module_edges, test_map, inventory, token_idf)
+
+
+# --------------------------------------------------------------------------- #
+# KLC-110 step-7: the corpus backfill (AC-17, AC-18)
+# --------------------------------------------------------------------------- #
+def _load_trace(ticket_dir: Path) -> dict | None:
+    """The `stored` population's trace — the trace written at intake, read
+    verbatim off disk. `None` when absent or unreadable (the same degrade
+    shape `rescore_trace` uses for the `replayed` population, A-104)."""
+    trace_path = ticket_dir / "retrieval_trace.json"
+    if not trace_path.exists():
+        return None
+    try:
+        data = json.loads(trace_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def backfill_rows(tickets_root: Path, modules_data, repo: Path, index_dir: Path,
+                  source: str) -> list[dict]:
+    """One row per (ticket, trace source). `source` is `'stored'` — the trace
+    written at intake — or `'replayed'` — KLC-108's `rescore_trace`, which
+    re-runs the retriever against the CURRENT index using that trace's own
+    recorded query. Both populations are labelled and NEVER pooled into one
+    mean (D-218): pooling two corpora was exactly the methodology error
+    KLC-108's drift review caught, and it is cheaper to avoid than to repair.
+
+    A ticket with no derivable diff, an empty diff, no usable trace, or a
+    trace whose own status is not `ok` degrades to a single `unavailable`
+    row (degrade-not-fail, AC-11's sibling for the offline path) — never a
+    fabricated zero."""
+    rows: list[dict] = []
+    for d in _iter_ticket_dirs(tickets_root):
+        key = d.name
+        touched, present, kind = ticket_touched_files(key, d, repo)
+        trace = rescore_trace(d, index_dir) if source == "replayed" else _load_trace(d)
+        # KLC-110 review round 1, step-11a (MEDIUM, AC-17, D-110-12): AC-17
+        # explicitly requires `derivation_confidence` on every row — reuses
+        # the ONE authoritative/best-effort rule `build_report` already
+        # applies (`derivation_confidence()`), never a second copy of the
+        # literal.
+        confidence_label = derivation_confidence(kind)
+        if not present or not touched or not trace or trace.get("status") != "ok":
+            rows.append({"ticket": key, "trace_source": source,
+                        "status": "unavailable", "derivation_source": kind,
+                        "derivation_confidence": confidence_label})
+            continue
+        truth = set(touched)
+        rows.append({
+            "ticket": key, "trace_source": source, "status": "ok",
+            "confidence": trace.get("confidence") or "unknown",
+            "degraded_inputs": trace.get("degraded_inputs") or [],
+            "derivation_source": kind,
+            "derivation_confidence": confidence_label,
+            "precision_at_5": rank_metrics(trace.get("files_likely_to_edit"), truth, 5)["precision"],
+            "recall_at_10": rank_metrics(trace.get("files_to_read_first"), truth, 10)["recall"],
+        })
+    return rows
+
+
+def render_backfill(rows_by_source: dict[str, list[dict]], index_generated_at: str) -> str:
+    """The rendered table AC-18 commits. Each source gets its OWN aggregate
+    block: a stored mean and a replayed mean are two populations, reported
+    side by side and never pooled. The header states the date, the index
+    generation and the availability counts, so a later run can be diffed
+    against a recorded number rather than against an impression."""
+    lines = [
+        "# KLC-110 retrieval baseline",
+        "",
+        f"- measured: {_generated_at()}",
+        f"- index generation: {index_generated_at}",
+        "",
+    ]
+    for source in ("stored", "replayed"):
+        rows = rows_by_source.get(source) or []
+        if not rows:
+            continue
+        scored = [r for r in rows if r.get("status") == "ok"]
+        unavailable = [r for r in rows if r.get("status") != "ok"]
+        p5 = [r["precision_at_5"] for r in scored if r.get("precision_at_5") is not None]
+        r10 = [r["recall_at_10"] for r in scored if r.get("recall_at_10") is not None]
+        lines.append(f"## {source}")
+        lines.append("")
+        lines.append(f"- tickets total: {len(rows)}")
+        lines.append(f"- tickets scored: {len(scored)}")
+        lines.append(f"- tickets unavailable: {len(unavailable)}")
+        lines.append(f"- precision@5 mean: {_mean(p5) if p5 else 'null'}")
+        lines.append(f"- recall@10 mean: {_mean(r10) if r10 else 'null'}")
+        lines.append("")
+        lines.append("| ticket | status | confidence | derivation_source | "
+                     "derivation_confidence | precision@5 | recall@10 |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for r in rows:
+            lines.append(
+                f"| {r['ticket']} | {r['status']} | {r.get('confidence', '')} | "
+                f"{r.get('derivation_source', '')} | {r.get('derivation_confidence', '')} | "
+                f"{r.get('precision_at_5', '')} | {r.get('recall_at_10', '')} |")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _index_generation(index_dir: Path) -> str:
+    """The index's own `generated_at` (from `modules.json`), so the baseline
+    header names WHICH index build the run was measured against. Degrades to
+    `'unknown'` on any read/parse surprise — never raises (C-006)."""
+    try:
+        data = json.loads((index_dir / "modules.json").read_text(encoding="utf-8"))
+        return str((data or {}).get("generated_at") or "unknown")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return "unknown"
 
 
 # --------------------------------------------------------------------------- #
@@ -484,7 +619,7 @@ def build_report(tickets_root: Path, modules_data, repo: Path,
 
         touched, source_present, source_kind = ticket_touched_files(key, d, repo)
         relevant = set(touched)
-        confidence = "authoritative" if source_kind == "stored-patch" else "best-effort"
+        confidence = derivation_confidence(source_kind)
 
         # diff -> affected-modules (needs modules.json + valid repo + non-empty truth)
         if diff_enabled:
@@ -654,7 +789,27 @@ def main(argv: list[str] | None = None) -> int:
                     help="planning-views directory the --rescore path reads "
                          "(modules/file_roles/module_edges/test_map/inventory/"
                          "token_idf.json); ignored without --rescore")
+    ap.add_argument("--backfill", action="store_true",
+                    help="KLC-110 AC-17: score the whole ticket corpus into "
+                         "machine-readable rows plus one rendered table, "
+                         "labelling each row 'stored' or 'replayed'")
+    ap.add_argument("--trace-source", choices=("stored", "replayed", "both"),
+                    default="both",
+                    help="KLC-110 AC-17/D-218: which population(s) --backfill "
+                         "scores; stored and replayed are never pooled")
+    ap.add_argument("--out-md", type=Path, default=None,
+                    help="KLC-110 AC-18: the rendered backfill table path; "
+                         "defaults to --out with a .md suffix")
     args = ap.parse_args(argv)
+
+    # KLC-110 review round 1, step-11b (D-110-13): `--backfill` with no
+    # `--out-md` used to fall back to `args.out.with_suffix(".md")` — which,
+    # since `--out` defaults under the LIVE `.klc/index/planning/`, silently
+    # wrote the rendered table into the live index. `--out-md` is now
+    # REQUIRED for `--backfill`, an argparse error (exit 2) otherwise — the
+    # same "bad argument" exit `--tickets` already uses below.
+    if args.backfill and args.out_md is None:
+        ap.error("--backfill requires --out-md (no live-index default)")
 
     # Bad argument: --tickets is not a directory -> exit 2 (like file_scanner.py).
     if not args.tickets.is_dir():
@@ -675,6 +830,25 @@ def main(argv: list[str] | None = None) -> int:
             modules_data = None
     else:
         errors.append(f"modules.json not found at {args.modules}; coverage + diff metrics degraded")
+
+    if args.backfill:
+        # C-006: exit 0 including on a fully degraded corpus — backfill_rows
+        # never raises, it degrades each ticket to an 'unavailable' row.
+        sources = ("stored", "replayed") if args.trace_source == "both" else (args.trace_source,)
+        rows_by_source = {s: backfill_rows(args.tickets, modules_data, args.repo, args.index, s)
+                          for s in sources}
+        out_md = args.out_md          # required above — no live-index-default fallback
+        rendered = render_backfill(rows_by_source, _index_generation(args.index))
+        payload = json.dumps({"rows": rows_by_source}, indent=2, ensure_ascii=False) + "\n"
+        if str(args.out) == "-":
+            sys.stdout.write(payload)
+        else:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(payload, encoding="utf-8")
+        out_md.parent.mkdir(parents=True, exist_ok=True)
+        out_md.write_text(rendered, encoding="utf-8")
+        sys.stderr.write(f"planning-eval: wrote {args.out} and {out_md}\n")
+        return 0
 
     rescore_index = args.index if args.rescore else None
     report = build_report(args.tickets, modules_data, args.repo, errors, rescore_index)
