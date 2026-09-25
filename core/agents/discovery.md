@@ -7,22 +7,15 @@ Turn `raw.md` into a structured `spec.md`: goals, acceptance criteria,
 constraints, affected modules. Classify on four axes and pick the
 track. Surface every unknown as a `QUESTION` item, never invent.
 
-## Inputs (from the discovery-context bundle)
+## Inputs
 
-This bundle (`00-raw.md` through `50-external-docs.md`) is pending KLC-112 —
-today only `raw.md` and whatever you read directly via LSP / file reads are
-actually available; treat the numbered names below as the bundle's intended
-shape, not as files you can assume exist yet.
-
-- `00-raw.md` — the user's description plus intake notes.
-- `10-root-CLAUDE.md` — project-level invariants.
-- `20-module-docs.md` — CLAUDE.md of **at most 3** candidate modules.
-  Choose the 3 whose names / descriptions have the highest keyword
-  overlap with `raw.md`. Skip the rest — you can always read them on
-  demand if the top-3 prove insufficient.
-- `40-related.md` — up to N prior tickets with shared kind / modules.
-- `50-external-docs.md` — optional; pointers to external docs the team
-  has declared for this project.
+- `raw.md` — the user's description plus intake notes.
+- root `CLAUDE.md` — project-level invariants.
+- `.klc/tickets/<KEY>/retrieval_trace.json` — the planning slice (below).
+- `.klc/index/modules.json` — the module table (`name`, `path`,
+  `depends_on`, `depended_by`); used to pick the degraded-trace
+  fallback's at-most-3 modules (below), and its `depended_by` edges
+  feed the blast-radius input to the estimate (step 3).
 
 Do **not** pre-load a symbol list. Use the LSP tool on demand:
 ```
@@ -35,7 +28,7 @@ real, current signature.
 
 ## Planning slice (read first, KLC-073)
 
-Before loading the broad context bundle, read
+Before opening any other file, read
 `.klc/tickets/<KEY>/retrieval_trace.json` — the deterministic planning
 slice intake built from this ticket's description (planning_indexer.md
 §"Фазовая интеграция и authority"). Use it to bound what you open:
@@ -55,16 +48,20 @@ slice intake built from this ticket's description (planning_indexer.md
 **Authority (planning_indexer.md §Authority).** The trace is a *hint*, not
 truth — you are the authority for scope. `affected_modules_hint` only
 *seeds* `meta.affected_modules` / `spec.md` «Affected modules», which you
-own and `ack` freezes; it never overrides them. When the trace is
-`status:"unavailable"` (planning views not built) or `confidence:"low"`,
-fall back to the full context bundle below.
+own and `ack` freezes; it never overrides them.
+
+**Degraded trace (KLC-106).** The trace is degraded when it is absent, or
+`status:"unavailable"`, `confidence:"low"`, `mode:"name-match-only"`, or
+`degraded_inputs` is non-empty. Then quote those four fields and the
+modules you picked in `spec.md` «Problem / Context», pick at most 3
+modules from the `modules.json` table by name/path overlap with
+`raw.md`, and open only files those entries list. Do not scan the
+repository.
 
 Reachable on demand but expensive:
-- `.klc/tickets/archive/<KEY>/retrospective.md` — lessons from past
-  tickets you deem relevant. Read only those 40-related.md flagged.
-- `.klc/index/modules.json` — for each affected module, its
-  `depended_by` (reverse edges) and `depends_on`. Used for the
-  blast-radius input to the estimate (see step 3).
+- `.klc/tickets/<KEY>/retrospective.md` of at most 5 related tickets:
+  those whose `meta.json` has `phase:"archived"` and shares your
+  `kind` or an affected module.
 - `.klc/index/depgraph.json` — `import_graphs.<lang>` when you need
   file-level edges beyond module granularity.
 
@@ -74,7 +71,7 @@ The dispatcher already resolved this phase's model from `models.yml` and baked i
 
 ### 1. Read inputs & compose context
 
-Read the bundle in order. Summarise each candidate module in two
+Read the inputs in order. Summarise each candidate module in two
 lines internally: what it owns (public API), what it depends on.
 
 ### 2. Write `spec.md`
@@ -279,8 +276,8 @@ Set:
   `{available: false, reason: "..."}` when graph is unavailable
 - `layer: "code" | "content" | "config" | "mixed" | "unknown"`
 - `affected_modules: [...]` (names from `modules.json`, not paths)
-- `related_tickets: [...]` (keys from 40-related.md you actually
-  used)
+- `related_tickets: [...]` (keys of the related retrospectives you
+  actually used)
 - `metrics.discovery_ms`, `metrics.discovery_tokens` (agent-reported)
 
 ### 5. Surface QUESTIONs
@@ -330,7 +327,7 @@ the coverage question queue only comes into being AFTER you have a rough draft t
 run the engine on. So work through these steps in order, before finalizing `spec.md`:
 
 1. **Explore context first.** Thoroughly read all inputs (raw.md, CLAUDE.md, related
-   tickets, module docs) before forming any opinion on approach.
+   tickets, the modules picked from `modules.json`) before forming any opinion on approach.
 2. **Draft a rough `spec.md`, then run coverage elicitation on it.** Write an interim
    draft (best-effort goals / ACs / constraints / affected, plus your `risk_tags:` in
    the frontmatter), then run `python3 core/skills/elicitation.py --file <draft> --track <track>

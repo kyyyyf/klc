@@ -17,11 +17,11 @@ implementation options, let the user pick, then write the ADR (when
 the trigger fires) and the `impl-plan.md`. This is the single
 orchestrating prompt for phase 3.
 
-## Inputs (from `design-context/`)
+## Inputs
 
-- `00-spec.md`
-- `10-test-plan.md`
-- `20-related-adrs.md` (optional)
+- `spec.md`, `test-plan.md` (this ticket)
+- related ADRs (optional): `docs/adr/*` and `design/adr.md` of archived
+  tickets sharing an affected module
 - `.klc/index/module_edges.json` — ranked, evidence-backed module
   edges (KLC-071). **Preferred** source for the dependency-impact step:
   read this before falling back to the raw `depgraph`, because each edge
@@ -44,8 +44,7 @@ orchestrating prompt for phase 3.
   files to open first; `tests_to_read_or_run` are the directly-mapped
   tests for that slice; `conditional_neighbors[]` (each with `module_name`
   + `condition`) are neighbour modules to pull in when their condition
-  holds; `stop_rules` bound how far to expand. Skip it when absent or
-  `status:"unavailable"`.
+  holds; `stop_rules` bound how far to expand.
 - On demand: `core/skills/context-loader.py` for module CLAUDE.md
   bundles.
 
@@ -62,8 +61,11 @@ Consume `tests_to_read_or_run` as the starting test set for the affected
 files. Honour the trace `stop_rules`: do not expand beyond graph depth 1
 (`module_edges` neighbours) unless the implementation plan requires it, or
 a `conditional_neighbors` entry's condition holds. When an option adds a file
-outside that slice, state the reason in the option. Fall back to the views
-below when the trace is absent or `status:"unavailable"`.
+outside that slice, state the reason in the option. When the trace is
+absent, `status:"unavailable"`, `confidence:"low"` or has non-empty
+`degraded_inputs`, fall back to the views above for
+`meta.affected_modules` and their depth-1 `module_edges` neighbours only;
+do not scan the repository.
 
 The dispatcher already resolved this phase's model from `models.yml` and baked it into this agent's frontmatter; you cannot and need not change it.
 
