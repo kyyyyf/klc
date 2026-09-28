@@ -101,13 +101,19 @@ def main(argv: list[str]) -> int:
     # Track hint: look in meta.json next to spec if we can find it.
     track = _infer_track_from_spec(inputs.get("spec"))
 
-    return run_agent(
+    rc = run_agent(
         phase_id=phase_id,
         prompt_path=prompt_path,
         out_path=partial_path,
         inputs=inputs,
         track=track,
     )
+    if rc == 0:                       # executed = returned output (D-008)
+        ticket = _ticket_from_spec(inputs.get("spec"))
+        reviewer = partial_path.name.removesuffix(".partial.md")
+        _record_attempt(ticket, reviewer, prompt_path, inputs, partial_path,
+                        card_path)
+    return rc
 
 
 def _infer_track_from_spec(spec_path: object) -> str | None:
@@ -127,6 +133,48 @@ def _infer_track_from_spec(spec_path: object) -> str | None:
     if track in ("XS", "S", "M", "L"):
         return track
     return None
+
+
+def _ticket_from_spec(spec_path: object) -> str | None:
+    """KLC-120 D-008: the same "spec lives inside a ticket dir" lookup as
+    `_infer_track_from_spec`, but for the ticket key rather than the track.
+    Returns None on any miss (a headless run against a spec that isn't
+    inside a real ticket dir records no attempt — write_token_metrics
+    itself already no-ops on an empty ticket)."""
+    if not isinstance(spec_path, Path):
+        return None
+    meta_path = spec_path.parent / "meta.json"
+    if not meta_path.exists():
+        return None
+    try:
+        import json
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    ticket = data.get("ticket")
+    if isinstance(ticket, str) and ticket:
+        return ticket
+    return spec_path.parent.name or None
+
+
+def _record_attempt(ticket: str | None, reviewer: str, prompt_path: Path,
+                    inputs: dict, partial_path: Path, card_path: Path) -> None:
+    """KLC-120 AC-3/D-008: the headless attempt writer. Called once per
+    successful dispatch (rc == 0), never for a failed one. Byte-size
+    estimates only — this path has no provider usage block to read."""
+    if not ticket:
+        return
+    import budget_guard
+    in_bytes = sum(
+        p.stat().st_size for p in [prompt_path, *inputs.values()]
+        if isinstance(p, Path) and p.is_file())
+    out_bytes = partial_path.stat().st_size if partial_path.is_file() else 0
+    budget_guard.write_token_metrics(
+        ticket, "review",
+        budget_guard.estimate_tokens_from_bytes(in_bytes),
+        budget_guard.estimate_tokens_from_bytes(out_bytes), 0,
+        source="estimated", card_bytes=card_path.stat().st_size,
+        reviewer=reviewer)
 
 
 if __name__ == "__main__":

@@ -427,10 +427,34 @@ controlled by `config/reviewers.yml` (`cascade.enabled`, `peripheral_max_files`,
 `full_review_offered`, `full_review_declined` for the retro and the
 `cheap_escape_rate` rollup.
 
+**Review plan (KLC-120).** Before any job card or dispatch, `scripts/review.py`
+(both the headless path and the in-client path via `--plan-only`) writes
+`.klc/tickets/<KEY>/review-plan.json`: every pass it would run, with its source,
+selecting rule, provider, model and status (`planned` / `executed` / `skipped`,
+always with a reason when skipped). The manifest's four `reviewers.always`
+entries are always listed, even on the in-client path that doesn't dispatch them
+(`skipped`, reason names KLC-127 Group B). A fixed `per_step_build_review: "not
+counted"` field states that the automatic per-step build review is outside this
+inventory.
+
+**Per-track cap.** `review.max_llm_passes` (`config/reviewers.yml`, default
+`{S: 3, M: 4, L: 6}`) bounds the number of `planned`+`executed` passes; a missing
+track key means no cap, and skipped passes never count. Over the cap,
+`scripts/review.py` refuses whole — exit 2, the plan printed, no job card, no
+dispatch — unless `--over-cap` is given, in which case it proceeds and the
+rendered report frontmatter carries `cap_override: true` and the cap value,
+alongside `planned_passes`, `executed_passes` and every skipped pass with its
+reason.
+
 **External reviewer** (default-on for S/M/L, `external_reviewer.enabled: true`):
-runs on both cheap and full paths. Skip conditions (first match wins): `--no-external`,
-`meta.review.skip_external: true`, or `external_reviewer.api_key_env` unset (graceful;
-`klc doctor` warns).
+runs on both cheap and full paths, on the model `config/models.yml`'s
+`review-external` pseudo-phase resolves (anthropic by default; `model_ref` in
+`config/reviewers.yml` names the phase, an explicit `provider`/`model` there
+overrides it). Skip conditions (first match wins): `--no-external`,
+`meta.review.skip_external: true`, or the resolved route needs something this
+host lacks — an unset API key for `openai`/`google`, or a missing `claude` CLI
+for `anthropic` (graceful; `klc doctor`'s `external-reviewer-key` check warns on
+the same two conditions).
 
 ## Review-lite
 
@@ -1000,7 +1024,13 @@ single overwritten record: a rework or retry pass is counted, never erased.
 Each attempt carries an id (assigned by the writer), `in`/`out`/`cache_hit`,
 `source`, and the measured card size where one exists. `write_token_metrics`
 is the single writer of this key; nothing else in the codebase assigns into
-it (`budget_guard.find_second_writers` is the source-level gate).
+it (`budget_guard.find_second_writers` is the source-level gate). KLC-120
+adds one more optional field, `reviewer`: present (never null) on an attempt
+that recorded an executed review pass, absent on every other attempt. The
+headless `scripts/review-runner.py` writes it after a successful dispatch;
+the in-client path writes it via `python3 core/skills/review_plan.py record
+--ticket <KEY> --reviewer <name>` (idempotent — a repeated `record` for the
+same pass of the same run collapses to one attempt).
 
 **Attempts, the journal and the drain.** A telemetry write must never modify
 `meta.json` — a tracked file on the shared `klc-state` branch — outside an
@@ -1058,6 +1088,17 @@ claimed: the ratio of `estimated` to `provider` attempts when any
 provider-sourced attempt exists, and "uncalibrated" when none does — which is
 this project's real state today (no tokenizer library is installed and 0 of
 109 pre-KLC-119 `meta.json` files carried any `provider` record).
+
+**The real review-pass count (KLC-120).** `review_passes_per_ticket` counts
+review-phase *artefact files* — one row (`review-report.md`) whatever the
+number of reviewer sub-agents that actually ran. Alongside it, per track,
+the rollup reports `review_llm_passes_per_ticket`: the mean number of
+`reviewer`-tagged attempts over the tickets of that track that carry at
+least one, plus `review_llm_passes_measured_tickets` (the denominator).
+`None`, never `0`, when no ticket of the track has a tagged attempt — "not
+measured" must not read as "costs nothing". This is the real per-ticket
+count of executed LLM review passes the review plan (above) enumerates and
+the cap bounds.
 
 **The BEFORE baseline is machine-local, by construction.** A backfill pass
 (`core/skills/token_backfill.py`) records one `estimated` attempt per stored

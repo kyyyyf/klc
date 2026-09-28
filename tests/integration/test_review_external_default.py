@@ -22,7 +22,8 @@ def test_s_ticket_runs_external_by_default() -> None:
     """S ticket, api key set, no opt-out → external runs."""
     import review as rv
 
-    cfg = {"enabled": True, "min_track": "S", "api_key_env": "OPENAI_API_KEY"}
+    cfg = {"enabled": True, "min_track": "S", "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY"}
     meta = {"track": "S", "review": {}}
 
     os.environ["OPENAI_API_KEY"] = "test-key-value"
@@ -43,7 +44,8 @@ def test_no_external_flag_skips() -> None:
     """--no-external flag prevents external run even when enabled."""
     import review as rv
 
-    cfg = {"enabled": True, "min_track": "S", "api_key_env": "OPENAI_API_KEY"}
+    cfg = {"enabled": True, "min_track": "S", "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY"}
     meta = {"track": "S", "review": {}}
 
     os.environ["OPENAI_API_KEY"] = "test-key-value"
@@ -64,7 +66,8 @@ def test_missing_api_key_skips_gracefully() -> None:
     """No api key in env → external skipped with no error."""
     import review as rv
 
-    cfg = {"enabled": True, "min_track": "S", "api_key_env": "OPENAI_API_KEY_MISSING_XYZ"}
+    cfg = {"enabled": True, "min_track": "S", "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY_MISSING_XYZ"}
     meta = {"track": "S", "review": {}}
 
     os.environ.pop("OPENAI_API_KEY_MISSING_XYZ", None)
@@ -82,7 +85,8 @@ def test_skip_external_meta_field() -> None:
     """meta.review.skip_external = true → external skipped."""
     import review as rv
 
-    cfg = {"enabled": True, "min_track": "S", "api_key_env": "OPENAI_API_KEY"}
+    cfg = {"enabled": True, "min_track": "S", "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY"}
     meta = {"track": "M", "review": {"skip_external": True}}
 
     os.environ["OPENAI_API_KEY"] = "test-key-value"
@@ -103,7 +107,8 @@ def test_xs_ticket_skips_external() -> None:
     """XS ticket is below min_track S → external skipped."""
     import review as rv
 
-    cfg = {"enabled": True, "min_track": "S", "api_key_env": "OPENAI_API_KEY"}
+    cfg = {"enabled": True, "min_track": "S", "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY"}
     meta = {"track": "XS", "review": {}}
 
     os.environ["OPENAI_API_KEY"] = "test-key-value"
@@ -124,7 +129,8 @@ def test_external_runs_on_cheap_cascade_path() -> None:
     """External runs even when cascade chose cheap review (S ticket, default-on)."""
     import review as rv
 
-    cfg = {"enabled": True, "min_track": "S", "api_key_env": "OPENAI_API_KEY"}
+    cfg = {"enabled": True, "min_track": "S", "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY"}
     meta = {"track": "S", "review": {}}
 
     os.environ["OPENAI_API_KEY"] = "test-key-value"

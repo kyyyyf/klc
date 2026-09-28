@@ -11,30 +11,19 @@ Provider-agnostic; pick one of openai / anthropic / google / ollama.
 - `claude_md_context` — root + module `CLAUDE.md` bundle.
 
 ## Configuration
-Read `config/reviewers.yml` → `external_reviewer`:
-
-```yaml
-external_reviewer:
-  enabled:     false
-  provider:    openai           # openai | anthropic | google | ollama
-  model:       gpt-4o
-  api_key_env: OPENAI_API_KEY
-  focus:
-    - security
-    - architecture
-    - performance
-    - readability
-    - test_coverage
-  output_format: markdown
-  report_path:   .klc/reports/external-review-{timestamp}.md
-```
+Read `config/reviewers.yml` → `external_reviewer` (`enabled`, `min_track`,
+`focus`, `output_format`, `report_path`). The provider and model resolve
+through `config/models.yml`'s `review-external` pseudo-phase
+(`core/skills/review_plan.py::external_route`) unless the block sets its
+own `provider`/`model` (legacy override, still honoured).
 
 ## Hard rules
 - If `enabled: false` and the orchestrator did not pass `--external`, exit
   silently with status 0. Print nothing.
-- Never hardcode API keys or tokens. Always read the key from
-  `os.environ[api_key_env]`. If the env var is missing, log a warning to
-  stderr and exit 0 (so the internal review still counts).
+- Never hardcode API keys or tokens. For `openai`/`google` always read the
+  key from `os.environ[api_key_env]`; if unset, log a warning and exit 0
+  (so the internal review still counts). The `anthropic` route reads no
+  key — it shells out to the `claude` CLI.
 - Never include secrets, `.env` contents, or local file paths outside the
   repo in the prompt.
 - Timeout the provider call at 120 s; on timeout log a warning and exit 0.
@@ -70,20 +59,8 @@ contain source under review).
 - Response text: `choices[0].message.content`.
 
 #### anthropic
-- Endpoint: `https://api.anthropic.com/v1/messages`
-- Headers: `x-api-key: $ANTHROPIC_API_KEY`, `anthropic-version: 2023-06-01`,
-  `content-type: application/json`.
-- Payload:
-  ```json
-  {
-    "model": "<model>",
-    "max_tokens": 4096,
-    "messages": [
-      {"role": "user", "content": "<rendered prompt>"}
-    ]
-  }
-  ```
-- Response text: concatenate `content[*].text` for `type == "text"`.
+Run the rendered prompt through the `claude` CLI on the resolved model
+(`core/skills/runner.py`'s anthropic dispatcher) — no API key read.
 
 #### google (Gemini)
 - Endpoint:
@@ -116,8 +93,8 @@ Stdout must end with a single JSON line that the orchestrator merges:
 
 ```json
 {
-  "provider": "openai",
-  "model":    "gpt-4o",
+  "provider": "<resolved>",
+  "model":    "<resolved>",
   "total":    7,
   "blocking": 2,
   "notes":    "<one-sentence summary>",

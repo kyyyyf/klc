@@ -832,6 +832,26 @@ def _is_skip_partial(rev: dict) -> bool:
     return "reviewer skipped" in (rev.get("raw") or "")
 
 
+def _is_failed_partial(path: Path) -> bool:
+    """KLC-120 D-015: a synthetic CRITICAL partial core/skills/runner.py
+    writes on a dispatch failure — its first non-blank line is the heading
+    `## Agent run failed — <phase>`. Such a partial exists on disk but is
+    NOT an executed pass (AC-3's writer never recorded an attempt for it
+    either, D-008)."""
+    if not path.is_file():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped.startswith("## Agent run failed —")
+    return False
+
+
 # --- partial-reuse -----------------------------------------------------------
 
 def _try_reuse_partials(reports_dir: Path, *,
@@ -938,37 +958,120 @@ def _write_inputs_snapshot(partials_dir: Path, *, diff_hash: str, spec_path: Pat
     )
 
 
-_TRACK_ORDER = {"XS": 0, "S": 1, "M": 2, "L": 3}
-
-
 def _should_run_external(*,
                          no_external: bool,
                          reviewers_cfg: dict,
                          meta: dict) -> bool:
     """Return True iff the external reviewer should run for this ticket.
 
-    Rules (first False wins):
-    1. no_external flag → False
-    2. meta.review.skip_external → False
-    3. external_reviewer.enabled != True → False
-    4. ticket track < external_reviewer.min_track → False
-    5. api_key_env not set in environment → False (graceful degradation)
+    KLC-120 D-010: a thin wrapper over `review_plan.external_gate`, which
+    owns the rule (--no-external, meta.review.skip_external, enabled,
+    min_track, then a provider-aware key/CLI check, AC-10). The keyword
+    signature and bool return stay unchanged so every existing caller —
+    the six tests in test_review_external_default.py and
+    scripts/review.py's own call — is untouched; the skip reason is
+    logged here but read by tests directly from `external_gate`.
     """
-    if no_external:
-        return False
-    if (meta.get("review") or {}).get("skip_external"):
-        return False
-    if not reviewers_cfg.get("enabled"):
-        return False
-    min_track = reviewers_cfg.get("min_track", "S")
-    ticket_track = meta.get("track", "XS")
-    if _TRACK_ORDER.get(ticket_track, 0) < _TRACK_ORDER.get(min_track, 1):
-        return False
-    api_key_env = reviewers_cfg.get("api_key_env", "")
-    if api_key_env and not os.environ.get(api_key_env):
-        log(f"external reviewer: api_key_env '{api_key_env}' not set — skipping")
-        return False
-    return True
+    import review_plan
+    run, reason = review_plan.external_gate(
+        no_external=no_external, ext_cfg=reviewers_cfg, meta=meta)
+    if not run and reason:
+        log(f"external reviewer: {reason} — skipping")
+    return run
+
+
+def _plan_passes(*, always: list[dict], conditional_results: list[tuple[str, bool, str]],
+                 cascade_decision, route: dict, want_external: bool,
+                 ext_reason: str | None, meta_track: str, ticket_meta: dict,
+                 plan_path: str) -> list[dict]:
+    """KLC-120 AC-1: enumerate every review pass this ticket's track WOULD
+    run, independent of which of them THIS invocation actually dispatches.
+    `plan_path` is "client" for the in-client (--plan-only) path and
+    "headless" for scripts/review.py's own auto-dispatch/manual-job-card
+    path — see design/options.md's pass-enumeration table."""
+    import review_plan
+    passes: list[dict] = []
+    cheap = cascade_decision is not None and not cascade_decision.use_full_review
+
+    # manifest-always (security, architecture, performance, test-coverage)
+    for r in always:
+        name = r["name"]
+        if plan_path == "client":
+            passes.append(review_plan.pass_entry(
+                name, "manifest-always", "manifest", None, None, "skipped",
+                skip_reason=review_plan.PROFILE_SKIP))
+        elif cheap:
+            passes.append(review_plan.pass_entry(
+                name, "manifest-always", "manifest", None, None, "skipped",
+                skip_reason=f"cascade chose the cheap path: {cascade_decision.reason}"))
+        else:
+            passes.append(review_plan.pass_entry(
+                name, "manifest-always", "manifest", None, None, "planned"))
+
+    # manifest-conditional (deep-impact and any profile that adds more)
+    for name, fired, selected_by in conditional_results:
+        if cheap and plan_path != "client":
+            passes.append(review_plan.pass_entry(
+                name, "manifest-conditional", selected_by, None, None, "skipped",
+                skip_reason=f"cascade chose the cheap path: {cascade_decision.reason}"))
+        elif fired:
+            passes.append(review_plan.pass_entry(
+                name, "manifest-conditional", selected_by, None, None, "planned"))
+        else:
+            passes.append(review_plan.pass_entry(
+                name, "manifest-conditional", selected_by, None, None, "skipped",
+                skip_reason=selected_by))
+
+    # cascade-cheap (the single Sonnet reviewer the cascade substitutes)
+    if cheap and plan_path != "client":
+        passes.append(review_plan.pass_entry(
+            "cheap", "cascade-cheap", cascade_decision.reason, None, None, "planned"))
+
+    # independent passes: the mandatory fresh code-reviewer and the drift
+    # reviewer. scripts/review.py never dispatches either (F-017/Non-goals);
+    # they exist only on the in-client path.
+    if plan_path == "client":
+        passes.append(review_plan.pass_entry(
+            "code-review", "independent", "CLAUDE.md mandatory fresh reviewer",
+            None, None, "planned"))
+        try:
+            import spec_review
+            signals = {
+                "risk_tags": ticket_meta.get("risk_tags") or [],
+                "scope_expansion": bool(ticket_meta.get("scope_expansion")),
+                "sentinel_hits": bool(ticket_meta.get("sentinel_hits")),
+            }
+            drift_run = spec_review.should_run(meta_track, signals)
+            drift_reason = "spec_review.should_run"
+        except Exception as exc:
+            drift_run, drift_reason = True, f"spec_review unreadable ({exc})"
+        if drift_run:
+            passes.append(review_plan.pass_entry(
+                "drift", "independent", drift_reason, None, None, "planned"))
+        else:
+            passes.append(review_plan.pass_entry(
+                "drift", "independent", drift_reason, None, None, "skipped",
+                skip_reason="spec_review.should_run is False for this track"))
+    else:
+        passes.append(review_plan.pass_entry(
+            "code-review", "independent", "n/a", None, None, "skipped",
+            skip_reason=review_plan.CLIENT_ONLY))
+        passes.append(review_plan.pass_entry(
+            "drift", "independent", "n/a", None, None, "skipped",
+            skip_reason=review_plan.CLIENT_ONLY))
+
+    # external
+    if want_external:
+        passes.append(review_plan.pass_entry(
+            "external", "external", "external_gate", route.get("provider"),
+            route.get("model"), "planned"))
+    else:
+        passes.append(review_plan.pass_entry(
+            "external", "external", "external_gate", route.get("provider"),
+            route.get("model"), "skipped",
+            skip_reason=ext_reason or "unspecified"))
+
+    return passes
 
 
 # --- main --------------------------------------------------------------------
@@ -985,6 +1088,13 @@ def main(argv: list[str]) -> int:
                     help="Also run the external reviewer (legacy flag; default-on for S+ now).")
     ap.add_argument("--no-external", dest="no_external", action="store_true",
                     help="Skip the external reviewer even when default-on in reviewers.yml.")
+    ap.add_argument("--plan-only", dest="plan_only", action="store_true",
+                    help="KLC-120: write .klc/tickets/<KEY>/review-plan.json for the "
+                         "in-client path and exit — no job card, no dispatch.")
+    ap.add_argument("--over-cap", dest="over_cap", action="store_true",
+                    help="KLC-120: dispatch even when the review plan has more than "
+                         "review.max_llm_passes for this track. Records cap_override "
+                         "in the report frontmatter.")
     args = ap.parse_args(argv)
 
     if not args.spec.is_file():
@@ -1062,16 +1172,37 @@ def main(argv: list[str]) -> int:
     diff_text = diff_file.read_text(encoding="utf-8", errors="ignore")
     meta_track = _read_ticket_meta(args.spec).get("track", "")
     active: list[dict] = list(always)
+    conditional_results: list[tuple[str, bool, str]] = []   # KLC-120 AC-1
     for r in conditional:
         # Validate legacy regex if present (still required for backward compat)
         trig = r.get("trigger", "")
         if trig and not _validate_regex(trig):
             return die(f"reviewer '{r['name']}': bad trigger regex: {trig}")
-        if _evaluate_conditional_trigger(r, diff_text, meta_track, modules_json):
+        try:
+            # KLC-120 review-fix MEDIUM: distinguish the track gate from a
+            # pattern that simply didn't match, so the plan's skip reason
+            # is honest about WHY (_evaluate_conditional_trigger only
+            # returns a bool — its own callers, e.g.
+            # test_deep_impact_trigger.py, depend on that shape, so the
+            # gate is re-checked here rather than changed there).
+            allowed_tracks = r.get("enabled_for_tracks")
+            if allowed_tracks is not None and meta_track not in allowed_tracks:
+                fired = False
+                selected_by = f"track {meta_track} not in enabled_for_tracks"
+            else:
+                fired = _evaluate_conditional_trigger(r, diff_text, meta_track, modules_json)
+                selected_by = "trigger fired" if fired else "no trigger fired"
+        except Exception as exc:
+            # C-004: fail toward PLANNING the pass, never toward treating an
+            # unevaluable trigger as "no risk".
+            fired = True
+            selected_by = f"trigger could not be evaluated: {exc}"
+        if fired:
             active.append(r)
-        else:
+        elif not args.plan_only:
             _write_skip_partial(partials_dir / f"{r['name']}.partial.md",
                                 r["name"])
+        conditional_results.append((r["name"], fired, selected_by))
 
     # 3a. Cascade routing: check if peripheral diff qualifies for cheap review.
     ticket_key = args.spec.parent.name if args.spec.parent.name.startswith("KLC-") else None
@@ -1096,6 +1227,61 @@ def main(argv: list[str]) -> int:
         log(f"Cascade check failed ({_cascade_err}); proceeding with full review")
 
     reviewers_names = [r["name"] for r in active]
+
+    # KLC-120 AC-1/AC-2/AC-9/F-022: build and write the review plan BEFORE
+    # any job card exists. The external decision moves up to here (it used
+    # to be computed only after every internal partial already existed,
+    # scripts/review.py:1213's old early return) so the plan can count and
+    # name the external pass on the very first invocation.
+    import review_plan
+    plan_path = "client" if args.plan_only else "headless"
+    ticket_meta: dict = {}
+    if ticket_key:
+        try:
+            meta_path = klc_dir() / "tickets" / ticket_key / "meta.json"
+            if meta_path.exists():
+                ticket_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    reviewers_cfg, cfg_note = review_plan.load_reviewers_cfg()
+    ext_cfg = reviewers_cfg.get("external_reviewer") or {}
+    route = review_plan.external_route(ext_cfg, meta_track)
+    run_ext, ext_reason = review_plan.external_gate(
+        no_external=getattr(args, "no_external", False),
+        ext_cfg=ext_cfg, meta=ticket_meta, route=route)
+    want_external = args.external or run_ext
+    passes = _plan_passes(
+        always=always, conditional_results=conditional_results,
+        cascade_decision=cascade_decision, route=route,
+        want_external=want_external, ext_reason=ext_reason,
+        meta_track=meta_track, ticket_meta=ticket_meta, plan_path=plan_path)
+    plan = review_plan.build_plan(
+        ticket=ticket_key, track=meta_track, path=plan_path,
+        diff_sha256=current_hash,
+        cap=review_plan.cap_for(meta_track, reviewers_cfg),
+        override=args.over_cap, passes=passes,
+        cascade=cascade_decision.as_dict() if cascade_decision else None,
+        notes=[n for n in (cfg_note, route.get("note")) if n])
+    if ticket_key:
+        review_plan.write_plan(ticket_key, plan)
+    for line in review_plan.plan_lines(plan):
+        log(line)
+
+    # KLC-120 AC-5/AC-6: enforce the cap right after the plan is printed,
+    # before any job card, on either path. Skipped passes never count
+    # toward the cap (D-005); over the cap the run refuses WHOLE — it
+    # never trims the plan to fit (D-012).
+    cap = plan["cap"]
+    planned_count = review_plan.counted(plan)
+    if cap is not None and planned_count > cap and not args.over_cap:
+        return die(
+            f"review plan has {planned_count} passes, over the {meta_track} "
+            f"cap of {cap} (review.max_llm_passes); nothing was dispatched. "
+            "Re-run with --over-cap to proceed.", code=2)
+    cap_override = bool(cap is not None and planned_count > cap)
+
+    if args.plan_only:
+        return 0
 
     allowlist_live = klc_knowledge_dir() / "reviewer-allowlist.yml"
     allowlist_seed = FRAMEWORK_ROOT / "config" / "reviewer-allowlist.seed.yml"
@@ -1191,7 +1377,8 @@ def main(argv: list[str]) -> int:
         print("When all partials exist, re-run:")
         print(f"  {Path(sys.argv[0]).resolve()} --diff '{args.diff}' "
               f"--spec '{args.spec}'"
-              + (" --external" if args.external else ""))
+              + (" --external" if args.external else "")
+              + (" --over-cap" if args.over_cap else ""))
         print("-----------------------------------------------------------------")
 
     missing = [n for n in reviewers_names
@@ -1215,36 +1402,19 @@ def main(argv: list[str]) -> int:
         return 0
 
     # 5. Optional external reviewer (default-on for S+ per reviewers.yml).
+    # KLC-120: the decision (ticket_meta, ext_cfg, route, want_external) was
+    # already computed above the plan, before any job card — reused here
+    # unchanged so the plan and the card always agree.
     ext_card: Path | None = None
     ext_out: Path | None = None
-    # Load ticket meta for track + skip_external check.
-    ticket_meta: dict = {}
-    if ticket_key:
-        try:
-            meta_path = klc_dir() / "tickets" / ticket_key / "meta.json"
-            if meta_path.exists():
-                ticket_meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    # Load external_reviewer config block.
-    try:
-        from _yaml import parse as _yml_parse
-        rv_cfg_path = FRAMEWORK_ROOT / "config" / "reviewers.yml"
-        _rv_cfg = _yml_parse(rv_cfg_path.read_text(encoding="utf-8")) if rv_cfg_path.exists() else {}
-        ext_cfg = _rv_cfg.get("external_reviewer") or {}
-    except Exception:
-        ext_cfg = {}
-    want_external = args.external or _should_run_external(
-        no_external=getattr(args, "no_external", False),
-        reviewers_cfg=ext_cfg,
-        meta=ticket_meta,
-    )
     if want_external:
         ext_card = pending_dir / "job-external.md"
         ext_out  = partials_dir / "external.json"
         ext_card.write_text(
             "# External review job\n\n"
             f"Prompt:  core/agents/external-review.md\n"
+            f"Provider: {route.get('provider')}\n"
+            f"Model:    {route.get('model')}\n"
             "Inputs:\n"
             f"- diff:              {diff_file}\n"
             f"- spec:              {args.spec}\n"
@@ -1286,6 +1456,28 @@ def main(argv: list[str]) -> int:
     for p in sorted(partials_dir.glob("*.partial.md")):
         key = p.name[: -len(".partial.md")]
         reviewers_data[key] = _parse_partial(p, diff_scope)
+
+    # KLC-120 AC-3/AC-7/D-015: executed = the pass's partial exists and is
+    # neither a skip partial nor a runner-failure partial; the external
+    # pass counts as executed when its JSON summary exists. Rewriting the
+    # plan here keeps review-plan.json and the rendered report in
+    # agreement about what actually ran.
+    executed_names = [
+        k for k, v in reviewers_data.items()
+        if not _is_skip_partial(v)
+        and not _is_failed_partial(partials_dir / f"{k}.partial.md")
+    ]
+    if ext_out and ext_out.exists():
+        executed_names.append("external")
+    review_plan.mark_executed(plan, executed_names)
+    if ticket_key:
+        review_plan.write_plan(ticket_key, plan)
+    planned_passes = review_plan.counted(plan)
+    executed_passes = sum(1 for p in plan["passes"] if p["status"] == "executed")
+    skipped_passes = [
+        {"reviewer": p["reviewer"], "skip_reason": p.get("skip_reason", "unspecified")}
+        for p in plan["passes"] if p["status"] == "skipped"
+    ]
 
     external_block = None
     if ext_out and ext_out.exists():
@@ -1432,6 +1624,11 @@ def main(argv: list[str]) -> int:
         adrs=[str(p) for p in adr_paths] if adr_paths else [],
         tier_classification=tier_classification,
         sentinel_matches=sentinel_matches,
+        planned_passes=planned_passes,
+        executed_passes=executed_passes,
+        skipped_passes=skipped_passes,
+        cap=cap,
+        cap_override=cap_override,
     ), encoding="utf-8")
 
     print(f"REPORT {final_path}")

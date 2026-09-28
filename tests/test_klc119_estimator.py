@@ -69,6 +69,27 @@ def test_no_second_bytes_or_chars_to_token_rule_exists_in_source_tree():
     )
 
 
+def test_second_estimator_check_fails_for_a_fixture_duplicate_under_scripts(tmp_path):
+    """KLC-120 review-fix MEDIUM: the scan also covers scripts/ (widened
+    after scripts/review-runner.py grew its own hand-rolled `// 4` copy,
+    caught only because AC-3's implementation review found it, not this
+    gate) — the gate must actually bite there, not just under core/."""
+    fake_root = tmp_path / "fake_repo"
+    fake_scripts = fake_root / "scripts"
+    fake_scripts.mkdir(parents=True)
+    duplicate = fake_scripts / "sneaky_estimator.py"
+    duplicate.write_text(
+        "def bad(n: int) -> int:\n"
+        "    return max(1, n // 4)\n",
+        encoding="utf-8",
+    )
+    hits = budget_guard.find_second_estimators(fake_root)
+    assert any(p.name == "sneaky_estimator.py" for p in hits), (
+        "the estimator scan failed to catch a fixture duplicate under "
+        "scripts/ — the gate is vacuous there"
+    )
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

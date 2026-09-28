@@ -259,7 +259,11 @@ def _config_validation() -> list[str]:
 
 @check("external-reviewer-key")
 def _external_reviewer_key() -> list[str]:
-    """Warn when external reviewer is enabled but api_key_env is not set."""
+    """Warn when the resolved external-reviewer route needs something this
+    host doesn't have (KLC-120 AC-12/D-011): an unset API key when the
+    route resolves to `openai`/`google`, or a missing `claude` CLI when it
+    resolves to `anthropic`. Stays silent otherwise — this check is
+    warn-only (_WARN_ONLY below), never a doctor FAIL."""
     errs: list[str] = []
     try:
         from _yaml import parse as _yml_parse
@@ -268,13 +272,26 @@ def _external_reviewer_key() -> list[str]:
             return errs
         cfg = _yml_parse(rv_cfg_path.read_text(encoding="utf-8")) or {}
         ext = cfg.get("external_reviewer") or {}
-        if ext.get("enabled"):
-            key_env = ext.get("api_key_env", "")
+        if not ext.get("enabled"):
+            return errs
+        import review_plan
+        route = review_plan.external_route(ext, None)
+        provider = route.get("provider")
+        if provider in review_plan.KEYED_PROVIDERS:
+            key_env = route.get("api_key_env")
             if key_env and not os.environ.get(key_env):
                 errs.append(
-                    f"external_reviewer enabled but ${key_env} is not set — "
-                    "external review will be skipped at runtime"
+                    f"external_reviewer resolves to {provider} but "
+                    f"${key_env} is not set — external review will be "
+                    "skipped at runtime"
                 )
+        elif provider == "anthropic" and not shutil.which(
+                os.environ.get("CLAUDE_CLI", "claude")):
+            errs.append(
+                "external_reviewer resolves to anthropic but the claude "
+                "CLI is not on PATH — external review will be skipped at "
+                "runtime"
+            )
     except Exception as exc:
         errs.append(f"external-reviewer-key check failed: {exc}")
     return errs
@@ -376,7 +393,7 @@ def _jira_sync_conflicts() -> list[str]:
 
 
 # Warn-only checks: don't fail doctor without --strict.
-_WARN_ONLY = {"project-tools", "jira-sync-conflicts"}
+_WARN_ONLY = {"project-tools", "jira-sync-conflicts", "external-reviewer-key"}
 
 
 def _normalize(result):

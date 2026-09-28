@@ -110,7 +110,8 @@ def _drain_journal(ticket) -> list[str]:
             rec.get("in", 0), rec.get("out", 0), rec.get("cache_hit", 0),
             source=rec.get("source", "estimated"),
             card_bytes=rec.get("card_bytes"),
-            step=rec.get("step"), attempt_id=rec.get("id"))
+            step=rec.get("step"), attempt_id=rec.get("id"),
+            reviewer=rec.get("reviewer"))
         ids.append(rec.get("id"))
     return ids
 

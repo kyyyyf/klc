@@ -25,13 +25,15 @@
 
 external_reviewer:
   # Default-on for S/M/L tickets. Opt out with --no-external flag or
-  # meta.review.skip_external: true. Skipped automatically when api_key_env
-  # is unset (graceful degradation). XS never reaches the external reviewer.
+  # meta.review.skip_external: true. XS never reaches the external
+  # reviewer. The model resolves from config/models.yml's `review-external`
+  # pseudo-phase (KLC-120 D-009) — anthropic by default, so the gate checks
+  # the `claude` CLI on PATH instead of an API key (AC-10); set an explicit
+  # `provider`/`model`/`api_key_env` here to override models.yml (legacy
+  # path, still honoured).
   enabled:      true
   min_track:    S                 # XS skips external regardless of enabled
-  provider:     openai            # openai | anthropic | google | ollama
-  model:        gpt-4o
-  api_key_env:  OPENAI_API_KEY
+  model_ref:    review-external   # config/models.yml phase id
   focus:
     - security
     - architecture
@@ -62,6 +64,16 @@ review:
     - HIGH
   # Whether to launch the five internal sub-agents concurrently.
   parallel_subagents: true
+  # KLC-120 D-012: the maximum number of PLANNED+EXECUTED review passes per
+  # track (skipped passes never count, D-005). These sit above the
+  # practised two-to-three-pass review (F-014), so the cap is insurance on
+  # day one; it refuses nothing the project runs today. Over the cap,
+  # `scripts/review.py` refuses whole unless `--over-cap` is given — it
+  # never silently trims the plan. A track with no key here has no cap.
+  max_llm_passes:
+    S: 3
+    M: 4
+    L: 6
 
 cascade:
   # When enabled, review_cascade.py runs scope_delta + scan_sentinels +

@@ -328,6 +328,7 @@ def cmd_rollup(args: argparse.Namespace) -> int:
         # `signal` bucket alongside `provider`/`estimated` (AC-10).
         token_by_phase: dict[str, dict[str, list]] = {}
         card_bytes_total = 0
+        tagged_per_ticket: dict[str, int] = {}
         for m, tid in pairs:
             for phase, rec in iter_attempts(m, tid):
                 bucket = token_by_phase.setdefault(
@@ -341,6 +342,8 @@ def cmd_rollup(args: argparse.Namespace) -> int:
                 bucket["attempts"].append(rec)
                 if rec.get("card_bytes"):
                     card_bytes_total += rec["card_bytes"]
+                if rec.get("reviewer"):
+                    tagged_per_ticket[tid] = tagged_per_ticket.get(tid, 0) + 1
         tokens_summary = {
             phase: {
                 "avg_in":        round(statistics.mean(v["in"])) if v["in"] else 0,
@@ -393,6 +396,19 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             "ratio":    (actual_sum / expected_sum) if expected_sum else None,
         }
 
+        # KLC-120 AC-4/D-013: a REAL count of executed LLM review passes,
+        # counted from reviewer-tagged attempt records — distinct from
+        # review_passes_per_ticket above, which counts artefact FILES, not
+        # model calls (F-010). Averaged only over tickets that carry at
+        # least one tagged attempt, never over the whole track — "not
+        # measured" must never read as "costs nothing" (the same trap
+        # prompt_bytes_per_ticket already avoids).
+        measured_counts = list(tagged_per_ticket.values())
+        review_llm_passes_per_ticket = (
+            sum(measured_counts) / len(measured_counts)
+        ) if measured_counts else None
+        review_llm_passes_measured_tickets = len(measured_counts)
+
         estimator_calibration = budget_guard.calibration_statement(
             {phase: v["attempts"] for phase, v in token_by_phase.items()}
         )
@@ -406,6 +422,8 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             "cheap_escape_rate":     cheap_escape_rate,
             "prompt_bytes_per_ticket":    prompt_bytes_per_ticket,
             "review_passes_per_ticket":   review_passes_per_ticket,
+            "review_llm_passes_per_ticket":          review_llm_passes_per_ticket,
+            "review_llm_passes_measured_tickets":    review_llm_passes_measured_tickets,
             "estimator_calibration":      estimator_calibration,
             "retrieval":                  _retrieval_rollup(ms),   # KLC-110 AC-13
         }

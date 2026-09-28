@@ -46,6 +46,15 @@ def load_budget_limits() -> tuple[dict[str, int], dict[str, int]]:
 
 # --- token telemetry helpers ----------------------------------------------------
 
+def estimate_tokens_from_bytes(n: int) -> int:
+    """The ONE size-to-token divisor (KLC-119 D-006), for a caller that
+    already has a measured byte count (e.g. a file's on-disk size) rather
+    than text in memory. `estimate_tokens` below delegates here — a
+    caller with bytes in hand must call THIS, never re-derive `// 4`
+    locally (KLC-120 review-fix MEDIUM: scripts/review-runner.py used to)."""
+    return max(1, n // 4)
+
+
 def estimate_tokens(text: str) -> int:
     """The ONE size-to-token rule (KLC-119 D-006): 1 token ~ 4 UTF-8 bytes.
 
@@ -54,7 +63,7 @@ def estimate_tokens(text: str) -> int:
     (spec F-014), so a single rule removes the ambiguity rather than keeping
     two numbers that mostly agree.
     """
-    return max(1, len(text.encode("utf-8")) // 4)
+    return estimate_tokens_from_bytes(len(text.encode("utf-8")))
 
 
 def _new_attempt_id() -> str:
@@ -71,10 +80,14 @@ def _utc_now() -> str:
 def attempt_record(tokens_in: int, tokens_out: int, cache_hit: int,
                    source: str, card_bytes: int | None,
                    step: int | None = None, attempt_id: str | None = None,
-                   ts: str | None = None) -> dict:
+                   ts: str | None = None, reviewer: str | None = None) -> dict:
     """One attempt record — the unit `write_token_metrics` appends (AC-2/AC-3).
     The identifier is always assigned here (by the writer), never left to the
-    caller, so two callers can never collide on one (D-004)."""
+    caller, so two callers can never collide on one (D-004).
+
+    reviewer: KLC-120 AC-3 — the reviewer name for an executed review pass.
+            Absent (never null) when the caller doesn't pass one, so every
+            pre-KLC-120 caller's records stay byte-identical (Q-005)."""
     rec = {"id": attempt_id or _new_attempt_id(),
            "ts": ts or _utc_now(),
            "in": tokens_in, "out": tokens_out,
@@ -84,6 +97,8 @@ def attempt_record(tokens_in: int, tokens_out: int, cache_hit: int,
         rec["card_bytes"] = card_bytes
     if step is not None:
         rec["step"] = step
+    if reviewer:
+        rec["reviewer"] = reviewer
     return rec
 
 
@@ -180,7 +195,8 @@ def write_token_metrics(ticket: str | None, phase_id: str,
                          cache_hit: int, source: str = "estimated",
                          card_bytes: int | None = None, *,
                          step: int | None = None,
-                         attempt_id: str | None = None) -> None:
+                         attempt_id: str | None = None,
+                         reviewer: str | None = None) -> None:
     """The single writer (AC-1) of ``meta.json:metrics.tokens.<phase_id>``.
 
     KLC-119: appends an attempt record to an ordered per-phase attempts list
@@ -207,11 +223,13 @@ def write_token_metrics(ticket: str | None, phase_id: str,
     step: the build-step number, when this attempt belongs to `build`.
     attempt_id: an explicit id (used by the backfill for idempotency,
             D-004); the writer assigns one otherwise.
+    reviewer: KLC-120 AC-3 — optional, keyword-only. Every existing caller
+            stays source-compatible (none of them passes it).
     """
     if not ticket:
         return
     rec = attempt_record(tokens_in, tokens_out, cache_hit, source, card_bytes,
-                         step=step, attempt_id=attempt_id)
+                         step=step, attempt_id=attempt_id, reviewer=reviewer)
     try:
         import token_journal
         if token_journal.tx_open(ticket):
@@ -265,27 +283,30 @@ _SIZE_TO_TOKEN_RE = re.compile(r'//\s*4\b')
 
 
 def find_second_estimators(root: Path, exclude: set[Path] | None = None) -> list[Path]:
-    """AC-7: scan `core/` under *root* for a second size-to-token rule.
-    `estimate_tokens` (this module) is the ONE function permitted to convert
-    a measured size into a token count; any other `// 4` integer-division
-    site under `core/` is a competing rule (D-006 deletes the one that used
-    to live in `artefacts._record_card_metrics`)."""
+    """AC-7: scan `core/` AND `scripts/` under *root* for a second
+    size-to-token rule. `estimate_tokens`/`estimate_tokens_from_bytes`
+    (this module) are the ONE functions permitted to convert a measured
+    size into a token count; any other `// 4` integer-division site is a
+    competing rule (D-006 deletes the one that used to live in
+    `artefacts._record_card_metrics`; KLC-120 review-fix MEDIUM widened
+    the scan to `scripts/` after `scripts/review-runner.py` grew its own
+    hand-rolled copy)."""
     root = Path(root)
     exclude = {p.resolve() for p in (exclude or set())}
     exclude.add(_SELF_FILE)
     hits: list[Path] = []
-    base = root / "core"
-    if not base.exists():
-        return hits
-    for py in base.rglob("*.py"):
-        if py.resolve() in exclude:
+    for base in (root / "core", root / "scripts"):
+        if not base.exists():
             continue
-        try:
-            text = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if _SIZE_TO_TOKEN_RE.search(text):
-            hits.append(py)
+        for py in base.rglob("*.py"):
+            if py.resolve() in exclude:
+                continue
+            try:
+                text = py.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if _SIZE_TO_TOKEN_RE.search(text):
+                hits.append(py)
     return hits
 
 

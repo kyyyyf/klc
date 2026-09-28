@@ -21,6 +21,7 @@ available.
 - `--ticket <TICK-NNN>` — used to address the scratchpad.
 - `--external` (optional) — force-run the external reviewer (legacy; default-on for S+).
 - `--no-external` (optional) — skip the external reviewer even when default-on.
+- `--over-cap` (optional) — dispatch past `review.max_llm_passes` for this track.
 
 The dispatcher already resolved this phase's model from `models.yml` and baked it into this agent's frontmatter; you cannot and need not change it.
 
@@ -77,11 +78,20 @@ ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 
 ## Steps
 
+### 0. Plan first (KLC-120)
+Run `python3 scripts/review.py --diff <ref> --spec <spec> --plan-only`. It
+writes `.klc/tickets/<KEY>/review-plan.json` and refuses past
+`review.max_llm_passes` unless you pass `--over-cap`. Run only the passes
+the plan marks `planned`. After each one returns, run
+`python3 core/skills/review_plan.py record --ticket <KEY> --reviewer <name>`
+so it counts as executed. Put the plan's planned/executed/skipped counts
+and any `cap_override` into the report.
+
 ### 1. Resolve inputs
 - Load `config/reviewers.yml`:
   - `review.blocking_severity` (default `["CRITICAL", "HIGH"]`).
   - `review.parallel_subagents` (default `true`).
-  - `external_reviewer.enabled` (default `true` for S/M/L), `min_track`, `api_key_env`.
+  - `external_reviewer.enabled` (default `true` for S/M/L), `min_track`, `model_ref`.
 - Load the active profile's manifest. It lists:
   - `reviewers.always` — run unconditionally.
   - `reviewers.conditional` — run only when the diff matches the
@@ -167,12 +177,13 @@ its severity is in `blocking_severity`. The aggregator counts from the
 headers and ignores the manual trailer; mismatches warn to stderr.
 
 ### 4. External reviewer (default-on for S/M/L)
-The external reviewer runs for S/M/L tickets unless one of these three
-conditions applies:
+The external reviewer runs for S/M/L tickets unless one of these applies:
 1. `--no-external` flag was passed.
 2. `meta.review.skip_external: true` in the ticket meta.
-3. The environment variable named in `external_reviewer.api_key_env`
-   is not set (graceful degradation — log and continue without it).
+3. The resolved provider (`model_ref`, default `review-external`) is
+   `openai`/`google` and its key env var is unset, or it is `anthropic`
+   and the `claude` CLI is not on PATH — either way, log and continue
+   without it (graceful degradation).
 
 It runs on **both** the cheap and full cascade paths for S/M/L.
 To force-run on XS, pass `--external`.
@@ -219,31 +230,15 @@ Exit `0` if `APPROVED`, `1` if `CHANGES REQUESTED`.
 - `reviewers.yml` missing → use defaults; proceed.
 
 ## Execution modes
-By default `review.py` only *stages* job cards — an operator (or Claude
-Code) fulfils each card manually and writes partials to
-`partials-<TS>/`.
-
-For unattended runs, the script delegates each job card to an external
-runner when both conditions hold:
-
-- `RUN_LOCAL_SUBAGENTS=1`
-- `REVIEW_RUNNER` points to an executable that accepts
-  `<job-card-path> <partial-output-path>` and produces the partial.
-
-The framework-shipped runner is `scripts/review-runner.py`. It reads
-`config/models.yml` to decide the provider / model (anthropic / openai /
-ollama / google), composes the combined prompt, and dispatches via
-`core/skills/runner.py`. Usage:
-
-```bash
-RUN_LOCAL_SUBAGENTS=1 \
-REVIEW_RUNNER="$PWD/scripts/review-runner.py" \
-python scripts/review.py --diff HEAD --spec .klc/index/pending-feature.md
-```
-
-Runner contract: write the partial atomically (move-into-place); on
-failure, produce a partial with a `[CRITICAL]` synthetic issue so
-aggregation still proceeds with `CHANGES REQUESTED`.
+By default `review.py` only *stages* job cards — fulfil each manually and
+write partials to `partials-<TS>/`. For unattended runs it delegates to
+`REVIEW_RUNNER` when `RUN_LOCAL_SUBAGENTS=1` and `REVIEW_RUNNER` names an
+executable accepting `<job-card-path> <partial-output-path>` — the
+framework ships `scripts/review-runner.py`, which reads
+`config/models.yml` and dispatches via `core/skills/runner.py`. Runner
+contract: write the partial atomically; on failure produce a
+`[CRITICAL]` synthetic issue so aggregation still proceeds with
+`CHANGES REQUESTED`.
 
 ## Integrity checks
 - `review.py` records `diff.sha256` in each partials directory. Reuse
