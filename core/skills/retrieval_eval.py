@@ -153,13 +153,30 @@ def _carried(trace: dict | None) -> dict:
 
 
 def evaluate(trace: dict | None, committed_modules: set, committed_paths: set, *,
-            modules_data: dict | None = None) -> dict:
+            modules_data: dict | None = None, ground_truth: dict | None = None) -> dict:
+    """The record `_evaluate` builds, plus (KLC-128 D-209) a `ground_truth_source`
+    field when *ground_truth* is given. `ground_truth` (a dict with `source` and
+    `reason`, from `phase_completion.integrate_ground_truth`) is OPTIONAL and
+    additive: with `None` (every caller before KLC-128) the record is
+    byte-identical to before."""
+    rec = _evaluate(trace, committed_modules, committed_paths, modules_data=modules_data,
+                    empty_reason=(ground_truth or {}).get("reason"))
+    if ground_truth is not None:
+        rec["ground_truth_source"] = ground_truth.get("source")
+    return rec
+
+
+def _evaluate(trace: dict | None, committed_modules: set, committed_paths: set, *,
+             modules_data: dict | None = None, empty_reason: str | None = None) -> dict:
     """Build the record. PURE: no git, no file read, no file write — the
     ground truth arrives already computed by the ack (AC-7, AC-21, D-215).
     `modules_data` (KLC-110 review round 1, step-10, D-110-11) is the SAME
     parsed modules.json this ack has already loaded — an OPTIONAL, additive
     parameter: still no read of its own, it is DATA IN, exactly like
-    `committed_modules`/`committed_paths`."""
+    `committed_modules`/`committed_paths`. `empty_reason` (KLC-128 D-209): the
+    ground-truth resolver's OWN named reason for an empty `committed_paths`
+    (e.g. 'no recorded pre-merge range for this ticket'), used in place of the
+    generic message below when given."""
     if not trace:
         return _degraded("no retrieval trace for this ticket", None)
     if trace.get("status") != "ok":
@@ -168,7 +185,7 @@ def evaluate(trace: dict | None, committed_modules: set, committed_paths: set, *
     if _bad_field:
         return _degraded(_bad_field, trace)
     if not committed_paths:
-        return _degraded("no committed diff after the lifecycle-path exclusion", trace)
+        return _degraded(empty_reason or "no committed diff after the lifecycle-path exclusion", trace)
 
     score = load_planning_eval().rank_metrics       # the ONE scorer (D-210)
     truth = set(committed_paths)
@@ -270,14 +287,16 @@ def evaluate(trace: dict | None, committed_modules: set, committed_paths: set, *
 # log (AC-8, AC-9, AC-16)
 # --------------------------------------------------------------------------- #
 def consume(ticket, trace, committed_modules, committed_paths, track, *, persist,
-           modules_data: dict | None = None):
+           modules_data: dict | None = None, ground_truth: dict | None = None):
     """Build the record and, on the PERSISTING path only, stage and log it.
 
     Returns the record; the caller turns it into advisory records. A
     read-only probe computes exactly the same record and stages NOTHING,
     appends NOTHING and writes NOTHING (AC-10, D-222). `modules_data`
-    (KLC-110 step-10) is threaded straight through to `evaluate()`."""
-    rec = evaluate(trace, committed_modules, committed_paths, modules_data=modules_data)
+    (KLC-110 step-10) is threaded straight through to `evaluate()`.
+    `ground_truth` (KLC-128 D-209) is threaded straight through too."""
+    rec = evaluate(trace, committed_modules, committed_paths, modules_data=modules_data,
+                  ground_truth=ground_truth)
     if persist:
         import lifecycle as _lc
         _lc.stage_meta_patch(ticket, {"metrics": {"retrieval": rec}})

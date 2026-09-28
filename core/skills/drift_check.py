@@ -50,14 +50,27 @@ from impl_plan_check import (  # noqa: E402
 from tdd_order import step_commits  # noqa: E402
 
 
-def _scope_drift_section(ticket: str) -> dict:
+def _scope_drift_section(ticket: str, ground_truth: dict | None = None) -> dict:
     """Build the scope_drift section from scope_delta.compare. `drifted_modules` is
     the unplanned MODULE set (`drift`), NOT `expansion` — `expansion` is a superset
     that already folds in the orphan file paths (scope_delta.py: `expansion =
     drift | unknown_files`), so using it would double-list every orphan as a module.
     `orphan_files` is the separate `unknown_files`. `skipped` carries scope_delta's
-    skip reason verbatim, or None when it ran (even with no drift)."""
-    sd = _scope_compare(ticket)
+    skip reason verbatim, or None when it ran (even with no drift).
+
+    KLC-128 D-207: with `ground_truth is None` (every caller before KLC-128),
+    this makes today's EXACT `_scope_compare(ticket)` call (F-202). With a
+    ground truth whose `source` is `"none"`, the section is `skipped` with
+    the resolver's own named reason (AC-8) — never a second `scope_delta`
+    call. Otherwise `_scope_compare` is called with the ground truth's own
+    `paths`, so the integrate-ack drift check scores the SAME file set the
+    retrieval evaluator does (AC-6)."""
+    if ground_truth is None:
+        sd = _scope_compare(ticket)                       # today's exact call (F-202)
+    elif ground_truth.get("source") == "none":
+        sd = {"skipped": ground_truth.get("reason") or "no ground truth"}
+    else:
+        sd = _scope_compare(ticket, changed_files=sorted(ground_truth.get("paths") or ()))
     return {
         "drifted_modules": list(sd.get("drift") or []),
         "orphan_files": list(sd.get("unknown_files") or []),
@@ -121,19 +134,26 @@ def _safe(fn, *, default: dict) -> dict:
         return d
 
 
-def compare(ticket: str, *, repo: Path | str | None = None) -> dict:
+def compare(ticket: str, *, repo: Path | str | None = None,
+           ground_truth: dict | None = None) -> dict:
     """Assemble the (report-only) drift report for *ticket*. Never raises (C-003):
     each section degrades to a `skipped` reason on any error, and compare() itself
-    performs no phase mutation — it only computes and returns a dict."""
+    performs no phase mutation — it only computes and returns a dict.
+
+    KLC-128 D-207: `ground_truth`, keyword-only. When given, the report also
+    carries `ground_truth_source` (AC-7)."""
     scope = _safe(
-        lambda: _scope_drift_section(ticket),
+        lambda: _scope_drift_section(ticket, ground_truth),
         default={"drifted_modules": [], "orphan_files": [], "skipped": None},
     )
     steps = _safe(
         lambda: _steps_from_plan(ticket, repo),
         default={"flagged": [], "exempt": [], "skipped": None},
     )
-    return {"ticket": ticket, "scope_drift": scope, "step_without_commit": steps}
+    rep = {"ticket": ticket, "scope_drift": scope, "step_without_commit": steps}
+    if ground_truth is not None:
+        rep["ground_truth_source"] = ground_truth.get("source")
+    return rep
 
 
 def _steps_from_plan(ticket: str, repo: Path | str | None) -> dict:
@@ -205,11 +225,12 @@ def _summary(rep: dict) -> str:
     return " ".join(parts)
 
 
-def write_report(ticket: str, *, repo: Path | str | None = None) -> dict:
+def write_report(ticket: str, *, repo: Path | str | None = None,
+                 ground_truth: dict | None = None) -> dict:
     """Compute the drift report, attach its summary, and write drift-report.json to
     the ticket dir. Report-only: the write is best-effort and never raises to the
     caller (a failed write is recorded, the report dict is still returned)."""
-    rep = compare(ticket, repo=repo)
+    rep = compare(ticket, repo=repo, ground_truth=ground_truth)
     rep["summary"] = _summary(rep)
     try:
         path = _report_path(ticket)

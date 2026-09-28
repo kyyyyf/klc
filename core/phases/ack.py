@@ -57,6 +57,18 @@ def _friendly_missing_ticket(ticket: str) -> int:
 
 
 def run(argv: list[str]) -> int:
+    """KLC-128 D-205: opens the run-scoped ground-truth cache
+    (`phase_completion.ground_truth_scope`) around the whole body — the
+    WORK→ack-needed recursion (`_run`'s own `return run(argv)`) re-enters
+    this SAME scope (a nested entry is a no-op), so the integrate branch of
+    `phase_completion._can_complete_generic` and this module's own scope
+    guard (`_scope_delta_for`) read the identical resolved ground truth
+    within one `klc ack` invocation."""
+    with phase_completion.ground_truth_scope():
+        return _run(argv)
+
+
+def _run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc ack", description=__doc__)
     ap.add_argument("ticket")
     ap.add_argument("--pick", type=int, default=None,
@@ -200,7 +212,7 @@ def run(argv: list[str]) -> int:
 
             # Scope-expansion guard before approving review / integrate.
             if pid in _SCOPE_GUARD_PHASES:
-                delta = _sd.compare(args.ticket)
+                delta = _scope_delta_for(args.ticket, pid)
                 skipped_reason = delta.get("skipped", "")
                 if skipped_reason and pid in _SCOPE_HARD_FAIL_PHASES:
                     # AC-D2: missing modules.json = hard failure for review.
@@ -228,14 +240,29 @@ def run(argv: list[str]) -> int:
                     _write_scope_conflict(args.ticket, pid, delta)
                     unknown = delta.get("unknown_files", [])
                     extra = f"\n  unknown_files={unknown}" if unknown else ""
+                    # KLC-128 step-8 (review MEDIUM): at integrate the ticket
+                    # is ALREADY MERGED — "use `klc jump` to restart review"
+                    # is actively misleading there (nothing to restart; the
+                    # merge already happened). review keeps its own wording.
+                    if pid == "integrate":
+                        remedy = (
+                            f"{args.ticket} is already merged; update "
+                            f"meta.json:affected_modules (e.g. `klc scope-fix "
+                            f"{args.ticket} --add <module>`) and re-run "
+                            f"`klc ack {args.ticket}`.\n"
+                        )
+                    else:
+                        remedy = (
+                            f"Update meta.json:affected_modules or use `klc jump` "
+                            f"to restart review with the correct scope.\n"
+                        )
                     sys.stderr.write(
                         f"klc ack: scope expansion detected — unplanned modules "
                         f"touched: {delta['expansion']}\n"
                         f"  planned={delta['planned']}\n"
                         f"  actual={delta['actual']}"
                         f"{extra}\n"
-                        f"Update meta.json:affected_modules or use `klc jump` "
-                        f"to restart review with the correct scope.\n"
+                        f"{remedy}"
                     )
                     return 1
                 if delta.get("drift"):
@@ -382,6 +409,25 @@ def run(argv: list[str]) -> int:
     except ValueError as e:
         sys.stderr.write(f"klc ack: {e}\n")
         return 1
+
+
+def _scope_delta_for(ticket: str, pid: str) -> dict:
+    """KLC-128 D-211: the integrate scope guard shares the SAME ground truth
+    the drift check and the retrieval evaluator scored, exactly where the
+    evaluators run (`phase_completion.integrate_evaluators_run`) — so the
+    guard can again catch a file added after review (AC-14), and the M/L
+    integrate guard now sees the COMMITTED change only, never the operator's
+    uncommitted WIP (C-002). On a track whose evaluators skip (XS, S without
+    a signal) and at review, the guard keeps today's exact `_sd.compare(ticket)`
+    call, byte-for-byte — so AC-10's zero-git bound for the ground truth
+    holds there too."""
+    if pid == "integrate" and phase_completion.integrate_evaluators_run(ticket):
+        gt = phase_completion.integrate_ground_truth(ticket)
+        delta = _sd.compare(ticket, changed_files=sorted(gt["paths"]))
+        if gt["source"] == "none" and delta.get("skipped") == "no changed files detected":
+            delta = {**delta, "skipped": gt["reason"]}
+        return delta
+    return _sd.compare(ticket)                     # review, XS, S without a signal
 
 
 def _write_scope_conflict(ticket: str, phase_id: str, delta: dict) -> None:

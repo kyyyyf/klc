@@ -113,30 +113,45 @@ def test_m_ticket_resolves_the_committed_diff_exactly_once_across_both_producers
     """The gate scales the cost, it does not disable the feature: an M
     ticket runs both producers and the monkeypatched runner sees one
     merge-base and one diff in total, via the shared per-ack cache
-    (D-216/D-301)."""
+    (D-216/D-301).
+
+    KLC-128 D-215/D-216 (operator ruling, superseding design D-208's 'stay
+    unmodified' clause): the `FakeDrift` stubs are widened to `**_kw` so the
+    drift producer's new `ground_truth=` keyword (KLC-128 step-3) reaches the
+    stub instead of raising a `TypeError` that the producer's never-raise
+    guard would silently swallow — a swallowed exception would let this test
+    keep 'passing' while proving nothing about the cache-sharing behaviour it
+    exists to pin. `seen` asserts the drift producer actually took its NORMAL
+    path (a `ground_truth=` keyword arrives) rather than the degrade path."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _write_ticket(tmp_path, "KLC-M1", "M", _OK_TRACE)
 
     calls: list = []
     monkeypatch.setattr(_pc, "_git", _fake_git(calls))
     monkeypatch.setattr(_pc, "_load_modules", lambda: {"modules": []})
+    seen: list = []
     monkeypatch.setattr(
         _pc, "_drift",
         type("FakeDrift", (), {
             "write_report": staticmethod(
-                lambda ticket: {"scope_drift": {}, "step_without_commit": {}}),
+                lambda ticket, **_kw: (seen.append(_kw)
+                                       or {"scope_drift": {}, "step_without_commit": {}})),
             "compare": staticmethod(
-                lambda ticket: {"scope_drift": {}, "step_without_commit": {}}),
+                lambda ticket, **_kw: (seen.append(_kw)
+                                       or {"scope_drift": {}, "step_without_commit": {}})),
         }))
 
     cache: dict = {}
-    _pc._drift_advisories("KLC-M1", False, committed=cache)
+    drift_records = _pc._drift_advisories("KLC-M1", False, committed=cache)
     _pc._retrieval_advisories("KLC-M1", False, committed=cache)
 
     merge_base_calls = [c for c in calls if c[0] == "merge-base"]
     diff_calls = [c for c in calls if c[0] == "diff"]
     assert len(merge_base_calls) == 1, calls
     assert len(diff_calls) == 1, calls
+    assert len(seen) == 1 and "ground_truth" in seen[0], \
+        "the drift producer must resolve and pass the ground truth (normal path), not skip it"
+    assert not any(r.get("code") == "drift-check.degraded" for r in drift_records), drift_records
 
 
 def test_m_ticket_reads_the_module_map_exactly_once_across_both_producers(
@@ -146,7 +161,10 @@ def test_m_ticket_reads_the_module_map_exactly_once_across_both_producers(
     index artifact AC-21 sanctions reading — an M ticket running both
     producers must read `modules.json` exactly ONCE in total, via the SAME
     shared per-ack cache `_committed_cached`/`_modules_data_cached` reuse
-    (D-216/D-110-11's cache-sharing extended to the module map)."""
+    (D-216/D-110-11's cache-sharing extended to the module map).
+
+    KLC-128 D-215/D-216: see the sibling test above for why the stubs are
+    `**_kw`-tolerant and why `seen`/the degrade-code check are asserted."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _write_ticket(tmp_path, "KLC-M2", "M", _OK_TRACE)
 
@@ -154,20 +172,26 @@ def test_m_ticket_reads_the_module_map_exactly_once_across_both_producers(
     modules_calls: list = []
     monkeypatch.setattr(_pc, "_git", _fake_git(git_calls))
     monkeypatch.setattr(_pc, "_load_modules", _fake_load_modules(modules_calls))
+    seen: list = []
     monkeypatch.setattr(
         _pc, "_drift",
         type("FakeDrift", (), {
             "write_report": staticmethod(
-                lambda ticket: {"scope_drift": {}, "step_without_commit": {}}),
+                lambda ticket, **_kw: (seen.append(_kw)
+                                       or {"scope_drift": {}, "step_without_commit": {}})),
             "compare": staticmethod(
-                lambda ticket: {"scope_drift": {}, "step_without_commit": {}}),
+                lambda ticket, **_kw: (seen.append(_kw)
+                                       or {"scope_drift": {}, "step_without_commit": {}})),
         }))
 
     cache: dict = {}
-    _pc._drift_advisories("KLC-M2", False, committed=cache)
+    drift_records = _pc._drift_advisories("KLC-M2", False, committed=cache)
     _pc._retrieval_advisories("KLC-M2", False, committed=cache)
 
     assert len(modules_calls) == 1, modules_calls
+    assert len(seen) == 1 and "ground_truth" in seen[0], \
+        "the drift producer must resolve and pass the ground truth (normal path), not skip it"
+    assert not any(r.get("code") == "drift-check.degraded" for r in drift_records), drift_records
 
 
 def test_two_tickets_in_one_process_do_not_share_a_cached_diff(tmp_path, monkeypatch):

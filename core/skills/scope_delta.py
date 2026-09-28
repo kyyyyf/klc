@@ -131,11 +131,19 @@ def _attribute_tests(files: list[str], *, table=None) -> list[str]:
     return sorted(set(out))
 
 
-def compare(ticket: str) -> dict:
+def compare(ticket: str, *, changed_files: list[str] | None = None) -> dict:
     """Compare planned scope with actual diff scope.
 
     Returns a dict with keys: planned, actual, drift, expansion, and
     optionally skipped (reason string when check could not run).
+
+    KLC-128 D-206: `changed_files`, keyword-only, defaults to `None`. With
+    `None` (every caller before KLC-128), this function is byte-identical to
+    before. When a list is given (the integrate-ack ground truth), it flows
+    through the unchanged infra filter, test attribution and bucketing
+    INSTEAD of `_git_changed_files` — so `_git_changed_files` is not called
+    at all, and an empty list yields today's `skipped: "no changed files
+    detected"` exactly like an empty live diff does today.
     """
     meta = _lc.read_meta(ticket)
     planned: list[str] = meta.get("affected_modules") or []
@@ -159,7 +167,8 @@ def compare(ticket: str) -> dict:
             "skipped": f"modules.json unreadable: {exc}",
         }
 
-    changed_files = _git_changed_files(project_root())
+    changed_files = (_git_changed_files(project_root()) if changed_files is None
+                    else list(changed_files))            # D-206: no git when injected
     # Framework INFRA paths are dropped BEFORE module resolution, so a
     # legitimate infra edit is not read as scope expansion. The list itself
     # and the match rule live in module_vocabulary (KLC-111 AC-3), including

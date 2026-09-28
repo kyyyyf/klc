@@ -351,10 +351,13 @@ committed diff was computable at integrate, and nobody ever compared the two.
 KLC-110 closes that loop at the point both ends are already available — the
 integrate ack, reusing the KLC-096 report-only advisory precedent. A third
 advisory producer (`phase_completion._retrieval_advisories`, beside the two
-drift producers) evaluates the ticket's trace against
-`phase_completion._committed()`'s own committed-diff pair (the same ground truth
-drift-check reports on, so the two can never disagree about what a ticket
-changed), through the ONE canonical `rank_metrics` this scorer exposes
+drift producers) evaluates the ticket's trace against the one ground truth
+`phase_completion.integrate_ground_truth` resolves per ack run, which the drift
+check and the integrate scope guard also score, so all three see the same file
+set by construction; after the merge it is the pre-merge range recorded at the
+build, review and manual acks, which is exact unless commits land after the
+last recording ack (see `docs/process.md` §Integrate), through the ONE
+canonical `rank_metrics` this scorer exposes
 (`retrieval_eval.load_planning_eval()`, KLC-110 D-213). The record lands in
 `meta.json:metrics.retrieval` — staged onto the ack's own transaction so a
 rolled-back push leaves no record — and a JSON line is appended to the derived,

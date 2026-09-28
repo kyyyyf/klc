@@ -9,6 +9,7 @@ section structure to catch truncated or stub artefacts.
 """
 from __future__ import annotations
 
+import contextlib
 import sys
 from pathlib import Path
 
@@ -910,7 +911,79 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
     return True, _summary
 
 
+_RECORDING_PHASES = frozenset({"build", "review", "manual"})   # KLC-128 Q-001
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def integrate_evaluators_run(ticket: str) -> bool:
+    """KLC-128: the integrate evaluators' track gate (full on M/L, cascade on
+    S with an escalation signal, skip on XS or an unescalated S) — mirrors the
+    inline gate `_drift_advisories`/`_retrieval_advisories` already run, so the
+    pre-merge recording (below) and the two producers agree on which tracks
+    ever pay a git cost. Fail-OPEN, like the gate it mirrors: an unreadable or
+    malformed track runs rather than silently skipping."""
+    try:
+        meta = _lc.read_meta_ro(ticket)
+        track = meta.get("track")
+        return not (bool(track) and not _spec_review.should_run(
+            track, {"risk_tags": meta.get("risk_tags") or []}))
+    except Exception:
+        return True
+
+
+def _project_repo():
+    """The PROJECT_ROOT checkout — the same resolution `_committed()` uses,
+    so the recorded range and the live diff always agree on which repo they
+    read git from."""
+    try:
+        from core.shared.paths import project_root
+        return project_root()
+    except Exception:
+        return None
+
+
+def _pre_merge_range_patch(ticket: str, phase_id: str) -> dict | None:
+    """KLC-128 D-201/D-202: stage `{base, head, recorded_at_phase,
+    recorded_at}` for the pre-merge range, or return None to stage nothing.
+
+    Three git calls at most (merge-base, a `main` fallback only when
+    `origin/main` is absent, and `rev-parse HEAD`), gated first by
+    `integrate_evaluators_run` so a track-skipped ack never pays them. Never
+    raises — a git failure or a non-hex result degrades to "stage nothing",
+    never a verdict change."""
+    if not integrate_evaluators_run(ticket):
+        return None
+    repo = _project_repo()
+    base = (_git(["merge-base", "HEAD", "origin/main"], repo)
+            or _git(["merge-base", "HEAD", "main"], repo))
+    head = _git(["rev-parse", "HEAD"], repo)
+    if not (_SHA_RE.match(base or "") and _SHA_RE.match(head or "")):
+        return None
+    out = _git(["diff", "--name-only", base, head], repo)
+    if not any(p.strip() and not p.startswith(".klc/") for p in out.split("\n")):
+        return None                       # latest NON-EMPTY range wins (Q-001)
+    import datetime as _dt
+    return {"base": base, "head": head, "recorded_at_phase": phase_id,
+            "recorded_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+
 def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
+    """`_can_complete_dispatch`'s verdict, plus (KLC-128 AC-4/AC-5) staging the
+    ticket's pre-merge range on a True, persisting verdict at build, review or
+    manual. Recording never changes the verdict: any failure inside it is
+    swallowed, and a read-only probe (`persist=False`) never reaches it."""
+    ok, msg = _can_complete_dispatch(ticket, phase_id, persist=persist)
+    if ok and persist and phase_id in _RECORDING_PHASES:
+        try:
+            patch = _pre_merge_range_patch(ticket, phase_id)
+            if patch:
+                _lc.stage_meta_patch(ticket, {"pre_merge_range": patch})
+        except Exception:
+            pass                          # recording never changes a verdict
+    return ok, msg
+
+
+def _can_complete_dispatch(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check if a phase can be manually completed based on artifacts.
 
     Args:
@@ -984,16 +1057,23 @@ def _committed(repo=None, *, cache: dict | None = None) -> tuple[set, set]:
         # Run git in the PROJECT_ROOT checkout, not the caller's cwd — an installed
         # `klc` shim launched elsewhere would otherwise get an empty committed set and
         # silently suppress all committed drift (codex P2; CLAUDE.md PROJECT_ROOT rule).
-        try:
-            from core.shared.paths import project_root
-            repo = project_root()
-        except Exception:
-            repo = None
+        # KLC-128 step-8 (review INFO): reuses `_project_repo()` — the SAME
+        # resolution the ground-truth resolver uses — instead of a second,
+        # duplicated try/except doing the identical thing.
+        repo = _project_repo()
     base = _git(["merge-base", "HEAD", "origin/main"], repo) or _git(["merge-base", "HEAD", "main"], repo)
     if not base:
         return set(), set()
     out = _git(["diff", "--name-only", base, "HEAD"], repo)
     paths = {p for p in out.split("\n") if p.strip() and not p.startswith(".klc/")}
+    return _paths_to_modules(paths, cache), paths
+
+
+def _paths_to_modules(paths, cache: dict | None) -> set:
+    """KLC-128 step-2: the module-mapping half of `_committed`, factored out
+    so `_resolve_ground_truth`'s recorded-range leg can apply the SAME rule
+    (and the same `cache['modules_data']` stash, KLC-110 D-110-11) to a diff
+    that never went through `_committed` itself."""
     if cache is not None and "modules_data" in cache:
         modules_data = cache["modules_data"]
     else:
@@ -1009,7 +1089,132 @@ def _committed(repo=None, *, cache: dict | None = None) -> tuple[set, set]:
             # Shared file (no primary): scope_delta reports shared drift by member
             # module, so include member_of or the module arrow suppresses it (codex P2).
             mods.update(r.get("member_of") or [])
-    return mods, paths
+    return mods
+
+
+_R_NO_RANGE = "no recorded pre-merge range for this ticket"
+
+
+def _gt(mods, paths, source, reason) -> dict:
+    return {"modules": set(mods), "paths": set(paths), "source": source, "reason": reason}
+
+
+def _read_pre_merge_range(ticket: str) -> tuple[dict | None, str]:
+    """KLC-128 D-203: validate the recorded range, never raise. A missing or
+    malformed object means 'no usable range' (AC-8, AC-12) — the SPECIFIC
+    reason names what was wrong, so a degrade never reads as a bare generic
+    skip."""
+    rng = (_lc.read_meta_ro(ticket) or {}).get("pre_merge_range")
+    if rng is None:
+        return None, _R_NO_RANGE
+    if not isinstance(rng, dict):
+        return None, f"recorded pre-merge range is malformed: not an object ({type(rng).__name__})"
+    for key in ("base", "head"):
+        if not _SHA_RE.match(str(rng.get(key) or "")):
+            return None, f"recorded pre-merge range is malformed: {key!r} is missing or not a 40-hex sha"
+    return rng, ""
+
+
+def _is_ancestor(base: str, head: str, repo) -> bool:
+    """KLC-128 step-7 (review round 1, MEDIUM): `base` must actually PRECEDE
+    `head` in this repository's history — a crafted or mistaken pair of
+    unrelated-but-resolvable 40-hex shas in `meta.json` (klc-state is
+    multi-writer) must never silently become a `recorded-range` ground
+    truth. `base` is an ancestor of `head` iff their merge-base equals
+    `base` (the standard git idiom) — used instead of `git merge-base
+    --is-ancestor`, which communicates its answer ONLY through the exit
+    code, a channel `_git()`'s stdout-based contract cannot see (D-128-3).
+    This keeps the check on the SAME `_git` seam every other call here goes
+    through, so the KLC-128 git-invocation counting passthrough (which wraps
+    `phase_completion._git`) still sees it as one `merge-base` call. Never
+    raises: any git failure (a bad/absent object included) resolves to
+    `False`, which degrades exactly like a genuine non-ancestor pair (also
+    D-128-3 — see the two review-fix test updates in build-log.md)."""
+    mb = _git(["merge-base", base, head], repo)
+    return bool(mb) and mb == base
+
+
+def _resolve_ground_truth(ticket: str, cache: dict) -> dict:
+    """KLC-128 D-203: the ONE ground-truth derivation at the integrate ack —
+    live, then recorded, then none. Never raises, and never falls back to a
+    key-grep/reflog derivation (AC-8)."""
+    try:
+        mods, paths = _committed(cache=cache)            # today's live rule, unchanged (AC-3)
+        if paths:
+            return _gt(mods, paths, "live-merge-base", None)
+        rng, why = _read_pre_merge_range(ticket)
+        if rng is None:
+            return _gt((), (), "none", why)
+        repo = _project_repo()
+        # KLC-128 step-7 (review MEDIUM, AC-8/AC-12): validate ancestry BEFORE
+        # diffing — the one extra git call the review ruling allows on this
+        # leg (D-128-3 updates the AC-10 bound from <= 3 to <= 4).
+        if not _is_ancestor(rng["base"], rng["head"], repo):
+            return _gt((), (), "none",
+                      f"recorded pre-merge range base is not an ancestor of head: "
+                      f"{rng['base']}..{rng['head']}")
+        out = _git(["diff", "--name-only", rng["base"], rng["head"]], repo)
+        rpaths = {p for p in out.split("\n") if p.strip() and not p.startswith(".klc/")}
+        if not rpaths:                                   # D-204: no extra probe call
+            return _gt((), (), "none", f"recorded pre-merge range {rng['base']}..{rng['head']} "
+                                       "is not resolvable in this clone")
+        return _gt(_paths_to_modules(rpaths, cache), rpaths, "recorded-range", None)
+    except Exception as exc:  # noqa: BLE001 — never propagate (AC-12)
+        return _gt((), (), "none", f"ground truth unavailable: {type(exc).__name__}: {exc}")
+
+
+_RUN_SCOPE: dict | None = None     # KLC-128 D-205: lives for one outermost ack.run, keyed by ticket
+
+
+@contextlib.contextmanager
+def ground_truth_scope():
+    """KLC-128 D-205: a run-scoped cache opened by the OUTERMOST `ack.run`,
+    reused by its WORK→ack-needed recursion (a nested entry is a no-op that
+    yields the SAME scope), keyed by ticket, and cleared on that outermost
+    run's exit. Bounded by construction: it never outlives one `ack.run`
+    call, and it never lets one ticket's resolved set leak into another's."""
+    global _RUN_SCOPE
+    outermost = _RUN_SCOPE is None
+    if outermost:
+        _RUN_SCOPE = {}
+    try:
+        yield _RUN_SCOPE
+    finally:
+        if outermost:
+            _RUN_SCOPE = None
+
+
+def _scope_cache(ticket: str) -> dict:
+    """The per-ticket dict inside the currently open `ground_truth_scope()`,
+    or a fresh dict when none is open (every caller outside an `ack.run`,
+    unaffected — KLC-128 D-205)."""
+    return _RUN_SCOPE.setdefault(ticket, {}) if _RUN_SCOPE is not None else {}
+
+
+def integrate_ground_truth(ticket: str, *, cache: dict | None = None) -> dict:
+    """KLC-128 D-205: the one resolver every integrate-ack consumer (the
+    drift check, the retrieval evaluator, the `ack.py` scope guard) calls.
+    Resolved at most once per *cache* — a pre-warmed KLC-110
+    `cache["committed"]` (F-203) is honoured with zero extra git calls. With
+    no `cache` given, defaults to the run-scoped `_scope_cache(ticket)` — so
+    a caller inside an open `ground_truth_scope()` (the `ack.py` guard) shares
+    the SAME resolution the integrate branch above already ran."""
+    cache = _scope_cache(ticket) if cache is None else cache
+    if "ground_truth" not in cache:
+        _pre = cache.get("committed")
+        if _pre is not None and _pre[1]:                 # a NON-EMPTY pre-warmed KLC-110 pair
+            m, p = _pre
+            cache["ground_truth"] = _gt(m, p, "live-merge-base", None)
+        else:
+            # KLC-128 step-7 (review LOW, AC-3): an ABSENT pre-warmed pair
+            # short-circuits above; an EMPTY one must NOT — it only tells us
+            # the LIVE diff was empty, never that no recorded range exists,
+            # so it falls through to the full resolver, which still consults
+            # the recorded range.
+            cache["ground_truth"] = _resolve_ground_truth(ticket, cache)
+        g = cache["ground_truth"]
+        cache.setdefault("committed", (g["modules"], g["paths"]))
+    return cache["ground_truth"]
 
 
 def _committed_cached(cache: dict | None) -> tuple[set, set]:
@@ -1062,18 +1267,10 @@ def _drift_advisories(ticket: str, persist: bool, *, committed: dict | None = No
     writing. Track-scaled: full on M/L, cascade-on-signal on S (a
     coordination/risk-tag signal), skip on XS. Fail-OPEN: an unknown/unreadable
     track runs, since surfacing is safe."""
-    # Track-scale first. FAIL-OPEN: any error — a malformed/non-string track, an
-    # unreadable meta — falls through to RUNNING (surfacing is safe and never blocks), so
-    # the should_run call cannot raise past the never-raise guarantee (review MEDIUM/C-002).
-    try:
-        _meta = _lc.read_meta_ro(ticket)
-        _track = _meta.get("track")
-        _skip = bool(_track) and not _spec_review.should_run(
-            _track, {"risk_tags": _meta.get("risk_tags") or []}
-        )
-    except Exception:
-        _skip = False
-    if _skip:
+    # Track-scale first (KLC-128: the one gate `integrate_evaluators_run`
+    # shares with the recording seam and the retrieval producer — fail-open,
+    # since surfacing is safe and never blocks, review MEDIUM/C-002).
+    if not integrate_evaluators_run(ticket):
         return []  # XS skip / S without an escalation signal
 
     # A read-only probe (persist=False, e.g. `klc remind` / gate-policy) must persist
@@ -1087,12 +1284,22 @@ def _drift_advisories(ticket: str, persist: bool, *, committed: dict | None = No
     except Exception:
         _meta_snap = None
     try:
-        # persist=True → write_report persists drift-report.json; persist=False →
-        # compare computes without writing the report (KLC-062 read-only-probe discipline).
-        rep = _drift.write_report(ticket) if persist else _drift.compare(ticket)
+        # KLC-128: resolve the ground truth BEFORE calling the brick, so the
+        # SAME object both scores the drift section and labels the report
+        # (AC-6, AC-7). `committed is None` (only test callers, F-202) keeps
+        # today's EXACT one-argument call (D-208).
+        if committed is not None:
+            gt = integrate_ground_truth(ticket, cache=committed)
+            mods, paths = gt["modules"], gt["paths"]
+            # persist=True → write_report persists drift-report.json; persist=False →
+            # compare computes without writing the report (KLC-062 read-only-probe discipline).
+            rep = (_drift.write_report(ticket, ground_truth=gt) if persist
+                  else _drift.compare(ticket, ground_truth=gt))
+        else:
+            mods, paths = _committed_cached(committed)   # D-208: exact legacy call
+            rep = _drift.write_report(ticket) if persist else _drift.compare(ticket)
         scope = dict(rep.get("scope_drift") or {})
         steps = rep.get("step_without_commit") or {}
-        mods, paths = _committed_cached(committed)
         surfaced_mods = [m for m in (scope.get("drifted_modules") or []) if m in mods]
         surfaced_orphans = [o for o in (scope.get("orphan_files") or []) if o in paths]
 
@@ -1172,16 +1379,12 @@ def _retrieval_advisories(ticket: str, persist: bool, *, committed=None) -> list
     # Gating only on trace status (revision 2) closed that hole only while traces
     # are degraded; the moment an XS ticket's trace is `ok`, this producer becomes
     # the ack's FIRST _committed() caller and AC-21's bound breaks.
+    if not integrate_evaluators_run(ticket):
+        return []                      # XS skip / S without an escalation signal
     try:
         _meta = _lc.read_meta_ro(ticket)
-        _track = _meta.get("track")
-        _skip = bool(_track) and not _spec_review.should_run(
-            _track, {"risk_tags": _meta.get("risk_tags") or []}
-        )
     except Exception:
-        _meta, _skip = {}, False       # fail-open: surfacing is safe, cost is not
-    if _skip:
-        return []                      # XS skip / S without an escalation signal
+        _meta = {}                     # fail-open: surfacing is safe, cost is not
 
     _meta_path = klc_ticket_meta_file(ticket)
     try:
@@ -1195,13 +1398,38 @@ def _retrieval_advisories(ticket: str, persist: bool, *, committed=None) -> list
         # track gate does not, and the track gate spares an XS ticket whose trace
         # is fine, which this one does not. Both, in this order.
         if not trace or trace.get("status") != "ok":
-            rec = _reval.evaluate(trace, set(), set())
+            # KLC-128 AC-9: persist the degraded record too. `evaluate()`
+            # returns before it reads the committed sets (D-210), so routing
+            # through `consume()` here adds no git call and no module-map
+            # read for the TRACE-DEGRADE branch itself.
+            #
+            # KLC-128 step-8 (review MEDIUM): ACTIVELY resolve via
+            # `integrate_ground_truth(ticket, cache=committed)` rather than
+            # passively reading `committed.get('ground_truth')` — the old
+            # code silently produced an unlabelled record whenever this
+            # producer ran BEFORE `_drift_advisories` had populated the
+            # shared cache (or was called standalone). `integrate_ground_truth`
+            # memoises in `committed`, so this is zero EXTRA cost whenever
+            # drift already resolved it this ack (the real `_sources`
+            # ordering, drift-check first) — it only pays a real resolution
+            # cost the FIRST time anything asks, which is now this call
+            # rather than never. `committed is None` (only a test caller
+            # with no cache at all) still asks for nothing.
+            label = integrate_ground_truth(ticket, cache=committed) if committed is not None else None
+            rec = _reval.consume(ticket, trace, set(), set(), _meta.get("track"),
+                                 persist=persist, ground_truth=label)
         else:
             # Only now, past BOTH gates, is a git subprocess permissible.
-            mods, paths = _committed_cached(committed)
+            gt = None
+            if committed is not None:
+                gt = integrate_ground_truth(ticket, cache=committed)
+                mods, paths = gt["modules"], gt["paths"]
+            else:
+                mods, paths = _committed_cached(committed)   # D-208: exact legacy call
             modules_data = _modules_data_cached(committed)
             rec = _reval.consume(ticket, trace, mods, paths, _meta.get("track"),
-                                 persist=persist, modules_data=modules_data)
+                                 persist=persist, modules_data=modules_data,
+                                 ground_truth=gt)
         return _reval.advisory_records(ticket, rec)
     except Exception as exc:    # surface-only: never propagate, never block
         return [{"source": "retrieval-eval", "severity": "info",
@@ -1235,10 +1463,13 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
     # BEFORE the empty-outputs early return — integrate declares `outputs: []`, so the
     # advisory would be unreachable after it. Surface-only: always a completable (True, …).
     if phase_id == "integrate":
-        # KLC-110 D-216: one fresh cache dict per ack, threaded through every
+        # KLC-110 D-216: one cache dict per ack, threaded through every
         # producer that may need the committed diff, so `_committed()` runs
         # at most once total across drift-check and the retrieval evaluator.
-        _cache: dict = {}
+        # KLC-128 D-205: `_scope_cache` returns the SAME per-ticket dict the
+        # `ack.py` scope guard reads too, when a `ground_truth_scope()` is
+        # open around this whole `ack.run` (a fresh dict otherwise).
+        _cache: dict = _scope_cache(ticket)
         _sources = [
             ("drift-check", _drift_advisories(ticket, persist, committed=_cache)),
             ("drift-review", _drift_review_advisories(ticket, persist)),

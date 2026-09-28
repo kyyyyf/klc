@@ -488,6 +488,18 @@ guardrails).
   `integrate.md` with the merge details.
 - **Ack options:** `--pick 1` merged (XS → learn, S/M/L → observe) · `--pick 2`
   conflict (human resolves, retry).
+- **What the integrate ack scores.** The drift check, the retrieval evaluator and
+  the integrate scope guard share one ground truth, resolved once per `klc ack`
+  run in this order: `live-merge-base` (the branch diff against origin/main, used
+  whenever it is non-empty), then `recorded-range` (the `pre_merge_range` that the
+  build, review and manual acks record while the branch is unmerged; the latest
+  non-empty range wins), then `none` (drift is skipped and retrieval is
+  unavailable, with the reason named). The integrate ack is acked after the merge,
+  so the recorded range is what it normally scores.
+  Caveat: the range is exact only if no commit lands on the ticket branch after
+  the last recording ack. A commit added after it is missed. An amend or rebase
+  that removes a recorded commit can make the range over-count and trigger an
+  integrate expansion block; update `meta.json:affected_modules` if that happens.
 - **Pitfalls:** not rebasing before push → fast-forward rejection; force-pushing a
   shared branch. The two-remote publish flow is in
   [Dual-remote workflow](#dual-remote-workflow).
