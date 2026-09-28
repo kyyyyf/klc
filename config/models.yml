@@ -47,7 +47,7 @@ version: 1
 
 defaults:
   provider:    anthropic
-  model:       claude-sonnet-4-6
+  model:       claude-sonnet-5
   api_key_env: ANTHROPIC_API_KEY
   extra_args:  []
 
@@ -60,13 +60,13 @@ defaults:
 roles:
   heavy-reasoning:
     provider:    anthropic
-    model:       claude-opus-4-7
+    model:       claude-opus-5-5
     api_key_env: ANTHROPIC_API_KEY
     rank:        3
 
   coding:
     provider:    anthropic
-    model:       claude-sonnet-4-6
+    model:       claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY
     rank:        2
 
@@ -84,7 +84,7 @@ roles:
 
   external:
     provider:    anthropic
-    model:       claude-sonnet-4-6
+    model:       claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY
     rank:        2
 
@@ -124,7 +124,7 @@ phase_roles:
   manual:               coding
   integrate:            local-simple
   observe:              local-simple
-  learn:                local-simple
+  learn:                coding
 
 # --- per-track overrides ----------------------------------------------------
 #

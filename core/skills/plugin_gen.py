@@ -28,10 +28,12 @@ from core.shared.paths import framework_root  # noqa: E402
 # CC plugin model alias map: concrete model ID → CC frontmatter alias.
 # A role pointing above Opus works — it will fall back to the full model ID.
 _MODEL_TO_CC_ALIAS: dict[str, str] = {
+    "claude-opus-5-5":           "opus",   # new
     "claude-opus-4-8":           "opus",
-    "claude-opus-4-7":           "opus",
+    "claude-opus-4-7":           "opus",   # kept — back-compat
     "claude-opus-4-6":           "opus",
-    "claude-sonnet-4-6":         "sonnet",
+    "claude-sonnet-5":           "sonnet", # new
+    "claude-sonnet-4-6":         "sonnet", # kept — back-compat
     "claude-sonnet-4-5":         "sonnet",
     "claude-haiku-4-5-20251001": "haiku",
     "claude-haiku-4-5":          "haiku",

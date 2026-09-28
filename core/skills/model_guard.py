@@ -53,7 +53,7 @@ def check(phase: str, *, track: str | None = None,
         phase:         Phase id (e.g. "discovery", "learn").
         track:         Ticket track (XS/S/M/L) for per-track role resolution.
         session_model: Concrete model name of the current CC session
-                       (e.g. "claude-sonnet-4-6").
+                       (e.g. "claude-sonnet-5").
 
     Returns:
         None if ranks match or if session model is unknown (soft note

@@ -23,6 +23,15 @@ def _agent_sources() -> list[Path]:
     return [p for p in (FW_ROOT / "core" / "agents").glob("*.md")]
 
 
+def test_cc_alias_new_and_backcompat_ids() -> None:
+    """AC-3: cc_alias() maps the two new model IDs to their CC aliases,
+    and still resolves a retired ID (back-compat)."""
+    assert _pg.cc_alias("claude-opus-5-5") == "opus"
+    assert _pg.cc_alias("claude-sonnet-5") == "sonnet"
+    assert _pg.cc_alias("claude-opus-4-7") == "opus"      # back-compat
+    assert _pg.cc_alias("claude-sonnet-4-6") == "sonnet"  # back-compat
+
+
 def test_subagents_generated() -> None:
     """Generator produces one agent file per core/agents/*.md source."""
     sources = _agent_sources()
@@ -66,7 +75,7 @@ def test_regen_reflects_models_change() -> None:
 
     # Patch the coding role model by string replacement (avoids yaml re-dump issues)
     modified_yml = re.sub(
-        r"(coding:.*?model:\s*)claude-sonnet-4-6",
+        r"(coding:.*?model:\s*)claude-sonnet-5",
         r"\1claude-test-regen-marker",
         original,
         count=1,

@@ -25,7 +25,7 @@ def test_lower_role_warns_up() -> None:
 
 def test_higher_role_warns_down() -> None:
     """Session rank > phase rank → warning mentions downgrading."""
-    msg = _mg.check("learn", track="M", session_model="claude-opus-4-7")
+    msg = _mg.check("learn", track="M", session_model="claude-opus-5-5")
     assert msg is not None, "expected a warning for over-ranked session model"
     assert len(msg) > 0
 
@@ -33,7 +33,7 @@ def test_higher_role_warns_down() -> None:
 def test_equal_rank_silent() -> None:
     """Session rank == phase rank → no output."""
     # discovery uses heavy-reasoning (rank 3); opus is heavy-reasoning
-    msg = _mg.check("discovery", track="M", session_model="claude-opus-4-7")
+    msg = _mg.check("discovery", track="M", session_model="claude-opus-5-5")
     assert msg is None, f"expected None for equal-rank, got: {msg!r}"
 
 

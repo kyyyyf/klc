@@ -92,7 +92,7 @@ def _parse_step_blocks(frontmatter: str) -> list[dict]:
         steps:
           - id: step-1
             state: green
-            model: claude-sonnet-4-6
+            model: claude-sonnet-5
     """
     lines = frontmatter.splitlines()
     in_steps = False
