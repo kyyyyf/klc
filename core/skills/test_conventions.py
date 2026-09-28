@@ -230,6 +230,32 @@ def _sibling_candidates_same_dir(path, rules) -> list[str]:
     return out
 
 
+def in_test_directory(path, *, table=None) -> bool:
+    """True when *path* has a path SEGMENT matching any language's declared
+    test-directory glob (``tests``, ``test``, ``__tests__``, ``spec``,
+    ``androidTest``, ...) — the DIRECTORY signal alone (KLC-114 D-114-10):
+    extension-agnostic, no ``exists=``/``added=`` seam, never any I/O.
+
+    Deliberately NARROWER than ``is_test_path``/``test_signal``: those also
+    promote a "sibling: none" basename convention (``conftest.py``,
+    ``tests.rs``, ``test.rs``, ...) to a test UNCONDITIONALLY, even outside
+    any declared test directory, because that layout IS the whole test
+    artefact by construction (module docstring). A caller that only wants
+    "does this path carry a recognised test-directory segment" — e.g.
+    ``step_ledger``'s scope rule, whose AC text is exactly that literal
+    wording — calls this instead, so a bare ``conftest.py`` dropped OUTSIDE
+    any ``tests/`` tree is not silently exempted from scope checking. This
+    is a PUBLIC, directory-only predicate that needs no ``exists=`` opt-in
+    (KLC-109's `test_every_consumer_call_passes_exists` guard only scans
+    calls to ``is_test_path``/``test_signal`` by name, not this one) — it
+    never reaches the NAME-signal branch at all."""
+    p = _norm(path)
+    segments = p.parts[:-1]
+    # fnmatchCASE is mandatory: fnmatch() normalises case on Windows and would let
+    # `Manifest.cs` match `*Test.cs` — production code classified as a test (AC-3).
+    return any(fnmatchcase(s, g) for s in segments for g in _all_test_dirs(table))
+
+
 def _shape_signal(path, table=None) -> str | None:
     """'dir' | 'name' | None from PATTERN matching alone — no existence
     check, no ``exists=`` seam, never any I/O. This is the SHAPE question
@@ -248,10 +274,8 @@ def _shape_signal(path, table=None) -> str | None:
     under a recognised test directory. The NAME (basename glob) signal stays
     extension-specific, via the record the path's own extension selects."""
     p = _norm(path)
-    segments, base = p.parts[:-1], p.name
-    # fnmatchCASE is mandatory: fnmatch() normalises case on Windows and would let
-    # `Manifest.cs` match `*Test.cs` — production code classified as a test (AC-3).
-    if any(fnmatchcase(s, g) for s in segments for g in _all_test_dirs(table)):
+    base = p.name
+    if in_test_directory(path, table=table):
         return "dir"
     rules = _rules_for(path, table)
     if rules is None:

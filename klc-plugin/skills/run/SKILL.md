@@ -103,6 +103,26 @@ Repeat until STOP or archived:
    e. **Blocking questions — STOP.** If `signal.blocking_questions` is
       non-empty: surface them to the human and stop. Do not paraphrase
       them away.
+   f. **Post-build step ledger pass.** Build phase only, and only when 5d
+      parsed the signal as `done` and 5e found no blocking questions: run
+      `python3 core/skills/step_ledger.py --ticket <KEY>` from the project
+      root. It re-runs each impl-plan step's VERIFY command, derives that
+      step's touched files from its own commits, writes `build/progress.md`
+      and refreshes the machine-made `## Evidence` rows. Report any `red`,
+      `scope-violation` or `unverified` verdict to the human verbatim. This
+      is a report, not a decision: you still ack in step 6 exactly as
+      before, and `build.verify_steps: false` skips this sub-step entirely.
+      Never run it on a retried dispatch or a parked one — a build that is
+      not finished has nothing to verify. This CLI invocation is a
+      DELIBERATE extra VERIFY execution beyond the one `klc ack`'s own
+      `can_complete_build` call makes internally (which shares one
+      per-ack Verdict cache between its own arms, KLC-114 review round
+      1) — the two calls do not share a cache with each other, so each
+      step's VERIFY runs once here AND once more inside `ack`. This is
+      intentional (Q-001): the operator sees the verdicts BEFORE deciding
+      whether to ack at all, which a cache spanning two separate process
+      invocations cannot offer without persisting the re-run output to
+      disk between them.
 6. **Advance.** On a clean `signal.signal == "done"` with no blocking
    questions: run `klc ack <KEY> --auto`.
    - Non-zero exit (ambiguous pick / gate paused / scope conflict):

@@ -250,10 +250,16 @@ class Ledger:
                 lines.append(f"    reason: {s.reason}")
         lines.append("---")
         lines.append(f"# Build progress — {self.ticket}")
-        lines.append("| step | state | model | ts |")
-        lines.append("|------|-------|-------|----|")
+        lines.append("| step | state | model | ts | reason |")
+        lines.append("|------|-------|-------|----|--------|")
         for s in self.steps:
             model = s.model or ""
             ts = s.ts or ""
-            lines.append(f"| {s.id} | {s.state} | {model} | {ts} |")
+            # KLC-114 review round 1 (LOW, AC-6): a literal `|` in the
+            # reason would otherwise fork the markdown table into extra
+            # columns. The YAML frontmatter above is the authoritative,
+            # unescaped source (Ledger.load never reads this table); this
+            # is purely a rendering fix.
+            reason = (s.reason or "").replace("|", "\\|")
+            lines.append(f"| {s.id} | {s.state} | {model} | {ts} | {reason} |")
         return "\n".join(lines) + "\n"

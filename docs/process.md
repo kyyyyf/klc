@@ -334,6 +334,44 @@ a regenerated table; a `running` step reverts to `pending` on reload (crash
 recovery). Implemented in `build_orchestrator.py` + `build_ledger.py`. The inline
 TDD loop stays the primary interactive workflow; `build-run` is the hands-off path.
 
+**Post-build step ledger pass (KLC-114).** A mechanical second opinion the
+orchestrator computes from git and from re-executed commands, instead of
+trusting the builder's own report — because the build-log entry, the
+Evidence section and the implicit claim "every step was done TDD-style, in
+scope and verified" were previously all written by the same party that did
+the work. One function, `core.skills.step_ledger.verify_build_steps`,
+backs all three call sites: `klc build-run`'s own loop (after it finishes),
+`/klc:run`'s post-build sub-step 5f (`python3 core/skills/step_ledger.py
+--ticket <KEY>`), and `can_complete_build`'s persisting build-ack path. For
+each impl-plan step it re-executes the step's own `VERIFY:` command and
+requires the `Expected:` outcome token in the captured output, derives the
+step's touched files from that step's own commits (`tdd_order.step_commits`)
+compared against its declared `Affected:` surface, and records one of four
+verdicts: `green` (the re-run passed and the token matched), `red` (the
+re-run failed, or a red-before-green ordering violation), `unverified` (no
+verdict could be reached — a budget overrun, a launch error, a placeholder
+`VERIFY:`/`Expected:`, or no commit carrying the step's key — never
+promoted to `red`: absence of evidence is not evidence of failure), and
+`scope-violation` (a commit touched a path outside the declared surface,
+with a `tests` segment and, when the step already declares a `core/agents`
+edit, `klc-plugin/` both waived by policy). It writes `build/progress.md`
+(one verdict + reason per step) and appends machine-made `## Evidence` rows
+into `build-log.md`'s first `## Evidence` section, replacing only its own
+delimited block on re-run and never touching the builder's own entries.
+Report-only for now (Q-004): a `red`/`scope-violation` verdict surfaces as
+a `high`-severity advisory, it does not block the ack. Disable entirely
+with `build.verify_steps: false`; `build.per_step_review_on_verify: true`
+additionally dispatches the per-step reviewer (`core/agents/review/per-step.md`,
+under the `per-step-review` role) whenever a step's verdict is non-green.
+Within one `can_complete_build` call, the step-verify arm and this pass
+share ONE per-ack Verdict cache keyed by `(ticket, step_id, command)`, so
+a step's VERIFY executes at most once per ack, not once per arm (KLC-114
+review round 1, HIGH). `/klc:run`'s sub-step 5f is a SEPARATE process
+invocation and does not share that cache with the `ack` call that follows
+it — each step's VERIFY therefore still runs once in 5f and once more
+inside `ack`, by design (Q-001: the operator sees the verdicts before
+deciding whether to ack at all).
+
 **Budget counters** in `meta.json:budgets` (limits in `config/budgets.yml`):
 
 | Counter               | Limit | Bumped when                              |

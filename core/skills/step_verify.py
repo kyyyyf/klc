@@ -161,7 +161,7 @@ def _surface(report: Report, step_id: str, code: str, message: str) -> None:
 
 
 def check_steps(ticket: str, track: str, repo=None, *, run_commands: bool,
-                deadline: float | None = None) -> Report:
+                deadline: float | None = None, cache: dict | None = None) -> Report:
     """Re-execute each impl-plan step's `VERIFY:` command and compare the
     ISOLATED outcome token in `Expected:` against the captured output
     (AC-8). A placeholder or unlaunchable `VERIFY:` is a blocking finding on
@@ -175,6 +175,13 @@ def check_steps(ticket: str, track: str, repo=None, *, run_commands: bool,
     `ac_test_coverage`) — passed down from `can_complete_build` so the total
     ack ceiling is one `verify.arm_budget_seconds`, not one per arm. `None`
     (the default, e.g. a standalone/test call) computes a fresh one.
+
+    *cache* (KLC-114 review round 1, HIGH): an optional per-ack Verdict
+    cache, keyed by `(ticket, step_id, command)`, shared with
+    `step_ledger.judge_step` so the SAME step's SAME VERIFY command
+    executes at most once per `can_complete_build` call rather than once
+    per arm. `None` (the default) disables caching — behaviour for every
+    other caller (a standalone/test call) is unchanged.
     """
     report, mode = Report(track=track), _mode(track)
     if mode == "skip":
@@ -207,7 +214,8 @@ def check_steps(ticket: str, track: str, repo=None, *, run_commands: bool,
                     f"{sid}: unverified: arm-budget-exhausted — the arm budget "
                     f"was spent before this step's VERIFY ran")
             continue
-        v = verify_runner.run(command, budget_s=budget, cwd=str(root))
+        v = verify_runner.run_cached(cache, (ticket, sid, command), command,
+                                     budget_s=budget, cwd=str(root))
         if v.state == verify_runner.UNVERIFIED:
             if v.reason == verify_runner.LAUNCH_ERROR:   # AC-9 "is not runnable" — D-205
                 _block_or_surface(report, mode, sid, "verify-unrunnable", waived,

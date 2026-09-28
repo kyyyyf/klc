@@ -162,6 +162,9 @@ _SETTINGS_SCHEMA = {
     # means a directory prefix; no trailing slash means an exact repo-relative
     # file. Outside `index.` on purpose (KLC-106/KLC-107 own that namespace).
     "scope.infra_paths": ("list", str),
+    # KLC-114: the post-build step ledger pass's two knobs.
+    "build.verify_steps": ("bool", None),
+    "build.per_step_review_on_verify": ("bool", None),
 }
 
 

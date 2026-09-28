@@ -168,13 +168,81 @@ def test_framework_artefact_scan_flags_a_language_name_in_the_planning_slice_sec
     assert "src/app/main.py" in hits
 
 
+def _klc112_last_step_sha() -> str | None:
+    """The SHA of KLC-112's own last `KLC-112 step-N` commit, subject-
+    anchored (`^`) so an unrelated commit merely MENTIONING the ticket never
+    matches. `None` when git itself fails or no such commit is reachable
+    from HEAD (e.g. a shallow clone) — the caller skips rather than fails."""
+    res = subprocess.run(
+        ["git", "-C", str(FW), "rev-list", "-1", "--grep=^KLC-112 step-", "HEAD"],
+        capture_output=True, text=True)
+    sha = res.stdout.strip()
+    if res.returncode != 0 or not sha:
+        return None
+    return sha
+
+
+def _git_blob_size(sha: str, path: str) -> int | None:
+    """`git cat-file -s <sha>:<path>` — the byte size of a COMMITTED blob,
+    read from the repository's object store by SHA. This is git plumbing,
+    not a file read (AC-14's guard forbids reading a file's CONTENT from
+    disk under `.klc/`; a blob size resolved from a fixed historical commit
+    is neither a disk read nor scoped to `.klc/` at all)."""
+    res = subprocess.run(["git", "-C", str(FW), "cat-file", "-s", f"{sha}:{path}"],
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        return None
+    try:
+        return int(res.stdout.strip())
+    except ValueError:
+        return None
+
+
+def _git_plugin_agents_total(sha: str) -> int | None:
+    """The summed byte size of every `klc-plugin/agents/*.md` blob AS OF
+    *sha* — `git ls-tree` lists the committed tree's own entries (never the
+    live working tree), and each entry's size comes from `_git_blob_size`."""
+    res = subprocess.run(
+        ["git", "-C", str(FW), "ls-tree", "--name-only", sha, "klc-plugin/agents/"],
+        capture_output=True, text=True)
+    if res.returncode != 0:
+        return None
+    total = 0
+    for rel in res.stdout.splitlines():
+        rel = rel.strip()
+        if not rel.endswith(".md"):
+            continue
+        size = _git_blob_size(sha, rel)
+        if size is None:
+            return None
+        total += size
+    return total
+
+
 def test_build_log_records_before_after_bytes_and_totals():
     """AC-16: build-log.md records prompt before/after bytes, plugin, paste
-    and dispatch totals."""
+    and dispatch totals — checked against the tree AS OF KLC-112's OWN last
+    step commit (KLC-114 D-114-9: this test originally compared against the
+    LIVE tree via `Path.stat()`, which broke the moment any LATER ticket
+    legitimately changed `discovery.md`/`design.md`/the plugin's byte total
+    — comparing against the committed blob KLC-112 itself recorded is the
+    actually-invariant check, and is what "build-log.md records the real
+    before/after" is supposed to mean). `git rev-list`/`cat-file`/`ls-tree`
+    read committed blob content from the repository's object store by SHA
+    — never a file on disk under `.klc/`, so AC-14's read-only-outside-
+    `.klc/` rule is untouched; this docstring records that reading, per
+    AC-14's own convention of narrating file-vs-non-file access at each
+    exception."""
     text = _read_build_log()          # pytest.skip when absent (clean checkout, D-204)
-    after_disc = DISCOVERY.stat().st_size      # stat, not a file read (AC-14 guard)
-    after_design = DESIGN.stat().st_size
-    plugin_total = sum(f.stat().st_size for f in (FW / "klc-plugin" / "agents").glob("*.md"))
+    sha = _klc112_last_step_sha()
+    if not sha:
+        pytest.skip("KLC-112's own step commit is unreachable from HEAD "
+                    "(shallow clone?) — cannot check the recorded figures")
+    after_disc = _git_blob_size(sha, "core/agents/discovery.md")
+    after_design = _git_blob_size(sha, "core/agents/design.md")
+    plugin_total = _git_plugin_agents_total(sha)
+    if after_disc is None or after_design is None or plugin_total is None:
+        pytest.skip(f"could not read discovery.md/design.md/klc-plugin/agents at {sha}")
     assert re.search(rf"discovery\.md: 21836 -> {after_disc}\b", text)
     assert re.search(rf"design\.md: 19450 -> {after_design}\b", text)
     assert re.search(rf"klc-plugin/agents total: {plugin_total}\b", text)

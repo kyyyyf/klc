@@ -120,6 +120,7 @@ phase_roles:
   review-internal:      coding         # alias of `review` for sub-agents
   review-external:      external
   review-cheap:         coding         # single-agent cheap reviewer (cascade peripheral path)
+  per-step-review:      coding         # KLC-114: the per-step reviewer the ledger pass dispatches
   manual:               coding
   integrate:            local-simple
   observe:              local-simple

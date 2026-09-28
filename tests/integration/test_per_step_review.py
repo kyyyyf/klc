@@ -90,6 +90,22 @@ def ticket_dir(tmp_path):
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _pin_green_verdict(monkeypatch):
+    """KLC-114 D-202/F-2: this suite exercises the per-step REVIEWER hook,
+    not the ledger verdict. Its fake dispatches write a report and never
+    commit, so the real judge would return `unverified: no-commits` for
+    every step and turn these passing tests red. Pin a green verdict here;
+    the verdict logic itself has its own tests (KLC-114)."""
+    import build_orchestrator as _bo
+    import step_ledger as _sl
+    monkeypatch.setattr(_bo, "_judge_step",
+                        lambda ticket, step, repo=None, **kw:
+                            _sl.StepVerdict(f"step-{step}", _sl.GREEN))
+    monkeypatch.setattr(_sl, "verify_build_steps",
+                        lambda *a, **kw: _sl.LedgerReport(a[0] if a else "", []))
+
+
 # ---------------------------------------------------------------------------
 # step-1 tests: coverage decision + severity routing
 # ---------------------------------------------------------------------------

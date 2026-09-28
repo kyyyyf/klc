@@ -6,6 +6,7 @@ tests/prompt_harness.py (offline harness) and core/skills/phase_completion.py
 """
 from __future__ import annotations
 
+import fnmatch
 import re
 import sys
 from pathlib import Path
@@ -37,7 +38,16 @@ def _red_not_applicable(body: str) -> bool:
     m = _RED_LINE_RE.search(body)
     return bool(m and "not applicable" in m.group(1).lower())
 _CODE_FENCE_RE = re.compile(r"```[a-z]*\n([\s\S]+?)```")
-_ANY_FENCE_RE = re.compile(r"```[^\n]*\n[\s\S]*?```")
+# KLC-114 review round 1 (MEDIUM, AC-13): both the opening AND closing ```
+# must sit at the START of a line (optional leading indentation) — the old
+# pattern had no line-anchor, so a literal ``` occurring MID-LINE inside a
+# one-line field value (e.g. `VERIFY: `sh -c "echo '```' && echo 2
+# passed"`) paired up with the step's OWN real code-sketch fence further
+# down the body, and `.sub("", body)` erased every field in between
+# (Expected, Affected, Interfaces, Rollback, Depends on, COMMIT — all
+# silently emptied). A markdown fence is a LINE-level construct; this
+# regex now only ever matches a genuine one.
+_ANY_FENCE_RE = re.compile(r"^[ \t]*```[^\n]*\n[\s\S]*?^[ \t]*```[ \t]*$", re.MULTILINE)
 
 
 def _has_code_sketch(body: str) -> bool:
@@ -128,22 +138,63 @@ _STEP_BOUNDARY_FRAGMENTS = [_step_field_fragment(n) for n in _STEP_FIELD_NAMES] 
 _STEP_NEXT = "|".join(_STEP_BOUNDARY_FRAGMENTS)
 
 
+# KLC-114 F-1: a trailing annotation parenthetical (`(new)`, `(modified)`, …)
+# is a NOTE about the path, not part of it. Revision-1 of the step-ledger scope
+# rule stripped it only OUTSIDE the backtick-captured group, so every `(new)`
+# written INSIDE backticks (the common real spelling, `` `core/skills/x.py
+# (new)` ``) survived into the allow-list and read as scope drift.
+_ANNOTATION_RE = re.compile(
+    r"\s*\((?:new|deleted|removed|regenerated|modified|renamed)[^)]*\)\s*$", re.I)
+
+
+def _strip_annotation(entry: str) -> str:
+    """Strip a trailing annotation parenthetical and surrounding punctuation
+    from one `Affected:` entry, whether it arrived backtick-wrapped or not."""
+    return _ANNOTATION_RE.sub("", entry.strip().strip("`").strip()).strip().rstrip(",.").strip()
+
+
 def _split_paths(value: str) -> list[str]:
     """Split an `Affected:` field value into individual paths. Tolerates a
     backtick-wrapped list (`` `a.py`, `b.py` (new) ``, any punctuation
     between entries) and a plain comma-separated list with a trailing
-    period (the real spelling `core/skills/x.py, tests/test_x.py.`)."""
+    period (the real spelling `core/skills/x.py, tests/test_x.py.`). An
+    annotation parenthetical is stripped identically whether it sits inside
+    or outside the backtick-captured group (KLC-114 F-1)."""
     if not value:
         return []
     backticked = re.findall(r"`([^`]+)`", value)
     if backticked:
-        return [p.strip() for p in backticked if p.strip()]
+        return [p for p in (_strip_annotation(b) for b in backticked) if p]
     paths = []
     for part in value.rstrip(".").split(","):
-        part = re.sub(r"\([^)]*\)", "", part).strip()
+        part = _strip_annotation(part)
         if part:
             paths.append(part)
     return paths
+
+
+def affected_allows(path: str, entries: list[str]) -> bool:
+    """True when *path* is covered by one declared `Affected:` entry
+    (KLC-114 AC-2). Notation only — the `tests`/`klc-plugin` POLICY widenings
+    live in `step_ledger._out_of_scope`, not here.
+
+    An entry matches *path* when it is: an exact match; a glob pattern
+    (contains `*`, `?` or `[`) that `fnmatch`-matches *path*; a directory
+    prefix (ends with `/`) that *path* starts with; or a bare basename (no
+    `/`) that *path* ends with, on a path boundary."""
+    for raw in entries:
+        d = _strip_annotation(raw)
+        if not d:
+            continue
+        if path == d:
+            return True
+        if any(ch in d for ch in "*?[") and fnmatch.fnmatch(path, d):
+            return True
+        if d.endswith("/") and path.startswith(d):
+            return True
+        if "/" not in d and path.endswith("/" + d):
+            return True
+    return False
 
 
 def extract_step_fields(body: str) -> dict:

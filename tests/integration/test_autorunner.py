@@ -134,6 +134,24 @@ def _make_green_dispatch(td: Path, calls: list):
     return fake
 
 
+@pytest.fixture(autouse=True)
+def _pin_green_verdict(monkeypatch):
+    """KLC-114 D-202/F-2: this suite exercises the AUTONOMOUS RUNNER's
+    lifecycle/guardrail plumbing, not the ledger verdict — its fixture
+    tickets carry no real git commits, so both `build_orchestrator.run_build`
+    (via `_judge_step`) and `can_complete_build` (via
+    `step_ledger.verify_build_steps`) would otherwise report
+    `unverified: no-commits` for every step they touch. Pin a green, no-op
+    ledger pass here; the verdict logic itself has its own tests (KLC-114)."""
+    import build_orchestrator as _bo
+    import step_ledger as _sl
+    monkeypatch.setattr(_bo, "_judge_step",
+                        lambda ticket, step, repo=None, **kw:
+                            _sl.StepVerdict(f"step-{step}", _sl.GREEN))
+    monkeypatch.setattr(_sl, "verify_build_steps",
+                        lambda *a, **kw: _sl.LedgerReport(a[0] if a else "", []))
+
+
 # ===========================================================================
 # step-1: guardrail predicate (AC-4)
 # ===========================================================================

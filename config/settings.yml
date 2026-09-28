@@ -77,3 +77,14 @@
 # no trailing slash is an exact repo-relative file. No legacy file.
 # scope:
 #   infra_paths: [".klc/", "hooks/", ".github/", ".gitlab/", "README.md"]
+
+# Post-build step ledger pass (KLC-114): a mechanical second opinion the
+# orchestrator computes from git and from re-executed VERIFY commands,
+# instead of trusting the builder's own report. No legacy file.
+# build:
+#   verify_steps: true                 # re-run every step's VERIFY and derive
+#                               # scope/TDD-order from git at build ack.
+#                               # false restores today's ack byte-for-byte.
+#   per_step_review_on_verify: false   # dispatch the per-step reviewer when a
+#                               # step's ledger verdict is non-green. Costs a
+#                               # model call, so it opts in.

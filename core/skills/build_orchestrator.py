@@ -26,8 +26,20 @@ from models import load_models  # noqa: E402
 from task_brief import build_step_brief  # noqa: E402
 from per_step_review import should_review, route_findings  # noqa: E402
 import runner  # noqa: E402
+import settings  # noqa: E402
+import step_ledger as _step_ledger  # noqa: E402
 
 PER_STEP_REREVIEW_CAP = 2
+
+# D-202: a module-level seam so a test can pin a verdict without faking git
+# history, and so `run_build`'s own `judge_step=` override has a real default
+# to fall back to.
+_judge_step = _step_ledger.judge_step
+
+
+def _per_step_prompt() -> Path:
+    from _paths import framework_root
+    return framework_root() / "core" / "agents" / "review" / "per-step.md"
 
 
 def _brief_path(ticket: str, step_num: int) -> Path:
@@ -45,11 +57,24 @@ def _fix_brief_path(ticket: str, step_num: int) -> Path:
     return klc_ticket_dir(ticket) / "build" / f"step-{step_num}-fix-brief.md"
 
 
-def _run_reviewer(ticket: str, step_num: int, dispatch) -> list:
-    """Dispatch the per-step reviewer and return a list of Finding objects."""
+def _run_reviewer(ticket: str, step_num: int, dispatch, *, track: str | None = None) -> list:
+    """Dispatch the per-step reviewer — AS THE ROLE PROMPT it actually is
+    (`core/agents/review/per-step.md`), with the composed review package as
+    a labelled input, under the explicit `per-step-review` role (AC-9).
+
+    D-203: kept as a 3-positional-argument call from `_per_step_gate`
+    (unchanged) plus a keyword-only `track`, so the existing monkeypatched
+    3-arg stubs keep working; when the caller doesn't supply `track`, it is
+    resolved here from the ticket's own meta."""
     from per_step_review import compose_review_input
     import json as _json
     from findings import Finding
+
+    if track is None:
+        try:
+            track = read_meta(ticket).get("track")
+        except Exception:
+            track = None
 
     review_input = compose_review_input(ticket, step_num)
     review_input_path = _brief_path(ticket, step_num).parent / f"step-{step_num}-review-input.md"
@@ -57,7 +82,8 @@ def _run_reviewer(ticket: str, step_num: int, dispatch) -> list:
     review_input_path.write_text(review_input, encoding="utf-8")
 
     review_output_path = _brief_path(ticket, step_num).parent / f"step-{step_num}-findings.json"
-    rc = dispatch("per-step-review", review_input_path, review_output_path)
+    rc = dispatch("per-step-review", _per_step_prompt(), review_output_path,
+                  inputs={"step package": review_input_path}, track=track)
     if rc != 0:
         # Dispatch error → synthetic CRITICAL (fail-closed)
         from findings import Finding
@@ -116,10 +142,22 @@ def _per_step_gate(ticket: str, step_num: int, meta: dict, dispatch,
     return False
 
 
-def run_build(ticket: str, *, dispatch=None) -> int:
+def _finish(ticket: str, rc: int, verify_on: bool) -> int:
+    """D-205: EVERY exit path runs the whole-build ledger pass once, so
+    `klc build-run`'s final `progress.md` goes through the SAME function
+    `can_complete_build` and a future CLI/`/klc:run` sub-step use — which is
+    what makes AC-1's byte-identity real."""
+    if verify_on:
+        _step_ledger.verify_build_steps(ticket, None, write=True)
+    return rc
+
+
+def run_build(ticket: str, *, dispatch=None, judge_step=None) -> int:
     """Dispatch each pending impl-plan step to a fresh subagent."""
     if dispatch is None:
         dispatch = runner.run_agent
+    judge = judge_step or _judge_step
+    verify_on = settings.build_verify_steps()
 
     led = Ledger.load(ticket) or Ledger.from_plan(ticket)
     meta = read_meta(ticket)
@@ -144,17 +182,29 @@ def run_build(ticket: str, *, dispatch=None) -> int:
 
         rc = dispatch("build", brief_path, _report_path(ticket, n), track=track)
 
-        if rc == 0:
-            led.mark(step_id, "green", model=resolved.model)
-            led.save()
-            # Per-step review gate (M/L always; S only with risk_tags; XS never)
-            if not _per_step_gate(ticket, n, meta, dispatch):
-                led.mark(step_id, "blocked", reason="per-step review: blocking findings not resolved")
-                led.save()
-                return 1
-        else:
+        if rc != 0:
             led.mark(step_id, "blocked", reason=f"dispatch rc={rc}")
             led.save()
-            return rc
+            return _finish(ticket, rc, verify_on)
 
-    return 0
+        # KLC-114 AC-8: a step is green only on the LEDGER PASS's verdict for
+        # it — never on `dispatch` returning 0 alone. `verify_on=False`
+        # (build.verify_steps: false) restores today's ack byte-for-byte.
+        verdict = judge(ticket, n) if verify_on else None
+        state = verdict.state if verdict else "green"
+        led.mark(step_id, state, model=resolved.model,
+                reason=(verdict.reason or None) if verdict else None)
+        led.save()
+
+        if state != "green":
+            if settings.build_per_step_review_on_verify():
+                _run_reviewer(ticket, n, dispatch)
+            return _finish(ticket, 1, verify_on)
+
+        # Per-step review gate (M/L always; S only with risk_tags; XS never)
+        if not _per_step_gate(ticket, n, meta, dispatch):
+            led.mark(step_id, "blocked", reason="per-step review: blocking findings not resolved")
+            led.save()
+            return _finish(ticket, 1, verify_on)
+
+    return _finish(ticket, 0, verify_on)

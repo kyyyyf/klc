@@ -49,8 +49,8 @@ which steps are pending and dispatches each to a fresh subprocess.
 `running` state on load → `pending` (crash recovery); blocked steps
 are retried on resume.
 
-For interactive builds, continue using the inline TDD loop below.
-Use `klc build-run` for pipeline/hands-off dispatch.
+Interactive builds use the inline TDD loop; `klc build-run` is the
+hands-off path. Both are re-verified from git.
 
 ## Progress log
 

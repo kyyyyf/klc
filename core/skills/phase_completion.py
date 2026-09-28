@@ -762,6 +762,12 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
     share ONE `verify.arm_budget_seconds` deadline (`_verify_deadline`,
     computed once here) instead of each independently computing its own —
     so the total ack ceiling really is one arm budget, not up to three.
+
+    KLC-114 review round 1 (HIGH; AC-1/AC-11/C-005): the step-verify arm and
+    the step-ledger pass below ALSO share one per-ack Verdict cache
+    (`_verify_cache`, keyed by `(ticket, step_id, command)`) so a step's
+    VERIFY command executes at most ONCE per `can_complete_build` call —
+    not once per arm.
     """
     import re as _re
     import time as _time
@@ -769,6 +775,7 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
     import settings as _settings
 
     _verify_deadline = _time.monotonic() + _settings.verify_arm_budget()
+    _verify_cache: dict = {}
 
     ticket_dir = klc_ticket_meta_file(ticket).parent
     build_log_path = ticket_dir / "build-log.md"
@@ -866,7 +873,7 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
     try:
         import step_verify as _sv
         _srep = _sv.check_steps(ticket, track, repo, run_commands=persist,
-                                deadline=_verify_deadline)
+                                deadline=_verify_deadline, cache=_verify_cache)
         if _srep.block_reason:
             return False, f"step-verify: {_srep.block_reason}"
         _stepverify_records = _sv.advisory_records(_srep)
@@ -877,8 +884,28 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
                                             f"{type(e).__name__} (verification unverified)"),
                                 "ref": ""}]
 
+    # KLC-114: the post-build step ledger pass — a mechanical second opinion
+    # computed from git and from re-executed VERIFY commands, run inside this
+    # SAME shared `_verify_deadline` (C-005). Persisting-path only (D-007: the
+    # read-only probe must not spawn a re-run); `build.verify_steps: false`
+    # skips it entirely. Report-only (Q-004): a `red`/`scope-violation`
+    # verdict never blocks here, only surfaces as an advisory.
+    _ledger_records: list[dict] = []
+    if persist and _settings.build_verify_steps():
+        try:
+            import step_ledger as _sl
+            _lrep = _sl.verify_build_steps(ticket, repo, write=True, deadline=_verify_deadline,
+                                           cache=_verify_cache)
+            _ledger_records = _sl.advisory_records(_lrep)
+        except Exception as e:
+            _ledger_records = [{"source": "ledger", "severity": "medium",
+                                "code": "ledger.degraded",
+                                "message": (f"step-ledger: pass did not run — "
+                                            f"{type(e).__name__} (per-step verdicts unverified)"),
+                                "ref": ""}]
+
     _sources = [("ac-coverage", _acov_records), ("verify", _evidence_records),
-               ("verify", _stepverify_records)]
+               ("verify", _stepverify_records), ("ledger", _ledger_records)]
     _records, _summary = _adv.finish(ticket, "build", _sources, persist)
     return True, _summary
 

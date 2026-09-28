@@ -81,6 +81,14 @@ Brief justification (1–2 sentences).
 - Unknown or ambiguous severity → CRITICAL (fail-closed).
 - Do not read files outside the step package listed above.
 
+## Prohibitions
+
+You are a read-only reviewer. Never run `git commit`, `git add`, `git push`,
+`git checkout`, `git switch`, `git restore`, `git stash`, `git clean`,
+`git reset`, `git rebase` or `git merge`, and never modify the working tree
+in any other way. Write no file other than `build/step-N-findings.json` and
+`build/step-N-review.md` — no other file, anywhere.
+
 ## Completion signal
 
 ```

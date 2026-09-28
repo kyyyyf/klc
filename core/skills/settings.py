@@ -245,6 +245,21 @@ def index_coverage_language_share_threshold():
     return resolve("index.coverage.language_share_threshold")
 
 
+def build_verify_steps() -> bool:
+    """KLC-114 AC-11: on/off knob for the post-build step ledger pass.
+    Settings-only ladder (no legacy file — this knob is new, KLC-106
+    precedent). Defaults to true: the pass is report-producing, not
+    ack-blocking, so a default-on pass cannot break an existing flow."""
+    return bool(resolve("build.verify_steps", default=True))
+
+
+def build_per_step_review_on_verify() -> bool:
+    """KLC-114 AC-11: dispatches the per-step reviewer when the ledger pass
+    records a step non-green. Settings-only ladder, defaults to false — it
+    costs a model call, so it opts in rather than opts out."""
+    return bool(resolve("build.per_step_review_on_verify", default=False))
+
+
 def autorun_cap():
     """Autonomous-runner consecutive-auto-transition cap, or None if unset.
 

@@ -166,3 +166,21 @@ def run(command, *, budget_s, cwd=None, env=None, max_output=MAX_OUTPUT) -> Verd
     out = (out or "")[:max_output]
     state = PASSED if proc.returncode == 0 else FAILED
     return Verdict(state, "", "", time.monotonic() - started, out, proc.returncode)
+
+
+def run_cached(cache, key, command, *, budget_s, cwd=None, env=None,
+               max_output=MAX_OUTPUT) -> Verdict:
+    """KLC-114 step-12 (review round 1, HIGH; AC-1/AC-11/C-005): identical to
+    `run`, except a shared *cache* dict is consulted first under *key* — a
+    per-ack Verdict cache lets two independent verification arms
+    (`step_verify.check_steps`, `step_ledger.judge_step`) that both need the
+    SAME step's SAME command executed at most once per `can_complete_build`
+    call, rather than once per arm. `cache=None` (the default for every
+    caller that does not opt in) disables caching entirely and behaves
+    EXACTLY like `run` — additive, backward compatible."""
+    if cache is not None and key in cache:
+        return cache[key]
+    v = run(command, budget_s=budget_s, cwd=cwd, env=env, max_output=max_output)
+    if cache is not None:
+        cache[key] = v
+    return v
