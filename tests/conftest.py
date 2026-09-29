@@ -2,12 +2,135 @@
 import importlib
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 _SHARED_PATH = str(Path(__file__).resolve().parent.parent / "core" / "shared")
 _SKILLS_PATH = str(Path(__file__).resolve().parent.parent / "core" / "skills")
+_LIVE_GUARD_PATH = str(Path(__file__).resolve().parent / "shared" / "live_guard")
+_TESTS_SHARED_PATH = str(Path(__file__).resolve().parent / "shared")
+
+
+def pytest_configure(config):
+    """KLC-136: register the live-`.klc`-write guard, unless an inner
+    session already loaded it via `-p klc_live_guard_plugin` (the shim
+    installed its core already; the plugin only needs registering once per
+    process) or a run explicitly blocked it (`-p no:klc_live_guard_plugin` —
+    the close-out's guard-overhead measurement uses exactly this)."""
+    name = "klc_live_guard_plugin"
+    if config.pluginmanager.is_blocked(name) or config.pluginmanager.has_plugin(name):
+        return
+    if _LIVE_GUARD_PATH not in sys.path:
+        sys.path.insert(0, _LIVE_GUARD_PATH)
+    import klc_live_guard_plugin
+    config.pluginmanager.register(klc_live_guard_plugin, name=name)
+
+
+@pytest.fixture(scope="session")
+def fresh_index(tmp_path_factory):
+    """KLC-136 AC-1/AC-2: a `.klc/index/` built ONCE per session from the
+    current tree's tracked files, into a tmp mirror (D-216) — never read
+    from the live `.klc/index/`. Session-scoped because the build itself
+    takes a few seconds; every consumer treats the returned directory as
+    read-only for the rest of the session."""
+    for _p in (_TESTS_SHARED_PATH, _SKILLS_PATH):
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+    import fresh_index as fresh_index_mod
+    import _paths
+    mirror_dir = tmp_path_factory.mktemp("fresh_index_mirror")
+    return fresh_index_mod.build_fresh_index(_paths.framework_root(), mirror_dir)
+
+
+@pytest.fixture
+def live_index_state(request, tmp_path, monkeypatch, fresh_index):
+    """KLC-136: points `PROJECT_ROOT` at a per-test stand-in project whose
+    `.klc/index/` is `absent`, `stale` or `current` (`request.param`,
+    indirect) — a copy derived from the session's `fresh_index`, never from
+    the live one."""
+    for _p in (_TESTS_SHARED_PATH,):
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+    import fresh_index as fresh_index_mod
+    state = request.param
+    stand_in = tmp_path / "live-stand-in"
+    fresh_index_mod.make_live_index_state(stand_in, state, fresh_index)
+    monkeypatch.setenv("PROJECT_ROOT", str(stand_in))
+    return stand_in
+
+
+@pytest.fixture
+def hermetic_project_root(request, tmp_path, monkeypatch):
+    """KLC-136 AC-3: points `PROJECT_ROOT` at an EMPTY per-test tmp project
+    — the group (b) implicit readers need no fixtures, just the guarantee
+    that nothing resolves to a live or stand-in index. When the test ALSO
+    uses `live_index_state`, that fixture is instantiated first (so its
+    stand-in exists) and then overridden here, so the stand-in is built but
+    never the effective `PROJECT_ROOT`."""
+    if "live_index_state" in request.fixturenames:
+        request.getfixturevalue("live_index_state")
+    project = tmp_path / "hermetic-project"
+    project.mkdir()
+    monkeypatch.setenv("PROJECT_ROOT", str(project))
+    return project
+
+
+@pytest.fixture
+def no_index_reads(request, monkeypatch):
+    """KLC-136: a read tracker over the stand-in's `.klc/index` (when
+    `live_index_state` is active) and over `framework_root()/.klc/index`, in
+    process and in Python subprocesses (`KLC_LIVE_GUARD_READ_ROOTS`/
+    `KLC_LIVE_GUARD_READ_LOG`, `PYTHONPATH` prepended with the guard dir so a
+    subprocess's `sitecustomize` picks the tracker up too). Returns a
+    callable that lists the reads recorded so far FOR THE CURRENT TEST. When
+    a read log is already configured (the AC-3 inner audit session), it
+    reuses that log and ADDS its roots rather than replacing them."""
+    if _LIVE_GUARD_PATH not in sys.path:
+        sys.path.insert(0, _LIVE_GUARD_PATH)
+    if _SKILLS_PATH not in sys.path:
+        sys.path.insert(0, _SKILLS_PATH)
+    import klc_live_guard as klg
+    import _paths
+
+    roots = [str(_paths.framework_root() / ".klc" / "index")]
+    if "live_index_state" in request.fixturenames:
+        stand_in = request.getfixturevalue("live_index_state")
+        roots.append(str(Path(stand_in) / ".klc" / "index"))
+
+    existing_log = os.environ.get("KLC_LIVE_GUARD_READ_LOG")
+    if existing_log:
+        log_path = existing_log
+        existing_roots = [r for r in
+                          os.environ.get("KLC_LIVE_GUARD_READ_ROOTS", "").split(os.pathsep)
+                          if r]
+        combined = existing_roots + [r for r in roots if r not in existing_roots]
+    else:
+        log_path = tempfile.mktemp(prefix="klc_no_index_reads_", suffix=".jsonl")
+        combined = list(roots)
+    monkeypatch.setenv("KLC_LIVE_GUARD_READ_LOG", log_path)
+    monkeypatch.setenv("KLC_LIVE_GUARD_READ_ROOTS", os.pathsep.join(combined))
+    existing_pp = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
+    if _LIVE_GUARD_PATH not in existing_pp:
+        monkeypatch.setenv("PYTHONPATH", os.pathsep.join([_LIVE_GUARD_PATH] + existing_pp))
+
+    tracker = klg.track_reads(roots, log_path)
+    test_id = klg.current_test_id()
+    norm_roots = tuple(os.path.realpath(r) + os.sep for r in roots)
+
+    def _reads():
+        out = []
+        for rec in klg.read_records(log_path):
+            if rec.get("test") != test_id:
+                continue
+            p = rec.get("path", "")
+            if any((p + os.sep).startswith(nr) for nr in norm_roots):
+                out.append(rec)
+        return out
+
+    yield _reads
+    klg.deactivate(tracker)
 
 
 @pytest.fixture(autouse=True)

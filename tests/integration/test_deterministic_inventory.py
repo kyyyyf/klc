@@ -9,10 +9,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SKILLS = Path(__file__).resolve().parent.parent.parent / "core" / "skills"
 sys.path.insert(0, str(SKILLS))
 
 import deterministic_inventory as di  # noqa: E402
+
+# KLC-136 AC-3 (F-012 group (b)): every test in this file runs against an
+# EMPTY, per-test PROJECT_ROOT, so `build_inventory`'s implicit
+# `file_universe.resolve(root)` fallback (when `files=` is not passed) never
+# resolves `klc_index_dir()/structural.json` to a live or stand-in index.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
 
 _FROZEN_SYMBOL_FIELDS = {
     "name", "kind", "file", "line", "signature", "visibility",
@@ -133,3 +141,21 @@ def test_main_writes_file_and_top_level_timestamp(tmp_path):
     assert isinstance(data["symbols"], list)
     for s in data["symbols"]:
         assert "generated_at" not in s
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
+    """AC-3: build_inventory's regex-fallback verdict is unaffected by
+    PROJECT_ROOT, and the implicit file_universe.resolve(root) fallback
+    never reads .klc/index/ (the module-wide hermetic_project_root
+    pytestmark redirects PROJECT_ROOT regardless of the live_index_state
+    stand-in)."""
+    root = _fixture(tmp_path)
+    ruleset = di.resolve_ruleset()
+    inv = di.build_inventory(root, ruleset, None)
+
+    assert inv["source_of_truth"].get("python") == "regex"
+    assert any("regex" in e.lower() for e in inv["errors"])
+    names = {s["name"] for s in inv["symbols"]}
+    assert "public_fn" in names and "PublicThing" in names
+    assert no_index_reads() == []

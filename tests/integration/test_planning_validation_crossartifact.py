@@ -3,9 +3,17 @@ module_edges / retrieval consistency). Each new check has a negative test."""
 import sys
 from pathlib import Path
 
+import pytest
+
 _skills = Path(__file__).parent.parent.parent / "core" / "skills"
 sys.path.insert(0, str(_skills))
 import planning_validate as pv  # noqa: E402
+
+# KLC-136 AC-3 (F-012 group (b)): redirect PROJECT_ROOT to an empty per-test
+# project — pv.main()'s --in-depgraph/--in-test-map/--in-symbol-usage
+# defaults (not pinned by test_cli_strict_not_failed_by_degraded_retrieval's
+# own fixture-local overrides) still fall back to klc_index_dir().
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
 
 
 _MODULES = {
@@ -203,3 +211,30 @@ def test_cross_checks_degrade_without_inputs():
     assert r["errors"] or True  # must not raise; cross-checks simply skipped
     assert "eligibility_checked" in r["counts"]
     assert r["counts"]["eligibility_checked"] is False
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
+    """AC-3: --strict is not failed by degraded retrieval whatever the live
+    index holds, and the check never reads it (including the
+    --in-depgraph/--in-test-map/--in-symbol-usage defaults this file's own
+    fixture-local overrides do not pin)."""
+    import json as _json
+    mp = tmp_path / "modules.json"
+    mp.write_text(_json.dumps(_MODULES), encoding="utf-8")
+    inv = tmp_path / "inventory.json"
+    inv.write_text(_json.dumps({"symbols": [
+        {"name": "h", "kind": "function", "file": "core/intake/x.py", "line": 1,
+         "signature": "def h(", "visibility": "public", "source_of_truth": "ast_grep",
+         "lang": "python", "rule": "py-public-api"}]}), encoding="utf-8")
+    tr = tmp_path / "trace.json"
+    tr.write_text(_json.dumps({"primary_modules": [{"module_name": "intake"}],
+                               "files_to_read_first": ["config/app.yml"]}),
+                  encoding="utf-8")
+    rc = pv.main(["--in-modules", str(mp), "--in-inventory", str(inv),
+                  "--in-retrieval", str(tr),
+                  "--in-file-roles", str(tmp_path / "nope.json"),
+                  "--in-module-edges", str(tmp_path / "nope2.json"),
+                  "--in-structural", str(tmp_path / "nope-structural.json"), "--strict"])
+    assert rc == 0
+    assert no_index_reads() == []

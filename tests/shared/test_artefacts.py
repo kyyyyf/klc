@@ -74,27 +74,31 @@ def test_write_with_frontmatter_special_chars():
         Path(path).unlink()
 
 
-def test_acquire_lock_success():
-    """Test acquiring lock on ticket."""
+def test_acquire_lock_success(monkeypatch, tmp_path):
+    """AC-4: the lock dir lands under tmp_path, never under a guarded root."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket_id = f"TEST-{os.getpid()}"
 
     with artefacts.acquire_lock(ticket_id):
         # Verify lock file exists
         lock_path = artefacts._lock_path(ticket_id)
         assert lock_path.exists()
+        assert tmp_path in lock_path.parents
 
     # Verify lock released
     assert not lock_path.exists()
 
 
-def test_acquire_lock_blocks_concurrent():
-    """Test that second process cannot acquire same lock."""
+def test_acquire_lock_blocks_concurrent(monkeypatch, tmp_path):
+    """AC-4: the lock dir lands under tmp_path, never under a guarded root."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket_id = f"TEST-{os.getpid()}-concurrent"
 
     with artefacts.acquire_lock(ticket_id):
         # Try to acquire again (should fail)
         # Simulate different PID by manually creating lock
         lock_path = artefacts._lock_path(ticket_id)
+        assert tmp_path in lock_path.parents
         original_content = lock_path.read_text()
 
         # Write fake lock with different PID
@@ -118,12 +122,14 @@ def test_acquire_lock_blocks_concurrent():
         lock_path.unlink()
 
 
-def test_acquire_lock_reclaims_stale():
-    """Test that stale locks (dead PID) are reclaimed."""
+def test_acquire_lock_reclaims_stale(monkeypatch, tmp_path):
+    """AC-4: the lock dir lands under tmp_path, never under a guarded root."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket_id = f"TEST-{os.getpid()}-stale"
 
     # Create stale lock (fake PID)
     lock_path = artefacts._lock_path(ticket_id)
+    assert tmp_path in lock_path.parents
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     import json

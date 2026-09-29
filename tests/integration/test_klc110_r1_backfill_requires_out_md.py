@@ -20,6 +20,16 @@ import retrieval_eval as _reval  # noqa: E402
 
 _pe = _reval.load_planning_eval()
 
+# KLC-136 AC-2 (F-012 group (a)): every test in this file runs against an
+# EMPTY, per-test `PROJECT_ROOT` — `planning-eval` never needs a real index
+# for either the backfill-argparse check or the corpus-report path, so
+# redirecting unconditionally is both hermetic and, by construction,
+# verdict-unchanged whatever a stand-in `live_index_state` claims to hold
+# (see `test_backfill_check_verdict_unchanged_by_live_index_state` below,
+# whose `live_index_state` param is instantiated first and then overridden
+# by this same `hermetic_project_root`, per that fixture's own contract).
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
+
 
 def test_backfill_without_out_md_is_an_argparse_error(tmp_path, capsys):
     tickets_root = tmp_path / "tickets"
@@ -50,3 +60,17 @@ def test_non_backfill_mode_does_not_require_out_md(tmp_path):
     tickets_root.mkdir()
     rc = _pe.main(["--tickets", str(tickets_root), "--out", "-"])
     assert rc == 0
+
+
+@pytest.mark.parametrize("live_index_state", ["absent", "stale", "current"], indirect=True)
+def test_backfill_check_verdict_unchanged_by_live_index_state(
+        live_index_state, no_index_reads, tmp_path):
+    """AC-2: the corpus-report call returns the same code whatever the live
+    index holds, and never reads it — the module-wide `hermetic_project_root`
+    pytestmark redirects `PROJECT_ROOT` to an empty project regardless of
+    what `live_index_state`'s stand-in contains."""
+    tickets_root = tmp_path / "tickets"
+    tickets_root.mkdir()
+    rc = _pe.main(["--tickets", str(tickets_root), "--out", "-"])
+    assert rc == 0
+    assert no_index_reads() == []

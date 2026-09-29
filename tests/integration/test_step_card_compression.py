@@ -21,22 +21,33 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 FW_ROOT = Path(__file__).resolve().parent.parent.parent
 # core/skills must come before core/shared — both have artefacts.py,
 # core/skills version has write_step_card.
 sys.path.insert(0, str(FW_ROOT / "core" / "shared"))
 sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 
-# PROJECT_ROOT must be set before importing artefacts (it resolves paths at
-# import time via core.shared.paths). Use a stable temp location.
-import tempfile as _tmpmod
-_GLOBAL_SCRATCH = Path(_tmpmod.mkdtemp(prefix="klc-test-"))
-os.environ.setdefault("PROJECT_ROOT", str(_GLOBAL_SCRATCH))
-
 IMPL_MD = FW_ROOT / "core" / "agents" / "impl.md"
 IMPL_MD_SIZE = IMPL_MD.stat().st_size if IMPL_MD.exists() else 0
 
-import artefacts  # noqa: E402 — must import after PROJECT_ROOT is set
+import artefacts  # noqa: E402 — core.shared.paths resolves PROJECT_ROOT
+# lazily per call, not at import time (verified), so this import needs no
+# PROJECT_ROOT default ahead of it
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _default_project_root_for_module():
+    """KLC-136 step-8: a module-scoped, properly-undone replacement for a
+    bare `os.environ.setdefault("PROJECT_ROOT", ...)`, which leaked into
+    every later test for the rest of the pytest process (see
+    test_jira_core.py's fixture of the same name for the full story)."""
+    mp = pytest.MonkeyPatch()
+    if "PROJECT_ROOT" not in os.environ:
+        mp.setenv("PROJECT_ROOT", str(tempfile.mkdtemp(prefix="klc-test-")))
+    yield
+    mp.undo()
 
 
 def _make_ticket_env(scratch: Path, ticket: str) -> dict:

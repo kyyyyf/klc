@@ -2,9 +2,16 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 _skills = Path(__file__).parent.parent.parent / "core" / "skills"
 sys.path.insert(0, str(_skills))
 import planning_validate as pv  # noqa: E402
+
+# KLC-136 AC-3 (F-012 group (b)): redirect PROJECT_ROOT to an empty per-test
+# project — pv.main()'s OTHER `--in-*` defaults all fall back to
+# klc_index_dir() when not passed explicitly.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
 
 
 GOOD = {
@@ -77,3 +84,16 @@ def test_cli_strict_exits_1_on_warnings(tmp_path):
         {"modules": [{"name": "empty"}]}), encoding="utf-8")
     assert pv.main(["--in-modules", str(mp)]) == 0            # non-strict: exit 0
     assert pv.main(["--in-modules", str(mp), "--strict"]) == 1  # strict: exit 1
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
+    """AC-3: pv.main()'s strict-mode exit code is unaffected by PROJECT_ROOT,
+    and the check never reads any of its other .klc/index/ defaults."""
+    import json
+    mp = tmp_path / "modules.json"
+    mp.write_text(json.dumps(
+        {"modules": [{"name": "empty"}]}), encoding="utf-8")
+    assert pv.main(["--in-modules", str(mp)]) == 0
+    assert pv.main(["--in-modules", str(mp), "--strict"]) == 1
+    assert no_index_reads() == []

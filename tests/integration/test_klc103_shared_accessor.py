@@ -18,6 +18,13 @@ from core.shared.inventory import InventorySchemaError, load, symbols
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SKILLS = REPO_ROOT / "core" / "skills"
 
+# KLC-136 AC-3 (F-012 group (b)): planning_validate.py's OTHER `--in-*`
+# defaults (file_roles/module_edges/structural/depgraph/test_map/
+# symbol_usage) all fall back to klc_index_dir() when not passed explicitly
+# — redirect PROJECT_ROOT to an empty per-test project so none of them ever
+# resolves to a live or stand-in index.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
+
 # AC-6's seven named consumers. Filenames as they live on disk (public-api-filter.py
 # and planning-retriever.py use dashes, not underscores — not importable as plain
 # modules, so the static-scan test below reads them as text rather than importing).
@@ -227,3 +234,26 @@ def test_planning_retriever_degrades_on_present_but_corrupt_inventory(tmp_path):
     bad_inv.write_text("{not valid json", encoding="utf-8")
     data = pr._load_inventory(bad_inv)
     assert data == {}
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
+    """AC-3: planning_validate.py's degrade-not-fail verdict on a
+    present-but-corrupt --in-inventory is unaffected by PROJECT_ROOT, and
+    the check never reads any of its other .klc/index/ defaults."""
+    sys.path.insert(0, str(SKILLS))
+    import importlib
+    if "planning_validate" in sys.modules:
+        importlib.reload(sys.modules["planning_validate"])
+    import planning_validate as pv  # noqa: E402
+
+    modules_path = tmp_path / "modules.json"
+    modules_path.write_text(json.dumps({"modules": []}), encoding="utf-8")
+    bad_inv = tmp_path / "inventory.json"
+    bad_inv.write_text("{not valid json", encoding="utf-8")
+    out_path = tmp_path / "report.json"
+
+    rc = pv.main(["--in-modules", str(modules_path),
+                 "--in-inventory", str(bad_inv), "--out", str(out_path)])
+    assert rc == 0
+    assert no_index_reads() == []

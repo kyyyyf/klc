@@ -91,6 +91,10 @@ def create_test_workspace(base_path: Path) -> Path:
 
 
 def _run_script(workspace: Path, output_file: Path, timeout: int = 90) -> subprocess.CompletedProcess:
+    """KLC-136 AC-2: `PROJECT_ROOT=str(workspace)` so `callgraph_cpp.py`'s
+    `--in-inventory` default (`klc_index_dir() / "inventory.json"`) never
+    resolves to the live or a stand-in index."""
+    env = {**os.environ, "PROJECT_ROOT": str(workspace)}
     return subprocess.run(
         [
             sys.executable,
@@ -103,6 +107,7 @@ def _run_script(workspace: Path, output_file: Path, timeout: int = 90) -> subpro
         text=True,
         timeout=timeout,
         cwd=str(_ROOT),
+        env=env,
     )
 
 
@@ -348,6 +353,15 @@ def test_find_references_scope():
 
 
 def _run_query(workspace: Path, query: str, symbol: str, timeout: int = 90) -> subprocess.CompletedProcess:
+    """[!DECISION D-217] owner=impl-agent date=2026-09-29 refs=step-5: the
+    step-5 build-log's read-audited full-file run (`KLC_LIVE_GUARD_READ_LOG`)
+    found 2 residual reads of the live `.klc/index/structural.json`, from
+    `test_query_references_repo_wide`/`test_query_workspace_symbol` — the
+    only two tests in this file that go through `_run_query` rather than
+    `_run_script` (which already carries the AC-2 `env=` fix). Same-file,
+    same fix, extended here for genuine AC-2 compliance across the whole
+    file, not a new AC or a new file."""
+    env = {**os.environ, "PROJECT_ROOT": str(workspace)}
     return subprocess.run(
         [
             sys.executable, str(CALLGRAPH_CPP_SCRIPT),
@@ -356,7 +370,7 @@ def _run_query(workspace: Path, query: str, symbol: str, timeout: int = 90) -> s
             "--query", query,
             "--symbol", symbol,
         ],
-        capture_output=True, text=True, timeout=timeout, cwd=str(_ROOT),
+        capture_output=True, text=True, timeout=timeout, cwd=str(_ROOT), env=env,
     )
 
 
@@ -414,6 +428,7 @@ def test_missing_clangd_error():
         env["CLANGD"] = "/nonexistent/clangd"
         env.pop("PATH", None)
         env["PATH"] = "/nonexistent"
+        env["PROJECT_ROOT"] = str(workspace)
 
         result = subprocess.run(
             [
@@ -437,6 +452,7 @@ def test_missing_compdb_error():
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir)
         output_file = workspace / "callgraph.json"
+        env = {**os.environ, "PROJECT_ROOT": str(workspace)}
 
         result = subprocess.run(
             [
@@ -449,6 +465,7 @@ def test_missing_compdb_error():
             capture_output=True,
             text=True,
             timeout=15,
+            env=env,
         )
         assert result.returncode != 0, "should exit non-zero when compdb missing"
         assert "compile_commands" in result.stderr or "compdb" in result.stderr.lower(), (
@@ -476,15 +493,33 @@ def test_indexing_is_prompt():
         )
 
 
-def test_schema_compat():
-    """AC-6: output schema byte-compatible with python.json / rust.json."""
-    python_json = _ROOT / ".klc/index/callgraph/python.json"
-    if not python_json.exists():
-        pytest.skip("python.json not found — run on a project that has been indexed")
+_CALLGRAPH_PYTHON_SCRIPT = _ROOT / "core/skills/callgraph_python.py"
 
-    with open(python_json) as f:
-        ref = json.load(f)
 
+def _schema_compat_reference(tmp_path: Path) -> tuple[Path, dict]:
+    """KLC-136 AC-2 (impl-plan-review F-2): the reference `python.json` BOTH
+    `test_schema_compat` and the three-state test below assert against,
+    built fresh into `tmp_path` from a one-file Python fixture — never read
+    from `.klc/index/callgraph/python.json`. Run with `PROJECT_ROOT` = its
+    own tmp dir so `callgraph_python.py`'s `--in-inventory` default never
+    resolves to a live or stand-in index either."""
+    fixture_root = tmp_path / "pyfixture"
+    fixture_root.mkdir()
+    (fixture_root / "mod.py").write_text(
+        "def a():\n    return b()\n\n\ndef b():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "callgraph_python_ref" / "python.json"
+    out_path.parent.mkdir(parents=True)
+    env = {**os.environ, "PROJECT_ROOT": str(tmp_path)}
+    r = subprocess.run(
+        [sys.executable, str(_CALLGRAPH_PYTHON_SCRIPT),
+         "--root", str(fixture_root), "--out", str(out_path)],
+        capture_output=True, text=True, timeout=30, cwd=str(_ROOT), env=env,
+    )
+    assert r.returncode == 0, r.stderr
+    return out_path, json.loads(out_path.read_text(encoding="utf-8"))
+
+
+def _assert_schema_compat(ref: dict) -> None:
     assert "symbols" in ref
     # Pick any symbol and verify field set
     sample = next(iter(ref["symbols"].values()))
@@ -492,3 +527,42 @@ def test_schema_compat():
     assert required_fields.issubset(sample.keys()), (
         f"reference schema missing fields: {required_fields - set(sample.keys())}"
     )
+
+
+def test_schema_compat(tmp_path):
+    """AC-6/AC-2: output schema byte-compatible with python.json / rust.json
+    — built fresh into `tmp_path`, never read from
+    `.klc/index/callgraph/python.json` (no longer skips on an unindexed
+    checkout, impl-plan-review F-2)."""
+    _ref_path, ref = _schema_compat_reference(tmp_path)
+    _assert_schema_compat(ref)
+
+
+@pytest.mark.parametrize("live_index_state", ["absent", "stale", "current"], indirect=True)
+def test_callgraph_verdict_derived_from_tmp_built_structural_json(
+        live_index_state, no_index_reads, tmp_path):
+    """AC-2: the schema-compat verdict is derived from a tmp-built
+    reference, never `.klc/index/callgraph/python.json`, so it is identical
+    whatever the live index holds, and the check never reads it."""
+    ref_path, ref = _schema_compat_reference(tmp_path)
+    _assert_schema_compat(ref)
+    assert ".klc" not in ref_path.parts
+    assert no_index_reads() == []
+
+
+def test_run_script_redirects_project_root_to_workspace(tmp_path, monkeypatch):
+    """AC-2: `_run_script` passes `env=` with `PROJECT_ROOT` pointed at the
+    workspace, so `callgraph_cpp.py`'s `--in-inventory` default never
+    resolves to a live or stand-in index."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    captured: dict = {}
+
+    def _fake_run(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    _run_script(workspace, workspace / "callgraph.json")
+    assert captured["env"] is not None
+    assert captured["env"].get("PROJECT_ROOT") == str(workspace)

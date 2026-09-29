@@ -26,6 +26,11 @@ import deterministic_inventory as di  # noqa: E402
 import callgraph_rust_async as cg_rust  # noqa: E402
 import callgraph_cpp as cg_cpp  # noqa: E402
 
+# KLC-136 AC-3 (F-012 group (b)): redirect PROJECT_ROOT to an empty per-test
+# project — the ast-grep inventory path's implicit universe resolution must
+# never consult a live or stand-in .klc/index/.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
+
 
 def _git(cwd: Path, *args: str) -> str:
     r = subprocess.run(
@@ -212,3 +217,31 @@ def test_cpp_callgraph_excludes_pollution(tmp_path):
     assert [f for f in tu_rel if f not in universe] == []
     assert not any("polluted" in f for f in tu_rel)
     assert "src/main.cpp" in tu_rel
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
+    """AC-3: the ast-grep inventory's exclusion of untracked pollution is
+    unaffected by PROJECT_ROOT, and the check never reads a live or
+    stand-in .klc/index/."""
+    root = tmp_path / "proj"
+    (root / "pkg").mkdir(parents=True)
+    _init_git_repo(root)
+    (root / "pkg" / "mod.py").write_text(
+        "def public_fn(a, b):\n    return a + b\n", encoding="utf-8")
+    _commit_all(root, "seed tracked production file")
+
+    pollution_dir = root / "untracked_scratch_copy" / "pkg"
+    pollution_dir.mkdir(parents=True)
+    (pollution_dir / "polluted_mod.py").write_text(
+        "def klc105_untracked_pollution_marker():\n    return 0\n", encoding="utf-8")
+
+    ruleset = di.resolve_ruleset()
+    astgrep = _astgrep_or_skip()
+    inv = di.build_inventory(root, ruleset, astgrep)
+    names = {s["name"] for s in inv["symbols"]}
+    files = {s["file"] for s in inv["symbols"]}
+    assert "public_fn" in names
+    assert "klc105_untracked_pollution_marker" not in names
+    assert not any(f.startswith("untracked_scratch_copy/") for f in files)
+    assert no_index_reads() == []

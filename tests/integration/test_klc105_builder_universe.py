@@ -27,6 +27,11 @@ import callgraph_python  # noqa: E402
 import callgraph_cpp as cg_cpp  # noqa: E402
 import callgraph_rust_async as cg_rust  # noqa: E402
 
+# KLC-136 AC-3 (F-012 group (b)): redirect PROJECT_ROOT to an empty per-test
+# project — build_inventory's implicit file_universe.resolve(root) fallback
+# (files=None) must never consult a live or stand-in .klc/index/.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
+
 
 def _git(cwd: Path, *args: str) -> str:
     r = subprocess.run(
@@ -259,3 +264,19 @@ def test_all_builders_consume_shared_resolver(tmp_path):
     rust_files = cg_rust.collect_rust_files(root)
     rust_rel = [str(f.relative_to(root)).replace("\\", "/") for f in rust_files]
     assert not any(f.startswith(_MARKER_PATH_PREFIX) for f in rust_rel)
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
+    """AC-3: the regex-fallback half of
+    test_builder_does_not_walk_independently_of_missing_structural — the
+    pollution marker stays absent, and the check never reads a live or
+    stand-in .klc/index/."""
+    root = _polluted_fixture(tmp_path)
+    ruleset = di.resolve_ruleset()
+    inv_rx = di.build_inventory(root, ruleset, None)
+    names_rx = {s["name"] for s in inv_rx["symbols"]}
+    files_rx = {s["file"] for s in inv_rx["symbols"]}
+    assert "klc105_pollution_marker_fn" not in names_rx
+    assert not any(f.startswith(".claude/") for f in files_rx)
+    assert no_index_reads() == []

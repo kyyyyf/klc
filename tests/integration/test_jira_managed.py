@@ -18,7 +18,20 @@ sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 sys.path.insert(0, str(FW_ROOT / "core" / "shared"))
 sys.path.insert(0, str(FW_ROOT / "core" / "phases"))
 
-os.environ.setdefault("PROJECT_ROOT", str(tempfile.mkdtemp(prefix="klc-jira-managed-")))
+import pytest
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _default_project_root_for_module():
+    """KLC-136 step-8: a module-scoped, properly-undone replacement for a
+    bare `os.environ.setdefault("PROJECT_ROOT", ...)`, which leaked into
+    every later test for the rest of the pytest process (see
+    test_jira_core.py's fixture of the same name for the full story)."""
+    mp = pytest.MonkeyPatch()
+    if "PROJECT_ROOT" not in os.environ:
+        mp.setenv("PROJECT_ROOT", str(tempfile.mkdtemp(prefix="klc-jira-managed-")))
+    yield
+    mp.undo()
 
 
 def _make_cfg_dir(tmp: Path, mode: str = "managed",

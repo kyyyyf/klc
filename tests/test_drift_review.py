@@ -13,6 +13,11 @@ for _p in (str(_FW_ROOT), str(_FW_ROOT / "core" / "skills")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# KLC-136 AC-3 (F-012 group (b), read-side — distinct from step-1's AC-5
+# write-side fix in this same file): redirect PROJECT_ROOT to an empty
+# per-test project for every test in this file.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
+
 
 # ------------------------------------------------ step-1: descriptor + thin consume
 
@@ -108,9 +113,10 @@ def test_integrate_surfaces_drift_review_decisions(monkeypatch, tmp_path):
               for r in envelope["records"])
 
 
-def test_records_findings_only_on_persist(monkeypatch):
-    """AC-5: persist threads through to the seam (records only on the persisting ack)."""
+def test_records_findings_only_on_persist(monkeypatch, tmp_path):
+    """AC-5: persist threads through, and every write stays under tmp_path."""
     import phase_completion as pc
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     seen = []
     monkeypatch.setattr(pc._lc, "read_meta_ro", lambda t: {"track": "M", "risk_tags": []})
     monkeypatch.setattr(pc, "_drift_advisories", lambda t, p, **_kw: [])
@@ -120,3 +126,20 @@ def test_records_findings_only_on_persist(monkeypatch):
     pc._can_complete_generic("KLC-X", "integrate", persist=False)
     pc._can_complete_generic("KLC-X", "integrate", persist=True)
     assert seen == [False, True]
+    assert (tmp_path / ".klc/tickets/KLC-X/integrate/ack-advisories.json").exists()
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, monkeypatch):
+    """AC-3: the persist=False call of test_records_findings_only_on_persist,
+    repeated under a stand-in live index — never reads it."""
+    import phase_completion as pc
+    seen = []
+    monkeypatch.setattr(pc._lc, "read_meta_ro", lambda t: {"track": "M", "risk_tags": []})
+    monkeypatch.setattr(pc, "_drift_advisories", lambda t, p, **_kw: [])
+    monkeypatch.setattr(
+        pc._drift_review, "consume_records",
+        lambda td, track, sig=None, persist=True: (seen.append(persist) or ([], [])))
+    pc._can_complete_generic("KLC-X", "integrate", persist=False)
+    assert seen == [False]
+    assert no_index_reads() == []

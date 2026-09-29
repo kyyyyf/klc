@@ -9,39 +9,51 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SKILLS = REPO_ROOT / "core" / "skills"
 sys.path.insert(0, str(SKILLS))
 
 import file_roles as fr  # noqa: E402
 
-INDEX = REPO_ROOT / ".klc" / "index"
 
-
-def _load_live_views():
-    import pytest
-    for name in ("inventory.json", "modules.json", "structural.json"):
-        if not (INDEX / name).exists():
-            pytest.skip(f"no .klc/index/{name} — run the index builders first")
-    inv = json.loads((INDEX / "inventory.json").read_text(encoding="utf-8"))
-    modules = json.loads((INDEX / "modules.json").read_text(encoding="utf-8"))
-    structural = json.loads((INDEX / "structural.json").read_text(encoding="utf-8"))
-    return inv, modules, structural
+def _views(index_dir: Path, *names) -> dict:
+    """AC-2: every view this file needs, loaded from `fresh_index`'s
+    directory rather than `.klc/index/`."""
+    return {n: json.loads((index_dir / n).read_text(encoding="utf-8")) for n in names}
 
 
 # --------------------------------------------------------------------------- #
 # AC-6 — real substrate: plugin_gen.py's own name survives the cap
 # --------------------------------------------------------------------------- #
-def test_plugin_gen_keywords_include_plugin_and_gen():
+def test_plugin_gen_keywords_include_plugin_and_gen(fresh_index):
     """`core/skills/plugin_gen.py` carries neither `plugin` nor `gen` under
     today's alphabetical 8-token cap (spec FACT). Basename tokens are never
     dropped under the salience cap (AC-7), so both survive regardless of
     the rest of the repository's token frequencies."""
-    inv, modules, structural = _load_live_views()
-    result = fr.build_file_roles(inv, modules, structural)
+    data = _views(fresh_index, "inventory.json", "modules.json", "structural.json")
+    result = fr.build_file_roles(data["inventory.json"], data["modules.json"],
+                                 data["structural.json"])
     rec = result["files"].get("core/skills/plugin_gen.py")
     assert rec is not None, "core/skills/plugin_gen.py missing from the file universe"
     assert {"plugin", "gen"} <= set(rec["keywords"]), rec["keywords"]
+
+
+@pytest.mark.parametrize("live_index_state", ["absent", "stale", "current"], indirect=True)
+def test_keywords_salience_verdict_unchanged_by_live_index_state(
+        live_index_state, no_index_reads, fresh_index):
+    """AC-2: `plugin_gen.py`'s keywords survive the cap whatever the live
+    `.klc/index/` holds, and the check never reads it — the salience answer
+    comes from `fresh_index`, built from the current tree, regardless of
+    `PROJECT_ROOT`."""
+    data = _views(fresh_index, "inventory.json", "modules.json", "structural.json")
+    result = fr.build_file_roles(data["inventory.json"], data["modules.json"],
+                                 data["structural.json"])
+    rec = result["files"].get("core/skills/plugin_gen.py")
+    assert rec is not None
+    assert {"plugin", "gen"} <= set(rec["keywords"]), rec["keywords"]
+    assert no_index_reads() == []
 
 
 def test_keywords_include_first_docstring_line_tokens():

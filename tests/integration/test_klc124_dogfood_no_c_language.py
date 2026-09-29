@@ -104,9 +104,12 @@ def _check_live_index_or_skip(structural_path: Path, inventory_path: Path,
             "file_scanner.scan() already agrees with the hermetic test "
             "above (no 'c') — rebuild the live index to clear this soft "
             "skip, see review round-2 MEDIUM #1 / D-3")
-    assert not any(e.get("builder") == "inventory:c"
-                   for e in live_inventory.get("errors", [])), \
-        "inventory.json still carries a 'c' language verdict — rebuild the index"
+    # KLC-136 D-209: a soft live-index check (F-012 group (a), Q-003) can
+    # only skip, never fail — the hermetic test above is the source of
+    # truth for this AC either way.
+    if any(e.get("builder") == "inventory:c" for e in live_inventory.get("errors", [])):
+        pytest.skip("live inventory.json still carries a 'c' language verdict; "
+                    "the hermetic test above is the source of truth (KLC-136 D-209)")
 
 
 def test_predates_fix_detects_stale_c_language_but_not_other_disagreements():
@@ -143,11 +146,14 @@ def test_check_live_index_skips_when_live_index_is_stale(tmp_path):
         _check_live_index_or_skip(structural_p, inventory_p, fresh_languages)
 
 
-def test_check_live_index_fails_when_c_persists_and_is_not_stale(tmp_path):
-    """A live index that still carries an `inventory:c` verdict AND agrees
-    with a fresh scan under the current code (i.e. `c` genuinely still
-    exists as a language on this repo) is a real regression, not staleness
-    — the soft check must still fail, not silently skip."""
+def test_check_live_index_skips_when_c_persists_and_is_not_stale(tmp_path):
+    """KLC-136 D-209: a live index that still carries an `inventory:c`
+    verdict AND agrees with a fresh scan under the current code (i.e. `c`
+    genuinely still exists as a language on this repo) is a real
+    regression — but a soft live-index check (F-012 group (a), Q-003) can
+    only skip, never fail, so this now skips too (the hermetic
+    `test_repo_scan_reports_no_c_language`/`test_candidate_languages_of_live_h_fixtures_is_cpp_not_c`
+    above are the ones that would actually catch a genuine regression)."""
     structural_p = tmp_path / "structural.json"
     inventory_p = tmp_path / "inventory.json"
     structural_p.write_text(json.dumps({"languages": {
@@ -157,8 +163,23 @@ def test_check_live_index_fails_when_c_persists_and_is_not_stale(tmp_path):
          "observed": 0, "universe": 3, "ratio": 0.0, "degraded": True}]}),
         encoding="utf-8")
     fresh_languages = {"c": {"files": 3, "lines": 30}}  # current code STILL says c
-    with pytest.raises(AssertionError):
+    with pytest.raises(pytest.skip.Exception):
         _check_live_index_or_skip(structural_p, inventory_p, fresh_languages)
+
+
+@pytest.mark.parametrize("live_index_state", ["absent", "stale", "current"], indirect=True)
+def test_soft_live_index_check_only_skips_never_fails(live_index_state):
+    """AC-2 (F-012 group (a), KLC-124 precedent F-019/Q-003, D-209): the
+    soft check against a stand-in `.klc/index/` can only skip or return
+    normally, never raise `AssertionError`, whatever state the stand-in
+    holds (absent, stale, or current)."""
+    idx = live_index_state / ".klc" / "index"
+    fresh_languages = _fresh_repo_scan()["languages"]
+    try:
+        _check_live_index_or_skip(idx / "structural.json", idx / "inventory.json",
+                                  fresh_languages)
+    except pytest.skip.Exception:
+        pass
 
 
 def test_live_index_sanity_no_stale_c_verdict_or_skip():

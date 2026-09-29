@@ -21,6 +21,12 @@ for _p in (str(_FW_ROOT), str(_FW_ROOT / "core" / "skills")):
 import phase_completion as pc  # noqa: E402
 import advisories as _adv_mod  # noqa: E402  (KLC-117)
 
+# KLC-136 AC-3 (F-012 group (b)): redirect PROJECT_ROOT to an empty per-test
+# project — one function already redirected it manually
+# (test_integrate_appends_drift_advisory); this extends the same guarantee
+# to the rest of the file.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
+
 
 # ----------------------------------------------- step-1: dedicated integrate branch
 
@@ -252,3 +258,14 @@ def test_committed_runs_git_from_project_root(monkeypatch):
     monkeypatch.setattr(pc, "_git", lambda args, repo=None: (seen.append(repo), "")[1])
     pc._committed()
     assert seen and all(r is not None for r in seen)
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, monkeypatch):
+    """AC-3: the degrade-on-unavailable-drift_check verdict is unaffected
+    by PROJECT_ROOT, and the check never reads a live or stand-in
+    .klc/index/."""
+    monkeypatch.setattr(pc._drift, "compare", lambda t: (_ for _ in ()).throw(AttributeError("gone")))
+    records = pc._drift_advisories("KLC-X", False)
+    assert records and "skipped" in records[0]["message"].lower()
+    assert no_index_reads() == []

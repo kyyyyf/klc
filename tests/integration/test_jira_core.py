@@ -12,11 +12,33 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 FW_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 sys.path.insert(0, str(FW_ROOT / "core" / "shared"))
 
-os.environ.setdefault("PROJECT_ROOT", str(tempfile.mkdtemp(prefix="klc-jira-test-")))
+
+@pytest.fixture(autouse=True, scope="module")
+def _default_project_root_for_module():
+    """KLC-136 step-8: this used to be a bare module-level
+    `os.environ.setdefault("PROJECT_ROOT", ...)`, which — unlike a
+    `monkeypatch.setenv` — is never undone: once this module is collected,
+    the scratch default leaks into every later test in the SAME pytest
+    process, for the rest of the session (confirmed via the AC-9
+    PROJECT_ROOT-unset full-suite run: this exact
+    `klc-jira-test-<x>` value corrupted
+    `test_klc136_guard.py::test_guard_watches_all_three_roots`'s
+    session-start `project_root()` reading). A module-scoped
+    `pytest.MonkeyPatch()` gives every test in this module the same
+    scratch default (only when PROJECT_ROOT is not already set — the same
+    `setdefault` semantics as before) but undoes it once this module's own
+    tests are done, so no later module ever sees it."""
+    mp = pytest.MonkeyPatch()
+    if "PROJECT_ROOT" not in os.environ:
+        mp.setenv("PROJECT_ROOT", str(tempfile.mkdtemp(prefix="klc-jira-test-")))
+    yield
+    mp.undo()
 
 
 # ---------------------------------------------------------------------------

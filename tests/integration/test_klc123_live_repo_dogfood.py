@@ -1,10 +1,12 @@
 """KLC-123 step-3 — the dogfood regression (AC-8).
 
-Proves, against THIS repository's own real `.klc/index/*.json` artifacts
-(unmodified), that a query whose top-module separation and edit-slice hit
-already clear the KLC-108 `high` bar is no longer forced to `low` by the
-unrelated, minority `c`-language degradation (`.h` fixtures classified as
-`c`, universe 2 / 0 files with symbols) that raw.md's live symptom reports.
+Proves, against a FRESH build of this repository's own `.klc/index/*.json`
+artifacts (KLC-136 AC-2: from the current tree via the `fresh_index`
+fixture, never `.klc/index/` itself), that a query whose top-module
+separation and edit-slice hit already clear the KLC-108 `high` bar is no
+longer forced to `low` by the unrelated, minority `c`-language degradation
+(`.h` fixtures classified as `c`, universe 2 / 0 files with symbols) that
+raw.md's live symptom reports.
 
 Confirmed live on 2026-09-19 (pre-fix, discovery-lite phase): the query
 literally proposed in the impl-plan's code sketch
@@ -47,23 +49,28 @@ minority with no bearing on the all-Python candidate slice that query's
 > today's real, honestly-measured live values. See build-log.md's step-3
 > entry for the full command transcript.
 
-Skips (never fails) when the checkout has no built `.klc/index/` — the test
-is a permanent regression pin, not a build-time hard requirement.
+KLC-136: this file no longer skips on a checkout with no built `.klc/index/`
+— it builds its OWN fresh index from the current tree (`fresh_index`), so it
+is a permanent regression pin against the repository's CODE, not against
+whatever a previous `klc` verb run happened to leave in `.klc/index/`.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
-import os
 from pathlib import Path
 
 import pytest
 
 _FW_ROOT = Path(__file__).resolve().parents[2]
 _SKILL = _FW_ROOT / "core" / "skills" / "planning-retriever.py"
-_IDX = Path(os.environ.get("PROJECT_ROOT", _FW_ROOT)) / ".klc" / "index"
 _FILES = ("modules.json", "file_roles.json", "module_edges.json",
           "test_map.json", "inventory.json")
+
+_QUERY_SUBSTITUTED = ("artifact_degraded threshold_for universe_for verdict "
+                      "index_health hook_mode")
+_QUERY_LITERAL = ("index_coverage verdict threshold_for universe_for "
+                  "artifact_degraded degraded_inputs")
 
 
 def _load_skill():
@@ -74,12 +81,14 @@ def _load_skill():
     return mod
 
 
-def _read(name):
-    path = _IDX / name
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+def _views(index_dir: Path) -> dict:
+    """AC-2: every view this file needs, loaded from `fresh_index`'s
+    directory."""
+    return {name: json.loads((index_dir / name).read_text(encoding="utf-8"))
+           for name in _FILES}
 
 
-def test_python_only_query_reaches_high_confidence_on_live_index():
+def test_python_only_query_reaches_high_confidence_on_live_index(fresh_index):
     """[!DECISION D-124-1] owner=impl-agent date=2026-09-20 refs=KLC-124-step-6
 
     test-plan.md's own "Regression scenarios" section for KLC-124 anticipated
@@ -87,28 +96,24 @@ def test_python_only_query_reaches_high_confidence_on_live_index():
     for a in trace["coverage_advisories"])`) is EXPECTED TO CHANGE MEANING
     once 'c' no longer exists as a language on this repo ... the KLC-123 test
     itself is a build-time regression check for whoever lands this ticket."
-    KLC-124 fixed `EXT_LANG["h"]` from `c` to `cpp`, so this repo's live
-    index (rebuilt via the direct builders, see KLC-124's build-log.md
-    step-6) no longer has a `c` language at all — `coverage_advisories` can
+    KLC-124 fixed `EXT_LANG["h"]` from `c` to `cpp`, so this repo's fresh
+    index no longer has a `c` language at all — `coverage_advisories` can
     never again honestly name it. The remaining repo-minority languages with
     no rule-set coverage are `csharp` and `ruby` (each ~0.4% share, verified
     live post-rebuild), so the assertion now checks for one of THOSE — same
     invariant (an honest, non-capping advisory for a genuinely-uncovered
     minority language), different language, because the language that used
     to be the uncovered one no longer exists."""
-    data = {name: _read(name) for name in _FILES}
-    if any(v is None for v in data.values()):
-        pytest.skip("no built .klc/index/ on this checkout")
+    data = _views(fresh_index)
     pr = _load_skill()
     # See D-123-2 above: the original discovery-measured query no longer
-    # reaches "high" on today's live index because of a same-day, unrelated
+    # reaches "high" on today's index because of a same-day, unrelated
     # sibling-ticket fixture addition — this query preserves every invariant
     # AC-8 actually cares about while avoiding that incidental collision.
-    query = ("artifact_degraded threshold_for universe_for verdict "
-             "index_health hook_mode")
     trace = pr.build_trace(
-        query, "deterministic", data["modules.json"], data["file_roles.json"],
-        data["module_edges.json"], data["test_map.json"], data["inventory.json"])
+        _QUERY_SUBSTITUTED, "deterministic", data["modules.json"],
+        data["file_roles.json"], data["module_edges.json"],
+        data["test_map.json"], data["inventory.json"])
     assert "inventory.json" not in trace["degraded_inputs"], trace["degraded_inputs"]
     assert trace["confidence"] == "high", trace
     assert trace["files_likely_to_edit"], trace
@@ -119,7 +124,7 @@ def test_python_only_query_reaches_high_confidence_on_live_index():
         trace["coverage_advisories"]
 
 
-def test_original_ac8_literal_query_reaches_high_confidence_on_live_index():
+def test_original_ac8_literal_query_reaches_high_confidence_on_live_index(fresh_index):
     """AC-8, [!DECISION D-123-3] owner=impl-agent date=2026-09-20 refs=step-5.
 
     Supersedes D-123-2's rationale for why the SPEC'S OWN LITERAL query
@@ -135,9 +140,9 @@ def test_original_ac8_literal_query_reaches_high_confidence_on_live_index():
     `tests/fixtures/rules/coverage/`) and never eligible_as_primary, so they
     never reach either presented slice — their languages (c, cpp, rust) no
     longer enter `candidate_languages` at all, and the literal query now
-    reaches `confidence: high` on today's live index, same as D-123-2's
-    substituted query. Confirmed live 2026-09-20 (see build-log.md's step-5
-    entry for the full command transcript):
+    reaches `confidence: high`, same as D-123-2's substituted query. Confirmed
+    live 2026-09-20 (see build-log.md's step-5 entry for the full command
+    transcript):
         confidence: high
         degraded_inputs: []
         files_likely_to_edit: ['core/skills/index_coverage.py',
@@ -150,16 +155,27 @@ def test_original_ac8_literal_query_reaches_high_confidence_on_live_index():
     spec's own literal AC-8 text as a passing assertion so a reader of
     spec.md alone no longer sees a claim with no matching test.
     """
-    data = {name: _read(name) for name in _FILES}
-    if any(v is None for v in data.values()):
-        pytest.skip("no built .klc/index/ on this checkout")
+    data = _views(fresh_index)
     pr = _load_skill()
-    query = ("index_coverage verdict threshold_for universe_for "
-             "artifact_degraded degraded_inputs")
     trace = pr.build_trace(
-        query, "deterministic", data["modules.json"], data["file_roles.json"],
-        data["module_edges.json"], data["test_map.json"], data["inventory.json"])
+        _QUERY_LITERAL, "deterministic", data["modules.json"],
+        data["file_roles.json"], data["module_edges.json"],
+        data["test_map.json"], data["inventory.json"])
     assert "inventory.json" not in trace["degraded_inputs"], trace["degraded_inputs"]
     assert trace["confidence"] == "high", trace
     assert trace["files_likely_to_edit"], trace
     assert all(f.endswith(".py") for f in trace["files_likely_to_edit"]), trace
+
+
+@pytest.mark.parametrize("live_index_state", ["absent", "stale", "current"], indirect=True)
+def test_dogfood_verdict_unchanged_by_live_index_state(live_index_state, no_index_reads, fresh_index):
+    """AC-2: both KLC-123 queries reach `high` from the fresh index, whatever
+    the live index holds, and the check never reads it."""
+    data = _views(fresh_index)
+    pr = _load_skill()
+    for query in (_QUERY_SUBSTITUTED, _QUERY_LITERAL):
+        trace = pr.build_trace(query, "deterministic", data["modules.json"],
+                               data["file_roles.json"], data["module_edges.json"],
+                               data["test_map.json"], data["inventory.json"])
+        assert trace["confidence"] == "high", trace
+    assert no_index_reads() == []

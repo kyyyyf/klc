@@ -22,15 +22,28 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 FW_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(FW_ROOT / "core" / "shared"))
 sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 
-import tempfile as _tmpmod
-_GLOBAL_SCRATCH = Path(_tmpmod.mkdtemp(prefix="klc-t113-test-"))
-os.environ.setdefault("PROJECT_ROOT", str(_GLOBAL_SCRATCH))
+import artefacts  # noqa: E402 — core.shared.paths resolves PROJECT_ROOT
+# lazily per call, not at import time (verified), so this import needs no
+# PROJECT_ROOT default ahead of it
 
-import artefacts  # noqa: E402
+
+@pytest.fixture(autouse=True, scope="module")
+def _default_project_root_for_module():
+    """KLC-136 step-8: a module-scoped, properly-undone replacement for a
+    bare `os.environ.setdefault("PROJECT_ROOT", ...)`, which leaked into
+    every later test for the rest of the pytest process (see
+    test_jira_core.py's fixture of the same name for the full story)."""
+    mp = pytest.MonkeyPatch()
+    if "PROJECT_ROOT" not in os.environ:
+        mp.setenv("PROJECT_ROOT", str(tempfile.mkdtemp(prefix="klc-t113-test-")))
+    yield
+    mp.undo()
 
 
 _DASH_PLAN = """\

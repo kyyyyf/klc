@@ -10,6 +10,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SKILLS = REPO_ROOT / "core" / "skills"
 sys.path.insert(0, str(SKILLS))
@@ -17,6 +19,12 @@ sys.path.insert(0, str(SKILLS))
 import deterministic_inventory as di  # noqa: E402
 
 from core.shared.inventory import SYMBOL_FIELDS  # noqa: E402
+
+# KLC-136 AC-3 (F-012 group (b)): redirect PROJECT_ROOT to an empty per-test
+# project for every test in this file — one function already redirected it
+# manually (test_inventory_hash_baseline_regenerated_for_new_schema); this
+# extends the same guarantee to the rest of the file uniformly.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
 
 
 def _fixture(tmp_path: Path) -> Path:
@@ -138,3 +146,18 @@ def test_no_producer_writes_an_alternate_inventory_shape():
             if marker in text:
                 offenders.append((str(p.relative_to(REPO_ROOT)), marker))
     assert not offenders, f"alternate inventory.json shape(s) found: {offenders}"
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
+    """AC-3: the regex-fallback schema verdict is unaffected by PROJECT_ROOT,
+    and the check never reads .klc/index/."""
+    root = _fixture(tmp_path)
+    ruleset = di.resolve_ruleset()
+    inv = di.build_inventory(root, ruleset, None)
+    assert isinstance(inv["symbols"], list)
+    assert any("regex" in e.lower() for e in inv["errors"])
+    for s in inv["symbols"]:
+        assert s["source_of_truth"] == "regex"
+        assert set(s) == set(SYMBOL_FIELDS)
+    assert no_index_reads() == []

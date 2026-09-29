@@ -9,12 +9,20 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 _repo_root = Path(__file__).resolve().parents[2]
 _skills = _repo_root / "core" / "skills"
 sys.path.insert(0, str(_skills))
 import file_scanner  # noqa: E402
 import file_universe  # noqa: E402
 import callgraph_python  # noqa: E402
+
+# KLC-136 AC-3 (F-012 group (b)): redirect PROJECT_ROOT to an empty per-test
+# project — file_universe.resolve(root) with no `structural=` passed falls
+# back to klc_index_dir()/structural.json, which is PROJECT_ROOT-governed,
+# NOT root-governed; a live or stand-in index must never be consulted.
+pytestmark = pytest.mark.usefixtures("hermetic_project_root")
 
 
 def _no_git_path_env() -> dict:
@@ -90,3 +98,25 @@ def test_empty_universe_degrades_not_crashes(tmp_path):
     )
     assert r.returncode == 0, f"init --scan-only crashed on an empty repo:\n{r.stdout}\n{r.stderr}"
     assert (root / ".klc" / "index" / "structural.json").exists()
+
+
+@pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
+def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
+    """AC-3: file_universe.resolve(root)'s empty-universe degrade verdict is
+    unaffected by PROJECT_ROOT, and the check never reads a live or
+    stand-in .klc/index/ (its implicit structural.json fallback is
+    PROJECT_ROOT-governed, not root-governed)."""
+    root = tmp_path / "empty_repo"
+    root.mkdir()
+    import subprocess
+    subprocess.run(["git", "init", "-q"], cwd=str(root), check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=str(root), check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=str(root), check=True)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=str(root), check=True)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "empty"],
+                   cwd=str(root), check=True)
+
+    resolved = file_universe.resolve(root)
+    assert resolved["files"] == []
+    assert any("empty" in n for n in resolved["notes"])
+    assert no_index_reads() == []
