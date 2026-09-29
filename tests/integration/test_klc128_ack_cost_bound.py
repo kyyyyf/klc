@@ -66,10 +66,12 @@ def test_klc128_integrate_ack_computes_ground_truth_once_across_recursion(tmp_pa
     one live `diff`, one `merge-base` (KLC-128 step-7 D-128-3: the ancestry
     pre-check on the recorded-range leg — an EXPLICIT, named, review-required
     extra call, updating the bound from <= 3 to <= 4) and one recorded-range
-    `diff` (<= 4 total), never one bound PER producer — and the guard's own
-    pre-existing `scope_delta` diff (D-211, out of this bound) issues zero
-    calls too, since the guard shares the already-resolved ground truth
-    instead of falling back to it."""
+    `diff` (<= 4 total), plus one `rev-parse --abbrev-ref HEAD` (KLC-129
+    D-004a: the branch-mismatch check `_resolve_ground_truth` now runs
+    first, updating the bound from <= 4 to <= 5), never one bound PER
+    producer — and the guard's own pre-existing `scope_delta` diff (D-211,
+    out of this bound) issues zero calls too, since the guard shares the
+    already-resolved ground truth instead of falling back to it."""
     ticket = "KLC-934"
     clone, tdir = _merged_ticket_with_range(tmp_path, ticket, track="M", monkeypatch=monkeypatch)
 
@@ -80,9 +82,11 @@ def test_klc128_integrate_ack_computes_ground_truth_once_across_recursion(tmp_pa
 
     merge_base_calls = [c for c in git_log if c[0] == "merge-base"]
     diff_calls = [c for c in git_log if c[0] == "diff"]
+    rev_parse_calls = [c for c in git_log if c[0] == "rev-parse" and c[1] == "--abbrev-ref"]
     assert len(merge_base_calls) <= 2, git_log
     assert len(diff_calls) <= 2, git_log
-    assert len(git_log) <= 4, git_log
+    assert len(rev_parse_calls) <= 1, git_log
+    assert len(git_log) <= 5, git_log
     assert sd_calls == [], "the guard must share the resolved ground truth, not re-derive it"
 
 
@@ -168,7 +172,8 @@ def test_scope_guard_resolves_the_same_file_set_as_drift_and_retrieval(tmp_path,
 def test_s_ticket_with_escalation_signal_computes_ground_truth_once(tmp_path, monkeypatch):
     """An S ticket WITH an escalation signal (a coordination risk tag) runs
     the evaluators and computes the ground truth exactly once across the
-    recursion — same bound as the M case (<= 4, KLC-128 step-7 D-128-3)."""
+    recursion — same bound as the M case (<= 5, KLC-128 step-7 D-128-3 plus
+    KLC-129 D-004a's `rev-parse --abbrev-ref` bump)."""
     ticket = "KLC-937"
     clone, tdir = _merged_ticket_with_range(
         tmp_path, ticket, track="S", monkeypatch=monkeypatch, risk_tags=["coordination"])
@@ -180,9 +185,11 @@ def test_s_ticket_with_escalation_signal_computes_ground_truth_once(tmp_path, mo
 
     merge_base_calls = [c for c in git_log if c[0] == "merge-base"]
     diff_calls = [c for c in git_log if c[0] == "diff"]
+    rev_parse_calls = [c for c in git_log if c[0] == "rev-parse" and c[1] == "--abbrev-ref"]
     assert len(merge_base_calls) <= 2, git_log
     assert len(diff_calls) <= 2, git_log
-    assert len(git_log) <= 4, git_log
+    assert len(rev_parse_calls) <= 1, git_log
+    assert len(git_log) <= 5, git_log
     assert sd_calls == []
 
 

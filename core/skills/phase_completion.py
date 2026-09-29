@@ -946,13 +946,17 @@ def _pre_merge_range_patch(ticket: str, phase_id: str) -> dict | None:
     """KLC-128 D-201/D-202: stage `{base, head, recorded_at_phase,
     recorded_at}` for the pre-merge range, or return None to stage nothing.
 
-    Three git calls at most (merge-base, a `main` fallback only when
+    Up to four git calls (a KLC-129 branch-mismatch `rev-parse
+    --abbrev-ref HEAD`, `merge-base`, a `main` fallback only when
     `origin/main` is absent, and `rev-parse HEAD`), gated first by
     `integrate_evaluators_run` so a track-skipped ack never pays them. Never
-    raises — a git failure or a non-hex result degrades to "stage nothing",
-    never a verdict change."""
+    raises — a git failure, a non-hex result, or `HEAD` sitting on a
+    DIFFERENT ticket's branch (KLC-129 D-002 — see `_head_branch_mismatch`)
+    all degrade to "stage nothing", never a verdict change."""
     if not integrate_evaluators_run(ticket):
         return None
+    if _head_branch_mismatch(ticket) is not None:
+        return None  # KLC-129 D-002: never record another ticket's diff
     repo = _project_repo()
     base = (_git(["merge-base", "HEAD", "origin/main"], repo)
             or _git(["merge-base", "HEAD", "main"], repo))
@@ -1094,6 +1098,54 @@ def _paths_to_modules(paths, cache: dict | None) -> set:
 
 _R_NO_RANGE = "no recorded pre-merge range for this ticket"
 
+def _ticket_prefix_re(ticket: str) -> re.Pattern[str]:
+    """KLC-129 D-005 (review round 1, external MEDIUM #2): build the
+    ticket-key pattern from the ACKED ticket's own project prefix (`KLC` in
+    `KLC-129`), never a hardcoded `KLC-`. `intake.py`'s `DEFAULT_KEY_RE`
+    (`^[A-Z][A-Z0-9]+-\\d+$`) is this project's only other definition of
+    "what a ticket key looks like", and every project this framework is
+    deployed to as a plugin picks its own prefix — a hardcoded `KLC-` made
+    the guard a silent no-op (fail-open, never worse, but never firing
+    either) anywhere else. `\\d+` immediately after the prefix and hyphen,
+    plus `\\b` word boundaries on both ends, keeps `KLC-12` and `KLC-129`
+    distinct (neither is a substring match of the other) — the same
+    numeric-prefix-confusion guarantee the original hardcoded pattern gave,
+    now for whatever prefix `ticket` itself uses."""
+    prefix = ticket.rsplit("-", 1)[0]
+    return re.compile(rf"\b{re.escape(prefix)}-\d+\b", re.IGNORECASE)
+
+
+def _head_branch_mismatch(ticket: str, repo=None) -> str | None:
+    """KLC-129 D-001: `None` when the current branch cannot be tied to a
+    DIFFERENT ticket (proceed exactly as today — fail-open); a reason string
+    when the branch name embeds a ticket key other than *ticket*. Never
+    raises. This is the ONE detector every wired site (the ground-truth
+    resolver, the pre-merge-range recorder, the sentinel scan) shares, so an
+    ack issued while `HEAD` sits on another ticket's branch (raw.md F-001)
+    degrades the same way everywhere instead of silently scoring that
+    ticket's diff as this one's.
+
+    KLC-129 D-006 (review round 1, external MEDIUM #3): when the branch
+    names the ACKED ticket's own key — even alongside another same-prefix
+    key, e.g. a follow-up branch `feature/klc-129-followup-klc-128` — this
+    is the ticket's OWN branch, not a mismatch. Only a branch that names at
+    least one same-prefix key and NOT the ticket's own is a mismatch;
+    checking membership before discarding (rather than discarding the
+    ticket's own hit and testing what is left) is what makes "own key
+    present" win even when other keys are also present."""
+    try:
+        if repo is None:
+            repo = _project_repo()
+        branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], repo)
+    except Exception:
+        return None
+    if not branch or branch == "HEAD":
+        return None
+    hits = {m.upper() for m in _ticket_prefix_re(ticket).findall(branch)}
+    if not hits or ticket.upper() in hits:
+        return None
+    return f"HEAD is on {branch!r}, which names {sorted(hits)}, not {ticket}"
+
 
 def _gt(mods, paths, source, reason) -> dict:
     return {"modules": set(mods), "paths": set(paths), "source": source, "reason": reason}
@@ -1137,14 +1189,23 @@ def _is_ancestor(base: str, head: str, repo) -> bool:
 def _resolve_ground_truth(ticket: str, cache: dict) -> dict:
     """KLC-128 D-203: the ONE ground-truth derivation at the integrate ack —
     live, then recorded, then none. Never raises, and never falls back to a
-    key-grep/reflog derivation (AC-8)."""
+    key-grep/reflog derivation (AC-8).
+
+    KLC-129 D-001/D-002: before trusting the live diff, check whether `HEAD`
+    sits on a DIFFERENT ticket's branch (F-001) — if so, the live diff is
+    never trusted (`source` is never `"live-merge-base"` in that case) and
+    resolution falls straight through to the ticket's own recorded range, or
+    to `"none"` with the mismatch as its reason when no range is recorded
+    either."""
     try:
-        mods, paths = _committed(cache=cache)            # today's live rule, unchanged (AC-3)
-        if paths:
-            return _gt(mods, paths, "live-merge-base", None)
+        mismatch = _head_branch_mismatch(ticket)          # KLC-129 D-001/D-002
+        if mismatch is None:
+            mods, paths = _committed(cache=cache)         # today's live rule, unchanged (AC-3)
+            if paths:
+                return _gt(mods, paths, "live-merge-base", None)
         rng, why = _read_pre_merge_range(ticket)
         if rng is None:
-            return _gt((), (), "none", why)
+            return _gt((), (), "none", mismatch or why)
         repo = _project_repo()
         # KLC-128 step-7 (review MEDIUM, AC-8/AC-12): validate ancestry BEFORE
         # diffing — the one extra git call the review ruling allows on this

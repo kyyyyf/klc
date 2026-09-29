@@ -80,13 +80,20 @@ def _bare_and_clone(tmp_path: Path, *, initial_files: dict[str, str] | None = No
 
 def _branch_with_commits(clone: Path, ticket: str,
                          commits: list[tuple[str, str, str]],
-                         *, base_branch: str = "main") -> str:
-    """Check out ``feature/<ticket>`` off *base_branch* and apply real commits.
+                         *, base_branch: str = "main",
+                         branch: str | None = None) -> str:
+    """Check out ``feature/<ticket>`` (or an explicit *branch* override) off
+    *base_branch* and apply real commits.
 
     *commits* is a list of ``(relative_path, content, message)``. A message
     may or may not contain the ticket key — some deliberately do not, to cover
-    AC-2's keyless-squash case. Returns the branch name."""
-    branch = f"feature/{ticket}"
+    AC-2's keyless-squash case. KLC-129 (external review MEDIUM #1): *branch*
+    lets a caller pin the REAL, lowercase `feature/klc-<n>-<slug>` shape this
+    project's branches actually use (the default `feature/<TICKET>` is the
+    canonical, uppercase, slug-less form every other KLC-128 test already
+    relies on — left as the default so those 16 call sites are unaffected).
+    Returns the branch name."""
+    branch = branch or f"feature/{ticket}"
     _git(clone, "checkout", base_branch)
     _git(clone, "checkout", "-b", branch)
     for rel, content, message in commits:

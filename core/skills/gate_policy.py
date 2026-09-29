@@ -116,11 +116,19 @@ def _sentinel_hits(ticket: str) -> bool:
     """True when the git diff for this ticket's branch contains a sentinel hit.
 
     Any error (no git, no diff) → dirty (True, fail-closed).
+
+    KLC-129 D-002/AC-3: when `HEAD` sits on a DIFFERENT ticket's branch, the
+    diff subprocess is never even invoked — this returns the same
+    fail-closed `True` an error would, so an unattended `klc ack --auto` run
+    never scans another ticket's diff for sentinels under this ticket's key.
     """
     import scan_sentinels as _ss
     import subprocess
     from core.shared.paths import project_root as _project_root
     try:
+        import phase_completion as _pc          # local import (KLC-129), avoids a
+        if _pc._head_branch_mismatch(ticket):    # module-load-time import cycle
+            return True   # can't trust this diff → dirty (fail-closed, D-002)
         config = _ss.load_sentinels_config()
         result = subprocess.run(
             ["git", "diff", "main..HEAD"],
