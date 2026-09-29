@@ -88,3 +88,10 @@
 #   per_step_review_on_verify: false   # dispatch the per-step reviewer when a
 #                               # step's ledger verdict is non-green. Costs a
 #                               # model call, so it opts in.
+
+# Per-file outline `klc skeleton <file>` (KLC-139): computed on demand, never
+# stored. No legacy file.
+# skeleton:
+#   max_fields: 8          # data members shown per Python class. Default: 8.
+#   max_line: 120          # characters per outline line, range included. Default: 120.
+#   max_bytes: 2097152     # larger files are refused (2 MiB). Default: 2097152.

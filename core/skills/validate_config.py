@@ -165,6 +165,10 @@ _SETTINGS_SCHEMA = {
     # KLC-114: the post-build step ledger pass's two knobs.
     "build.verify_steps": ("bool", None),
     "build.per_step_review_on_verify": ("bool", None),
+    # KLC-139: the on-demand `klc skeleton` outline's three limits.
+    "skeleton.max_fields": ("posint", None),
+    "skeleton.max_line": ("posint", None),
+    "skeleton.max_bytes": ("posint", None),
 }
 
 

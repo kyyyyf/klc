@@ -510,3 +510,62 @@ just the ones it was actually right about. The full method, per-ticket data
 and the reconciliation table are recorded in
 `.klc/tickets/KLC-108/measure/README.md` and
 `.klc/tickets/KLC-108/build-log.md`.
+
+## On-demand file outline: `klc skeleton` (KLC-139)
+
+`klc skeleton <file>` prints an outline of ONE file with inclusive
+`[start-end]` line ranges. It is computed at call time and never stored: no
+cache, no index entry, so it cannot go stale the way a build that shifts
+lines between `klc` verbs can make a stored index stale. Python goes through
+the standard-library `ast` and lists everything — imports, module variables,
+classes with their members, functions, private names included. Every other
+language is rule-scoped: it lists only what the active profile's ast-grep
+rules match, grouped by rule id and message, under a rule-neutral header that
+says so (`rule-scoped: only what the profile's rules match`) rather than
+claiming a fixed "public only" scope that at least one rule (`ts-async-patterns`)
+does not honour.
+
+**Sections.** A Python outline has, in order, `imports` (one collapsed line
+per top-level package, aliases and relative imports kept as written),
+`variables` (module-level plain-name and annotated assignments, uncapped),
+`classes` (with nested classes, methods and capped data members) and
+`functions`. Empty sections are omitted. A non-Python outline has one section
+per applied rule, each headed `<rule id>: <message>`.
+
+**Limits**, read through `config/settings.yml` (no legacy file):
+`skeleton.max_fields` (8 data members per Python class before one
+`[N more truncated]` line — methods and nested classes are never capped),
+`skeleton.max_line` (120 characters per rendered line, the header included,
+cut with `[truncated]` placed directly before the line's range so the range
+itself always survives) and `skeleton.max_bytes` (2 MiB; a larger file is
+refused).
+
+**Refusals**, one line `<path>: <reason>` and exit 1, checked in order: not a
+file; cannot read file (a `PermissionError` or other `OSError` from `stat()`
+or `read_bytes()` — the path exists and stats fine, but its content cannot be
+opened, distinct from "not a file", which is about the path's type, not its
+readability); file too large; for a non-Python file, ast-grep unavailable,
+then not valid UTF-8 (ast-grep 0.42.1 silently SKIPS a file it cannot decode
+as UTF-8, and its own `--inspect` diagnostics cannot tell that apart from
+genuine zero rule coverage, so `klc skeleton` decides it itself, from the
+same bytes it already read, before ever calling ast-grep), then ast-grep
+failed, then unsupported language; and last, syntax errors (a Python
+`ast.parse` failure, or an ast-grep `kind: ERROR` probe match), or, for
+Python only, too deeply nested to parse (a syntactically VALID file whose
+nesting overflows CPython's own parser recursion limit — an honestly
+different reason from a syntax error, since the file is not broken). A
+0-byte file, and a file that parses cleanly but yields no entries, print the
+header and `(no symbols)` with exit 0.
+
+**Known limit of the syntax probe.** The `kind: ERROR` check catches what
+tree-sitter itself flags as broken, but tree-sitter records some breakage —
+an unclosed TypeScript brace, for example — as a `MISSING` node rather than
+`ERROR`. Such a file is outlined from its recovered tree instead of being
+refused; a follow-up ticket (KLC-145) may add a `MISSING` check.
+
+**Contrast with `inventory.json`.** `inventory.json` is the STORED planning
+index: it is built at index time, covers only the public top-level API, keeps
+only each symbol's start line, and can go stale between builds. `klc
+skeleton` is its on-demand, never-stored counterpart for one file at a time,
+with the full member list (private names included for Python) and an
+inclusive end line for every entry.

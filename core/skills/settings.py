@@ -268,3 +268,26 @@ def autorun_cap():
     """
     return resolve("autorun.consecutive_auto_transitions", legacy_file="budgets.yml",
                    legacy_key="consecutive_auto_transitions", project_legacy=False)
+
+
+def _posint(value, default: int) -> int:
+    """A positive int, else *default* (KLC-139 AC-10: 0, -1, 'abc', None)."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return default
+    return value
+
+
+def skeleton_max_fields() -> int:
+    """Data members shown per Python class before `[N more truncated]`
+    (KLC-139, Q-001). Settings-only ladder: no legacy file."""
+    return _posint(resolve("skeleton.max_fields"), 8)
+
+
+def skeleton_max_line() -> int:
+    """Max characters per rendered outline line, range included (KLC-139)."""
+    return _posint(resolve("skeleton.max_line"), 120)
+
+
+def skeleton_max_bytes() -> int:
+    """Files above this size are refused (KLC-139; 2 MiB)."""
+    return _posint(resolve("skeleton.max_bytes"), 2_097_152)

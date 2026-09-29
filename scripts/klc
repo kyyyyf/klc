@@ -34,6 +34,8 @@ Plus a few operational commands:
     reindex    — rebuild a ticket's .index.json
     jira-sync  — flush the Jira status push queue
     state      — materialize the klc-state branch as a .klc/ worktree
+    skeleton   — outline one file with [start-end] line ranges; computed on
+                 demand, never stored (read-only)
 
 And install-time:
 
@@ -132,7 +134,9 @@ OPERATIONAL_CMDS = (
 #   publish   — a read-only forge-publish verb (KLC-003). Like `work` it makes no
 #               lifecycle writes (no phase advance, no meta write); draining the
 #               Jira queue here would be an unadvertised write side effect.
-NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat", "work", "publish")
+#   skeleton  — a read-only outline of one file (KLC-139). Like `work`, it makes
+#               no writes, so it must not drain the Jira queue.
+NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat", "work", "publish", "skeleton")
 
 
 def _drain_jira_queue() -> None:
@@ -184,6 +188,11 @@ def _dispatch(argv: list[str]) -> int:
         sys.path.insert(0, str(SKILLS_DIR))
         import plugin_gen as _pg
         return _pg.main(rest)
+
+    if cmd == "skeleton":
+        sys.path.insert(0, str(SKILLS_DIR))
+        import skeleton as _sk
+        return _sk.main(rest)
 
     if cmd in ("init", "update"):
         script = FRAMEWORK_ROOT / "scripts" / f"{cmd}.py"

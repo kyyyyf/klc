@@ -182,6 +182,26 @@ def _signature(text: str) -> str:
 
 # --- ast-grep path ------------------------------------------------------------
 
+def _one_based(pos) -> int | None:
+    """The ONLY place a 0-based ast-grep position becomes a 1-based line
+    (KLC-137 D-101, adopted by KLC-139 D-203)."""
+    line = pos.get("line") if isinstance(pos, dict) else None
+    if type(line) is not int or line < 0:
+        return None
+    return line + 1
+
+
+def match_line_range(m) -> tuple[int, int] | None:
+    """KLC-137 C-003 / KLC-139 Q-006: an ast-grep match's 1-based inclusive
+    (start, end), or None when either end is unusable or end < start.
+    No end-column adjustment (D-203)."""
+    rng = (m.get("range") or {}) if isinstance(m, dict) else {}
+    start, end = _one_based(rng.get("start")), _one_based(rng.get("end"))
+    if start is None or end is None or end < start:
+        return None
+    return start, end
+
+
 def _parse_matches(raw: list, source_of_truth: str) -> list[dict]:
     """Turn ast-grep --json matches into the frozen symbol shape."""
     out: list[dict] = []
