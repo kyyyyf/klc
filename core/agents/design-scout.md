@@ -29,8 +29,9 @@ dependency impact analysis as before).
   `dependency_impact` lens from its `conditional_neighbors[]` (each has
   `module_name` + `condition`): when a `condition` holds, treat that
   `module_name` as a coupling point to confirm. `tests_to_read_or_run`
-  points at the tests that exercise the slice. Honour `stop_rules`. Skip
-  when absent or `status:"unavailable"`.
+  points at the tests that exercise the slice. `line_ranges` is a starting point:
+  if `symbol` is not on `start`, or the block does not end by `end`, read
+  the whole file. Honour `stop_rules`. Skip when absent or `status:"unavailable"`.
 - `.klc/index/depgraph.json` — authoritative import edges.
 - `.klc/index/modules.json` — module → path + `depended_by`.
 - LSP tools (`goToDefinition`, `findReferences`, `hover`) for symbol verification.

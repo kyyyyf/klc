@@ -17,22 +17,10 @@ public-API index worse than the LLM-agent path.
 FROZEN inventory.json schema — stated ONCE, in ``core.shared.inventory``
 (``CANONICAL_SCHEMA`` / ``SYMBOL_FIELDS``), not here (KLC-103 migration note: this
 docstring used to carry its own copy of the shape; it now points at the single
-statement so the schema cannot drift into two documents). KLC-071 and every reader
-of ``inventory.json`` build on that one statement:
-
-    {
-      "root":            "<abs path>",
-      "profile":         "<active profile name>",
-      "source_of_truth": {"<lang>": "ast_grep" | "regex"},   # per language
-      "symbols": [                                           # flat, byte-sorted list
-        {"name": str, "kind": str, "file": str, "line": int,
-         "signature": str, "visibility": "public" | "private",
-         "source_of_truth": "ast_grep" | "regex",
-         "lang": str, "rule": str}
-      ],
-      "errors": [str],
-      "notes":  [str]
-    }
+statement — no inline copy at all, so a field this module starts writing, e.g.
+KLC-137's ``line_end``, cannot leave a second, driftable example behind — see
+``core.shared.inventory.CANONICAL_SCHEMA``). KLC-071 and every reader of
+``inventory.json`` build on that one statement.
 
 ``build_inventory()`` is a deterministic function of (root, ruleset, astgrep_path): it
 returns NO timestamp, so ``symbols`` and the whole payload are byte-identical on re-run
@@ -217,12 +205,14 @@ def _parse_matches(raw: list, source_of_truth: str) -> list[dict]:
             # keyword is the useful token; the method name is recovered downstream.
             name = _signature(text).split("(")[0].strip() or text.strip()[:40]
         rule_id = m.get("ruleId") or ""
-        start_line = (((m.get("range") or {}).get("start") or {}).get("line"))
+        rng = m.get("range") or {}
+        start = _one_based(rng.get("start"))
         out.append({
             "name": name,
             "kind": _kind_from(text, rule_id),
             "file": m.get("file") or "",
-            "line": (start_line + 1) if isinstance(start_line, int) else 0,
+            "line": start if start is not None else 0,
+            "line_end": _one_based(rng.get("end")),   # KLC-137 AC-1
             "signature": _signature(text),
             "visibility": _visibility(name),
             "source_of_truth": source_of_truth,
@@ -350,6 +340,7 @@ def _regex_scan(root: Path, excludes_re: str, files: list[str]) -> list[dict]:
 def _regex_symbol(name, kind, rel, line, text, lang) -> dict:
     return {
         "name": name, "kind": kind, "file": rel, "line": line,
+        "line_end": None,        # KLC-137 AC-2: the regex path has no end position
         "signature": _signature(text), "visibility": _visibility(name),
         "source_of_truth": "regex", "lang": lang, "rule": "regex-fallback",
     }

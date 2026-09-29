@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "mode": "deterministic",
+  "query": "widget",
+  "primary_modules": [
+    {
+      "module_name": "pkg",
+      "confidence": "high",
+      "reasons": [
+        "aggregate file-match score 4.82842712474619 in module pkg"
+      ]
+    }
+  ],
+  "files_to_read_first": [
+    "pkg/other.py",
+    "pkg/widgets.py"
+  ],
+  "files_likely_to_edit": [
+    "pkg/other.py",
+    "pkg/widgets.py"
+  ],
+  "tests_to_read_or_run": [],
+  "conditional_neighbors": [],
+  "affected_modules_hint": [
+    "pkg"
+  ],
+  "unknown_or_ambiguous_modules": [],
+  "stop_rules": [
+    "Do not expand beyond graph depth 1 unless the implementation plan requires it.",
+    "When adding a file outside this slice, state the reason."
+  ],
+  "confidence": "high",
+  "reasons": [
+    "top module separated from runner-up by no runner-up (>= 4.0) and the edit slice carries a keyword/symbol hit",
+    "primary modules by evidence: pkg"
+  ],
+  "degraded_inputs": [],
+  "coverage_advisories": []
+}

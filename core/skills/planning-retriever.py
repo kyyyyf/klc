@@ -61,7 +61,9 @@ _FILE_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _FILE_DIR.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_FILE_DIR))
-from core.shared.inventory import InventorySchemaError, load as inv_load  # noqa: E402
+from core.shared.inventory import (  # noqa: E402
+    InventorySchemaError, load as inv_load, symbols as inv_symbols,
+    symbol_range as inv_symbol_range)
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 import index_coverage  # noqa: E402
 import math  # noqa: E402
@@ -89,6 +91,9 @@ _TEST_MODULE_RATIO = 0.8
 # its strong signal — a large file's genuine identity should not drown in
 # volume once IDF weighting already carries most of the down-weighting.
 _SYMBOL_SIGNAL_CAP = 25
+# KLC-137 AC-6: at most this many line_ranges entries per read-slice file,
+# next to _SYMBOL_SIGNAL_CAP (D-104).
+_LINE_RANGES_PER_FILE = 3
 # KLC-108 AC-12/D-006, retuned by [!DECISION D-108-7] (step-8, real-corpus
 # measurement): `confidence: high` requires the top module's normalised
 # score to exceed the runner-up's by at least this ratio. Design's original
@@ -177,6 +182,21 @@ def _weight(token: str, idf: dict | None) -> float:
     return table.get(token, default)
 
 
+def _capped_symbol_names(rec: dict, idf: dict | None = None) -> list[str]:
+    """KLC-137 D-103: the at most `_SYMBOL_SIGNAL_CAP` names `_file_signal` folds
+    into the strong signal, rarest (highest IDF weight) first. Moved out of
+    `_file_signal` unchanged so `_line_ranges` uses the SAME "names folded into
+    the strong signal" definition — there is exactly one such set, matching
+    `strong_hits`'s own single-definition discipline."""
+    names = rec.get("symbols") or []
+    if len(names) > _SYMBOL_SIGNAL_CAP:
+        names = sorted(
+            names,
+            key=lambda n: (-max((_weight(t, idf) for t in tokenize(n)), default=0.0), n),
+        )[:_SYMBOL_SIGNAL_CAP]
+    return list(names)
+
+
 def _file_signal(path: str, rec: dict,
                  idf: dict | None = None) -> tuple[set[str], set[str], set[str]]:
     """Return (strong, role, weak) token sets for a file. Strong = keyword/symbol
@@ -189,19 +209,72 @@ def _file_signal(path: str, rec: dict,
     strong: set[str] = set()
     for kw in rec.get("keywords") or []:
         strong |= tokenize(kw)
-    symbol_names = rec.get("symbols") or []
-    if len(symbol_names) > _SYMBOL_SIGNAL_CAP:
-        symbol_names = sorted(
-            symbol_names,
-            key=lambda n: (-max((_weight(t, idf) for t in tokenize(n)), default=0.0), n),
-        )[:_SYMBOL_SIGNAL_CAP]
-    for sym in symbol_names:
+    for sym in _capped_symbol_names(rec, idf):
         strong |= tokenize(sym)
     role: set[str] = set()
     for r in rec.get("roles") or []:
         role |= tokenize(r)
     weak = _path_tokens(path)
     return strong, role, weak
+
+
+def _symbols_by_file_name(inventory) -> dict[tuple[str, str], list[dict]]:
+    """KLC-137: `(file, name) -> [symbol dicts]` over the real inventory, or
+    `{}` for an absent/degraded/wrong-shaped one — AC-7's "no line_ranges
+    entry for an unusable inventory" degrades exactly like every other
+    optional inventory read in this module."""
+    try:
+        syms = inv_symbols(inventory or {}, source="inventory")
+    except InventorySchemaError:
+        return {}
+    index: dict[tuple[str, str], list[dict]] = {}
+    for s in syms:
+        # KLC-137 step-7 review-fix (AC-7): a stray non-dict/malformed element
+        # must degrade like every other optional-input read in this module
+        # (matching planning_validate.py's own `isinstance(s, dict)` guard),
+        # never raise. `file`/`name` must also be real strings — either one
+        # of another type would otherwise reach the hashed (file, name) key.
+        if not isinstance(s, dict):
+            continue
+        file, name = s.get("file"), s.get("name")
+        if not isinstance(file, str) or not isinstance(name, str):
+            continue
+        index.setdefault((file, name), []).append(s)
+    return index
+
+
+def _line_ranges(qtokens: set[str], paths, roles: dict, inventory,
+                 idf: dict | None = None) -> dict[str, list[dict]]:
+    """KLC-137 AC-5/AC-6: for each *path* in the two candidate lists, the at
+    most `_LINE_RANGES_PER_FILE` `{"symbol", "kind", "start", "end"}` entries
+    whose symbol NAME is one of `_capped_symbol_names` (the exact names
+    `_file_signal` folds into the strong signal — a token reaching the
+    strong set only through a `file_roles` keyword never creates an entry)
+    AND intersects *qtokens*, deduplicated by `(symbol, kind, start, end)`
+    and ordered by the IDF weight of the symbol's best matching token
+    descending, then `start` ascending, then symbol name (D-104). A symbol
+    whose `symbol_range()` is `None` (a regex-sourced or malformed entry) is
+    silently excluded, never fabricated."""
+    index = _symbols_by_file_name(inventory)
+    out: dict[str, list[dict]] = {}
+    for path in sorted(paths):
+        best: dict[tuple, float] = {}
+        for name in _capped_symbol_names(roles.get(path) or {}, idf):
+            hit = tokenize(name) & qtokens
+            if not hit:
+                continue
+            w = round(max(_weight(t, idf) for t in hit), 6)
+            for sym in index.get((path, name), ()):
+                rng = inv_symbol_range(sym)
+                if rng is None:
+                    continue
+                key = (name, sym.get("kind") or "", rng[0], rng[1])
+                best[key] = max(best.get(key, w), w)
+        if best:
+            keep = sorted(best, key=lambda k: (-best[k], k[2], k[0], k[1], k[3]))
+            out[path] = [{"symbol": k[0], "kind": k[1], "start": k[2], "end": k[3]}
+                         for k in keep[:_LINE_RANGES_PER_FILE]]
+    return out
 
 
 def strong_hits(qtokens: set[str], path: str, rec: dict,
@@ -396,6 +469,7 @@ def _empty_trace(query: str, mode: str, status: str, confidence: str,
         "primary_modules": [],
         "files_to_read_first": [],
         "files_likely_to_edit": [],
+        "line_ranges": {},
         "tests_to_read_or_run": [],
         "conditional_neighbors": [],
         "affected_modules_hint": [],
@@ -435,6 +509,10 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
     """Pure, byte-stable retrieval trace (see module docstring). ``inventory`` is
     accepted for parity with the CLI/plan but the deterministic ranking is driven
     by file_roles (which already derives keywords/symbols from inventory).
+    KLC-137: ``inventory`` also feeds ``line_ranges`` — the per-symbol
+    ``(start, end)`` line ranges attached to files in ``files_to_read_first``/
+    ``files_likely_to_edit`` (AC-5/AC-6); an inventory without ``line_end``
+    (built before this ticket) yields ``line_ranges: {}`` (AC-7).
 
     ``token_idf`` (KLC-108, optional) is the ``.klc/index/token_idf.json``
     table: every matched token is weighted by its recorded inverse document
@@ -630,6 +708,11 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
     ]
     files_likely_to_edit = [p for p, _ in edit_candidates][:5]
 
+    # KLC-137 AC-5/AC-6: computed now that both lists are final.
+    line_ranges = _line_ranges(
+        qtokens, set(files_to_read_first) | set(files_likely_to_edit),
+        roles, inventory, token_idf)
+
     # The trace_degraded_inputs assembly (KLC-106 D-204's ordering
     # constraint: strictly BEFORE the loop that produces
     # primary_modules[].confidence, since both are capped by the same value)
@@ -784,6 +867,7 @@ def build_trace(query: str, mode: str, modules: dict, file_roles: dict,
         "primary_modules": primary_modules,
         "files_to_read_first": files_to_read_first,
         "files_likely_to_edit": files_likely_to_edit,
+        "line_ranges": line_ranges,
         "tests_to_read_or_run": tests_to_read_or_run,
         "conditional_neighbors": conditional_neighbors,
         "affected_modules_hint": affected_modules_hint,

@@ -35,6 +35,8 @@ slice intake built from this ticket's description (planning_indexer.md
 
 - `files_to_read_first` / `files_likely_to_edit` — open these before any
   broad scan; they are the retriever's ranked candidate files.
+- `line_ranges` — a starting point: if `symbol` is not on `start`, or the
+  block does not end by `end`, read the whole file.
 - `tests_to_read_or_run` — the tests directly mapped to that slice.
 - `conditional_neighbors[]` (each has `module_name` + `condition`) — open
   a neighbour module only when its stated `condition` holds.

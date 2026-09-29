@@ -24,7 +24,9 @@ your best guess and mark it with `[!ASSUMPTION if-false=…]`.
   evaluate each `condition` and, when it holds, include that
   `module_name` in the affected scope — a conditional neighbour can come
   from retriever logic (e.g. shared-file membership), not only from module
-  edges. Skip it when absent or `status:"unavailable"`.
+  edges. `line_ranges` is a starting point: if `symbol` is not on `start`,
+  or the block does not end by `end`, read the whole file. Skip it when
+  absent or `status:"unavailable"`.
 
 ## Output: `spec.md`
 

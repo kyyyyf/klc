@@ -190,6 +190,7 @@ def _schema_keys() -> set[str]:
 _REFERENCED_FIELDS = {
     "status", "mode", "query", "confidence", "reasons",
     "primary_modules", "files_to_read_first", "files_likely_to_edit",
+    "line_ranges",
     "tests_to_read_or_run", "conditional_neighbors", "affected_modules_hint",
     "unknown_or_ambiguous_modules", "stop_rules",
     "module_name", "condition",
@@ -197,6 +198,9 @@ _REFERENCED_FIELDS = {
 
 _CONSUMING_PROMPTS = ("discovery.md", "discovery-lite.md", "design.md",
                       "design-scout.md", "review.md", "test-planner.md")
+
+# KLC-137 AC-9: the four prompts that open the read/edit slice.
+_SLICE_PROMPTS = ("discovery.md", "discovery-lite.md", "design.md", "design-scout.md")
 
 
 def test_referenced_fields_all_exist_in_schema():
@@ -216,6 +220,22 @@ def test_slice_fields_are_consumed_across_prompts():
     for field in ("files_to_read_first", "files_likely_to_edit",
                   "tests_to_read_or_run", "conditional_neighbors", "stop_rules"):
         assert field in combined, f"no prompt loads the trace's `{field}` slice"
+
+
+def test_line_ranges_is_added_to_referenced_fields_and_read_by_the_four_slice_prompts():
+    """AC-9: the four slice-opening prompts read `line_ranges` first and state the
+    stale-index fallback (name on the `start` line, else the whole file)."""
+    assert "line_ranges" in _REFERENCED_FIELDS
+    for name in _SLICE_PROMPTS:
+        text = (_AGENTS / name).read_text(encoding="utf-8")
+        for needle in ("`line_ranges`", "`symbol`", "`start`", "whole file"):
+            assert needle in text, f"{name} lacks {needle!r}"
+
+
+def test_review_and_test_planner_prompts_do_not_reference_line_ranges():
+    """AC-9: review.md and test-planner.md are not changed by KLC-137."""
+    for name in ("review.md", "test-planner.md"):
+        assert "line_ranges" not in (_AGENTS / name).read_text(encoding="utf-8")
 
 
 def test_design_paths_consume_conditional_neighbors():

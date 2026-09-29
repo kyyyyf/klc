@@ -31,6 +31,7 @@ Never read source files line by line.
   "source_of_truth": {"<lang>": "ast_grep" | "regex"},
   "symbols": [
     {"name": "...", "kind": "...", "file": "...", "line": N,
+     "line_end": N | null,
      "signature": "...", "visibility": "public" | "private",
      "source_of_truth": "ast_grep" | "regex",
      "lang": "...", "rule": "..."}

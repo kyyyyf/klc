@@ -148,6 +148,23 @@ def test_no_producer_writes_an_alternate_inventory_shape():
     assert not offenders, f"alternate inventory.json shape(s) found: {offenders}"
 
 
+def test_line_end_is_in_symbol_fields_and_canonical_schema():
+    """KLC-137 AC-3: `SYMBOL_FIELDS` includes `"line_end"` and
+    `CANONICAL_SCHEMA` (built from that tuple, C-001: the field is stated
+    once) reflects it."""
+    from core.shared.inventory import CANONICAL_SCHEMA, SYMBOL_FIELDS
+
+    assert "line_end" in SYMBOL_FIELDS
+    assert "line_end" in CANONICAL_SCHEMA
+
+
+def test_inventory_agent_prompt_names_line_end_field():
+    """KLC-137 AC-9: `core/agents/inventory.md`'s schema block names
+    `"line_end"` — one statement, matching the rest of `SYMBOL_FIELDS`."""
+    text = (REPO_ROOT / "core" / "agents" / "inventory.md").read_text(encoding="utf-8")
+    assert '"line_end"' in text
+
+
 @pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)
 def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_index_reads, tmp_path):
     """AC-3: the regex-fallback schema verdict is unaffected by PROJECT_ROOT,

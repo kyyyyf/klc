@@ -158,7 +158,10 @@ def make_live_index_state(stand_in_dir, state: str, fresh_index_dir) -> None:
     """Writes the stand-in `PROJECT_ROOT` at `stand_in_dir` in one of three
     states: `absent` (no `index/` at all), `current` (a byte-for-byte copy
     of `fresh_index_dir`), or `stale` (a copy with every inventory symbol
-    `line` shifted by +50 and the last `modules.json` module dropped)."""
+    `line` shifted by +50, its integer `line_end` shifted by the SAME +50
+    (KLC-137 AC-10 — a `null` `line_end` is left untouched, never turned
+    into a fabricated int or a `None + 50` crash), and the last
+    `modules.json` module dropped)."""
     stand_in_dir = Path(stand_in_dir)
     stand_in_dir.mkdir(parents=True, exist_ok=True)
     if state == "absent":
@@ -177,6 +180,8 @@ def make_live_index_state(stand_in_dir, state: str, fresh_index_dir) -> None:
         for sym in data.get("symbols", []):
             if isinstance(sym.get("line"), int):
                 sym["line"] += 50
+            if type(sym.get("line_end")) is int:   # KLC-137 AC-10: null stays null
+                sym["line_end"] += 50
         inv_path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-SYMBOL_FIELDS = ("name", "kind", "file", "line", "signature",
+SYMBOL_FIELDS = ("name", "kind", "file", "line", "line_end", "signature",
                  "visibility", "source_of_truth", "lang", "rule")
 
 CANONICAL_SCHEMA = (
@@ -67,6 +67,22 @@ def symbols_by_language(inventory: dict, *,
     for sym in symbols(inventory, source=source):
         grouped.setdefault(sym.get("lang") or "unknown", []).append(sym)
     return grouped
+
+
+def symbol_range(sym) -> tuple[int, int] | None:
+    """KLC-137 AC-3: the one reader of a symbol's line range. Returns
+    ``(line, line_end)`` when both are real ints (a ``bool`` is not one — it is
+    a subtype excluded on purpose), ``line >= 1`` and ``line_end >= line``;
+    ``None`` for every other shape (absent, JSON ``null``, wrong type, or an
+    inverted range). Never raises."""
+    if not isinstance(sym, dict):
+        return None
+    line, end = sym.get("line"), sym.get("line_end")
+    if type(line) is not int or type(end) is not int:
+        return None
+    if line < 1 or end < line:
+        return None
+    return line, end
 
 
 def load(path, *, required: bool = True) -> dict | None:

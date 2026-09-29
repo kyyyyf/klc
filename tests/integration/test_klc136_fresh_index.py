@@ -16,8 +16,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests" / "shared"))
+sys.path.insert(0, str(REPO_ROOT / "tests" / "integration"))
 
 import fresh_index as fresh_index_mod  # noqa: E402
+from _klc137_fixtures import null_line_end, real_inventory, write_python_fixture  # noqa: E402
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -81,3 +83,66 @@ def test_mirror_stages_tracked_but_gitignored_files(tmp_path):
     assert "ignored_but_tracked.txt" in tracked_in_mirror, tracked_in_mirror
     assert "normal.txt" in tracked_in_mirror
     assert ".gitignore" in tracked_in_mirror
+
+
+def _minimal_modules_json() -> dict:
+    return {"modules": [{"name": "pkg", "path": "pkg/", "files": []}], "cycles": [], "notes": []}
+
+
+def _stub_fresh_index_dir(tmp_path: Path, inv: dict) -> Path:
+    """A tmp `.klc/index`-shaped directory carrying only `inventory.json` +
+    a minimal `modules.json` — the two files `make_live_index_state` reads
+    (KLC-137 step-3 RED: called directly, not through the session `fresh_index`
+    fixture, hermetic_project_root)."""
+    src = tmp_path / "stub-index"
+    src.mkdir(parents=True)
+    (src / "inventory.json").write_text(json.dumps(inv), encoding="utf-8")
+    (src / "modules.json").write_text(json.dumps(_minimal_modules_json()), encoding="utf-8")
+    return src
+
+
+def test_stale_state_shifts_line_end_by_fifty_when_integer(tmp_path, hermetic_project_root):
+    """KLC-137 AC-10: `make_live_index_state(..., "stale")` shifts an integer
+    `line_end` by the same +50 as `line`, so `line_end >= line` is preserved
+    (never an inverted range, F-012)."""
+    fixture_root = tmp_path / "fixture-src"
+    write_python_fixture(fixture_root)
+    inv = real_inventory(fixture_root, astgrep=True)
+    before = {(s["file"], s["name"]): (s["line"], s["line_end"]) for s in inv["symbols"]}
+    assert any(isinstance(v[1], int) for v in before.values()), (
+        "fixture must yield at least one real int line_end")
+
+    stub_dir = _stub_fresh_index_dir(tmp_path, inv)
+    stand_in = tmp_path / "stand-in"
+    fresh_index_mod.make_live_index_state(stand_in, "stale", stub_dir)
+
+    shifted = json.loads((stand_in / ".klc" / "index" / "inventory.json").read_text(encoding="utf-8"))
+    for sym in shifted["symbols"]:
+        orig_line, orig_end = before[(sym["file"], sym["name"])]
+        assert sym["line"] == orig_line + 50
+        if isinstance(orig_end, int):
+            assert sym["line_end"] == orig_end + 50
+        else:
+            assert sym["line_end"] is None
+        assert sym["line_end"] is None or sym["line_end"] >= sym["line"]
+
+
+def test_stale_state_leaves_null_line_end_untouched(tmp_path, hermetic_project_root):
+    """KLC-137 AC-10, F-012 edge case: a symbol whose `line_end` is `null`
+    (the AC-2 regex-fallback shape) is left as `null` after the stale shift
+    — no `TypeError` from `null + 50`, no fabricated int. Pin: guards a
+    `None + 50` crash rather than exercising a genuinely new branch."""
+    fixture_root = tmp_path / "fixture-src"
+    write_python_fixture(fixture_root)
+    inv = null_line_end(real_inventory(fixture_root, astgrep=True))
+    assert inv["symbols"], "fixture must yield at least one symbol"
+    assert all(s["line_end"] is None for s in inv["symbols"])
+
+    stub_dir = _stub_fresh_index_dir(tmp_path, inv)
+    stand_in = tmp_path / "stand-in"
+    fresh_index_mod.make_live_index_state(stand_in, "stale", stub_dir)
+
+    shifted = json.loads((stand_in / ".klc" / "index" / "inventory.json").read_text(encoding="utf-8"))
+    assert shifted["symbols"], "shifted inventory must not be empty"
+    for sym in shifted["symbols"]:
+        assert sym["line_end"] is None

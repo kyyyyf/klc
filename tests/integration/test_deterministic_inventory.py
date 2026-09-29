@@ -23,7 +23,7 @@ import deterministic_inventory as di  # noqa: E402
 pytestmark = pytest.mark.usefixtures("hermetic_project_root")
 
 _FROZEN_SYMBOL_FIELDS = {
-    "name", "kind", "file", "line", "signature", "visibility",
+    "name", "kind", "file", "line", "line_end", "signature", "visibility",
     "source_of_truth", "lang", "rule",
 }
 

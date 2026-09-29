@@ -30,12 +30,7 @@ orchestrating prompt for phase 3.
 - `.klc/index/modules.json` — module → path map for resolving
   `affected_modules`.
 - `.klc/tickets/<KEY>/retrieval_trace.json` (if present, KLC-073) — the
-  deterministic planning slice intake built for this ticket. Its
-  `files_to_read_first` / `files_likely_to_edit` are the ranked candidate
-  files to open first; `tests_to_read_or_run` are the directly-mapped
-  tests for that slice; `conditional_neighbors[]` (each with `module_name`
-  + `condition`) are neighbour modules to pull in when their condition
-  holds; `stop_rules` bound how far to expand.
+  deterministic planning slice intake built for this ticket (fields below).
 - On demand: `core/skills/context-loader.py` for module CLAUDE.md
   bundles.
 
@@ -49,7 +44,8 @@ each, evaluate its `condition` and, when it holds, include that
 neighbours can come from retriever logic (e.g. shared-file membership),
 not only from `module_edges`, so do not rely on `module_edges` alone.
 Consume `tests_to_read_or_run` as the starting test set for the affected
-files. Honour the trace `stop_rules`: do not expand beyond graph depth 1
+files. `line_ranges` is a starting point: if `symbol` is not on `start`, or
+the block does not end by `end`, read the whole file. Honour the trace `stop_rules`: do not expand beyond graph depth 1
 (`module_edges` neighbours) unless the implementation plan requires it, or
 a `conditional_neighbors` entry's condition holds. When an option adds a file
 outside that slice, state the reason in the option. When the trace is

@@ -511,6 +511,93 @@ and the reconciliation table are recorded in
 `.klc/tickets/KLC-108/measure/README.md` and
 `.klc/tickets/KLC-108/build-log.md`.
 
+## Symbol line ranges (KLC-137)
+
+`inventory.json` keeps where each ast-grep symbol ends, not only where it
+starts, and the retrieval trace attaches that range to the symbols that
+actually matched the query — so an agent that already knows which symbol in
+a file mattered can read the 40 lines that matter instead of the whole
+file. The maki review of 2026-09-28 is the source of this ticket and of
+KLC-139: both trace back to it wanting one true statement of "where a
+symbol lives," not two.
+
+**`line_end` (inventory.json).** Every ast-grep-sourced symbol carries
+`line_end`, the SAME 1-based, inclusive convention `line` already used:
+`match_line_range` (`core/skills/deterministic_inventory.py`) turns the
+match's 0-based `range.start.line`/`range.end.line` into `line`/`line_end`
+through the one conversion point, `_one_based`. `line` still names the
+`def`/`class`/assignment line, never a decorator's. `line_end` is JSON
+`null` on the regex-fallback path (no end position exists there) — never a
+fabricated one-line range. ADR D-203: when a class or function's last body
+line is a trailing comment, tree-sitter keeps that comment INSIDE the node
+ast-grep matches, so `line_end` can be one line past Python `ast`'s own
+`end_lineno` for the same node; every line strictly between them is blank
+or comment-only, never code `ast` would have counted.
+
+**`symbol_range` (core/shared/inventory.py).** The one reader of a
+symbol's range: `symbol_range(sym)` returns `(line, line_end)` when both
+are real ints, `line >= 1` and `line_end >= line`, and `None` for every
+other shape (absent, `null`, wrong type, a `bool`, or an inverted range).
+Every consumer of a symbol's range — the retriever, and any future one —
+goes through this accessor, never a raw `sym["line_end"]` read.
+
+**`line_ranges` (retrieval_trace.json).** A top-level map, keyed by path,
+present only for files already in `files_to_read_first` or
+`files_likely_to_edit`. Each entry is
+`{"symbol", "kind", "start", "end"}`. An entry exists only for a symbol
+whose name is one of the (at most `_SYMBOL_SIGNAL_CAP` = 25) names
+`_capped_symbol_names` folds into that file's STRONG signal — the same
+names `_file_signal` scores the file by — and whose name intersects the
+query's own tokens; a token that reaches the strong set only through a
+`file_roles` keyword never creates an entry, and a symbol whose
+`symbol_range` is `None` is silently excluded. Entries are deduplicated by
+`(symbol, kind, start, end)` — a class matched by two ast-grep rules is one
+entry, not two — then capped at 3 per file (`_LINE_RANGES_PER_FILE`),
+ordered by the IDF weight of the symbol's best matching token descending,
+then `start` ascending, then symbol name, so two runs over identical
+inputs are byte-identical. An inventory built before this ticket (no
+`line_end` at all) yields `line_ranges: {}` for every trace, with no other
+change — the rest of the trace, including `confidence` and
+`degraded_inputs`, is exactly what the pre-ticket retriever produced. Every
+trace whose `status` is not `"ok"` also carries `line_ranges: {}`; a
+`status: "ok"` trace with a non-empty `degraded_inputs` still carries real
+ranges — the empty-map rule is keyed on `status` alone.
+
+**Staleness (AC-9, review round 1).** The trace is built once, at intake;
+the file it names can change before an agent opens it. The four
+slice-opening prompts (`discovery.md`, `discovery-lite.md`, `design.md`,
+`design-scout.md`) read a listed file's `line_ranges` first, but treat each
+entry as a STARTING POINT, not the whole read, for two independent staleness
+shapes: confirm the entry's `symbol` name is really on the `start` line
+(the file moved — a shifted or deleted block), and confirm the block
+visibly ends by `end` (the file grew or shrank IN PLACE — the common case,
+since the name check alone cannot catch it). Either failure means read the
+whole file instead of the wrong lines. `review.md` and `test-planner.md` do
+not read `line_ranges`.
+
+**Decorators (AC-9, review round 1).** `line` is the `def`/`class` line
+(AC-1), so a Python `[start, end]` range excludes any decorators above it —
+`@property`, `@pytest.mark.parametrize`, a route decorator and similar can
+carry planning-relevant behaviour. An agent reading a range should also
+glance at the few lines above `start` for decorators before treating the
+symbol as fully read.
+
+**Boundary with KLC-139 (`klc skeleton`).** The two tickets share one
+thing — `match_line_range`'s conversion of an ast-grep match into 1-based
+inclusive lines — and nothing else:
+
+```text
+inventory (KLC-137)   [line .. line_end]   line = def/class line (unchanged), decorators excluded,
+                                           public API only (py-public-api), stored, can go stale
+skeleton  (KLC-139)   [start .. end]       exact start (def line or first decorator), coverage of
+                                           private names: decided by KLC-139; computed on demand, never stale
+```
+
+`klc skeleton <file>` (below) is computed on demand and never stored, so it
+cannot go stale the way `inventory.json`'s stored `line_end` can; KLC-137's
+`line_ranges` is the stored half, built once at intake for the files the
+retriever already lists.
+
 ## On-demand file outline: `klc skeleton` (KLC-139)
 
 `klc skeleton <file>` prints an outline of ONE file with inclusive

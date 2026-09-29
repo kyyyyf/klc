@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from core.shared.inventory import InventorySchemaError, load, symbols
+from core.shared.inventory import InventorySchemaError, load, symbol_range, symbols
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SKILLS = REPO_ROOT / "core" / "skills"
@@ -257,3 +257,51 @@ def test_verdict_unchanged_with_project_root_redirected(live_index_state, no_ind
                  "--in-inventory", str(bad_inv), "--out", str(out_path)])
     assert rc == 0
     assert no_index_reads() == []
+
+
+# --- KLC-137 step-1: symbol_range accessor ------------------------------------
+
+def test_symbol_range_returns_line_and_line_end_tuple_for_a_valid_symbol():
+    """AC-3: a well-formed symbol (line, line_end both valid ints, line_end >=
+    line) returns (line, line_end) from symbol_range()."""
+    sym = {
+        "name": "f", "kind": "function", "file": "pkg/mod.py",
+        "line": 10, "line_end": 12,
+        "signature": "def f():", "visibility": "public",
+        "source_of_truth": "ast_grep", "lang": "python", "rule": "r",
+    }
+    assert symbol_range(sym) == (10, 12)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("line", "__absent__"),
+    ("line_end", "__absent__"),
+    ("line", None),
+    ("line_end", None),
+    ("line", "10"),
+    ("line_end", "12"),
+    ("line", True),
+    ("line_end", True),
+    ("line", 0),
+    ("line_end", 9),   # line_end (9) < line (10)
+], ids=[
+    "line-absent", "line_end-absent", "line-null", "line_end-null",
+    "line-string", "line_end-string", "line-bool", "line_end-bool",
+    "line-zero", "line_end-less-than-line",
+])
+def test_symbol_range_returns_none_for_each_invalid_shape(field, value):
+    """AC-3: symbol_range() returns None, never raises, for each of the ten
+    invalid shapes applied symmetrically to `line` and `line_end` — absent,
+    JSON null, not-an-int (a string), a bool (int subtype), line < 1, and
+    line_end < line (test-plan-review F-1)."""
+    sym = {
+        "name": "f", "kind": "function", "file": "pkg/mod.py",
+        "line": 10, "line_end": 12,
+        "signature": "def f():", "visibility": "public",
+        "source_of_truth": "ast_grep", "lang": "python", "rule": "r",
+    }
+    if value == "__absent__":
+        del sym[field]
+    else:
+        sym[field] = value
+    assert symbol_range(sym) is None
