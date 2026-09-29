@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """plugin_gen.py — generate klc-plugin/agents/ from core/agents/*.md.
 
-Reads each top-level .md file in core/agents/, resolves the model for the
-corresponding phase from models.yml, and writes the file into the target
-agents/ directory with a model: frontmatter block prepended.
+Reads each top-level .md file in core/agents/, resolves the model: from the
+phase(s) that own it in phases.yml (work.prompt names "core/agents/<file>",
+compared after POSIX path normalisation; a prompt with no owner falls back
+to stem-then-defaults resolution, KLC-131), and writes the file into the
+target agents/ directory with a model: frontmatter block prepended.
 
 Usage:
     python3 core/skills/plugin_gen.py           # writes into klc-plugin/agents/
@@ -11,6 +13,7 @@ Usage:
 """
 from __future__ import annotations
 
+import posixpath
 import re
 import sys
 import tempfile
@@ -22,6 +25,7 @@ sys.path.insert(0, str(_skills_dir))
 sys.path.insert(0, str(_project_root))
 
 import models as _m
+import phases as _ph  # noqa: E402  KLC-131: prompt -> owner phase lookup
 from core.shared.paths import framework_root  # noqa: E402
 
 
@@ -221,6 +225,56 @@ def expand_includes(text: str, includes_dir: Path | None = None) -> str:
     return _INCLUDE_RE.sub(_sub, text)
 
 
+def _resolve_model_id(mc: "_m.Models", keys: list[str]) -> str:
+    """Model id for a prompt resolved through *keys* (its owner phases in
+    phases.yml order, or ``[stem]`` for an unowned prompt).
+
+    KLC-131 AC-3: several owners -> the role with the highest rank; a rank
+    tie keeps the earliest key (max returns the first maximal item), so the
+    choice follows phases.yml order, never dict or glob order.
+
+    An owner/stem with no ``phase_roles`` entry does not raise —
+    ``Models.resolve()`` returns a ``ResolvedModel`` built from ``defaults``
+    without error, and it is scored at ``defaults.rank``/``defaults.model``
+    below because ``"defaults"`` is never a key under ``roles:``
+    (``mc.roles.get(resolved.role)`` returns ``None``). The ``except``
+    clause only catches a role that fails ``Models.resolve()`` outright
+    (e.g. an unknown provider) — review LOW: same fallback either way, but
+    reached through a different branch (code-review-findings.json).
+    """
+    candidates: list[tuple[int, str]] = []
+    for key in keys:
+        try:
+            resolved = mc.resolve(key)
+        except (KeyError, ValueError):
+            candidates.append((mc.defaults.rank, mc.defaults.model))
+            continue
+        role = mc.roles.get(resolved.role)
+        rank = role.rank if role is not None else mc.defaults.rank
+        candidates.append((rank, resolved.model))
+    return max(candidates, key=lambda c: c[0])[1]
+
+
+def _owns_prompt(phase_prompt: str, agent_name: str) -> bool:
+    """True when *phase_prompt* (a phase's ``work.prompt``) names the same
+    file as ``core/agents/<agent_name>``, after POSIX path normalisation.
+
+    KLC-131 review-fix (AC-1, external review LOW): a non-canonical but
+    otherwise valid ``work.prompt`` such as ``./core/agents/impl.md`` passes
+    ``validate_config`` (the file exists) and ``phase_resolver`` already
+    recognises it via ``Path(phase.prompt).stem``. An exact-string compare
+    here would silently miss it and fall back to the stem — normalising
+    both sides with ``posixpath.normpath`` keeps them in agreement. An
+    empty ``work.prompt`` (an intentionally unowned phase) never matches.
+    """
+    if not phase_prompt:
+        return False
+    return (
+        posixpath.normpath(phase_prompt)
+        == posixpath.normpath(f"core/agents/{agent_name}")
+    )
+
+
 def generate_agents(
     output_dir: Path | None = None,
     *,
@@ -260,20 +314,24 @@ def generate_agents(
     else:
         mc = _m.load_models()
 
+    # KLC-131 (AC-8): read phases.yml through load_phases() so its own
+    # validations apply; a missing or invalid file raises here, before any
+    # agent is written — never a silent stem-only fallback.
+    phases_model = _ph.load_phases(force=True)
+
     agents_src = fw / "core" / "agents"
     generated: list[Path] = []
 
     for src in sorted(agents_src.glob("*.md")):
-        phase_id = src.stem  # e.g. "discovery" from "discovery.md"
-        # Resolve model for this phase; fall back to defaults.
-        model_id: str = mc.defaults.model
-        try:
-            resolved = mc.resolve(phase_id)
-            model_id = resolved.model
-        except (KeyError, ValueError):
-            pass  # phase not in phase_roles — use defaults
-
-        cc_model = _cc_alias(model_id)
+        phase_id = src.stem  # agent identity: name/description stay stem-based
+        # KLC-131 (AC-1): resolve model from the phase(s) that own this
+        # prompt (Phase.prompt == "core/agents/<file>"); a prompt no phase
+        # owns keeps today's stem-then-defaults resolution (AC-2).
+        owners = [
+            p.id for p in phases_model.ordered
+            if _owns_prompt(p.prompt, src.name)
+        ]
+        cc_model = _cc_alias(_resolve_model_id(mc, owners or [phase_id]))
 
         # Build frontmatter.
         fm_lines = [
@@ -359,18 +417,33 @@ def _generate_commands(output_dir: Path) -> list[Path]:
     return generated
 
 
-# Staged-path prefixes that make the plugin drift-check in scope (AC-8).
+# Staged-path prefixes/names that make the plugin drift-check in scope (AC-8).
 _PLUGIN_SOURCE_AGENTS_PREFIX = "core/agents/"
 _PLUGIN_SOURCE_GEN = "core/skills/plugin_gen.py"
+# KLC-131 review-fix (external MEDIUM): both are now generate_agents() inputs
+# for model: resolution — phases.yml supplies prompt ownership (AC-1/AC-3),
+# models.yml supplies phase_roles — so staging either alone must also put the
+# drift gate in scope, not only a core/agents/* prompt or plugin_gen.py itself.
+_PLUGIN_SOURCE_PHASES_YML = "config/phases.yml"
+_PLUGIN_SOURCE_MODELS_YML = "config/models.yml"
 
 
 def plugin_sources_staged(staged_paths: list[str]) -> bool:
-    """True when the staged paths include a plugin SOURCE — either a
-    ``core/agents/*`` prompt or ``core/skills/plugin_gen.py`` (the
-    verb-dictionary lives there). Scopes the pre-commit gate (AC-8) so it never
-    fires for an unrelated commit. Injectable for unit testing."""
+    """True when the staged paths include a plugin SOURCE — a
+    ``core/agents/*`` prompt, ``core/skills/plugin_gen.py`` (the
+    verb-dictionary lives there), or either ``config/phases.yml`` /
+    ``config/models.yml`` (KLC-131: both now feed ``generate_agents()``'s
+    model: resolution). Scopes the pre-commit gate (AC-8) so it never fires
+    for an unrelated commit. Injectable for unit testing."""
     for p in staged_paths:
-        if p.startswith(_PLUGIN_SOURCE_AGENTS_PREFIX) or p == _PLUGIN_SOURCE_GEN:
+        if (
+            p.startswith(_PLUGIN_SOURCE_AGENTS_PREFIX)
+            or p in (
+                _PLUGIN_SOURCE_GEN,
+                _PLUGIN_SOURCE_PHASES_YML,
+                _PLUGIN_SOURCE_MODELS_YML,
+            )
+        ):
             return True
     return False
 
