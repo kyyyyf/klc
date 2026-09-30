@@ -39,6 +39,7 @@ from _paths import (  # noqa: E402
 )
 from findings import aggregate, dedupe, sort_for_report, Finding  # noqa: E402
 import file_scanner as _fs  # noqa: E402  (KLC-124 D-4: the one EXT_LANG source)
+import handback  # noqa: E402  (KLC-127 AC-14/AC-22: validate + pool headless partials)
 
 
 # --- logging -----------------------------------------------------------------
@@ -768,12 +769,37 @@ def _parse_partial(path: Path,
         }
 
     # New path: load findings.json via findings.py
+    reviewer_name = findings_json_path.parent.name
     try:
         with findings_json_path.open("r", encoding="utf-8") as f:
             findings_data = json.load(f)
-        findings_list = [Finding.from_dict(d) for d in findings_data]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         sys.stderr.write(f"review: {findings_json_path.name}: malformed JSON: {e}\n")
+        return {"total": 0, "blocking": 0, "issues": [], "raw": "",
+                "trailer_mismatch": None, "out_of_scope": 0}
+    if not isinstance(findings_data, list):
+        sys.stderr.write(f"review: {findings_json_path.name}: not a JSON list\n")
+        return {"total": 0, "blocking": 0, "issues": [], "raw": "",
+                "trailer_mismatch": None, "out_of_scope": 0}
+    # KLC-127 AC-14: validate the WHOLE partial before trusting any of it — an
+    # old-shape or otherwise invalid findings.json is left OUT of the report
+    # entirely (one note naming the reviewer and its errors), never partially
+    # accepted.
+    errors = handback.validate_findings("code-review", findings_data)
+    if errors:
+        sys.stderr.write(
+            f"review: partial {reviewer_name} left out: {'; '.join(errors[:3])}\n")
+        return {"total": 0, "blocking": 0, "issues": [], "raw": "",
+                "trailer_mismatch": None, "out_of_scope": 0}
+    try:
+        findings_list = [
+            Finding.from_dict({**d, "reviewer": reviewer_name, "kind": "code-review"})
+            for d in findings_data
+        ]
+    except (KeyError, TypeError, ValueError) as e:
+        # Validated above, so this should not happen (F-102) — kept as a
+        # fail-closed safety net rather than an assumption.
+        sys.stderr.write(f"review: {findings_json_path.name}: malformed entry: {e}\n")
         return {"total": 0, "blocking": 0, "issues": [], "raw": "",
                 "trailer_mismatch": None, "out_of_scope": 0}
 
@@ -1074,6 +1100,64 @@ def _plan_passes(*, always: list[dict], conditional_results: list[tuple[str, boo
     return passes
 
 
+# --- KLC-127 AC-14/AC-22: the pooled, cross-reviewer JSON findings ----------
+
+def _pooled_findings(partials_dir: Path, ticket_key: str | None) -> tuple[list, list[str]]:
+    """The JSON-partial pipeline: validate each reviewer's `findings.json`
+    with `handback.validate_findings("code-review", ...)`, stamp `reviewer`
+    (the partial directory name) and `kind` ("code-review"), dedupe
+    cross-reviewer duplicates, and sort for the report — `aggregate`, then
+    `dedupe`, then `sort_for_report`, in that order (AC-22, F-001's gap:
+    these three were imported and never called). Writes
+    `review/headless-findings.json` (D-111) when *ticket_key* is known.
+    Returns `(pooled, notes)` — an invalid partial is left OUT with one note
+    naming the reviewer and its errors, never a crash."""
+    notes: list[str] = []
+    raw = aggregate(partials_dir, notes=notes, kind="code-review",
+                    validate=lambda items: handback.validate_findings("code-review", items))
+    pooled = sort_for_report(dedupe(raw))
+    if ticket_key:
+        handback.write_headless_findings(ticket_key, raw)
+    return pooled, notes
+
+
+def _issue_buckets(reviewers_data: dict, pooled: list,
+                   diff_scope: dict) -> tuple[str, str, str]:
+    """Render the blocking / non-blocking / out-of-scope markdown lines from
+    the POOLED (deduped) JSON findings, plus any legacy markdown-only issues
+    — a reviewer whose partial carries no `findings.json` at all keeps
+    rendering through `reviewers_data` exactly as before (unaffected by the
+    JSON pooling)."""
+    blocking: list[str] = []
+    non_blocking: list[str] = []
+    out_of_scope: list[str] = []
+
+    for f in pooled:
+        title = f"{f.title} — {f.file}:{f.line}"
+        if _classify_scope(diff_scope, f"{f.file}:{f.line}") is False:
+            if f.severity != "INFO":
+                out_of_scope.append(f"- [{f.severity}] {title}")
+            continue
+        line = f"- [{f.severity}] {title}"
+        (blocking if f.severity in ("CRITICAL", "HIGH") else non_blocking).append(line)
+
+    for r in reviewers_data.values():
+        for i in r["issues"]:
+            if "finding" in i:
+                continue  # a JSON-sourced issue: already rendered from `pooled` above
+            if i.get("suspect_out_of_scope"):
+                if i["severity"] != "INFO":
+                    out_of_scope.append(f"- [{i['severity']}] {i['title']}")
+                continue
+            is_block = i["severity"] in ("CRITICAL", "HIGH")
+            (blocking if is_block else non_blocking).append(f"- [{i['severity']}] {i['title']}")
+
+    def _render(lines: list[str]) -> str:
+        return "\n".join(lines) if lines else "_None._"
+
+    return _render(blocking), _render(non_blocking), _render(out_of_scope)
+
+
 # --- main --------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
@@ -1263,6 +1347,16 @@ def main(argv: list[str]) -> int:
         cascade=cascade_decision.as_dict() if cascade_decision else None,
         notes=[n for n in (cfg_note, route.get("note")) if n])
     if ticket_key:
+        # KLC-127 AC-29: re-planning the same diff must never reset an
+        # already-executed pass back to `planned` (it would let a later
+        # `handback.py take` record the same pass twice).
+        old_plan = None
+        try:
+            old_path = klc_dir() / "tickets" / ticket_key / "review-plan.json"
+            old_plan = json.loads(old_path.read_text(encoding="utf-8")) if old_path.is_file() else None
+        except (OSError, json.JSONDecodeError):
+            old_plan = None
+        plan = review_plan.carry_forward(plan, old_plan)
         review_plan.write_plan(ticket_key, plan)
     for line in review_plan.plan_lines(plan):
         log(line)
@@ -1493,31 +1587,17 @@ def main(argv: list[str]) -> int:
         except (OSError, json.JSONDecodeError) as e:
             sys.stderr.write(f"review: external summary unparseable: {e}\n")
 
-    def _bucket(blocking: bool) -> str:
-        lines: list[str] = []
-        for r in reviewers_data.values():
-            for i in r["issues"]:
-                if i.get("suspect_out_of_scope"):
-                    continue
-                is_block = i["severity"] in ("CRITICAL", "HIGH")
-                if blocking == is_block:
-                    lines.append(f"- [{i['severity']}] {i['title']}")
-        return "\n".join(lines) if lines else "_None._"
-
-    def _bucket_oos() -> str:
-        lines: list[str] = []
-        for r in reviewers_data.values():
-            for i in r["issues"]:
-                if not i.get("suspect_out_of_scope"):
-                    continue
-                if i["severity"] == "INFO":
-                    continue
-                lines.append(f"- [{i['severity']}] {i['title']}")
-        return "\n".join(lines) if lines else "_None._"
-
-    blocking_issues     = _bucket(True)
-    non_blocking_issues = _bucket(False)
-    out_of_scope_issues = _bucket_oos()
+    # KLC-127 AC-22: the JSON-sourced findings are pooled (aggregate, then
+    # dedupe, then sort_for_report, in that order) so one defect reported by
+    # several headless reviewers renders once, not once per reviewer
+    # (F-001's gap — the three functions were imported and never called).
+    # Legacy markdown-only issues (a reviewer with no findings.json at all)
+    # keep rendering through `reviewers_data` unchanged.
+    pooled_findings, pool_notes = _pooled_findings(partials_dir, ticket_key)
+    for _note in pool_notes:
+        log(f"headless findings: {_note}")
+    blocking_issues, non_blocking_issues, out_of_scope_issues = _issue_buckets(
+        reviewers_data, pooled_findings, diff_scope)
 
     # Phase 3a: tier-aware blocking threshold
     # Build file → tier map

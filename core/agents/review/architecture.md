@@ -208,14 +208,14 @@ Schema per `core/skills/findings.py`:
 ```json
 [
   {
+    "id": "F-1",
     "rule_name": "public-api-without-adr",
     "severity": "HIGH",
     "file": "src/payments/api.py",
     "line": 12,
     "title": "Public-API change without ADR",
     "body": "processPayment signature changed (added idempotency_key) but no ADR in docs/adr/ covers this module.\n\nSeverity rationale: per severity_rubric, public-API change without rationale is HIGH — breaks documented contract.\n\nFix: Run adr --phase propose and link the ADR from the module's CLAUDE.md before merging.",
-    "fix": "adr --phase propose --spec <spec-path> --chosen <option>",
-    "reviewer": "architecture"
+    "fix": "adr --phase propose --spec <spec-path> --chosen <option>"
   }
 ]
 ```
@@ -227,7 +227,8 @@ Schema per `core/skills/findings.py`:
 - `title` — one-line summary (no `[SEVERITY]` prefix).
 - `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
 - `fix` — concrete suggestion or `null`.
-- `reviewer` — always `"architecture"`.
+- `id` — unique within this findings.json, e.g. `"F-1"`, `"F-2"`.
+- Do not add `reviewer`: intake stamps it from the partial directory name.
 
 Empty case (no findings):
 ```json

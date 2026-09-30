@@ -1,0 +1,21 @@
+{
+  "true_pairs": [
+    [
+      "code-review:F-1",
+      "external-review:F-1"
+    ],
+    [
+      "code-review:F-2",
+      "external-review:F-2"
+    ],
+    [
+      "code-review:F-3",
+      "external-review:F-3"
+    ],
+    [
+      "code-review:F-4",
+      "external-review:F-4"
+    ]
+  ],
+  "pooled_count": 4
+}

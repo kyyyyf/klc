@@ -48,7 +48,7 @@ aggregator's out-of-scope list.
 ## Rules
 
 Each finding you emit must have a `rule_name` from this catalog. The
-`rule_name` is a stable `snake_case` identifier; the aggregator uses it
+`rule_name` is a stable `kebab-case` identifier; the aggregator uses it
 for cross-run deduplication and allowlist matching (Phase 1.3).
 
 - `injection-sql` — SQL injection via string concatenation.
@@ -142,14 +142,14 @@ Schema per `core/skills/findings.py`:
 ```json
 [
   {
+    "id": "F-1",
     "rule_name": "ssrf",
     "severity": "HIGH",
     "file": "services/fetch.py",
     "line": 42,
     "title": "SSRF via user-controlled URL",
     "body": "requests.get(user_url, allow_redirects=True) — URL comes from request body and no scheme / host allow-list is checked.\n\nSeverity rationale: per severity_rubric, SSRF is HIGH — requires user interaction but exploitable externally.\n\nFix: Resolve the URL, reject non-https:// or non-allow-listed hosts, disable redirect-follow.",
-    "fix": "Add URL validation:\nallowed_hosts = ['api.example.com']\nparsed = urlparse(user_url)\nif parsed.scheme != 'https' or parsed.hostname not in allowed_hosts:\n    raise ValueError('Invalid URL')\nrequests.get(user_url, allow_redirects=False)",
-    "reviewer": "security"
+    "fix": "Add URL validation:\nallowed_hosts = ['api.example.com']\nparsed = urlparse(user_url)\nif parsed.scheme != 'https' or parsed.hostname not in allowed_hosts:\n    raise ValueError('Invalid URL')\nrequests.get(user_url, allow_redirects=False)"
   }
 ]
 ```
@@ -161,7 +161,8 @@ Schema per `core/skills/findings.py`:
 - `title` — one-line summary (no `[SEVERITY]` prefix — that's in the field).
 - `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
 - `fix` — concrete code suggestion or `null`.
-- `reviewer` — always `"security"`.
+- `id` — unique within this findings.json, e.g. `"F-1"`, `"F-2"`.
+- Do not add `reviewer`: intake stamps it from the partial directory name.
 
 Empty case (no findings):
 ```json

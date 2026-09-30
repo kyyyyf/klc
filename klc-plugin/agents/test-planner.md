@@ -207,7 +207,7 @@ passed). These are acceptance signals, not formalities — write the RED test fi
 Your acceptance plan is checked by a **fresh, independent** reviewer — the
 mandatory-external-reviewer discipline shifted onto the TEST-PLAN, reusing KLC-084's
 generic independent-artifact-review seam one artifact further LEFT. On M/L the
-`test-plan-reviewer` agent (`core/agents/test-plan-reviewer.md`) runs before the
+`test-plan-reviewer` agent (`klc-plugin/agents/test-plan-reviewer.md`) runs before the
 acceptance-test-plan phase completes; on S it cascades (fires on escalation
 signals); XS skips it. Its anchor is the spec's SAOC ACs, and it checks **coverage
 DESIGN** only — every AC maps to a real planned test, no happy-path-only plan, no

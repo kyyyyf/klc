@@ -36,62 +36,31 @@ own `provider`/`model` (legacy override, still honoured).
 ## Steps
 
 ### 1. Build the prompt
-Render `core/templates/external-review-prompt.j2` with:
-- `spec`               — from input
-- `diff`               — from input
-- `claude_md_context`  — from input
-- `focus_areas`        — list from `external_reviewer.focus`
-
-Keep the rendered string in memory. Do **not** write it to disk (may
-contain source under review).
+Render `core/templates/external-review-prompt.j2` with `spec`/`diff`/
+`claude_md_context` (from input), `focus_areas` (`external_reviewer.focus`)
+and `finding_schema` (`_includes/finding-schema.md`'s text). Keep the
+rendered string in memory; do **not** write it to disk (source under review).
 
 ### 2. Dispatch by provider
-
-#### openai
-- Endpoint: `https://api.openai.com/v1/chat/completions`
-- Auth: `Authorization: Bearer $OPENAI_API_KEY` (env var name from config).
-- Payload:
-  ```json
-  {
-    "model": "<model>",
-    "messages": [
-      {"role": "system", "content": "You are a senior code reviewer."},
-      {"role": "user",   "content": "<rendered prompt>"}
-    ],
-    "temperature": 0.2
-  }
-  ```
-- Response text: `choices[0].message.content`.
-
-#### anthropic
-Run the rendered prompt through the `claude` CLI on the resolved model
-(`core/skills/runner.py`'s anthropic dispatcher) — no API key read.
-
-#### google (Gemini)
-- Endpoint:
-  `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent?key=$GOOGLE_API_KEY`
-- Payload:
-  ```json
-  {"contents":[{"parts":[{"text":"<rendered prompt>"}]}]}
-  ```
-- Response text: `candidates[0].content.parts[0].text`.
-
-#### ollama
-- Endpoint: `http://localhost:11434/v1/chat/completions`
-- No API key required; ignore `api_key_env`.
-- Same payload shape as the openai provider.
+- **openai**: `https://api.openai.com/v1/chat/completions` (auth `Bearer $OPENAI_API_KEY`); payload `{"model":"<model>","messages":[{"role":"system","content":"You are a senior code reviewer."},{"role":"user","content":"<rendered prompt>"}],"temperature":0.2}`; response `choices[0].message.content`.
+- **anthropic**: run the rendered prompt through the `claude` CLI on the
+  resolved model (`core/skills/runner.py`'s dispatcher) — no API key read.
+- **google (Gemini)**: `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent?key=$GOOGLE_API_KEY`; payload `{"contents":[{"parts":[{"text":"<rendered prompt>"}]}]}`; response `candidates[0].content.parts[0].text`.
+- **ollama**: `http://localhost:11434/v1/chat/completions`, no API key (ignore
+  `api_key_env`), same payload/response shape as openai.
 
 ### 3. Parse and count
-- Extract issues from the provider's markdown using the same convention as
-  internal sub-agents (`### [SEVERITY] ...`).
+- Parse the reply's one-shape JSON object (`findings`/`decisions_to_confirm`),
+  not the old per-issue markdown-heading convention.
 - Count total issues and blocking issues (severity in
   `review.blocking_severity`).
 
 ### 4. Save the report
 - Resolve `report_path`: substitute `{timestamp}` with
   `YYYY-MM-DD-HH-MM` (UTC).
-- Write the provider's markdown verbatim to that path (create directories
+- Write the provider's raw reply verbatim to that path (create directories
   as needed).
+- Intake: `handback.py take --kind external-review --ticket <KEY> --file <path>`.
 
 ### 5. Return result
 Stdout must end with a single JSON line that the orchestrator merges:

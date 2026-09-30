@@ -2,13 +2,15 @@
 """remind.py — CC plugin hook that emits a forgotten-ack reminder.
 
 Called by hooks.json on UserPromptSubmit. Runs `klc remind` for the current
-identity; any reminder text `klc remind` prints goes to stdout for CC to
-display. The hook is advisory only, so it ALWAYS exits 0 (non-blocking) —
-every error is swallowed. It mirrors the structure of gate.py's KLC_BIN
-resolution but never blocks the prompt.
+identity and forwards any reminder text it prints to stdout. On
+UserPromptSubmit, plain stdout becomes context for Claude — it is not a
+message shown to the user directly (follow-up KLC-162 covers switching to a
+user-visible `systemMessage` instead). The hook is advisory only, so it
+ALWAYS exits 0 (non-blocking) — every error is swallowed. It mirrors the
+structure of gate.py's KLC_BIN resolution but never blocks the prompt.
 
-Exit codes (CC hook contract):
-  0 — always; reminder text (if any) goes to stdout for CC to display
+Exit codes (Claude Code UserPromptSubmit hook contract):
+  0 — always; reminder text (if any) goes to stdout as context for Claude
 """
 from __future__ import annotations
 

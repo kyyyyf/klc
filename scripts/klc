@@ -136,7 +136,13 @@ OPERATIONAL_CMDS = (
 #               Jira queue here would be an unadvertised write side effect.
 #   skeleton  — a read-only outline of one file (KLC-139). Like `work`, it makes
 #               no writes, so it must not drain the Jira queue.
-NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat", "work", "publish", "skeleton")
+#   status    — a read-only phase/state query (KLC-153), also run on every
+#               UserPromptSubmit via the gate hook. Like remind/heartbeat it
+#               must not spend the Jira transport timeout on every prompt —
+#               that would eat into the hook's own STATUS_TIMEOUT_S budget and
+#               make the gate flakier exactly when Jira is slow.
+NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat", "work", "publish", "skeleton",
+                 "status")
 
 
 def _drain_jira_queue() -> None:

@@ -191,6 +191,29 @@ def build_plan(*, ticket: str | None, track: str | None, path: str,
     }
 
 
+def carry_forward(new_plan: dict, old_plan: dict | None) -> dict:
+    """AC-29: keep `executed` across a re-plan of the SAME diff only.
+
+    `scripts/review.py --plan-only` re-run for a ticket whose diff hasn't
+    changed must never reset an already-`executed` pass back to `planned` —
+    that would let `handback.py take`'s step-0 planner call (KLC-127 AC-8)
+    record the same pass twice. A different diff (or an unreadable/garbled
+    *old_plan*) is simply ignored: *new_plan* is returned untouched, so a
+    genuinely new run plans fresh. A pass the new plan now marks `skipped`
+    is never revived to `executed` — only a `planned` entry is flipped.
+    """
+    if not isinstance(old_plan, dict) or old_plan.get("diff_sha256") != new_plan.get("diff_sha256"):
+        return new_plan
+    done = {p.get("reviewer") for p in old_plan.get("passes") or []
+            if p.get("status") == "executed"}
+    for p in new_plan["passes"]:
+        if p["reviewer"] in done and p["status"] == "planned":
+            p["status"] = "executed"
+    if done and old_plan.get("generated_at"):
+        new_plan["generated_at"] = old_plan["generated_at"]   # same record_pass attempt id
+    return new_plan
+
+
 def write_plan(ticket: str, plan: dict) -> Path | None:
     """Atomic write of `.klc/tickets/<KEY>/review-plan.json` — the latest
     run wins. A write failure degrades to one stderr note, never a failed

@@ -10,11 +10,12 @@ prompt-structural assertions that pin each added prose claim to the REAL
 `test-plan-review-findings.json` file and its real schema (the epic's recurring
 failure class: prompt prose promising a capability the wiring does not back).
 
-The two finding files share ONE identical schema
-(`id · category · severity · detail · ref · suggested_fix`), so the impl.md
-assess logic is the same for both. `test_testplan_clause_symmetric_with_spec_review_clause`
-is the anti-drift guard: it forbids the test-plan sub-block from carrying any
-LESS discipline than the spec-review sub-block.
+The two finding files share ONE identical schema — `findings.Finding`
+(`rule_name · severity · file · line · title · body · fix`, KLC-127), so the
+impl.md assess logic is the same for both.
+`test_testplan_clause_symmetric_with_spec_review_clause` is the anti-drift
+guard: it forbids the test-plan sub-block from carrying any LESS discipline
+than the spec-review sub-block.
 """
 from __future__ import annotations
 
@@ -97,7 +98,7 @@ def test_impl_reads_testplan_findings_file():
         "the test-plan sub-block must instruct READING test-plan-review-findings.json"
     )
     # Pinned to the REAL schema so the prompt cannot promise a shape the file lacks.
-    for token in ("id", "category", "severity", "detail", "ref", "suggested_fix"):
+    for token in ("rule_name", "severity", "file", "line", "title", "body", "fix"):
         assert token in tp, f"test-plan sub-block must name the real schema field '{token}'"
     # Pinned to the REAL category vocabulary from testplan_review.TEST_PLAN_REVIEW.
     for cat in ("uncovered-ac", "weak-assertion", "missing-edge-case"):
@@ -163,7 +164,7 @@ def test_testplan_clause_symmetric_with_spec_review_clause():
         "[!conflict]",      # stop-and-ask marker
         "absent",           # degrade trigger
         "fabricate",        # do-not-fabricate degrade guard
-        "suggested_fix",    # schema field
+        "rule_name",        # schema field
     )
     spec_low, tp_low = spec.lower(), tp.lower()
     for el in elements:

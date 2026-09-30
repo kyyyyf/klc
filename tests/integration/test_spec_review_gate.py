@@ -52,8 +52,10 @@ Picked: Option A — lower risk
 
 _VERDICT = {
     "findings": [
-        {"id": "F-1", "category": "untestable-ac", "severity": "medium",
-         "ref": "AC-1", "detail": "condition names no observable outcome"}
+        {"id": "F-1", "rule_name": "untestable-ac", "severity": "MEDIUM",
+         "file": "spec.md", "line": None, "ref": "AC-1",
+         "title": "condition names no observable outcome",
+         "body": "condition names no observable outcome"}
     ],
     "decisions_to_confirm": [
         {"id": "D-1", "topic": "scope",

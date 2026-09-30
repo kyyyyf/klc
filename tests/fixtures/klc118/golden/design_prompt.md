@@ -365,7 +365,7 @@ skipped. The gate is `implplan_review` bound through `spec_review.should_run(tra
 signals)`.
 
 The orchestrator (not you) spawns the `impl-plan-reviewer` agent
-(`core/agents/impl-plan-reviewer.md`) after `impl-plan.md` is drafted and before the
+(`klc-plugin/agents/impl-plan-reviewer.md`) after `impl-plan.md` is drafted and before the
 design phase completes. Its anchors are the spec's SAOC ACs **and** the recorded
 `spec-review-findings.json`, and it checks **plan DESIGN** only: every AC maps to a
 step that builds it, the steps are in a feasible order, and each behaviour step

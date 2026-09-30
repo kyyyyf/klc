@@ -7,6 +7,13 @@ routing decisions_to_confirm to the ack decision gate, findings recording,
 track-scaling (M/L full · S cascade · XS skip) with signal escalation, the
 degrade-when-inputs-absent paths, the consume() seam, and a structural check
 of core/agents/spec-reviewer.md.
+
+KLC-127: every finding is the one shape (findings.Finding: rule_name, severity,
+file, line, title, body, fix, reviewer, id, kind, ref, ac) — the old
+`spec_review.Finding` (id, category, severity, detail, ref, suggested_fix) is
+gone. `parse_review`/`validate`/`consume_records` now read `output.raw_findings`
+(every raw dict) and `findings.check_findings` for the per-record schema; only
+entries that pass become `output.findings` (findings.Finding objects).
 """
 from __future__ import annotations
 
@@ -15,30 +22,44 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 _FW_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_FW_ROOT / "core" / "skills"))
 
+import drift_review as _dr_mod  # noqa: E402
+import implplan_review as _ipr_mod  # noqa: E402
 import spec_review as sr  # noqa: E402
+import testplan_review as _tr_mod  # noqa: E402
+
+_FOUR_KINDS = [sr.SPEC_REVIEW, _tr_mod.TEST_PLAN_REVIEW, _ipr_mod.IMPL_PLAN_REVIEW,
+              _dr_mod.DRIFT_CHECK]
 
 
-# --- a well-formed reviewer verdict block -----------------------------------
+# --- a well-formed reviewer verdict block (the one Finding shape) -----------
 
 _GOOD = {
     "findings": [
         {
             "id": "F-1",
-            "category": "infidelity",
-            "severity": "high",
+            "rule_name": "infidelity",
+            "severity": "HIGH",
+            "file": "spec.md",
+            "line": None,
+            "title": "spec drops a raw.md behaviour",
+            "body": "spec drops a raw.md behaviour named in AC-3",
+            "fix": "add the AC",
             "ref": "AC-3",
-            "detail": "spec drops a raw.md behaviour",
-            "suggested_fix": "add the AC",
         },
         {
             "id": "F-2",
-            "category": "code-contradiction",
-            "severity": "medium",
+            "rule_name": "code-contradiction",
+            "severity": "MEDIUM",
+            "file": "spec.md",
+            "line": None,
+            "title": "names a verb that does not exist",
+            "body": "the spec names a verb that does not exist in the codebase",
             "ref": "AC-5",
-            "detail": "names a verb that does not exist",
         },
     ],
     "decisions_to_confirm": [
@@ -57,6 +78,13 @@ def _block(doc: dict) -> str:
     return "some narrative\n\n```json\n" + json.dumps(doc) + "\n```\n"
 
 
+def _finding(**overrides) -> dict:
+    d = {"id": "F-1", "rule_name": "infidelity", "severity": "HIGH", "file": "spec.md",
+         "line": None, "title": "a title", "body": "a body"}
+    d.update(overrides)
+    return d
+
+
 # --- parse + validate -------------------------------------------------------
 
 def test_parse_good_block():
@@ -64,7 +92,7 @@ def test_parse_good_block():
     assert not out.degraded
     assert len(out.findings) == 2
     assert len(out.decisions_to_confirm) == 1
-    assert out.findings[0].category == "infidelity"
+    assert out.findings[0].rule_name == "infidelity"
     assert out.decisions_to_confirm[0].recommended.startswith("no")
 
 
@@ -81,33 +109,27 @@ def test_last_json_block_wins():
 
 
 def test_unknown_category_flagged():
-    doc = {"findings": [{"id": "F-1", "category": "bogus",
-                         "severity": "high", "detail": "x"}],
-           "decisions_to_confirm": []}
+    doc = {"findings": [_finding(rule_name="bogus")], "decisions_to_confirm": []}
     errs = sr.validate(sr.parse_review(_block(doc)))
-    assert any("unknown category" in e for e in errs)
+    assert any("unknown rule_name" in e for e in errs)
 
 
 def test_unknown_severity_flagged():
-    doc = {"findings": [{"id": "F-1", "category": "infidelity",
-                         "severity": "blocker", "detail": "x"}],
-           "decisions_to_confirm": []}
+    doc = {"findings": [_finding(severity="blocker")], "decisions_to_confirm": []}
     errs = sr.validate(sr.parse_review(_block(doc)))
     assert any("unknown severity" in e for e in errs)
 
 
 def test_empty_detail_flagged():
-    doc = {"findings": [{"id": "F-1", "category": "infidelity",
-                         "severity": "high", "detail": "  "}],
-           "decisions_to_confirm": []}
+    doc = {"findings": [_finding(body="  ")], "decisions_to_confirm": []}
     errs = sr.validate(sr.parse_review(_block(doc)))
-    assert any("empty detail" in e for e in errs)
+    assert any("empty body" in e for e in errs)
 
 
 def test_duplicate_id_flagged():
     doc = {"findings": [
-        {"id": "F-1", "category": "infidelity", "severity": "high", "detail": "a"},
-        {"id": "F-1", "category": "constitution", "severity": "low", "detail": "b"},
+        _finding(id="F-1", rule_name="infidelity", title="t1", body="a"),
+        _finding(id="F-1", rule_name="constitution", severity="LOW", title="t2", body="b"),
     ], "decisions_to_confirm": []}
     errs = sr.validate(sr.parse_review(_block(doc)))
     assert any("duplicate id" in e for e in errs)
@@ -160,7 +182,7 @@ def test_route_decisions_empty_when_none():
 def test_record_findings_returns_dicts():
     recs = sr.record_findings(sr.parse_review(_block(_GOOD)))
     assert [r["id"] for r in recs] == ["F-1", "F-2"]
-    assert recs[0]["category"] == "infidelity"
+    assert recs[0]["rule_name"] == "infidelity"
 
 
 def test_record_findings_writes_file(tmp_path):
@@ -252,9 +274,7 @@ def test_consume_reads_output_routes_and_records(tmp_path):
 
 
 def test_consume_surfaces_schema_errors(tmp_path):
-    bad = {"findings": [{"id": "F-1", "category": "bogus",
-                         "severity": "high", "detail": "x"}],
-           "decisions_to_confirm": []}
+    bad = {"findings": [_finding(rule_name="bogus")], "decisions_to_confirm": []}
     (tmp_path / "spec-review.md").write_text(_block(bad), encoding="utf-8")
     advisories, _ = sr.consume(tmp_path, "M")
     assert any("schema" in a for a in advisories)
@@ -273,10 +293,12 @@ _TEST_PLAN_KIND = sr.ReviewKind(
 
 _TP_VERDICT = {
     "findings": [
-        {"id": "T-1", "category": "uncovered-ac", "severity": "high",
-         "ref": "AC-2", "detail": "no test drives AC-2"},
-        {"id": "T-2", "category": "weak-assertion", "severity": "low",
-         "ref": "AC-4", "detail": "asserts truthiness, not the value"},
+        {"id": "T-1", "rule_name": "uncovered-ac", "severity": "HIGH", "file": "test-plan.md",
+         "line": None, "title": "no test drives AC-2", "body": "no test drives AC-2",
+         "ref": "AC-2"},
+        {"id": "T-2", "rule_name": "weak-assertion", "severity": "LOW", "file": "test-plan.md",
+         "line": None, "title": "asserts truthiness, not the value",
+         "body": "asserts truthiness, not the value", "ref": "AC-4"},
     ],
     "decisions_to_confirm": [
         {"id": "C-1", "topic": "coverage-depth",
@@ -290,10 +312,11 @@ def test_seam_accepts_a_different_category_set_and_uses_kind_label():
     # NON-tautological: these categories are NOT in SPEC_REVIEW's set, yet
     # validate() (reading FROM the kind) accepts them, and the label uses the
     # kind's name — proving KLC-085 can reuse the module with its own vocab.
-    out = sr.parse_review(_block(_TP_VERDICT))
+    out = sr.parse_review(_block(_TP_VERDICT), _TEST_PLAN_KIND)
     assert sr.validate(out, _TEST_PLAN_KIND) == []
     # The SAME verdict is rejected under SPEC_REVIEW's categories (control).
-    assert sr.validate(out, sr.SPEC_REVIEW) != []
+    out_under_spec = sr.parse_review(_block(_TP_VERDICT), sr.SPEC_REVIEW)
+    assert sr.validate(out_under_spec, sr.SPEC_REVIEW) != []
     lines = sr.route_decisions(out, _TEST_PLAN_KIND)
     assert lines and lines[0].startswith("test-plan-review[decision C-1/coverage-depth]")
 
@@ -372,6 +395,88 @@ def test_consume_persist_true_writes(tmp_path):
     (tmp_path / "spec-review.md").write_text(_block(_GOOD), encoding="utf-8")
     sr.consume(tmp_path, "M", persist=True)
     assert (tmp_path / "spec-review-findings.json").exists()
+
+
+# --- KLC-127 AC-9/AC-10: the one Finding shape, the CLI, and D-106 -----------
+
+def test_cli_writes_no_findings_file_for_ticket_dir_and_delegates_to_handback(tmp_path, capsys):
+    """AC-9: the CLI writes no findings file for --ticket-dir; a test-plan
+    verdict replaying the KLC-128 case can no longer land in
+    spec-review-findings.json — it points to handback.py take instead."""
+    verdict_file = tmp_path / "verdict.json"
+    verdict_file.write_text(json.dumps(_GOOD), encoding="utf-8")
+    ticket_dir = tmp_path / "ticket"
+    ticket_dir.mkdir()
+    sr.main(["--file", str(verdict_file), "--ticket-dir", str(ticket_dir)])
+    assert not (ticket_dir / "spec-review-findings.json").exists()
+    assert "handback.py take" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", _FOUR_KINDS, ids=lambda k: k.name)
+def test_an_old_shape_or_invalid_block_raises_one_schema_advisory_and_leaves_the_existing_file_untouched(
+        tmp_path, kind):
+    """AC-10: an old-shape block (category/detail) raises exactly one schema
+    advisory and leaves an existing findings file byte-for-byte untouched
+    (D-106), for each of the four independent kinds."""
+    sentinel = b'[{"sentinel": true}]'
+    findings_path = tmp_path / f"{kind.name}-review-findings.json"
+    findings_path.write_bytes(sentinel)
+    old_shape_doc = {"findings": [{"id": "F-1", "category": "whatever", "severity": "high",
+                                   "detail": "old shape"}], "decisions_to_confirm": []}
+    (tmp_path / kind.output_file).write_text(_block(old_shape_doc), encoding="utf-8")
+
+    records, findings = sr.consume_records(tmp_path, "M", kind=kind)
+    schema_records = [r for r in records if r["code"].endswith(".schema")]
+    assert len(schema_records) == 1
+    assert findings_path.read_bytes() == sentinel
+    assert findings == []
+
+
+def test_an_invalid_one_shape_block_leaves_the_existing_file_untouched(tmp_path):
+    """AC-10: a ONE-shape block that is still invalid (line 0) raises one
+    schema advisory and leaves an existing findings file untouched."""
+    sentinel = b'[{"sentinel": true}]'
+    findings_path = tmp_path / "spec-review-findings.json"
+    findings_path.write_bytes(sentinel)
+    bad_doc = {"findings": [_finding(line=0)], "decisions_to_confirm": []}
+    (tmp_path / "spec-review.md").write_text(_block(bad_doc), encoding="utf-8")
+
+    records, findings = sr.consume_records(tmp_path, "M")
+    assert any(r["code"].endswith(".schema") for r in records)
+    assert findings_path.read_bytes() == sentinel
+    assert findings == []
+
+
+def test_valid_decisions_are_still_routed_when_the_findings_are_old_shape(tmp_path):
+    """AC-10: a valid decisions_to_confirm is still routed even when the
+    findings block is old-shape (and thus schema-invalid overall)."""
+    doc = {"findings": [{"id": "F-1", "category": "infidelity", "severity": "high",
+                         "detail": "old"}],
+           "decisions_to_confirm": [{"id": "D-1", "topic": "scope", "question": "q?",
+                                     "recommended": "yes"}]}
+    (tmp_path / "spec-review.md").write_text(_block(doc), encoding="utf-8")
+
+    records, _ = sr.consume_records(tmp_path, "M")
+    assert any(r["code"].endswith(".decision") for r in records)
+    assert any(r["code"].endswith(".schema") for r in records)
+
+
+@pytest.mark.parametrize("severities,expected_high", [
+    (["CRITICAL"], 1),
+    (["HIGH"], 1),
+    (["MEDIUM", "LOW", "INFO"], 0),
+])
+def test_high_and_critical_both_count_as_high_in_the_ack_advisory(tmp_path, severities, expected_high):
+    """AC-10: HIGH and CRITICAL both count as "high" in the findings summary;
+    MEDIUM/LOW/INFO do not."""
+    findings = [_finding(id=f"F-{i}", severity=sev, title=f"t{i}", body=f"b{i}")
+               for i, sev in enumerate(severities, start=1)]
+    doc = {"findings": findings, "decisions_to_confirm": []}
+    (tmp_path / "spec-review.md").write_text(_block(doc), encoding="utf-8")
+
+    records, _ = sr.consume_records(tmp_path, "M")
+    finding_rec = next(r for r in records if r["code"].endswith(".findings"))
+    assert f"({expected_high} high)" in finding_rec["message"]
 
 
 # --- structural test of the reviewer PROMPT ---------------------------------

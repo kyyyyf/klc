@@ -10,6 +10,7 @@ test on the reviewer PROMPT.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -273,25 +274,31 @@ def test_seam_accepts_testplan_vocabulary_and_rejects_spec_only():
     # under TEST_PLAN_REVIEW, but the SAME verdict is REJECTED under SPEC_REVIEW,
     # and a spec-only category is rejected under TEST_PLAN_REVIEW. One validator,
     # two vocabularies — proving the vocabulary lives on the kind, not the module.
-    tp_verdict = sr.ReviewOutput(
-        findings=[sr.Finding(id="F-1", category="uncovered-ac", severity="high",
-                             detail="AC-3 maps to no planned test")],
-        decisions_to_confirm=[sr.DecisionToConfirm(
-            id="D-1", topic="coverage-depth",
-            question="is one acceptance test enough for AC-2?",
-            recommended="add a boundary case too")],
-    )
+    tp_doc = {
+        "findings": [{"id": "F-1", "rule_name": "uncovered-ac", "severity": "HIGH",
+                     "file": "test-plan.md", "line": None,
+                     "title": "AC-3 maps to no planned test",
+                     "body": "AC-3 maps to no planned test"}],
+        "decisions_to_confirm": [{"id": "D-1", "topic": "coverage-depth",
+                                 "question": "is one acceptance test enough for AC-2?",
+                                 "recommended": "add a boundary case too"}],
+    }
+    tp_text = "```json\n" + json.dumps(tp_doc) + "\n```"
+    tp_verdict = sr.parse_review(tp_text, tr.TEST_PLAN_REVIEW)
     # Accepted under the test-plan kind.
     assert sr.validate(tp_verdict, tr.TEST_PLAN_REVIEW) == []
-    # The SAME verdict is rejected under the spec kind (wrong category AND topic).
-    spec_errs = sr.validate(tp_verdict, sr.SPEC_REVIEW)
+    # The SAME raw verdict is rejected under the spec kind (wrong category AND topic).
+    spec_errs = sr.validate(sr.ReviewOutput(raw_findings=tp_verdict.raw_findings,
+                                            decisions_to_confirm=tp_verdict.decisions_to_confirm),
+                            sr.SPEC_REVIEW)
     assert any("uncovered-ac" in e for e in spec_errs)
     assert any("coverage-depth" in e for e in spec_errs)
 
     # And a spec-only category is rejected under the test-plan kind (vice-versa).
     spec_verdict = sr.ReviewOutput(
-        findings=[sr.Finding(id="F-1", category="infidelity", severity="low",
-                             detail="drifts from raw.md")],
+        raw_findings=[{"id": "F-1", "rule_name": "infidelity", "severity": "LOW",
+                      "file": "spec.md", "line": None, "title": "drifts from raw.md",
+                      "body": "drifts from raw.md"}],
     )
     assert sr.validate(spec_verdict, sr.SPEC_REVIEW) == []
     tp_errs = sr.validate(spec_verdict, tr.TEST_PLAN_REVIEW)
@@ -304,14 +311,15 @@ def test_consume_reuses_seam_and_records_findings(tmp_path):
     # test-plan label — no forked parser.
     (tmp_path / "test-plan-review.md").write_text(
         "narrative\n\n```json\n"
-        '{"findings":[{"id":"F-1","category":"missing-edge-case","severity":"high",'
-        '"detail":"AC-2 has no negative case"}],'
+        '{"findings":[{"id":"F-1","rule_name":"missing-edge-case","severity":"HIGH",'
+        '"file":"test-plan.md","line":null,"title":"AC-2 has no negative case",'
+        '"body":"AC-2 has no negative case"}],'
         '"decisions_to_confirm":[{"id":"D-1","topic":"risk-prioritization",'
         '"question":"prove the data-loss path first?","recommended":"yes"}]}\n```\n',
         encoding="utf-8",
     )
     advisories, findings = tr.consume(tmp_path, "M", {"risk_tags": []}, persist=True)
-    assert len(findings) == 1 and findings[0]["category"] == "missing-edge-case"
+    assert len(findings) == 1 and findings[0]["rule_name"] == "missing-edge-case"
     assert (tmp_path / "test-plan-review-findings.json").exists()  # persisted
     assert any(a.startswith("test-plan-review[decision") for a in advisories)
     assert any("finding(s) recorded" in a for a in advisories)
@@ -320,8 +328,9 @@ def test_consume_reuses_seam_and_records_findings(tmp_path):
 def test_consume_probe_does_not_write(tmp_path):
     # persist=False (read-only probe) surfaces advisories but writes NOTHING.
     (tmp_path / "test-plan-review.md").write_text(
-        '```json\n{"findings":[{"id":"F-1","category":"uncovered-ac",'
-        '"severity":"low","detail":"AC-1 uncovered"}],"decisions_to_confirm":[]}\n```\n',
+        '```json\n{"findings":[{"id":"F-1","rule_name":"uncovered-ac",'
+        '"severity":"LOW","file":"test-plan.md","line":null,'
+        '"title":"AC-1 uncovered","body":"AC-1 uncovered"}],"decisions_to_confirm":[]}\n```\n',
         encoding="utf-8",
     )
     advisories, findings = tr.consume(tmp_path, "M", {"risk_tags": []}, persist=False)

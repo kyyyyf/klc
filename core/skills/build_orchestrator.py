@@ -57,6 +57,31 @@ def _fix_brief_path(ticket: str, step_num: int) -> Path:
     return klc_ticket_dir(ticket) / "build" / f"step-{step_num}-fix-brief.md"
 
 
+def _telemetry_dispatch(ticket: str):
+    """KLC-133 D-106: the default dispatch installed by `run_build` when the
+    caller injects none — the ONLY dispatch that receives telemetry tags
+    (`step`/`run_pass`), via the `klc_telemetry` marker `_call` checks
+    below. An injected test/caller dispatch keeps today's plain call shape
+    untouched."""
+    def _dispatch(phase_id, prompt_path, out_path, *, inputs=None, track=None,
+                  step=None, run_pass=None):
+        return runner.run_agent(phase_id, prompt_path, out_path, inputs=inputs,
+                                track=track, telemetry_ticket=ticket,
+                                telemetry_phase="build", step=step,
+                                run_pass=run_pass)
+    _dispatch.klc_telemetry = True
+    return _dispatch
+
+
+def _call(dispatch, *args, step, run_pass, **kwargs):
+    """KLC-133 AC-6: add the `step`/`run_pass` tags only for the default
+    telemetry dispatch (marked `klc_telemetry`) — an injected dispatch
+    without that marker receives exactly its pre-KLC-133 arguments."""
+    if getattr(dispatch, "klc_telemetry", False):
+        kwargs = dict(kwargs, step=step, run_pass=run_pass)
+    return dispatch(*args, **kwargs)
+
+
 def _run_reviewer(ticket: str, step_num: int, dispatch, *, track: str | None = None) -> list:
     """Dispatch the per-step reviewer — AS THE ROLE PROMPT it actually is
     (`core/agents/review/per-step.md`), with the composed review package as
@@ -82,8 +107,9 @@ def _run_reviewer(ticket: str, step_num: int, dispatch, *, track: str | None = N
     review_input_path.write_text(review_input, encoding="utf-8")
 
     review_output_path = _brief_path(ticket, step_num).parent / f"step-{step_num}-findings.json"
-    rc = dispatch("per-step-review", _per_step_prompt(), review_output_path,
-                  inputs={"step package": review_input_path}, track=track)
+    rc = _call(dispatch, "per-step-review", _per_step_prompt(), review_output_path,
+              inputs={"step package": review_input_path}, track=track,
+              step=step_num, run_pass="per-step-review")
     if rc != 0:
         # Dispatch error → synthetic CRITICAL (fail-closed)
         from findings import Finding
@@ -137,7 +163,8 @@ def _per_step_gate(ticket: str, step_num: int, meta: dict, dispatch,
         fix_brief = compose_review_input(ticket, step_num) + f"\n\n## Blocking findings\n\n{blocking_summary}\n"
         fix_path = _fix_brief_path(ticket, step_num)
         fix_path.write_text(fix_brief, encoding="utf-8")
-        dispatch("build", fix_path, _report_path(ticket, step_num))
+        _call(dispatch, "build", fix_path, _report_path(ticket, step_num),
+             step=step_num, run_pass="per-step-fix")
 
     return False
 
@@ -155,7 +182,7 @@ def _finish(ticket: str, rc: int, verify_on: bool) -> int:
 def run_build(ticket: str, *, dispatch=None, judge_step=None) -> int:
     """Dispatch each pending impl-plan step to a fresh subagent."""
     if dispatch is None:
-        dispatch = runner.run_agent
+        dispatch = _telemetry_dispatch(ticket)
     judge = judge_step or _judge_step
     verify_on = settings.build_verify_steps()
 
@@ -180,7 +207,8 @@ def run_build(ticket: str, *, dispatch=None, judge_step=None) -> int:
         led.mark(step_id, "running", model=resolved.model)
         led.save()
 
-        rc = dispatch("build", brief_path, _report_path(ticket, n), track=track)
+        rc = _call(dispatch, "build", brief_path, _report_path(ticket, n),
+                  track=track, step=n, run_pass="step")
 
         if rc != 0:
             led.mark(step_id, "blocked", reason=f"dispatch rc={rc}")

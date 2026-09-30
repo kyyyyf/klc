@@ -37,8 +37,8 @@ Agent({
     3. No intra-file contradictions introduced by the new additions.
     4. Tests cover the new behaviour (not just happy-path).
 
-    Return: findings (severity HIGH/MEDIUM/LOW + description + suggested fix).
-    Return empty list if none.
+    Return: ONE JSON object {"findings": [{id, rule_name, severity, file, line, title, body, fix, ac}]}; empty findings if none.
+    Take it in with: python3 core/skills/handback.py take --kind code-review --ticket KEY --file answer.json
   """
 })
 ```

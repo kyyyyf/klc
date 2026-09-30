@@ -130,47 +130,32 @@ That file may open with brief narrative, but it MUST END with exactly one fenced
 is fine. (Your chat response ends with a SEPARATE orchestrator signal — see
 "Completion signal" — do not confuse the two.)
 
+## The one finding shape
+
+Return ONE JSON object — your verdict, the last fenced block of your verdict file:
+
 ```json
-{
-  "findings": [
-    {
-      "id": "F-1",
-      "category": "missing-step",
-      "severity": "high",
-      "ref": "AC-3",
-      "detail": "AC-3 (the ack records findings only on the persisting path) maps to no step — no step builds or tests the persist=False probe.",
-      "suggested_fix": "add a step whose RED asserts persist=False writes nothing and GREEN threads the flag."
-    },
-    {
-      "id": "F-2",
-      "category": "wrong-sequencing",
-      "severity": "medium",
-      "ref": "step-2",
-      "detail": "step-2's Goal needs the descriptor step-3 defines; its `Depends on` points forward, so the plan cannot run in order.",
-      "suggested_fix": "swap the two steps, or move the descriptor into step-2."
-    }
-  ],
-  "decisions_to_confirm": [
-    {
-      "id": "D-1",
-      "topic": "sequencing-tradeoff",
-      "question": "Build the shared parser first (steps depend on it) or vertical-slice each surface?",
-      "recommended": "Parser first — three later steps import it, so a slice order would re-touch it repeatedly.",
-      "rationale": "The Depends-on graph already fans out from the parser; a shared-first order minimizes rework.",
-      "ref": "step-1"
-    }
-  ]
-}
+{"findings": [{"id": "F-1", "rule_name": "RULE", "severity": "HIGH",
+  "file": "spec.md", "line": 88, "title": "AC-3 has no observable outcome",
+  "body": "AC-3 says the gate works correctly; nothing checkable follows.",
+  "fix": "Name the rejected input and the exit code.", "ref": "AC-3"}],
+ "decisions_to_confirm": [{"id": "D-1", "topic": "TOPIC", "question": "Is X in scope?",
+  "recommended": "No: X belongs to another ticket.", "rationale": "", "ref": "AC-7"}]}
 ```
 
-Field rules:
-- `category` ∈ `missing-step | wrong-sequencing | untestable-step | unaddressed-ac | infeasible-red-green`.
-- `topic` ∈ `sequencing-tradeoff | scope`.
-- `severity` ∈ `high | medium | low`.
-- `recommended` is REQUIRED and non-empty on every decision.
-- `findings[]` empty and `decisions_to_confirm[]` empty is a valid, clean verdict —
-  a plan whose steps cover every AC in a feasible, testable order is clean, and you
-  say so plainly.
+RULE is one value of your rule_name list below. With no such list,
+`rule_name` is a lower-case kebab-case slug (e.g. `missing-test`, never
+snake_case or `RULE` itself). TOPIC is one of your topics; none means
+`decisions_to_confirm` must be `[]`.
+
+- `id` unique in the object; `severity` is CRITICAL, HIGH, MEDIUM, LOW or INFO.
+- `file` is the file the finding is about (a code file, else your artefact); `line`
+  is its 1-based line, or null; never 0.
+- `title` is one line; `body` is not empty; `fix` is a string or null.
+- Do not add `reviewer` or `kind`: intake stamps them. `recommended` is required.
+- Empty `findings` and `decisions_to_confirm` is a valid verdict.
+
+`rule_name` ∈ `missing-step | wrong-sequencing | untestable-step | unaddressed-ac | infeasible-red-green`; `topic` ∈ `sequencing-tradeoff | scope`; `file` is `impl-plan.md` (D-005); `line` is the step heading's 1-based line, or `null`.
 
 ## Track scaling
 
@@ -189,32 +174,22 @@ fire. When you do run, run the full review regardless of track.
 
 If the spec has no SAOC ACs, or `impl-plan.md` is absent/empty, or
 `spec-review-findings.json` is missing, or a tool fails, record what you could not
-check as a `low`-severity finding or a note in the relevant `detail`, and review
+check as a `LOW`-severity finding or a note in the relevant `body`, and review
 everything else. Never abort because one anchor is missing — a partial verdict is
 more useful than none.
 
 ## Reuse — do NOT rebuild the plumbing
 
 The reviewer-spawn / parsing / routing / recording machinery is **KLC-084's generic
-independent-artifact-review seam** (`core/skills/spec_review.py`). KLC-094 only adds
-the `IMPL_PLAN_REVIEW` descriptor (this prompt, `impl-plan.md`, `impl-plan-review.md`,
-and the categories/topics above) and reuses every seam function unchanged. Do not
-build a second reviewer harness, parser, or validator.
+independent-artifact-review seam** (`core/skills/spec_review.py`); KLC-094 only adds this
+prompt and its `IMPL_PLAN_REVIEW` descriptor. Do not build a second harness/parser/validator.
 
 ## Two sinks — which JSON block goes where
 
-There are TWO separate destinations, each ending in its own JSON block. They live in
-DIFFERENT places, so they never collide — do not merge them:
-
 ```text
-FILE  impl-plan-review.md → its LAST block is the VERDICT (findings + decisions).
-                            No completion-signal block anywhere in this file: the
-                            plumbing takes the file's last JSON block as the verdict,
-                            so a trailing signal here would be mis-read as an empty
-                            verdict.
-CHAT  your reply           → its LAST block is the orchestrator COMPLETION SIGNAL
-                            (see below). This is what run_signal parses to know the
-                            run succeeded. The verdict does NOT go in the chat.
+FILE  impl-plan-review.md → LAST block is the VERDICT; no completion signal here
+      (it would be mis-read as an empty verdict).
+CHAT  your reply          → LAST block is the orchestrator COMPLETION SIGNAL (run_signal parses it), never the verdict.
 ```
 
 ## Hard rules

@@ -76,15 +76,22 @@ def test_descriptor_carries_five_categories_two_topics():
     assert set(k.decision_topics) == set(_IMPLPLAN_TOPICS)
 
 
+def _raw_finding(**overrides) -> dict:
+    d = {"id": "F-1", "rule_name": "missing-step", "severity": "MEDIUM", "file": "impl-plan.md",
+         "line": None, "title": "a title", "body": "a body"}
+    d.update(overrides)
+    return d
+
+
 def test_validate_accepts_implplan_categories():
     """AC-1 (non-tautological, part 1): the REAL `spec_review.validate` accepts a
     verdict whose findings use ALL FIVE impl-plan categories and whose decisions
     use BOTH topics under `kind=IMPL_PLAN_REVIEW` — proving the vocabulary lives on
     the kind, not the module."""
     verdict = sr.ReviewOutput(
-        findings=[
-            sr.Finding(id=f"F-{i}", category=cat, severity="medium",
-                       detail=f"{cat} finding detail")
+        raw_findings=[
+            _raw_finding(id=f"F-{i}", rule_name=cat, title=f"{cat} finding",
+                        body=f"{cat} finding detail")
             for i, cat in enumerate(_IMPLPLAN_CATEGORIES, start=1)
         ],
         decisions_to_confirm=[
@@ -103,22 +110,24 @@ def test_validate_accepts_implplan_categories():
 
 def test_validate_rejects_spec_only_category_under_implplan_kind():
     """AC-1 (non-tautological, part 2): a spec-only category (`infidelity`) is
-    REJECTED under IMPL_PLAN_REVIEW with an "unknown category" error, and — the
+    REJECTED under IMPL_PLAN_REVIEW with an "unknown rule_name" error, and — the
     vice-versa arm — an impl-plan-only category (`missing-step`) is rejected under
     SPEC_REVIEW. One validator, two vocabularies."""
     spec_verdict = sr.ReviewOutput(
-        findings=[sr.Finding(id="F-1", category="infidelity", severity="low",
-                             detail="spec drifts from raw.md")],
+        raw_findings=[_raw_finding(rule_name="infidelity", severity="LOW", file="spec.md",
+                                   title="spec drifts from raw.md",
+                                   body="spec drifts from raw.md")],
     )
     # Clean under the spec kind, rejected under the impl-plan kind.
     assert sr.validate(spec_verdict, sr.SPEC_REVIEW) == []
     ip_errs = sr.validate(spec_verdict, ipr.IMPL_PLAN_REVIEW)
-    assert any("infidelity" in e and "category" in e for e in ip_errs), ip_errs
+    assert any("infidelity" in e and "rule_name" in e for e in ip_errs), ip_errs
 
     # Vice-versa: an impl-plan-only category is rejected under the spec kind.
     ip_verdict = sr.ReviewOutput(
-        findings=[sr.Finding(id="F-1", category="missing-step", severity="high",
-                             detail="AC-3 has no step that builds it")],
+        raw_findings=[_raw_finding(rule_name="missing-step", severity="HIGH",
+                                   title="AC-3 has no step that builds it",
+                                   body="AC-3 has no step that builds it")],
     )
     assert sr.validate(ip_verdict, ipr.IMPL_PLAN_REVIEW) == []
     spec_errs = sr.validate(ip_verdict, sr.SPEC_REVIEW)
@@ -132,14 +141,15 @@ def test_consume_delegates_to_spec_review_seam(tmp_path):
     No forked parser."""
     (tmp_path / "impl-plan-review.md").write_text(
         "narrative preamble\n\n```json\n"
-        '{"findings":[{"id":"F-1","category":"wrong-sequencing","severity":"high",'
-        '"detail":"step-2 depends on step-3 output"}],'
+        '{"findings":[{"id":"F-1","rule_name":"wrong-sequencing","severity":"HIGH",'
+        '"file":"impl-plan.md","line":null,"title":"step-2 depends on step-3 output",'
+        '"body":"step-2 depends on step-3 output"}],'
         '"decisions_to_confirm":[{"id":"D-1","topic":"scope",'
         '"question":"is the migration in scope?","recommended":"no"}]}\n```\n',
         encoding="utf-8",
     )
     advisories, findings = ipr.consume(tmp_path, "M", {"risk_tags": []}, persist=True)
-    assert len(findings) == 1 and findings[0]["category"] == "wrong-sequencing"
+    assert len(findings) == 1 and findings[0]["rule_name"] == "wrong-sequencing"
     assert (tmp_path / _IMPLPLAN_FINDINGS_FILE).exists()  # persisted
     assert any(a.startswith("impl-plan-review[decision") for a in advisories), advisories
     assert any("finding(s) recorded" in a for a in advisories), advisories
@@ -221,13 +231,14 @@ def test_prompt_two_sinks_verdict_in_file_signal_in_chat():
 
 
 def test_prompt_categories_topics_closed_world_match_descriptor():
-    """AC-11 (closed-world honesty): the prompt's DECLARED finding categories and
-    decision topics (its Field-rules enumerations) equal EXACTLY the
-    IMPL_PLAN_REVIEW descriptor's tuples — no fabricated category/topic outside the
-    descriptor, and none the descriptor carries is omitted. Anchored to the REAL
-    descriptor, so drift on either side fails."""
+    """AC-11 (closed-world honesty): the prompt's DECLARED `rule_name` and
+    `topic` enumerations (KLC-127's one-line kind vocabulary, replacing the
+    old per-prompt Field-rules block) equal EXACTLY the IMPL_PLAN_REVIEW
+    descriptor's tuples — no fabricated rule_name/topic outside the
+    descriptor, and none the descriptor carries is omitted. Anchored to the
+    REAL descriptor, so drift on either side fails."""
     text = _read(_REVIEWER)
-    declared_cats = _enum_after(text, "category")
+    declared_cats = _enum_after(text, "rule_name")
     declared_topics = _enum_after(text, "topic")
     assert declared_cats == set(ipr.IMPL_PLAN_REVIEW.finding_categories), (
         f"prompt's declared categories {declared_cats} must equal the descriptor's "
@@ -290,7 +301,7 @@ def test_impl_reads_implplan_findings_file():
     _, _, ip = _three_subblocks(_read(_IMPL))
     assert ip, "the impl-plan-review sub-block must exist"
     assert "read" in ip.lower(), "the sub-block must instruct READING the file"
-    for token in ("id", "category", "severity", "detail", "ref", "suggested_fix"):
+    for token in ("rule_name", "severity", "file", "line", "title", "body", "fix"):
         assert token in ip, f"impl-plan sub-block must name the schema field '{token}'"
     for cat in _IMPLPLAN_CATEGORIES:
         assert cat in ip, f"impl-plan sub-block must name the real category '{cat}'"
@@ -304,7 +315,7 @@ def test_impl_implplan_clause_symmetric_with_other_two():
     assert spec and tp and ip, "all three sub-blocks must exist"
     elements = (
         "fix", "won't-fix", "build-log.md", "high",
-        "[!question]", "[!conflict]", "absent", "fabricate", "suggested_fix",
+        "[!question]", "[!conflict]", "absent", "fabricate", "rule_name",
     )
     ip_low = ip.lower()
     for el in elements:
@@ -334,8 +345,9 @@ def test_ack_surfaces_and_records_implplan_review_on_persist(tmp_path, monkeypat
 
     (tmp_path / "impl-plan-review.md").write_text(
         "```json\n"
-        '{"findings":[{"id":"F-1","category":"missing-step","severity":"high",'
-        '"detail":"AC-3 has no step"}],'
+        '{"findings":[{"id":"F-1","rule_name":"missing-step","severity":"HIGH",'
+        '"file":"impl-plan.md","line":null,"title":"AC-3 has no step",'
+        '"body":"AC-3 has no step"}],'
         '"decisions_to_confirm":[{"id":"D-1","topic":"sequencing-tradeoff",'
         '"question":"parser first?","recommended":"yes"}]}\n```\n',
         encoding="utf-8",
@@ -358,8 +370,9 @@ def test_ack_probe_persist_false_writes_nothing(tmp_path, monkeypatch):
 
     (tmp_path / "impl-plan-review.md").write_text(
         "```json\n"
-        '{"findings":[{"id":"F-1","category":"untestable-step","severity":"low",'
-        '"detail":"step-2 has no RED"}],"decisions_to_confirm":[]}\n```\n',
+        '{"findings":[{"id":"F-1","rule_name":"untestable-step","severity":"LOW",'
+        '"file":"impl-plan.md","line":null,"title":"step-2 has no RED",'
+        '"body":"step-2 has no RED"}],"decisions_to_confirm":[]}\n```\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(pc, "klc_ticket_meta_file",

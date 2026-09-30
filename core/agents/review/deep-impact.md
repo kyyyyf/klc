@@ -96,23 +96,59 @@ For each affected module in `modules.json`:
 Skip this lens when `modules.json` has empty `depended_by` (stub graph is
 inert per C-003).
 
-## Output contract
+## Output format (Phase 1 structured findings)
 
-Emit findings in this format (one per issue):
+You must emit **two outputs** in sequence:
 
+### 1. findings.json
+
+Write a JSON array to `.klc/reports/partials-<TS>/deep-impact/findings.json`.
+Schema per `core/skills/findings.py`:
+
+```json
+[
+  {
+    "id": "F-1",
+    "rule_name": "stale-config-reference",
+    "severity": "HIGH",
+    "file": "config/jira.yml",
+    "line": 12,
+    "title": "Stale config reference after symbol rename",
+    "body": "The symbol fetch_issue was renamed to get_issue in klc/issue.py:45 but config/jira.yml:12 still references the old name fetch_issue. This will fail at runtime when the config value is resolved.\n\nEvidence: config/jira.yml:12 contains handler: fetch_issue",
+    "fix": "Update config/jira.yml:12 to handler: get_issue"
+  }
+]
 ```
+
+**Field requirements:**
+- `id` — unique within this findings.json, e.g. `"F-1"`, `"F-2"`.
+- `rule_name` — from the `## Rules` catalog below. Never invent.
+- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`.
+- `file`, `line` — a verified citation. A finding without one must not be emitted.
+- `title` — one-line summary (no `[SEVERITY]` prefix).
+- `body` — multi-line details, citing `file:line`.
+- `fix` — concrete suggestion or `null`.
+- Do not add `reviewer`: intake stamps it from the partial directory name.
+- Only report issues **introduced or worsened** by this diff. Do not report
+  pre-existing issues.
+
+Empty case (no findings):
+```json
+[]
+```
+
+### 2. Markdown partial
+
+After writing `findings.json`, render the same findings as markdown, one per
+issue:
+
+```markdown
 ### [SEVERITY] Short title — file:line
 
 Evidence: `file:line` shows `<old reference>` which is now stale.
 
 Suggested fix: Update `file:line` to `<new reference>`.
 ```
-
-- `SEVERITY` must be one of: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`.
-- Every finding **must** include a verified `file:line` citation. A finding
-  without a citation must not be emitted.
-- Only report issues **introduced or worsened** by this diff. Do not report
-  pre-existing issues.
 
 ## Rules
 

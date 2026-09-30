@@ -14,6 +14,12 @@ Contract with review.sh / review.py:
   - Writes the sub-agent's output to the partial path.
   - The script MUST NOT print anything to stdout besides fatal errors.
 
+KLC-133 AC-5: this script writes no telemetry attempt of its own — it
+delegates the ticket, the "review" tag phase, the reviewer name, and the
+job card's byte size to `run_agent`, which reads the CLI's own provider
+usage block when the dispatch returns one (`source="provider"`) and falls
+back to a byte estimate otherwise (`source="estimated"`).
+
 Cross-platform (Python-only; no bash).
 """
 from __future__ import annotations
@@ -101,19 +107,19 @@ def main(argv: list[str]) -> int:
     # Track hint: look in meta.json next to spec if we can find it.
     track = _infer_track_from_spec(inputs.get("spec"))
 
-    rc = run_agent(
+    ticket = _ticket_from_spec(inputs.get("spec"))
+    reviewer = partial_path.name.removesuffix(".partial.md")
+    return run_agent(
         phase_id=phase_id,
         prompt_path=prompt_path,
         out_path=partial_path,
         inputs=inputs,
         track=track,
+        telemetry_ticket=ticket,
+        telemetry_phase="review",
+        reviewer=reviewer,
+        card_bytes=card_path.stat().st_size,
     )
-    if rc == 0:                       # executed = returned output (D-008)
-        ticket = _ticket_from_spec(inputs.get("spec"))
-        reviewer = partial_path.name.removesuffix(".partial.md")
-        _record_attempt(ticket, reviewer, prompt_path, inputs, partial_path,
-                        card_path)
-    return rc
 
 
 def _infer_track_from_spec(spec_path: object) -> str | None:
@@ -155,26 +161,6 @@ def _ticket_from_spec(spec_path: object) -> str | None:
     if isinstance(ticket, str) and ticket:
         return ticket
     return spec_path.parent.name or None
-
-
-def _record_attempt(ticket: str | None, reviewer: str, prompt_path: Path,
-                    inputs: dict, partial_path: Path, card_path: Path) -> None:
-    """KLC-120 AC-3/D-008: the headless attempt writer. Called once per
-    successful dispatch (rc == 0), never for a failed one. Byte-size
-    estimates only — this path has no provider usage block to read."""
-    if not ticket:
-        return
-    import budget_guard
-    in_bytes = sum(
-        p.stat().st_size for p in [prompt_path, *inputs.values()]
-        if isinstance(p, Path) and p.is_file())
-    out_bytes = partial_path.stat().st_size if partial_path.is_file() else 0
-    budget_guard.write_token_metrics(
-        ticket, "review",
-        budget_guard.estimate_tokens_from_bytes(in_bytes),
-        budget_guard.estimate_tokens_from_bytes(out_bytes), 0,
-        source="estimated", card_bytes=card_path.stat().st_size,
-        reviewer=reviewer)
 
 
 if __name__ == "__main__":

@@ -105,13 +105,19 @@ def _drain_journal(ticket) -> list[str]:
     ids: list[str] = []
     for rec in records:
         phase_id = rec.get("phase") or "unknown"
+        # KLC-133 AC-9: forward every AC-8 key that is ACTUALLY present on
+        # the journaled record (never a hard-coded all-keys set — a partial
+        # key set must drain with the rest genuinely absent, test-plan-review
+        # F-4), plus the original `ts` so the drain never re-stamps "now"
+        # over a journaled attempt's real time (options F-104).
+        extra = {k: rec[k] for k in budget_guard.ATTEMPT_OPTIONAL_KEYS if k in rec}
         budget_guard.write_token_metrics(
             ticket, phase_id,
             rec.get("in", 0), rec.get("out", 0), rec.get("cache_hit", 0),
             source=rec.get("source", "estimated"),
             card_bytes=rec.get("card_bytes"),
             step=rec.get("step"), attempt_id=rec.get("id"),
-            reviewer=rec.get("reviewer"))
+            reviewer=rec.get("reviewer"), ts=rec.get("ts"), **extra)
         ids.append(rec.get("id"))
     return ids
 

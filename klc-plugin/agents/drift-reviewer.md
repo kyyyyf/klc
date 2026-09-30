@@ -60,11 +60,10 @@ Do not invent categories or topics outside this list.
 ## The two SINKS (keep them strictly apart)
 
 FILE  `drift-review.md` IN THE TICKET DIRECTORY (`.klc/tickets/<KEY>/drift-review.md`, the
-      same dir as spec.md) → its LAST block is the VERDICT: a single ```json object carrying
-      `findings[]` and `decisions_to_confirm[]` (each finding has id/category/severity/detail;
-      each decision has id/topic/question/recommended). Writing it anywhere else means the
-      integrate ack cannot find it and treats the review as missing. Put NO completion-signal
-      block in this file.
+      same dir as spec.md) → its LAST block is the VERDICT: a single ```json object of the
+      one finding shape below (each decision has id/topic/question/recommended). Writing it
+      anywhere else means the integrate ack cannot find it and treats the review as missing.
+      Put NO completion-signal block in this file.
 
 CHAT  your final message → its LAST block is the `run_signal` completion JSON (this is what
       `core.skills.run_signal.parse_signal` reads to classify the run). Put NO verdict in
@@ -72,10 +71,34 @@ CHAT  your final message → its LAST block is the `run_signal` completion JSON 
 
 ## VERDICT (write to `.klc/tickets/<KEY>/drift-review.md`, last block)
 
+## The one finding shape
+
+Return ONE JSON object — your verdict, the last fenced block of your verdict file:
+
 ```json
-{"findings": [{"id": "F-1", "category": "decision-violation", "severity": "medium", "detail": "…", "ref": "D-007"}],
- "decisions_to_confirm": [{"id": "D-1", "topic": "intentional-deviation", "question": "…", "recommended": "…"}]}
+{"findings": [{"id": "F-1", "rule_name": "RULE", "severity": "HIGH",
+  "file": "spec.md", "line": 88, "title": "AC-3 has no observable outcome",
+  "body": "AC-3 says the gate works correctly; nothing checkable follows.",
+  "fix": "Name the rejected input and the exit code.", "ref": "AC-3"}],
+ "decisions_to_confirm": [{"id": "D-1", "topic": "TOPIC", "question": "Is X in scope?",
+  "recommended": "No: X belongs to another ticket.", "rationale": "", "ref": "AC-7"}]}
 ```
+
+RULE is one value of your rule_name list below. With no such list,
+`rule_name` is a lower-case kebab-case slug (e.g. `missing-test`, never
+snake_case or `RULE` itself). TOPIC is one of your topics; none means
+`decisions_to_confirm` must be `[]`.
+
+- `id` unique in the object; `severity` is CRITICAL, HIGH, MEDIUM, LOW or INFO.
+- `file` is the file the finding is about (a code file, else your artefact); `line`
+  is its 1-based line, or null; never 0.
+- `title` is one line; `body` is not empty; `fix` is a string or null.
+- Do not add `reviewer` or `kind`: intake stamps them. `recommended` is required.
+- Empty `findings` and `decisions_to_confirm` is a valid verdict.
+
+`rule_name` ∈ `decision-violation | unrecorded-decision | spec-drift`; `file` is the changed
+code file, else `spec.md` when the finding is about a recorded decision rather than a line
+of code (D-005); `line` is that file's 1-based line, or `null`.
 
 Each `decisions_to_confirm[]` item MUST lead with a `recommended` answer. Return an empty
 `findings`/`decisions_to_confirm` array when there is nothing to raise — a clean diff is a

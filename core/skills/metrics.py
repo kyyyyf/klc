@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import math
 import os
 import re
 import statistics
@@ -262,6 +263,118 @@ def _per_confidence(rows: list[dict]) -> dict:
             for b, ms in buckets.items()}
 
 
+# --- KLC-133 AC-10/AC-11: per-source buckets, no mixed average -------------
+
+_SOURCES = ("provider", "signal", "estimated")
+
+
+def _num(v):
+    """A genuine int/float, never a bool (bool is technically an int
+    subclass but is never a token/turn/cost value) and never NaN/Infinity.
+    Anything else (a stray string from a hand-edited corpus, etc.) reads as
+    "not reported" rather than raising or silently becoming 0."""
+    return v if type(v) in (int, float) and math.isfinite(v) else None
+
+
+def _avg(values) -> float | None:
+    vals = [v for v in values if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
+def _source_bucket(recs: list[dict], source: str) -> dict:
+    """AC-10: one source's own samples/avg_in/avg_out/avg_cache_hit, plus
+    (provider only) avg_cache_write/avg_num_turns/cost_usd_total/
+    failed_samples. A failed attempt counts in `samples`/`failed_samples`/
+    `cost_usd_total` but never in an average (Q-004)."""
+    ok = [r for r in recs if r.get("failed") is not True]
+    bucket = {
+        "samples":       len(recs),
+        "avg_in":        _avg(_num(r.get("in")) for r in ok),
+        "avg_out":       _avg(_num(r.get("out")) for r in ok),
+        "avg_cache_hit": _avg(_num(r.get("cache_hit")) for r in ok),
+    }
+    if source == "provider":
+        costs = [c for c in (_num(r.get("cost_usd")) for r in recs) if c is not None]
+        bucket.update(
+            avg_cache_write=_avg(_num(r.get("cache_write")) for r in ok),
+            avg_num_turns=_avg(_num(r.get("num_turns")) for r in ok),
+            cost_usd_total=sum(costs) if costs else None,
+            failed_samples=sum(1 for r in recs if r.get("failed") is True),
+        )
+    return bucket
+
+
+def _measured_per_ticket(pairs: list[tuple[dict, str]], phase: str,
+                         tag_key: str) -> dict:
+    """AC-11: per-ticket averages over FULLY measured tickets only — every
+    tagged run attempt of *phase* for that ticket is a `provider` attempt.
+    A ticket with both provider and tagged non-provider attempts counts
+    only in `partial_tickets`; a ticket with no provider attempt at all
+    (estimated-only), or whose tagged provider attempts ALL failed
+    (impl-plan-review F-8), counts in NEITHER — its cost still lands in
+    `by_source.provider.cost_usd_total` via `_source_bucket` above, just not
+    here. Each figure is `null`, never 0, when no ticket qualifies."""
+    fully_measured: list[tuple[float, float, float, float]] = []
+    partial = 0
+    for m, tid in pairs:
+        tagged = [rec for p, rec in iter_attempts(m, tid)
+                 if p == phase and rec.get(tag_key)]
+        if not tagged:
+            continue
+        sources = {r.get("source") for r in tagged}
+        if sources == {"provider"}:
+            ok = [r for r in tagged if r.get("failed") is not True]
+            if not ok:
+                continue  # F-8: all tagged provider attempts failed
+            fully_measured.append((
+                sum(budget_guard._total_input(r) for r in ok),
+                sum(_num(r.get("out")) or 0 for r in ok),
+                sum(_num(r.get("cost_usd")) or 0 for r in ok),
+                sum(_num(r.get("num_turns")) or 0 for r in ok),
+            ))
+        elif "provider" in sources:
+            partial += 1
+        # else: estimated-only — counts in neither.
+
+    tickets = len(fully_measured)
+
+    def _mean(idx: int) -> float | None:
+        return (sum(t[idx] for t in fully_measured) / tickets) if tickets else None
+
+    return {
+        "tickets":         tickets,
+        "partial_tickets": partial,
+        "avg_total_input": _mean(0),
+        "avg_out":         _mean(1),
+        "avg_cost_usd":    _mean(2),
+        "avg_num_turns":   _mean(3),
+    }
+
+
+def _pool_duplicate_rate(ticket_dir: Path) -> tuple[float, int] | None:
+    """KLC-127 AC-18/step-12 F-3: one ticket's `review/findings-pool.json`
+    `duplicate_rate` PLUS its `raw_count` (used to WEIGHT the per-track mean
+    so a 2-finding ticket no longer counts as much as a 20-finding one), or
+    `None` when the file is absent, unreadable, or its rate is JSON null —
+    never coerced to 0 (a null rate, including build_pool's own single-
+    reviewer-contributed null, must never enter the mean)."""
+    path = ticket_dir / "review" / "findings-pool.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    rate = data.get("duplicate_rate")
+    if not isinstance(rate, (int, float)) or isinstance(rate, bool):
+        return None
+    raw = data.get("raw_count")
+    weight = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else 1
+    return float(rate), weight
+
+
 def cmd_rollup(args: argparse.Namespace) -> int:
     tickets_dir = klc_tickets_dir()
     rows: list[dict] = []
@@ -340,23 +453,40 @@ def cmd_rollup(args: argparse.Namespace) -> int:
                 bucket["cache_hit"].append(rec.get("cache_hit", 0))
                 bucket["source"].append(rec.get("source", "estimated"))
                 bucket["attempts"].append(rec)
-                if rec.get("card_bytes"):
+                # KLC-133 F-016: only an ESTIMATED attempt's card_bytes feeds
+                # prompt_bytes_per_ticket — a provider attempt is never
+                # double-counted into the prompt-size figure.
+                if rec.get("card_bytes") and rec.get("source") == "estimated":
                     card_bytes_total += rec["card_bytes"]
-                if rec.get("reviewer"):
+                # KLC-133 AC-11: only a non-failed reviewer-tagged attempt of
+                # phase "review" counts an executed LLM review pass — a
+                # build-phase attempt is never reviewer-tagged (AC-6), and a
+                # failed reviewer dispatch never counted as executed.
+                if (phase == "review" and rec.get("reviewer")
+                        and rec.get("failed") is not True):
                     tagged_per_ticket[tid] = tagged_per_ticket.get(tid, 0) + 1
+        # KLC-133 AC-10: every averaged figure lives under exactly ONE
+        # `by_source` bucket — no more mixed avg_in/avg_out/avg_cache_hit at
+        # the phase level (F-011 removed). `samples`/`source_counts` stay.
         tokens_summary = {
             phase: {
-                "avg_in":        round(statistics.mean(v["in"])) if v["in"] else 0,
-                "avg_out":       round(statistics.mean(v["out"])) if v["out"] else 0,
-                "avg_cache_hit": round(statistics.mean(v["cache_hit"])) if v["cache_hit"] else 0,
                 "samples":       len(v["in"]),
                 "source_counts": {
                     "provider":  v["source"].count("provider"),
                     "signal":    v["source"].count("signal"),
                     "estimated": v["source"].count("estimated"),
                 },
+                "by_source": {
+                    s: _source_bucket(
+                        [r for r in v["attempts"] if r.get("source") == s], s)
+                    for s in _SOURCES
+                },
             }
             for phase, v in token_by_phase.items()
+        }
+        measured_per_ticket = {
+            "review": _measured_per_ticket(pairs, "review", "reviewer"),
+            "build":  _measured_per_ticket(pairs, "build", "run_pass"),
         }
 
         # cheap_escape_rate: fraction of cheap/lite reviews that later
@@ -413,17 +543,35 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             {phase: v["attempts"] for phase, v in token_by_phase.items()}
         )
 
+        # KLC-127 AC-18/D-116/step-12 F-3: the `duplicate_rate` over tickets
+        # whose review/findings-pool.json carries a NUMERIC rate — a pool
+        # with a null rate (no review-kind findings, or fewer than two
+        # contributing reviewers, AC-17/F-3) is not averaged in, and a track
+        # with no pooled ticket at all reads None, never 0 (the same "not
+        # measured never reads as costs nothing" rule as the figures above).
+        # Weighted by each ticket's raw_count (D-1xx: re-check this weight
+        # choice after ~10 more tickets carry a pool) so a 2-finding ticket
+        # does not count as much as a 20-finding one.
+        dup_stats = [r for r in (_pool_duplicate_rate(klc_ticket_dir(tid)) for _m, tid in pairs)
+                    if r is not None]
+        total_weight = sum(w for _r, w in dup_stats)
+        review_duplicate_rate = (
+            sum(r * w for r, w in dup_stats) / total_weight
+        ) if total_weight else None
+
         per_track[track] = {
             "tickets":               len(ms),
             "cycle_time_sec_median": statistics.median(cts) if cts else None,
             "cycle_time_sec_p95":    _p95(cts),
             "rework_mean":           statistics.mean(rework_totals) if rework_totals else 0,
             "tokens_by_phase":       tokens_summary,
+            "measured_per_ticket":   measured_per_ticket,
             "cheap_escape_rate":     cheap_escape_rate,
             "prompt_bytes_per_ticket":    prompt_bytes_per_ticket,
             "review_passes_per_ticket":   review_passes_per_ticket,
             "review_llm_passes_per_ticket":          review_llm_passes_per_ticket,
             "review_llm_passes_measured_tickets":    review_llm_passes_measured_tickets,
+            "review_duplicate_rate":      review_duplicate_rate,
             "estimator_calibration":      estimator_calibration,
             "retrieval":                  _retrieval_rollup(ms),   # KLC-110 AC-13
         }

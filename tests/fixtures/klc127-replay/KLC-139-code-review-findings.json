@@ -1,0 +1,72 @@
+[
+  {
+    "id": "F-1",
+    "rule_name": "legacy-unclassified",
+    "severity": "HIGH",
+    "file": "core/skills/skeleton.py",
+    "line": 388,
+    "title": "ast.parse can crash with an uncaught RecursionError, breaking the AC-7 one-line-refusal contract",
+    "body": "_python_entries only catches (SyntaxError, ValueError) around ast.parse (skeleton.py:247). A syntactically valid but deeply nested Python file (e.g. a long chained `1+1+1+...` expression, well under skeleton.max_bytes) makes ast.parse raise RecursionError. Verified end-to-end: `python3 scripts/klc skeleton deep.py` with PROJECT_ROOT pointed at a scratch directory (a 400 KB file with 200 000 '+' terms) prints a full Python traceback to stderr, nothing to stdout, exit code 1. AC-7 promises 'exactly one line `<path>: <reason>` and exit 1, never an empty body' for every refusal case; a traceback is neither the one-line format nor an honest reason, and stdout is empty. This is a real, reproducible gap, not a contrived one \u2014 generated source or long data literals are exactly the kind of file an agent would run `klc skeleton` on first.",
+    "fix": "Catch RecursionError (and consider MemoryError) around ast.parse (and around ast.unparse/entry-building, which walks the same tree) in _python_entries, and raise _Refusal('syntax errors \u2014 read the file instead') or a dedicated reason. Add a deeply-nested-expression fixture to tests/test_klc139_skeleton_refusals.py.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-7"
+  },
+  {
+    "id": "F-2",
+    "rule_name": "legacy-unclassified",
+    "severity": "HIGH",
+    "file": "core/skills/skeleton.py",
+    "line": 385,
+    "title": "A UTF-8-BOM-prefixed Python file is falsely refused as 'syntax errors'",
+    "body": "The Python path decodes with `.decode(\"utf-8\", errors=\"replace\")` (skeleton.py:385), not `utf-8-sig`, so a leading BOM (0xEF 0xBB 0xBF) survives into the str as U+FEFF. `ast.parse` treats a leading U+FEFF as invalid and raises SyntaxError, which _python_entries turns into 'syntax errors \u2014 read the file instead'. Verified independently: a BOM-prefixed `import os\\ndef f(): pass` (a file `python3 bom.py` itself runs fine) is refused by skeleton() with exit 1 and that exact reason. BOM-prefixed .py files are a realistic case (common output of Windows editors/tools; the repo itself ships klc-completion.ps1 for Windows users). This is worse than a crash: it looks like a legitimate, confident refusal, so an agent has no signal that the file is actually fine and will avoid reading it or conclude the file is broken.",
+    "fix": "Decode with `errors=\"replace\"` after first stripping a leading '\\ufeff', or decode with 'utf-8-sig' when no other errors mode is needed. Add a BOM fixture to tests/test_klc139_skeleton_python.py or _refusals.py asserting exit 0 and a normal outline.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-3"
+  },
+  {
+    "id": "F-3",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "core/skills/skeleton.py",
+    "line": 354,
+    "title": "A non-UTF-8 non-Python file that ast-grep skips is dishonestly reported as 'unsupported language'",
+    "body": "ast-grep 0.42.1 skips a file it cannot decode as UTF-8: its --inspect stderr then has a `summary|file:` sentinel (so the current 'no inspect output' check does not fire) but no `entity|file` line for that file. `_astgrep_entries` treats 'no entity|file line' the same as 'this extension has no rule coverage' and refuses `unsupported language: <ext>` (skeleton.py:353-355). Verified: a .ts file with a raw 0xE9 byte inside an expression is refused `unsupported language: .ts`, even though TypeScript is fully covered by the generic profile. This is the same 'dishonest reason' problem as the BOM finding, on the non-Python path: the reported cause (no rule for this extension) is factually wrong, which could send an agent hunting for a rule-coverage gap that does not exist.",
+    "fix": "Distinguish the two 'no entity|file line' causes. When the sentinel line itself reports `skippedFileCount >= 1` (or similar) for this scan, refuse with something like 'ast-grep failed (file not decodable \u2014 read the file instead)' instead of 'unsupported language'. Add a non-UTF-8 .ts/.rs fixture to tests/test_klc139_skeleton_refusals.py.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-7"
+  },
+  {
+    "id": "F-4",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "core/skills/skeleton.py",
+    "line": 371,
+    "title": "An unreadable file (PermissionError/OSError) crashes instead of producing a clean refusal",
+    "body": "skeleton()'s only handler is `except _Refusal`. `real.stat()` and `real.read_bytes()` (lines 375 and 385) can raise PermissionError (a chmod-000 file, verified directly: `sk.skeleton(path)` raises `PermissionError: [Errno 13] Permission denied`) or other OSErrors (EIO, a file removed between the is_file() check and the read). Same AC-7 contract break as the RecursionError finding: no one-line reason, and depending on where the traceback happens, no exit-1-with-refusal-text at all.",
+    "fix": "Wrap the stat()/read_bytes() calls in `except OSError as e: raise _Refusal(...)`, reusing or extending the 'not a file' wording, and add a permission-denied refusal test (skip on platforms where chmod 000 has no effect, e.g. when running as root).",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-7"
+  },
+  {
+    "id": "F-5",
+    "rule_name": "legacy-unclassified",
+    "severity": "LOW",
+    "file": "core/skills/skeleton.py",
+    "line": 386,
+    "title": "The Python header's line count (str.splitlines()) can overcount relative to ast/editor line numbers",
+    "body": "`len(text.splitlines())` (skeleton.py:386) splits on \\x0c, \\x1c-\\x1e, \\x85, \\u2028 and \\u2029 in addition to \\n/\\r\\n/\\r, while `ast` (and hence every range in the outline) counts only newlines. A form-feed character or a U+2028 inside a string literal inflates the header's reported line count above what any entry's end range, or the file's actual line count in an editor, would show. Ranges themselves are unaffected \u2014 only the header's '(python, N lines)' claim can be wrong.",
+    "fix": "Count lines with something that matches ast's notion of a line break, e.g. `text.count(\"\\n\") + (1 if text and not text.endswith(\"\\n\") else 0)`, adjusted for a lone trailing \\r file.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-3"
+  }
+]

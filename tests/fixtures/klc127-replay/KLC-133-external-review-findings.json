@@ -1,0 +1,58 @@
+[
+  {
+    "id": "F-1",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "core/skills/runner.py",
+    "line": 145,
+    "title": "modelUsage sum silently skips a model entry that lacks a field, recording an undercounted provider attempt",
+    "body": "_model_usage_totals collects `m.get(camel)` only for models where `camel in m`, so on a multi-model envelope where one model's entry is missing or renamed a field (version drift, e.g. inputTokens -> input_tokens), that model is dropped from that field's sum with no signal. Verified: envelope-single.json plus a second model {'input_tokens':1000,'outputTokens':500,...} parses to input_tokens=9 (the 1000 are lost) and output_tokens=543, and _record_run writes it as a measured `provider` attempt. Measured figures are then wrong while being labelled real. The same drift applied to every model (or an empty `modelUsage: {}`) instead drops the valid `usage` block and falls back to `estimated`: that fails soft, but it throws away real data. No test covers more than one model key. test_model_usage_totals_sum_every_model_of_the_verbose_fixture uses a single-model fixture, so the per-model sum is never exercised.",
+    "fix": "Require a field to be present (and a valid count) in EVERY model entry for it to be summed; if any model lacks it, treat the modelUsage path as unusable and fall back to the raw `usage` block (or to empty). Treat an empty modelUsage the same way. Add a parser test with two model keys (a sum, a missing field in one model, a renamed field) plus an empty-modelUsage case.",
+    "reviewer": "external-review",
+    "kind": "external-review",
+    "ref": "",
+    "ac": "AC-2"
+  },
+  {
+    "id": "F-2",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "core/skills/runner.py",
+    "line": 184,
+    "title": "One attempt mixes accounting bases: tokens are session-cumulative (modelUsage), but num_turns/duration_ms (and sometimes cost) cover only the last result segment",
+    "body": "The real verbose-subagent fixture shows that `result` elements are per-segment. The last element has num_turns=1 and duration_ms=1176, while the earlier element has num_turns=2 and duration_ms=4000. Yet modelUsage (37/446/61525/15813) is identical in both, so it is session-cumulative. The parser takes tokens from cumulative modelUsage but takes num_turns/duration_ms from the last segment, so a subagent run records num_turns=1 (the parent actually made 3 model calls) next to its full token count. avg_num_turns and measured_per_ticket.avg_num_turns are then biased low for exactly the runs D-117 was introduced for. The multiturn fixture (a real first `result` element) shows the same mismatch for cost: tokens come from modelUsage (costUSD 0.03161175) but the recorded cost_usd is total_cost_usd 0.02810725. test_klc133_envelope_parser.py:34 pins this inconsistent pair as the expected value. Which element the non-verbose default form prints for an async-subagent run is not established by any fixture.",
+    "fix": "Make the fields of one attempt share one basis. For the array form, sum num_turns/duration_ms over all `result` elements (tokens stay from the last element's cumulative modelUsage). When modelUsage is used, cross-check sum(costUSD) against total_cost_usd, and on a mismatch either record the modelUsage cost or mark the attempt (e.g. `cost_basis`). Document in docs/process.md that num_turns is per-segment in async-subagent runs. At minimum, do not pin 0.02810725 alongside 37/446 as 'correct'.",
+    "reviewer": "external-review",
+    "kind": "external-review",
+    "ref": "",
+    "ac": "AC-1"
+  },
+  {
+    "id": "F-3",
+    "rule_name": "legacy-unclassified",
+    "severity": "LOW",
+    "file": "core/skills/runner.py",
+    "line": 540,
+    "title": "rc 0 with an is_error:true envelope but no usage is recorded as a successful estimated attempt",
+    "body": "_record_run decides the `failed` flag from the rc only (failed=False on rc 0). It consults env['is_error'] only inside the provider branch. Verified: an envelope {is_error:true, usage:{}, modelUsage:{}} with rc 0 writes an `estimated` attempt with no `failed` key and with reviewer='r1'. That attempt counts toward review_llm_passes_per_ticket as an executed review pass, which contradicts AC-4's intent that an is_error run is a failed run. run_agent also returns 0 and writes the error `result` text as the reviewer partial. Whether the CLI can print is_error:true with rc 0 is exactly the case AC-4 names.",
+    "fix": "In _record_run, compute `failed = failed or env.get('is_error') is True` before branching, so the estimated branch is skipped (or the attempt is marked failed) for an is_error envelope. Add a test for rc 0 with is_error and no usage.",
+    "reviewer": "external-review",
+    "kind": "external-review",
+    "ref": "",
+    "ac": "AC-4"
+  },
+  {
+    "id": "F-4",
+    "rule_name": "legacy-unclassified",
+    "severity": "LOW",
+    "file": "tests/fixtures/klc133/envelope-verbose-subagent.json",
+    "line": 137,
+    "title": "Fixture redaction is incomplete: the real session UUID, agentId and a local capture path survive",
+    "body": "The README says identifiers are redacted, and every session_id/uuid was zeroed. But tool_use_result.outputFile (lines 137 and 120, inside the tool_result text) still holds 'scratch-capture-dir/...', which is the real session UUID plus a local uid path. agentId 'AGENTPLACEHOLDER', the real message ids and the thinking-block payloads are also unredacted. The sensitivity is low, but the redaction claim is not accurate, and the file contains local paths outside the repo.",
+    "fix": "Replace the outputFile path and the embedded tool_result text path with a placeholder, and zero or placeholder the agentId, the msg ids and the thinking-block payloads (no parser test depends on them). Optionally add a fixture test asserting that no scratch-path or home-directory-path substrings appear.",
+    "reviewer": "external-review",
+    "kind": "external-review",
+    "ref": "",
+    "ac": "AC-13"
+  }
+]

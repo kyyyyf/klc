@@ -40,8 +40,12 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import findings as _findings  # noqa: E402
 
 # --- schema vocabularies ----------------------------------------------------
 
@@ -57,8 +61,6 @@ FINDING_CATEGORIES = (
 
 # The three SUBJECTIVE decision topics elevated to the human.
 DECISION_TOPICS = ("scope", "tradeoff", "ambiguous-intent")
-
-SEVERITIES = ("high", "medium", "low")
 
 # Risk tags that, on an S ticket, ESCALATE a cascade review to a full review
 # (mirrors review_cascade + the coordination-fuzz-gate precedent).
@@ -100,19 +102,16 @@ SPEC_REVIEW = ReviewKind(
 
 
 # --- the two output classes -------------------------------------------------
+#
+# KLC-127: the OBJECTIVE finding is the one shape everywhere now —
+# `findings.Finding` (rule_name, severity, file, line, title, body, fix,
+# reviewer, id, kind, ref, ac). The old `spec_review.Finding` (id, category,
+# severity, detail, ref, suggested_fix) is gone; `ReviewOutput.raw_findings`
+# carries every raw finding dict (valid or not, for the D-106 old-shape/
+# invalid-block detection) and `ReviewOutput.findings` carries only the
+# entries that pass `findings.check_findings`, built via `findings.Finding`.
 
-@dataclass
-class Finding:
-    """An OBJECTIVE issue the reviewer decided; the implementer must assess it."""
-    id: str
-    category: str
-    severity: str
-    detail: str
-    ref: str = ""            # e.g. an AC id or a raw.md line/phrase
-    suggested_fix: str = ""
-
-    def to_dict(self) -> dict:
-        return asdict(self)
+SEVERITIES = _findings.SEVERITIES        # KLC-127: the one severity vocabulary
 
 
 @dataclass
@@ -131,7 +130,8 @@ class DecisionToConfirm:
 
 @dataclass
 class ReviewOutput:
-    findings: list[Finding] = field(default_factory=list)
+    findings: list = field(default_factory=list)          # findings.Finding, VALID entries only
+    raw_findings: list = field(default_factory=list)       # every raw finding dict, valid or not
     decisions_to_confirm: list[DecisionToConfirm] = field(default_factory=list)
     degraded: bool = False
     degrade_reason: str = ""
@@ -161,11 +161,31 @@ def _extract_json(text: str) -> dict | None:
     return None
 
 
-def parse_review(text: str | None) -> ReviewOutput:
+def decisions_from_raw(raw) -> list[DecisionToConfirm]:
+    """Build `DecisionToConfirm` records from a raw `decisions_to_confirm` list.
+
+    Pure refactor (KLC-127): the loop `parse_review` used to run inline, now
+    shared with `handback.validate_handback` so both paths build the exact
+    same decision records from the exact same raw JSON.
+    """
+    return [DecisionToConfirm(id=str(d.get("id") or f"D-{i}"), topic=str(d.get("topic", "")),
+                              question=str(d.get("question", "")),
+                              recommended=str(d.get("recommended", "")),
+                              rationale=str(d.get("rationale", "")), ref=str(d.get("ref", "")))
+            for i, d in enumerate(raw, start=1) if isinstance(d, dict)]
+
+
+def parse_review(text: str | None, kind: ReviewKind = SPEC_REVIEW) -> ReviewOutput:
     """Parse a reviewer's output text into a ReviewOutput.
 
     Degrade-not-fail: absent / empty / unparseable / schema-shaped-wrong input
     yields a ReviewOutput with degraded=True and a reason, never an exception.
+
+    KLC-127: every raw finding dict is kept on `raw_findings` (valid or not —
+    an old-shape or otherwise invalid entry is still visible there, for D-106's
+    "leave the existing file untouched" detection); only the entries that pass
+    `findings.check_findings` for *kind* become `findings.Finding` records on
+    `out.findings`, stamped with `reviewer`/`kind` = `kind.name`.
     """
     if not text or not text.strip():
         return ReviewOutput(degraded=True, degrade_reason="no reviewer output")
@@ -183,59 +203,25 @@ def parse_review(text: str | None) -> ReviewOutput:
             degrade_reason="verdict block has neither findings nor decisions_to_confirm",
         )
 
-    out = ReviewOutput()
-    for i, raw in enumerate(doc.get("findings") or [], start=1):
-        if not isinstance(raw, dict):
-            continue
-        out.findings.append(Finding(
-            id=str(raw.get("id") or f"F-{i}"),
-            category=str(raw.get("category", "")),
-            severity=str(raw.get("severity", "")).lower(),
-            detail=str(raw.get("detail", "")),
-            ref=str(raw.get("ref", "")),
-            suggested_fix=str(raw.get("suggested_fix", "")),
-        ))
-    for i, raw in enumerate(doc.get("decisions_to_confirm") or [], start=1):
-        if not isinstance(raw, dict):
-            continue
-        out.decisions_to_confirm.append(DecisionToConfirm(
-            id=str(raw.get("id") or f"D-{i}"),
-            topic=str(raw.get("topic", "")),
-            question=str(raw.get("question", "")),
-            recommended=str(raw.get("recommended", "")),
-            rationale=str(raw.get("rationale", "")),
-            ref=str(raw.get("ref", "")),
-        ))
+    raw = [f for f in (doc.get("findings") or []) if isinstance(f, dict)]
+    out = ReviewOutput(raw_findings=raw,
+                       decisions_to_confirm=decisions_from_raw(doc.get("decisions_to_confirm") or []))
+    for rec in raw:
+        if not _findings.check_findings([rec], rule_names=kind.finding_categories, kind=kind.name):
+            out.findings.append(_findings.Finding.from_dict(
+                {**rec, "reviewer": kind.name, "kind": kind.name}))
     return out
 
 
 # --- validation -------------------------------------------------------------
 
-def validate(output: ReviewOutput, kind: ReviewKind = SPEC_REVIEW) -> list[str]:
-    """Return a list of schema-conformance errors (empty == valid).
-
-    Categories and topics are read FROM the active *kind*, so a KLC-085
-    TEST_PLAN_REVIEW carrying its own classes validates through this same function
-    (no per-kind validator). A degraded output has nothing to validate (its
-    degradation is surfaced elsewhere), so it yields no errors here.
-    """
+def _decision_errors(decisions: list[DecisionToConfirm], kind: ReviewKind,
+                     finding_ids: set) -> list[str]:
+    """The decision-half of `validate` — factored out so `handback.validate_handback`
+    can reuse it against a hand-back's raw `decisions_to_confirm` (KLC-127)."""
     errors: list[str] = []
-    if output.degraded:
-        return errors
-
-    seen_ids: set[str] = set()
-    for f in output.findings:
-        if f.id in seen_ids:
-            errors.append(f"duplicate id {f.id!r}")
-        seen_ids.add(f.id)
-        if f.category not in kind.finding_categories:
-            errors.append(f"finding {f.id}: unknown category {f.category!r}")
-        if f.severity not in SEVERITIES:
-            errors.append(f"finding {f.id}: unknown severity {f.severity!r}")
-        if not f.detail.strip():
-            errors.append(f"finding {f.id}: empty detail")
-
-    for d in output.decisions_to_confirm:
+    seen_ids: set = set(finding_ids)
+    for d in decisions:
         if d.id in seen_ids:
             errors.append(f"duplicate id {d.id!r}")
         seen_ids.add(d.id)
@@ -247,6 +233,25 @@ def validate(output: ReviewOutput, kind: ReviewKind = SPEC_REVIEW) -> list[str]:
         if not d.recommended.strip():
             errors.append(f"decision {d.id}: missing recommended answer")
     return errors
+
+
+def validate(output: ReviewOutput, kind: ReviewKind = SPEC_REVIEW) -> list[str]:
+    """Return a list of schema-conformance errors (empty == valid).
+
+    Categories and topics are read FROM the active *kind*, so a KLC-085
+    TEST_PLAN_REVIEW carrying its own classes validates through this same function
+    (no per-kind validator). A degraded output has nothing to validate (its
+    degradation is surfaced elsewhere), so it yields no errors here.
+
+    KLC-127: the finding half now runs `findings.check_findings` over
+    `output.raw_findings` (the one Finding shape, shared with `handback.py`).
+    """
+    if output.degraded:
+        return []
+    errors = _findings.check_findings(output.raw_findings,
+                                      rule_names=kind.finding_categories, kind=kind.name)
+    finding_ids = {r.get("id") for r in output.raw_findings if isinstance(r, dict)}
+    return errors + _decision_errors(output.decisions_to_confirm, kind, finding_ids)
 
 
 # --- routing decisions_to_confirm to the EXISTING ack decision gate ---------
@@ -286,7 +291,7 @@ def summarize_findings(output: ReviewOutput, kind: ReviewKind = SPEC_REVIEW) -> 
     """
     if output.degraded or not output.findings:
         return []
-    highs = sum(1 for f in output.findings if f.severity == "high")
+    highs = sum(1 for f in output.findings if f.severity.upper() in ("HIGH", "CRITICAL"))
     return [
         f"{kind.name}-review: {len(output.findings)} finding(s) recorded "
         f"({highs} high) in {kind.name}-review-findings.json — assess before build"
@@ -394,27 +399,39 @@ def consume_records(ticket_dir: Path, track: str | None, signals: dict | None = 
             return ([], [])  # skip / no-signal cascade: nothing to surface
 
         text = path.read_text(encoding="utf-8")
-        output = parse_review(text)
+        output = parse_review(text, kind)
 
         records: list[dict] = []
         if output.degraded:
             msg = (f"{kind.name}-review: reviewer output degraded "
                    f"({output.degrade_reason}); decisions_to_confirm unavailable")
             records.append(_rec("medium", "degraded", msg))
-        else:
-            for d in output.decisions_to_confirm:
-                rec_ans = d.recommended.strip() or "(no recommendation given)"
-                msg = (f"{kind.name}-review[decision {d.id}/{d.topic}]: {d.question} "
-                       f"— RECOMMENDED: {rec_ans}")
-                records.append(_rec("high", "decision", msg, ref=d.id))
-            if output.findings:
-                highs = sum(1 for f in output.findings if f.severity == "high")
-                msg = (f"{kind.name}-review: {len(output.findings)} finding(s) recorded "
-                       f"({highs} high) in {kind.name}-review-findings.json — assess before build")
-                records.append(_rec("high" if highs else "medium", "findings", msg))
+            return records, []
 
-        for err in validate(output, kind):
-            records.append(_rec("medium", "schema", f"{kind.name}-review[schema]: {err}"))
+        for d in output.decisions_to_confirm:
+            rec_ans = d.recommended.strip() or "(no recommendation given)"
+            msg = (f"{kind.name}-review[decision {d.id}/{d.topic}]: {d.question} "
+                   f"— RECOMMENDED: {rec_ans}")
+            records.append(_rec("high", "decision", msg, ref=d.id))
+
+        # KLC-127/D-106: an old-shape or otherwise invalid block raises exactly
+        # ONE schema advisory and leaves any existing stored file untouched —
+        # the findings summary and the write below never run on this path.
+        errors = validate(output, kind)
+        if errors:
+            old = any(isinstance(r, dict) and k in r for r in output.raw_findings
+                      for k in ("category", "detail", "suggested_fix"))
+            hint = "; old shape: migrated by KLC-154 (handback.py migrate)" if old else ""
+            records.append(_rec("medium", "schema",
+                                f"{kind.name}-review[schema]: {len(errors)} error(s): "
+                                f"{'; '.join(errors[:3])}{hint}"))
+            return records, []
+
+        if output.findings:
+            highs = sum(1 for f in output.findings if f.severity.upper() in ("HIGH", "CRITICAL"))
+            msg = (f"{kind.name}-review: {len(output.findings)} finding(s) recorded "
+                   f"({highs} high) in {kind.name}-review-findings.json — assess before build")
+            records.append(_rec("high" if highs else "medium", "findings", msg))
 
         # Write only on the persisting (ack) path; a probe records nothing.
         findings = record_findings(output, ticket_dir if persist else None, kind)
@@ -451,14 +468,23 @@ def consume(ticket_dir: Path, track: str | None, signals: dict | None = None,
 
 # --- CLI --------------------------------------------------------------------
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    argv = sys.argv[1:] if argv is None else argv
     ap = argparse.ArgumentParser(description="independent artifact-review plumbing")
     ap.add_argument("--file", help="reviewer output file (the JSON-verdict block)")
     ap.add_argument("--track", default="M")
-    ap.add_argument("--ticket-dir", help="ticket dir to record findings into")
-    args = ap.parse_args()
+    ap.add_argument("--ticket-dir",
+                    help="deprecated (KLC-127): no findings file is written here any "
+                         "more — use `python3 core/skills/handback.py take` instead")
+    args = ap.parse_args(argv)
+
+    if args.ticket_dir:
+        print("spec_review: --ticket-dir no longer writes a findings file "
+              "(KLC-128); take a reviewer verdict in with "
+              "`python3 core/skills/handback.py take --kind <kind> --ticket <KEY> "
+              "--file <verdict>` instead", file=sys.stderr)
 
     text = Path(args.file).read_text(encoding="utf-8") if args.file else ""
     output = parse_review(text)
@@ -470,9 +496,7 @@ def main() -> int:
         "degrade_reason": output.degrade_reason,
         "schema_errors": errors,
         "routed_decisions": route_decisions(output),
-        "findings": record_findings(
-            output, Path(args.ticket_dir) if args.ticket_dir else None
-        ),
+        "findings": record_findings(output),   # KLC-127 AC-9: never persisted by the CLI
     }
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 1 if errors else 0

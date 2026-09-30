@@ -807,7 +807,7 @@ names) is `assumed` or undeclared at the M/L design acceptance gate.
 The mandatory code reviewer validates code against the spec **as written**, so a
 flawed spec is a structural blind spot — "correctly built the wrong thing" is never
 caught. KLC-084 shifts that discipline LEFT: at the **spec phase** an **independent**
-reviewer (fresh, no build context, `core/agents/spec-reviewer.md`) reviews `spec.md`
+reviewer (fresh, no build context, `klc-plugin/agents/spec-reviewer.md`) reviews `spec.md`
 before the phase completes, exactly as the code reviewer runs before
 `review-report.md`. The orchestrator/autorunner spawns it (not a hard-coded LLM call
 in the state machine); the plumbing is `core/skills/spec_review.py`.
@@ -866,13 +866,13 @@ via the same seam. The BUILD agent (`core/agents/impl.md`) reads that file too �
 right beside `spec-review-findings.json` — and assesses each finding (fix/won't-fix)
 in `build-log.md` before writing code, with the same high-severity-unaddressed →
 stop-and-ask rule and the same degrade-when-absent behaviour. The schema is
-identical (`id · category · severity · detail · ref · suggested_fix`), so it is the
-same assess logic for both files, symmetric with how `review-report` assesses the
-code reviewer's findings.
+identical — `findings.Finding` (`rule_name · severity · file · line · title · body ·
+fix`) — so it is the same assess logic for both files, symmetric with how
+`review-report` assesses the code reviewer's findings.
 
 **Independent impl-plan review (KLC-094 · V-01)**: the trilogy's third reviewer, one
 artifact further LEFT again — onto `impl-plan.md`. A fresh, adversarial reviewer
-(`core/agents/impl-plan-reviewer.md`) reads the plan against the spec's SAOC ACs
+(`klc-plugin/agents/impl-plan-reviewer.md`) reads the plan against the spec's SAOC ACs
 **and** the recorded `spec-review-findings.json`, and emits the same two output
 classes through the SAME generic seam bound to a new descriptor
 (`implplan_review.IMPL_PLAN_REVIEW`) — OBJECTIVE `findings[]` (`missing-step` ·
@@ -889,6 +889,17 @@ right beside the spec-review and test-plan-review files and assesses each findin
 (fix/won't-fix) in `build-log.md`, with the same high-severity-unaddressed →
 stop-and-ask rule and the same degrade-when-absent behaviour — one symmetric
 discipline for THREE reviewers.
+
+**One Finding shape, validated intake, one pool (KLC-127).** Every reviewer —
+the three above, the code reviewer and the external reviewer — returns ONE
+Finding shape. `python3 core/skills/handback.py take --kind <kind> --ticket
+<KEY> --file <verdict>` is the single intake: it validates the shape, refuses
+anything else with the error list, stores a `code-review`/`external-review`
+verdict at `review/<kind>-findings.json`, and counts the pass. `python3
+core/skills/findings.py pool --ticket <KEY>` merges every stored finding into
+`review/findings-pool.json` (`raw_count`/`pooled_count`/`duplicate_rate`),
+which the report renders its table from. The one-off migration of the
+pre-KLC-127 findings files and verdict blocks is KLC-154.
 
 ---
 
@@ -1038,11 +1049,14 @@ Each attempt carries an id (assigned by the writer), `in`/`out`/`cache_hit`,
 is the single writer of this key; nothing else in the codebase assigns into
 it (`budget_guard.find_second_writers` is the source-level gate). KLC-120
 adds one more optional field, `reviewer`: present (never null) on an attempt
-that recorded an executed review pass, absent on every other attempt. The
-headless `scripts/review-runner.py` writes it after a successful dispatch;
-the in-client path writes it via `python3 core/skills/review_plan.py record
---ticket <KEY> --reviewer <name>` (idempotent — a repeated `record` for the
-same pass of the same run collapses to one attempt).
+that recorded an executed review pass, absent on every other attempt.
+KLC-133: the headless `scripts/review-runner.py` no longer writes an attempt
+of its own — it delegates the ticket, the `reviewer` tag and its job card's
+size to `run_agent`, which writes exactly one attempt per dispatch (see
+"Measured headless runs" below); the in-client path still writes it via
+`python3 core/skills/review_plan.py record --ticket <KEY> --reviewer <name>`
+(idempotent — a repeated `record` for the same pass of the same run
+collapses to one attempt).
 
 **Attempts, the journal and the drain.** A telemetry write must never modify
 `meta.json` — a tracked file on the shared `klc-state` branch — outside an
@@ -1061,17 +1075,86 @@ verb down, and the journal simply keeps the attempt for a later retry.
 
 | path | what produces the number | honest `source` |
 |---|---|---|
-| headless runner, provider returns a usage block | real API usage | `provider` |
-| headless runner, no usage block | the prompt's measured size | `estimated` |
+| headless runner, envelope with input and output tokens | the CLI's own `usage` and `total_cost_usd` | `provider` |
+| headless runner, failed run that still reported usage | the same, with `failed: true` | `provider` |
+| headless runner, no or malformed envelope | the prompt's measured size | `estimated` |
 | `/klc:run` Task dispatch | the dispatch card's measured size | `estimated` |
 | a subagent whose host reports its own usage | the completion signal's `tokens` | `signal` |
 | human copy-paste (`klc next` / `klc step` / `klc jump`) | the paste card's measured size | `estimated` |
+| in-session agents, the hand-run external reviewer (F-009), the ticketless indexing agents of `scripts/init.py` | no envelope exists at all | `estimated`, or nothing (no ticket to attribute to) |
 
 The `provider` row lands in `meta.json` only on the ticket's *next*
 `state_tx` — `runner.py` opens no transaction of its own, so a headless
 `provider` attempt is buffered in the journal first and promoted by the
 following transition (in practice, `autorunner`'s own `ack --auto` right
 after the dispatch).
+
+**Measured headless runs (KLC-133).** `run_agent` parses the WHOLE headless
+envelope the CLI prints (`claude -p --output-format json`, single object or
+`--verbose` array — the last `type: "result"` element's own `usage`/
+`total_cost_usd`/`is_error` win) and writes ONE attempt per dispatch,
+whether the caller passed `ticket=` or the separate
+`telemetry_ticket=`/`telemetry_phase=` tags (the review runner and the build
+orchestrator's default dispatch use the latter, so telemetry attribution
+never triggers the C-005 interactive-park guard, which keys on `ticket=`
+alone). A measured (`source="provider"`) attempt carries `cache_write`
+(the CLI's `cache_creation_input_tokens`), `cost_usd` and `num_turns`/
+`duration_ms`; `run_pass` (`"step"` / `"per-step-review"` /
+`"per-step-fix"`) tags a build-orchestrator dispatch, `step` its impl-plan
+step number, and `failed: true` marks a dispatch that returned a non-zero
+rc, whose envelope's own `is_error` was `true`, or whose dispatch
+succeeded (rc 0) but reported `is_error: true` with no usable token counts
+at all — the same measured fields are copied in either way, so a rollup
+can tell "this run cost real money and still failed" from "nothing ran",
+and an `is_error` run never counts as an executed, successful review pass
+either way. A dispatch that returns no parseable envelope (plain text, or
+a genuinely failed run with no usable stdout) falls back to
+`source="estimated"` (byte-measured) or records nothing at all, exactly as
+it always could.
+
+**One basis per attempt (step-10 review-fix).** The four token fields
+come from the LAST result element's `modelUsage` sum when every model
+entry there is internally consistent (one wrong-typed or renamed field on
+ANY model makes the whole block unusable, never a partial/undercounted
+sum — the parser falls back to that element's raw `usage` block instead).
+Because `modelUsage` is already whole-run cumulative (Q-009), `num_turns`
+and `duration_ms` are summed across EVERY result element of a `--verbose`
+array — not just the last segment's — so they share that same
+whole-run basis instead of understating a multi-segment or async-subagent
+run. `cost_usd` is cross-checked the same way: when the modelUsage-derived
+cost disagrees with the element's own `total_cost_usd`, the modelUsage
+figure is recorded — **still copied verbatim from the CLI's own reported
+costUSD figures, never recomputed from a token count and a price table** —
+and the optional `cost_basis` key (currently always `"modelUsage"` when
+present) names why; absent when the two already agreed, or when
+`total_cost_usd` was absent from the envelope in the first place (nothing
+to cross-check, so nothing to correct).
+
+**Which runs are measured, which stay estimated.** Measured
+(`source="provider"`): every runner-dispatched headless call — a build step,
+a per-step review or fix pass, a headless reviewer dispatch, and the
+autorunner's own non-build phase dispatch. Estimated, by construction, not
+by omission: a rendered prompt card's own `render_card` attempt (a SEPARATE
+attempt from the run it precedes, never merged with it); an in-session
+Claude Code Task subagent (no envelope reaches it — see below); the hand-run
+external reviewer of F-009, who pastes a card into a chat outside any
+runner; and the ticketless indexing agents of `scripts/init.py`, which have
+no ticket to attribute a `provider` attempt to in the first place.
+
+**`in` versus total input.** A provider attempt's `in` is only the
+UNCACHED input tokens the CLI billed for that turn; the run's REAL total
+input is `in + cache_hit + cache_write` (cache reads plus cache writes are
+still input the model processed). An `estimated` attempt's `in` measures the
+WHOLE rendered card, so the honest comparison — used by both
+`estimator_calibration` and `measured_per_ticket` below — is the estimate's
+`in` against a provider attempt's total input, never against its bare `in`.
+
+**A measured before/after, from the command line.** A review normally runs
+in-session (estimated). To get MEASURED before/after numbers for a review
+change, run it headlessly: `RUN_LOCAL_SUBAGENTS=1 REVIEW_RUNNER=scripts/review-runner.py`
+dispatches every reviewer card through `scripts/review-runner.py` (see
+"Prompt cards" and `core/agents/review.md` for the full recipe), which now
+writes a real `provider` attempt per dispatch instead of a byte estimate.
 
 A Claude Code Task subagent is not shown its own token usage, so on this host
 the interactive `/klc:run` path is **`estimated`-only** — the completion
@@ -1087,30 +1170,50 @@ next honest number needs a host that shows an agent its own usage.
 `meta.json` UNION any still-undrained journal entries, de-duplicated by id)
 by phase per track into `.klc/knowledge/process-metrics.json`, with a
 per-phase `source_counts` split three ways (`provider`/`signal`/`estimated`)
-so an estimate is never presented as a measurement. It also reports two
-numbers KLC-120 is scoped to move: `prompt_bytes_per_ticket` (the average
-measured card size per ticket in the track) and `review_passes_per_ticket`
-(`{actual, expected, ratio}`, with `expected` derived from the track's own
-phase list crossed with a table of review artefacts, their host phases and
-the ordinal of the first ticket that carries them — a degraded review only
-ever lowers `actual`, never `expected`, so a degrade reads as a degrade
-rather than a saving). `estimator_calibration` per track states the
-estimator's accuracy against real usage, derived from the corpus rather than
-claimed: the ratio of `estimated` to `provider` attempts when any
-provider-sourced attempt exists, and "uncalibrated" when none does — which is
-this project's real state today (no tokenizer library is installed and 0 of
-109 pre-KLC-119 `meta.json` files carried any `provider` record).
+so an estimate is never presented as a measurement. KLC-133: no figure in a
+phase entry is ever averaged over more than one source — the old mixed
+`avg_in`/`avg_out`/`avg_cache_hit` is gone, replaced by a `by_source` object
+keyed `provider`/`signal`/`estimated`, each with its own `samples`,
+`avg_in`, `avg_out`, `avg_cache_hit`, and `provider` additionally with
+`avg_cache_write`, `avg_num_turns`, `cost_usd_total` (the CLI's own figures,
+summed, never recomputed) and `failed_samples` — a failed attempt still
+counts in `samples`/`failed_samples`/`cost_usd_total`, but never in an
+average. It also reports two numbers KLC-120 is scoped to move:
+`prompt_bytes_per_ticket` (the average measured card size per ticket in the
+track, summed over `estimated` attempts only — a `provider` attempt is never
+double-counted into it) and `review_passes_per_ticket` (`{actual, expected,
+ratio}`, with `expected` derived from the track's own phase list crossed
+with a table of review artefacts, their host phases and the ordinal of the
+first ticket that carries them — a degraded review only ever lowers
+`actual`, never `expected`, so a degrade reads as a degrade rather than a
+saving). Per track, `measured_per_ticket` reports `review` and `build`
+independently, each with `tickets` (fully measured — every tagged run
+attempt of that phase is `provider`), `partial_tickets` (a mix of `provider`
+and non-`provider` tagged attempts — a ticket with NO provider attempt at
+all, or whose tagged provider attempts ALL failed, counts in neither), and
+`avg_total_input`/`avg_out`/`avg_cost_usd`/`avg_num_turns` averaged over the
+non-failed provider attempts of the fully-measured tickets only; every
+figure is `null`, never `0`, when no ticket qualifies. `estimator_calibration`
+per track states the estimator's accuracy against real usage, derived from
+the corpus rather than claimed: `estimated in / provider total input (in +
+cache_hit + cache_write) = <ratio> over <n> provider-paired phases`, using
+each phase's last non-failed provider attempt, and "uncalibrated" when no
+provider-sourced attempt exists — which was this project's real state before
+KLC-133 (no tokenizer library is installed and 0 of 109 pre-KLC-119
+`meta.json` files carried any `provider` record).
 
 **The real review-pass count (KLC-120).** `review_passes_per_ticket` counts
 review-phase *artefact files* — one row (`review-report.md`) whatever the
 number of reviewer sub-agents that actually ran. Alongside it, per track,
 the rollup reports `review_llm_passes_per_ticket`: the mean number of
-`reviewer`-tagged attempts over the tickets of that track that carry at
-least one, plus `review_llm_passes_measured_tickets` (the denominator).
-`None`, never `0`, when no ticket of the track has a tagged attempt — "not
-measured" must not read as "costs nothing". This is the real per-ticket
-count of executed LLM review passes the review plan (above) enumerates and
-the cap bounds.
+non-failed `reviewer`-tagged attempts of phase `review` specifically (KLC-133:
+a failed reviewer dispatch, or a build-phase `run_pass`-tagged attempt —
+which is never `reviewer`-tagged in the first place — never contributes)
+over the tickets of that track that carry at least one, plus
+`review_llm_passes_measured_tickets` (the denominator). `None`, never `0`,
+when no ticket of the track has a tagged attempt — "not measured" must not
+read as "costs nothing". This is the real per-ticket count of executed LLM
+review passes the review plan (above) enumerates and the cap bounds.
 
 **The BEFORE baseline is machine-local, by construction.** A backfill pass
 (`core/skills/token_backfill.py`) records one `estimated` attempt per stored

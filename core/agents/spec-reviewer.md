@@ -88,37 +88,9 @@ file may open with brief narrative, but it MUST END with exactly one fenced
 block in it; narrative above the block is fine. (Your chat response ends with a
 separate orchestrator signal — see "Completion signal" — do not confuse the two.)
 
-```json
-{
-  "findings": [
-    {
-      "id": "F-1",
-      "category": "infidelity",
-      "severity": "high",
-      "ref": "AC-3",
-      "detail": "raw.md asks the reviewer to check fidelity to raw.md, but AC-3 only checks the constitution; the raw.md-fidelity anchor is dropped.",
-      "suggested_fix": "add an AC that the reviewer reads raw.md and emits an infidelity finding on drift."
-    }
-  ],
-  "decisions_to_confirm": [
-    {
-      "id": "D-1",
-      "topic": "scope",
-      "question": "Should the reviewer also flag stylistic prose issues, or only the five objective categories?",
-      "recommended": "Only the five categories — style is not anchorable and would add noise.",
-      "rationale": "The epic's whole point is a low-noise reviewer; style belongs to authoring, not review.",
-      "ref": "spec §Non-goals"
-    }
-  ]
-}
-```
+{{include:finding-schema}}
 
-Field rules:
-- `category` ∈ `infidelity | code-contradiction | constitution | untestable-ac | internal-contradiction`.
-- `topic` ∈ `scope | tradeoff | ambiguous-intent`.
-- `severity` ∈ `high | medium | low`.
-- `recommended` is REQUIRED and non-empty on every decision.
-- `findings[]` empty and `decisions_to_confirm[]` empty is a valid, clean verdict.
+`rule_name` ∈ `infidelity | code-contradiction | constitution | untestable-ac | internal-contradiction`; `file` is the code file for `code-contradiction`, else `spec.md` (D-005); `line` is that file's 1-based line, or `null`.
 
 ## Track scaling
 
@@ -132,24 +104,16 @@ regardless of track.
 ## Degrade-not-fail
 
 If an input is absent or a tool fails (no constitution file, self-check errors,
-LSP unavailable), record what you could not check as a `low`-severity finding or
-a note in the relevant `detail`, and review everything else. Never abort the
+LSP unavailable), record what you could not check as a `LOW`-severity finding or
+a note in the relevant `body`, and review everything else. Never abort the
 review because one anchor is missing — a partial verdict is more useful than none.
 
 ## Two sinks — which JSON block goes where
 
-There are TWO separate destinations, each ending in its own JSON block. They live
-in DIFFERENT places, so they never collide — do not merge them:
-
 ```text
-FILE  spec-review.md   → its LAST block is the VERDICT (findings + decisions).
-                         No completion-signal block anywhere in this file: the
-                         plumbing takes the file's last JSON block as the verdict,
-                         so a trailing signal here would be mis-read as an empty
-                         verdict.
-CHAT  your reply        → its LAST block is the orchestrator COMPLETION SIGNAL
-                         (see below). This is what run_signal parses to know the
-                         run succeeded. The verdict does NOT go in the chat.
+FILE  spec-review.md → LAST block is the VERDICT; no completion signal here (it
+      would be mis-read as an empty verdict).
+CHAT  your reply     → LAST block is the orchestrator COMPLETION SIGNAL (run_signal parses it), never the verdict.
 ```
 
 ## Hard rules

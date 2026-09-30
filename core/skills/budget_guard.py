@@ -77,17 +77,44 @@ def _utc_now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+ATTEMPT_OPTIONAL_KEYS = ("run_pass", "cache_write", "cost_usd", "cost_basis",
+                        "num_turns", "duration_ms", "failed")
+_MEASURED_KEYS = ("cache_write", "cost_usd", "cost_basis", "num_turns", "duration_ms")
+
+
 def attempt_record(tokens_in: int, tokens_out: int, cache_hit: int,
                    source: str, card_bytes: int | None,
                    step: int | None = None, attempt_id: str | None = None,
-                   ts: str | None = None, reviewer: str | None = None) -> dict:
+                   ts: str | None = None, reviewer: str | None = None, *,
+                   run_pass: str | None = None,
+                   cache_write: int | None = None,
+                   cost_usd: float | None = None,
+                   cost_basis: str | None = None,
+                   num_turns: int | None = None,
+                   duration_ms: int | None = None,
+                   failed: bool | None = None) -> dict:
     """One attempt record — the unit `write_token_metrics` appends (AC-2/AC-3).
     The identifier is always assigned here (by the writer), never left to the
     caller, so two callers can never collide on one (D-004).
 
     reviewer: KLC-120 AC-3 — the reviewer name for an executed review pass.
             Absent (never null) when the caller doesn't pass one, so every
-            pre-KLC-120 caller's records stay byte-identical (Q-005)."""
+            pre-KLC-120 caller's records stay byte-identical (Q-005).
+
+    KLC-133 AC-8: `run_pass`, `cache_write`, `cost_usd`, `num_turns`,
+            `duration_ms` and `failed` are keyword-only and stored only when
+            the caller passes them. `cache_write`/`cost_usd`/`cost_basis`/
+            `num_turns`/`duration_ms` — the "measured" keys — are additionally
+            dropped on any non-"provider" attempt, even when a caller passes
+            them by mistake, so a rollup can trust `source == "provider"` as
+            the one gate for "this attempt carries measured fields" (Q-003).
+
+    KLC-133 step-10 review-fix ([!DECISION D-118], AC-1): `cost_basis` is an
+            optional note — present (e.g. `"modelUsage"`) only when
+            `runner._parse_envelope` corrected `cost_usd` to the
+            modelUsage-derived, basis-consistent figure because it disagreed
+            with the envelope's own `total_cost_usd`; absent otherwise, same
+            provider-only gate as the other measured keys."""
     rec = {"id": attempt_id or _new_attempt_id(),
            "ts": ts or _utc_now(),
            "in": tokens_in, "out": tokens_out,
@@ -99,6 +126,16 @@ def attempt_record(tokens_in: int, tokens_out: int, cache_hit: int,
         rec["step"] = step
     if reviewer:
         rec["reviewer"] = reviewer
+    if run_pass:
+        rec["run_pass"] = run_pass
+    if source == "provider":
+        for key, value in zip(
+                _MEASURED_KEYS,
+                (cache_write, cost_usd, cost_basis, num_turns, duration_ms)):
+            if value is not None:
+                rec[key] = value
+    if failed is True:
+        rec["failed"] = True
     return rec
 
 
@@ -181,7 +218,8 @@ def _append_into_meta(ticket: str, phase_id: str, rec: dict) -> None:
         entry = {"attempts": []}
         if prior is not None:              # first touch: keep the old record
             entry["legacy"] = prior
-    if rec.get("card_bytes") is None and entry["attempts"]:
+    if (rec.get("card_bytes") is None and rec.get("source") != "provider"
+            and entry["attempts"]):
         carried = entry["attempts"][-1].get("card_bytes")
         if carried is not None:
             rec = dict(rec, card_bytes=carried)
@@ -196,7 +234,15 @@ def write_token_metrics(ticket: str | None, phase_id: str,
                          card_bytes: int | None = None, *,
                          step: int | None = None,
                          attempt_id: str | None = None,
-                         reviewer: str | None = None) -> None:
+                         reviewer: str | None = None,
+                         ts: str | None = None,
+                         run_pass: str | None = None,
+                         cache_write: int | None = None,
+                         cost_usd: float | None = None,
+                         cost_basis: str | None = None,
+                         num_turns: int | None = None,
+                         duration_ms: int | None = None,
+                         failed: bool | None = None) -> None:
     """The single writer (AC-1) of ``meta.json:metrics.tokens.<phase_id>``.
 
     KLC-119: appends an attempt record to an ordered per-phase attempts list
@@ -225,11 +271,22 @@ def write_token_metrics(ticket: str | None, phase_id: str,
             D-004); the writer assigns one otherwise.
     reviewer: KLC-120 AC-3 — optional, keyword-only. Every existing caller
             stays source-compatible (none of them passes it).
+    ts: KLC-133 AC-9 — optional, keyword-only. Used by the journal drain to
+            preserve the ORIGINAL attempt time rather than re-stamping "now"
+            (options F-104); every other caller leaves it unset and gets
+            `_utc_now()` exactly as before.
+    run_pass, cache_write, cost_usd, cost_basis, num_turns, duration_ms, failed:
+            KLC-133 AC-8 — optional, keyword-only; forwarded verbatim to
+            `attempt_record` (see its docstring for the storage rules).
     """
     if not ticket:
         return
     rec = attempt_record(tokens_in, tokens_out, cache_hit, source, card_bytes,
-                         step=step, attempt_id=attempt_id, reviewer=reviewer)
+                         step=step, attempt_id=attempt_id, ts=ts,
+                         reviewer=reviewer, run_pass=run_pass,
+                         cache_write=cache_write, cost_usd=cost_usd,
+                         cost_basis=cost_basis, num_turns=num_turns,
+                         duration_ms=duration_ms, failed=failed)
     try:
         import token_journal
         if token_journal.tx_open(ticket):
@@ -350,24 +407,40 @@ def gate_card_dispatch(track: str, est_tokens: int | None) -> BudgetVerdict:
     return check_prompt_budget(track, est_tokens)
 
 
-# --- AC-8 calibration statement ---------------------------------------------
+# --- AC-8 / KLC-133 AC-11 calibration statement -----------------------------
+
+def _total_input(a: dict) -> int:
+    """KLC-133 AC-11/Q-003: a provider attempt's REAL total input — the
+    uncached `in` plus whatever the cache read/wrote — vs. an `estimated`
+    attempt's `in`, which measures the whole card. Only genuine `int`
+    values count (a hand-edited corpus's stray string/bool/float is
+    silently excluded, never raises)."""
+    return sum(v for v in (a.get("in"), a.get("cache_hit"), a.get("cache_write"))
+              if type(v) is int)
+
 
 def calibration_statement(by_phase: dict[str, list[dict]]) -> str:
-    """AC-8: the estimator's calibration status, derived from the corpus —
-    never a hardcoded claim. No second size rule is needed here: an
-    `estimated` attempt already carries the number `estimate_tokens`
-    produced, so the ratio is attempt over attempt, phase by phase, using
-    each phase's LAST provider-sourced and estimated attempt.
+    """AC-8/KLC-133 AC-11: the estimator's calibration status, derived from
+    the corpus — never a hardcoded claim. No second size rule is needed
+    here: an `estimated` attempt already carries the number
+    `estimate_tokens` produced, so the ratio is attempt over attempt, phase
+    by phase, using each phase's LAST non-failed provider-sourced attempt
+    and LAST estimated attempt. KLC-133 fixes F-012: the provider side of
+    the ratio is the attempt's TOTAL input (in + cache_hit + cache_write),
+    not the uncached `in` alone, and a failed provider attempt is skipped.
     """
     pairs = []
     for _phase, attempts in by_phase.items():
         actual = [a for a in attempts
-                 if a.get("source") == "provider" and a.get("in")]
+                 if a.get("source") == "provider"
+                 and a.get("failed") is not True
+                 and _total_input(a) > 0]
         est = [a for a in attempts
-              if a.get("source") == "estimated" and a.get("in")]
+              if a.get("source") == "estimated"
+              and type(a.get("in")) is int and a["in"] > 0]
         if actual and est:
-            pairs.append(est[-1]["in"] / actual[-1]["in"])
+            pairs.append(est[-1]["in"] / _total_input(actual[-1]))
     if not pairs:
         return "uncalibrated: no provider-sourced attempts in the corpus"
-    return (f"estimated/actual = {sum(pairs) / len(pairs):.2f} "
-            f"over {len(pairs)} provider-paired phases")
+    return (f"estimated in / provider total input (in + cache_hit + cache_write) = "
+            f"{sum(pairs) / len(pairs):.2f} over {len(pairs)} provider-paired phases")

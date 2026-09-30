@@ -37,6 +37,7 @@ so hook scripts can inspect them.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -55,6 +56,7 @@ from budget_guard import (  # noqa: E402
     write_token_metrics as _write_token_metrics,
 )
 import phase_resolver as _phase_resolver  # noqa: E402
+import plugin_gen  # noqa: E402
 
 
 # Distinct from the generic dispatch-failure rc (2): this rc means the
@@ -79,27 +81,207 @@ def _write_park_marker(ticket: str, phase_id: str, reason: str, out_path: Path) 
 
 # --- token telemetry helpers -------------------------------------------------
 
+# KLC-133: the README's `usage-source` finding (tests/fixtures/klc133/README.md)
+# — a subagent's tokens are missing from the final result's own `usage` block
+# on this CLI version, so the four token fields are read from `modelUsage`'s
+# per-field sum instead. `test_usage_source_constant_matches_the_fixture_readme`
+# pins this constant to that finding.
+_USAGE_SOURCE = "modelUsage"
+
+_TOKEN_FIELDS = ("input_tokens", "output_tokens",
+                 "cache_read_input_tokens", "cache_creation_input_tokens")
+
+_MODEL_USAGE_CAMEL = {
+    "input_tokens": "inputTokens",
+    "output_tokens": "outputTokens",
+    "cache_read_input_tokens": "cacheReadInputTokens",
+    "cache_creation_input_tokens": "cacheCreationInputTokens",
+}
+
+
+def _is_count(v) -> bool:
+    """A valid non-negative token/turn count. `bool` is a `int` subclass in
+    Python, so it is excluded explicitly — `True`/`False` are never counts."""
+    return type(v) is int and v >= 0
+
+
+def _is_cost(v) -> bool:
+    return type(v) in (int, float) and math.isfinite(v) and v >= 0
+
+
+def _result_elements(text):
+    """Every `type: "result"` element of a `--verbose` array, in array
+    order; a one-element list holding the single object for the plain
+    `--output-format json` form. `None` for anything that isn't a
+    recognisable envelope at all — plain text, broken JSON, an array with
+    no result element, or a non-string input."""
+    if not isinstance(text, str):
+        return None
+    body = text.strip().removeprefix("﻿").strip()
+    if not body or body[0] not in "{[":
+        return None
+    try:
+        payload = json.loads(body)
+    except Exception:                                   # incl. RecursionError
+        return None
+    if isinstance(payload, dict):
+        return [payload]
+    if isinstance(payload, list):
+        results = [item for item in payload
+                  if isinstance(item, dict) and item.get("type") == "result"]
+        return results or None
+    return None
+
+
+def _result_element(text):
+    """The envelope object a headless run's stdout carries: the single JSON
+    object of the plain `--output-format json` form, or the LAST element
+    whose `type` is `"result"` of the `--verbose` array form (AC-2) — the
+    one whose own `usage`/`total_cost_usd` the CLI reports for the final
+    segment. `None` when `_result_elements` is."""
+    els = _result_elements(text)
+    return els[-1] if els else None
+
+
+def _model_usage_totals(el):
+    """Per-field sum over `el["modelUsage"]` (camelCase names as the CLI
+    reports them).
+
+    KLC-133 step-10 review-fix ([!DECISION D-118], AC-2, code-review MEDIUM
+    + external MEDIUM): a field is summed only when EVERY model entry
+    carries it as a valid count — a field missing, misnamed (e.g. schema
+    drift renaming `inputTokens` to `input_tokens`) or invalid on even ONE
+    model makes the WHOLE block unusable (`None`), never a partial or
+    undercounted sum. An empty or malformed `modelUsage` is likewise
+    unusable. The caller (`_parse_envelope`) then falls back to the raw
+    `usage` block of the same element instead of losing real data."""
+    mu = el.get("modelUsage")
+    if not isinstance(mu, dict) or not mu:
+        return None
+    models = list(mu.values())
+    if any(not isinstance(m, dict) for m in models):
+        return None
+    out: dict = {}
+    for key, camel in _MODEL_USAGE_CAMEL.items():
+        vals = [m.get(camel) for m in models]
+        if any(not _is_count(v) for v in vals):
+            return None
+        out[key] = sum(vals)
+    return out
+
+
+def _parse_envelope(text) -> dict:
+    """AC-1/AC-2: the eight named fields of a well-formed headless envelope
+    (`input_tokens`, `output_tokens`, `cache_read_input_tokens`,
+    `cache_creation_input_tokens`, `total_cost_usd`, `num_turns`,
+    `duration_ms`, `is_error`), plus an optional `cost_basis` note, or an
+    empty dict for anything malformed or absent. A field missing from the
+    envelope is missing from the result — never coerced to 0. Total: never
+    raises, for any input.
+
+    KLC-133 step-10 review-fix ([!DECISION D-118], code-review MEDIUM ×2 +
+    external MEDIUM ×2, AC-1/AC-2): widens D-117. The four token fields
+    come from the LAST result element's `modelUsage` sum when every model
+    entry there is internally consistent (`_model_usage_totals`);
+    otherwise — modelUsage absent, empty, or inconsistent across models —
+    the raw `usage` block of that SAME element is used instead. This is a
+    genuine widening of D-117 ("absent" only): a *malformed* modelUsage now
+    falls back too, rather than failing the whole envelope closed, because
+    a perfectly good `usage` block is sitting right there and silently
+    losing real data is worse than a needless total failure.
+
+    `num_turns`/`duration_ms` are summed across EVERY result element of a
+    `--verbose` array (a single-object envelope has just the one, so this
+    is a no-op there) — the modelUsage token counts are already whole-run
+    cumulative, so the turn/duration figures now share that same basis
+    instead of silently reporting only the last segment's (the reviewers'
+    real-fixture repro: a subagent run recording `num_turns: 1` next to a
+    full-session token count).
+
+    `total_cost_usd` is cross-checked against the modelUsage-derived cost
+    sum when modelUsage was used as the token basis; on a mismatch the
+    modelUsage figure is recorded instead (never silently the other) and
+    `cost_basis` names why. A `total_cost_usd` that is genuinely ABSENT
+    from the envelope stays absent — there is nothing to cross-check
+    against, so nothing to correct (the AC-1 "absent stays absent"
+    contract still holds).
+    """
+    try:
+        els = _result_elements(text)
+        if els is None:
+            return {}
+        el = els[-1]
+        usage = el.get("usage", {})
+        if not isinstance(usage, dict):
+            return {}
+        model_usage_used = False
+        if _USAGE_SOURCE == "modelUsage":
+            mu_totals = _model_usage_totals(el)
+            if mu_totals is not None:
+                usage = mu_totals
+                model_usage_used = True
+            # else: modelUsage absent/empty/inconsistent — fall back to the
+            # raw `usage` dict already assigned above (D-118).
+        out: dict = {}
+        for key in _TOKEN_FIELDS:
+            if key in usage:
+                if not _is_count(usage[key]):
+                    return {}
+                out[key] = usage[key]
+        for key in ("num_turns", "duration_ms"):
+            raw_vals = [e[key] for e in els if key in e]
+            if raw_vals:
+                if any(not _is_count(v) for v in raw_vals):
+                    return {}
+                out[key] = sum(raw_vals)
+        cost = None
+        if "total_cost_usd" in el:
+            if not _is_cost(el["total_cost_usd"]):
+                return {}
+            cost = el["total_cost_usd"]
+        if model_usage_used and cost is not None:
+            mu = el.get("modelUsage") or {}
+            cost_vals = [m.get("costUSD") for m in mu.values() if isinstance(m, dict)]
+            if cost_vals and all(_is_cost(v) for v in cost_vals):
+                mu_cost = sum(cost_vals)
+                if not math.isclose(mu_cost, cost, rel_tol=1e-6, abs_tol=1e-9):
+                    cost = mu_cost
+                    out["cost_basis"] = "modelUsage"
+        if cost is not None:
+            out["total_cost_usd"] = cost
+        if "is_error" in el:
+            if type(el["is_error"]) is not bool:
+                return {}
+            out["is_error"] = el["is_error"]
+        return out
+    except Exception:
+        return {}
+
+
+def _envelope_result_text(text):
+    """The envelope's own `result` text, or `None` when there is none or it
+    isn't a string (AC-2) — the caller then falls back to raw stdout."""
+    el = _result_element(text)
+    value = el.get("result") if el else None
+    return value if isinstance(value, str) else None
+
+
 def _parse_usage_from_output(text: str) -> dict[str, int]:
     """Extract token counts from claude CLI JSON output if present.
 
-    `claude --output-format json` embeds a usage block. Falls back to
-    estimation when not available.
+    A thin wrapper over `_parse_envelope` (AC-2) that keeps this function's
+    pre-KLC-133 key names (`tokens_in`/`tokens_out`/`cache_hit`) for existing
+    callers.
     """
-    if not text.strip().startswith("{"):
-        return {}
-    try:
-        payload = json.loads(text)
-        usage = payload.get("usage") or {}
-        result = {}
-        if "input_tokens" in usage:
-            result["tokens_in"] = int(usage["input_tokens"])
-        if "output_tokens" in usage:
-            result["tokens_out"] = int(usage["output_tokens"])
-        if "cache_read_input_tokens" in usage:
-            result["cache_hit"] = int(usage["cache_read_input_tokens"])
-        return result
-    except Exception:
-        return {}
+    env = _parse_envelope(text)
+    result: dict[str, int] = {}
+    if "input_tokens" in env:
+        result["tokens_in"] = env["input_tokens"]
+    if "output_tokens" in env:
+        result["tokens_out"] = env["output_tokens"]
+    if "cache_read_input_tokens" in env:
+        result["cache_hit"] = env["cache_read_input_tokens"]
+    return result
 
 
 # --- prompt composition ------------------------------------------------------
@@ -111,8 +293,16 @@ def _compose_prompt(prompt_path: Path,
     `inputs` maps a human label ("diff", "spec", "context") to either
     a Path (contents inlined) or a string (used verbatim). Files are
     wrapped in triple-backtick fences so the LLM sees clear sections.
+
+    KLC-127 AC-16: the prompt source may carry `{{include:...}}` directives
+    (core/agents/*.md ships them unexpanded); the headless dispatch path
+    goes straight from the raw source through this function, so it must
+    expand them itself (`klc-plugin/agents/` regeneration is the in-client
+    path's own expansion, done once ahead of time). Raises `ValueError`
+    on an unresolvable include name — fail-closed, never ship a literal
+    `{{include:...}}` line to a dispatched subagent.
     """
-    body: list[str] = [prompt_path.read_text(encoding="utf-8")]
+    body: list[str] = [plugin_gen.expand_includes(prompt_path.read_text(encoding="utf-8"))]
     if inputs:
         body.append("\n\n---\n\n## Inputs for this run\n")
         for label, value in inputs.items():
@@ -153,7 +343,8 @@ def _dispatch_anthropic(resolved: ResolvedModel, prompt: str,
     env = {**os.environ, **extra_env}
     try:
         r = subprocess.run(argv, input=prompt, capture_output=True,
-                           text=True, timeout=timeout, env=env)
+                           text=True, timeout=timeout, env=env,
+                           encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired:
         return (2, "", f"runner: '{bin_name}' timed out after {timeout}s")
     except OSError as e:
@@ -261,6 +452,12 @@ def run_agent(phase_id: str,
               track:   str | None = None,
               ticket:  str | None = None,
               timeout: int = 1200,
+              telemetry_ticket: str | None = None,
+              telemetry_phase: str | None = None,
+              reviewer: str | None = None,
+              step: int | None = None,
+              run_pass: str | None = None,
+              card_bytes: int | None = None,
               ) -> int:
     """Resolve, dispatch, write output. Returns 0 on success, non-zero
     on provider / dispatch failure (a synthetic CRITICAL partial is
@@ -273,6 +470,23 @@ def run_agent(phase_id: str,
     (clarify gate / human ack-pick), this refuses to dispatch and
     parks instead — headless runs never guess at interactive input
     (C-005). Returns PARK_RC in that case.
+
+    KLC-133 AC-3: `telemetry_ticket`/`telemetry_phase` are keyword-only and
+    SEPARATE from `ticket`/`phase_id` — they name where the attempt is
+    RECORDED (defaulting to `ticket`/`phase_id` when unset), while `ticket`
+    alone still governs the C-005 park guard above. This lets a caller like
+    the ticketless indexing agents of `scripts/init.py` pass neither and
+    record nothing, or a caller like the review runner pass only the
+    telemetry tags (never triggering the park guard, which keys on `ticket`)
+    on top of its own dispatch. `reviewer`/`step`/`run_pass` are copied onto
+    the attempt verbatim; `card_bytes` is the caller's rendered artefact size
+    for the `estimated` fallback (AC-3/AC-4, `_record_run` below). Exactly
+    one attempt is written per dispatch whenever a telemetry ticket ends up
+    known — a provider attempt when the envelope parses (AC-1's
+    `input_tokens`/`output_tokens` both present, D-104), else `estimated`; a
+    failed dispatch (non-zero rc, or `is_error: true` inside a parseable
+    envelope) that still has usage is recorded with `failed: true`; a failed
+    dispatch with no usable envelope records nothing (AC-4).
     """
     if ticket:
         try:
@@ -339,42 +553,79 @@ def run_agent(phase_id: str,
         _write_synthetic_critical(out_path, phase_id, msg)
         return 2
 
+    # KLC-133 AC-3: where the one attempt of this dispatch is recorded.
+    tags = {"reviewer": reviewer, "step": step, "run_pass": run_pass}
+    rec_ticket = telemetry_ticket or ticket
+    rec_phase = telemetry_phase or phase_id
+
     rc, stdout, stderr = dispatcher(resolved, prompt, timeout, extra_env)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if rc == 0 and stdout.strip():
-        # --- envelope split (AC-C1) ------------------------------------------
-        # If the provider returns a JSON envelope (e.g. --output-format json),
-        # write only the result text to the artifact. Fall back to raw stdout
-        # if parsing fails or the envelope has no 'result' key.
-        artifact_text = stdout
-        try:
-            envelope = json.loads(stdout)
-            if isinstance(envelope, dict) and "result" in envelope:
-                artifact_text = envelope["result"]
-        except (json.JSONDecodeError, ValueError):
-            pass
-        out_path.write_text(artifact_text, encoding="utf-8")
-        # --- token telemetry -------------------------------------------------
-        usage = _parse_usage_from_output(stdout)
-        if usage:
-            tokens_in  = usage.get("tokens_in",  _estimate_tokens(prompt))
-            tokens_out = usage.get("tokens_out", _estimate_tokens(stdout))
-            cache_hit  = usage.get("cache_hit",  0)
-            source     = "provider"
-        else:
-            tokens_in  = _estimate_tokens(prompt)
-            tokens_out = _estimate_tokens(stdout)
-            cache_hit  = 0
-            source     = "estimated"
-        _write_token_metrics(ticket, phase_id, tokens_in, tokens_out,
-                             cache_hit, source=source)
+        # --- envelope split (AC-C1 / KLC-133 AC-2) ---------------------------
+        # If the provider returns a JSON envelope (e.g. --output-format json,
+        # single object or --verbose array), write only the result text to
+        # the artifact. Fall back to raw stdout when parsing fails, the
+        # envelope has no 'result' key, or 'result' isn't a string (never
+        # raises — a hostile result value is written as raw stdout instead).
+        text = _envelope_result_text(stdout)
+        out_path.write_text(stdout if text is None else text,
+                            encoding="utf-8", errors="replace")
+        _record_run(rec_ticket, rec_phase, prompt, stdout,
+                    failed=False, card_bytes=card_bytes, tags=tags)
         return 0
 
     # Failure — preserve any partial stdout, append synthetic notice.
     detail = stderr.strip() or "(no stderr)"
     _write_synthetic_critical(out_path, phase_id, detail,
                               extra_body=stdout if stdout.strip() else "")
+    _record_run(rec_ticket, rec_phase, prompt, stdout,
+                failed=True, card_bytes=card_bytes, tags=tags)
     return rc or 2
+
+
+def _record_run(ticket, phase, prompt, stdout, *, failed, card_bytes, tags) -> None:
+    """KLC-133 AC-3/AC-4: the one attempt of a dispatch — never raises
+    (C-003), so a telemetry-write failure never changes `run_agent`'s rc or
+    output. A provider attempt requires BOTH `input_tokens` and
+    `output_tokens` to parse (D-104); it is recorded with `failed: true`
+    when the dispatch itself failed OR the envelope's own `is_error` is
+    `true`. An `estimated` attempt is recorded only on an otherwise
+    successful dispatch — a failed dispatch with no usable envelope records
+    nothing at all.
+
+    KLC-133 step-10 review-fix (AC-4, code-review LOW + external LOW): the
+    `is_error` flag is now folded into the RECORDED `failed` value for
+    BOTH branches, computed once — not only inside the provider branch's
+    own `failed=` value as before. The branch GATE below (whether to write
+    an `estimated` attempt at all) still keys on the caller's own `failed`
+    (did the dispatch itself return non-zero?), unchanged — a genuinely
+    failed dispatch with no usable envelope still records nothing. But
+    when the dispatch itself succeeded (rc==0) and the envelope reports
+    `is_error: true` with no usable input_tokens/output_tokens, the
+    `estimated` attempt that DOES get written is now marked `failed: true`
+    too, so it never wrongly counts toward `review_llm_passes_per_ticket`
+    as an executed, successful pass."""
+    if not ticket:
+        return
+    try:
+        env = _parse_envelope(stdout)
+        combined_failed = failed or env.get("is_error") is True
+        if "input_tokens" in env and "output_tokens" in env:          # D-104
+            _write_token_metrics(
+                ticket, phase, env["input_tokens"], env["output_tokens"],
+                env.get("cache_read_input_tokens", 0), source="provider",
+                cache_write=env.get("cache_creation_input_tokens"),
+                cost_usd=env.get("total_cost_usd"),
+                cost_basis=env.get("cost_basis"),
+                num_turns=env.get("num_turns"), duration_ms=env.get("duration_ms"),
+                failed=combined_failed, **tags)
+        elif not failed:
+            _write_token_metrics(
+                ticket, phase, _estimate_tokens(prompt), _estimate_tokens(stdout), 0,
+                source="estimated", card_bytes=card_bytes,
+                failed=True if combined_failed else None, **tags)
+    except Exception:
+        pass
 
 
 def _write_synthetic_critical(out_path: Path,

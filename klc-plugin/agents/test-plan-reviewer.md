@@ -104,46 +104,32 @@ That file may open with brief narrative, but it MUST END with exactly one fenced
 is fine. (Your chat response ends with a SEPARATE orchestrator signal — see
 "Completion signal" — do not confuse the two.)
 
+## The one finding shape
+
+Return ONE JSON object — your verdict, the last fenced block of your verdict file:
+
 ```json
-{
-  "findings": [
-    {
-      "id": "F-1",
-      "category": "uncovered-ac",
-      "severity": "high",
-      "ref": "AC-3",
-      "detail": "AC-3 (the gate rejects a malformed input) has no row in the acceptance-coverage table — it maps to no planned test.",
-      "suggested_fix": "add an acceptance row that feeds a malformed input and asserts the reject."
-    },
-    {
-      "id": "F-2",
-      "category": "missing-edge-case",
-      "severity": "medium",
-      "ref": "AC-2",
-      "detail": "AC-2 is a reject/gate criterion but its only planned test exercises the happy path; nothing bites on bad input.",
-      "suggested_fix": "add a negative row that supplies the rejected input and asserts the failure path."
-    }
-  ],
-  "decisions_to_confirm": [
-    {
-      "id": "D-1",
-      "topic": "coverage-depth",
-      "question": "Is one acceptance test enough for AC-4, or should it also carry a boundary case?",
-      "recommended": "Add a boundary case — AC-4 names a numeric limit, and off-by-one is the likely defect.",
-      "rationale": "The AC's Condition implies a threshold; a single mid-range test cannot prove the edge.",
-      "ref": "AC-4"
-    }
-  ]
-}
+{"findings": [{"id": "F-1", "rule_name": "RULE", "severity": "HIGH",
+  "file": "spec.md", "line": 88, "title": "AC-3 has no observable outcome",
+  "body": "AC-3 says the gate works correctly; nothing checkable follows.",
+  "fix": "Name the rejected input and the exit code.", "ref": "AC-3"}],
+ "decisions_to_confirm": [{"id": "D-1", "topic": "TOPIC", "question": "Is X in scope?",
+  "recommended": "No: X belongs to another ticket.", "rationale": "", "ref": "AC-7"}]}
 ```
 
-Field rules:
-- `category` ∈ `uncovered-ac | weak-assertion | missing-edge-case`.
-- `topic` ∈ `coverage-depth | risk-prioritization`.
-- `severity` ∈ `high | medium | low`.
-- `recommended` is REQUIRED and non-empty on every decision.
-- `findings[]` empty and `decisions_to_confirm[]` empty is a valid, clean verdict —
-  a fully-covered, non-happy-path plan is clean, and you say so plainly.
+RULE is one value of your rule_name list below. With no such list,
+`rule_name` is a lower-case kebab-case slug (e.g. `missing-test`, never
+snake_case or `RULE` itself). TOPIC is one of your topics; none means
+`decisions_to_confirm` must be `[]`.
+
+- `id` unique in the object; `severity` is CRITICAL, HIGH, MEDIUM, LOW or INFO.
+- `file` is the file the finding is about (a code file, else your artefact); `line`
+  is its 1-based line, or null; never 0.
+- `title` is one line; `body` is not empty; `fix` is a string or null.
+- Do not add `reviewer` or `kind`: intake stamps them. `recommended` is required.
+- Empty `findings` and `decisions_to_confirm` is a valid verdict.
+
+`rule_name` ∈ `uncovered-ac | weak-assertion | missing-edge-case`; `file` is `test-plan.md` (D-005 — you review the plan, not code); `line` is the row's 1-based line, or `null`.
 
 ## Track scaling
 
@@ -156,32 +142,22 @@ of track.
 ## Degrade-not-fail
 
 If the spec has no SAOC ACs, or the test-plan is absent/empty, or a tool fails, record
-what you could not check as a `low`-severity finding or a note in the relevant
-`detail`, and review everything else. Never abort because one anchor is missing — a
+what you could not check as a `LOW`-severity finding or a note in the relevant
+`body`, and review everything else. Never abort because one anchor is missing — a
 partial verdict is more useful than none.
 
 ## Reuse — do NOT rebuild the plumbing
 
 The reviewer-spawn / parsing / routing / recording machinery is **KLC-084's generic
-independent-artifact-review seam** (`core/skills/spec_review.py`). KLC-085 only adds
-the `TEST_PLAN_REVIEW` descriptor (this prompt, `test-plan.md`, `test-plan-review.md`,
-and the categories/topics above) and reuses every seam function unchanged. Do not
-build a second reviewer harness, parser, or validator.
+independent-artifact-review seam** (`core/skills/spec_review.py`); KLC-085 only adds this
+prompt and its `TEST_PLAN_REVIEW` descriptor. Do not build a second harness/parser/validator.
 
 ## Two sinks — which JSON block goes where
 
-There are TWO separate destinations, each ending in its own JSON block. They live in
-DIFFERENT places, so they never collide — do not merge them:
-
 ```text
-FILE  test-plan-review.md → its LAST block is the VERDICT (findings + decisions).
-                            No completion-signal block anywhere in this file: the
-                            plumbing takes the file's last JSON block as the verdict,
-                            so a trailing signal here would be mis-read as an empty
-                            verdict.
-CHAT  your reply           → its LAST block is the orchestrator COMPLETION SIGNAL
-                            (see below). This is what run_signal parses to know the
-                            run succeeded. The verdict does NOT go in the chat.
+FILE  test-plan-review.md → LAST block is the VERDICT; no completion signal here
+      (it would be mis-read as an empty verdict).
+CHAT  your reply          → LAST block is the orchestrator COMPLETION SIGNAL (run_signal parses it), never the verdict.
 ```
 
 ## Hard rules

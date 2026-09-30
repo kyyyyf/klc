@@ -55,11 +55,10 @@ Do not invent categories or topics outside this list.
 ## The two SINKS (keep them strictly apart)
 
 FILE  `drift-review.md` IN THE TICKET DIRECTORY (`.klc/tickets/<KEY>/drift-review.md`, the
-      same dir as spec.md) → its LAST block is the VERDICT: a single ```json object carrying
-      `findings[]` and `decisions_to_confirm[]` (each finding has id/category/severity/detail;
-      each decision has id/topic/question/recommended). Writing it anywhere else means the
-      integrate ack cannot find it and treats the review as missing. Put NO completion-signal
-      block in this file.
+      same dir as spec.md) → its LAST block is the VERDICT: a single ```json object of the
+      one finding shape below (each decision has id/topic/question/recommended). Writing it
+      anywhere else means the integrate ack cannot find it and treats the review as missing.
+      Put NO completion-signal block in this file.
 
 CHAT  your final message → its LAST block is the `run_signal` completion JSON (this is what
       `core.skills.run_signal.parse_signal` reads to classify the run). Put NO verdict in
@@ -67,10 +66,11 @@ CHAT  your final message → its LAST block is the `run_signal` completion JSON 
 
 ## VERDICT (write to `.klc/tickets/<KEY>/drift-review.md`, last block)
 
-```json
-{"findings": [{"id": "F-1", "category": "decision-violation", "severity": "medium", "detail": "…", "ref": "D-007"}],
- "decisions_to_confirm": [{"id": "D-1", "topic": "intentional-deviation", "question": "…", "recommended": "…"}]}
-```
+{{include:finding-schema}}
+
+`rule_name` ∈ `decision-violation | unrecorded-decision | spec-drift`; `file` is the changed
+code file, else `spec.md` when the finding is about a recorded decision rather than a line
+of code (D-005); `line` is that file's 1-based line, or `null`.
 
 Each `decisions_to_confirm[]` item MUST lead with a `recommended` answer. Return an empty
 `findings`/`decisions_to_confirm` array when there is nothing to raise — a clean diff is a

@@ -656,3 +656,37 @@ only each symbol's start line, and can go stale between builds. `klc
 skeleton` is its on-demand, never-stored counterpart for one file at a time,
 with the full member list (private names included for Python) and an
 inclusive end line for every entry.
+
+**KLC-138 measured outcome: reverted (not exercised).** KLC-138 tried
+replacing the review prompt's LSP-only / `±20`-line reading instructions
+with a `klc skeleton <file>`-first sentence in step 1 of "Verify before
+reporting," gated on an operator-run headless before/after measurement (4
+`claude-sonnet-5` `architecture`-reviewer runs on the KLC-130 diff, $0.78
+total, n=2 per arm). The verify step that sentence lives in only runs once
+a candidate finding exists; all four runs reported zero findings on this
+subject, so the step most likely never ran in any arm, old wording or new.
+`klc skeleton` was not called in either after-arm run, and no permission
+denial blocked it — but with zero findings on all four runs, that says the
+measurement did not exercise the mechanism, not that the model considered
+and preferred another tool. The impl.md half of the rule (the build-agent
+navigation instruction) was never measured at all; only the review-phase
+wording was in scope. Several confounds sit underneath the raw numbers and
+were not controlled for at n=2: the job card's `severity_rubric` path
+(hardcoded by `scripts/review.py`) does not exist in this repo; the job
+card asks the reviewer to write two output files while the measurement
+settings deny `Write`; and `claude` ran in the operator's project working
+directory, so the project's own `.claude/settings.local.json` merged on
+top of the measurement's allow-list for both arms. The raw total-input drop
+between arms (62-72%) is real as a number, but with the rule not exercised
+and these confounds unaddressed, its cause is unestablished — this is not a
+demonstrated efficiency gain. Per the pre-registered keep-or-revert rule, a
+rule the measurement never exercised is reverted regardless of how the raw
+numbers look; the prompts, the plugin and the KLC-138 test module were
+reverted to their pre-ticket state. Separately, and unrelated to the
+verdict: the real raw envelopes from this run were later lost to an
+unrelated dry-run overwrite; the token/cost/turn figures survive
+independently in `.klc/scratch/KLC-130/telemetry.jsonl`. See
+`.klc/tickets/KLC-138/measurement.md` for the full protocol, the four-run
+table, the evidence-provenance account and the reasoning. `klc skeleton`
+itself is unaffected — only the prompt instruction to reach for it first
+was reverted.

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "F-1",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "core/skills/runner.py",
+    "line": 135,
+    "title": "_model_usage_totals silently drops a model's contribution instead of failing the envelope closed",
+    "body": "For each of the four token fields, _model_usage_totals only sums the models whose entry actually contains that field's camelCase key (`if isinstance(m, dict) and camel in m`). A model entry that is missing or misspells one field (schema drift, or a future CLI version that adds a new model kind) is silently excluded from that field's sum rather than making the whole modelUsage path fail closed. Verified by direct repro: taking the real envelope-single.json fixture and adding a second modelUsage entry {'input_tokens': 1000, 'outputTokens': 500} (snake_case key instead of the expected camelCase 'inputTokens') to it, runner._parse_envelope(...) returns input_tokens=9 (only the first, well-formed model), silently dropping the second model's 1000 input tokens rather than returning {} or falling back to the raw usage block. Since _USAGE_SOURCE='modelUsage' is used for every headless dispatch (D-102/D-117), any multi-model envelope with one malformed/renamed field on one model produces an undercounted 'provider' (measured) attempt with no signal that data was lost. This contradicts the parser's own strict/total design intent (D-103: 'One wrong-typed named field empties the whole result').",
+    "fix": "In _model_usage_totals, require a field to be present and a valid count on EVERY model entry (or absent from every entry) before summing it; if a field is present-but-inconsistent across models, treat the whole modelUsage block as unusable (return None) so the caller falls back to the raw usage block per D-117, or to an empty result. Add a parser test with two model keys where one model is missing/misnames a field.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-2"
+  },
+  {
+    "id": "F-2",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "core/skills/runner.py",
+    "line": 88,
+    "title": "A provider attempt mixes cumulative modelUsage token counts with point-in-time num_turns/duration_ms/total_cost_usd from the same result segment",
+    "body": "_USAGE_SOURCE='modelUsage' makes every attempt's four token fields come from the CUMULATIVE per-model usage, while num_turns/duration_ms/total_cost_usd (D-102: 'total_cost_usd is always read from the envelope top level') come from the SAME result element, which is a point-in-time/per-segment snapshot. This is independently verified in the real captured envelope-verbose-subagent.json: both of its two 'result' elements report the IDENTICAL modelUsage totals (37/446/61525/15813 tokens, costUSD 0.03161175), but different num_turns (2 vs 1), duration_ms (4000 vs 1176) and total_cost_usd (0.02810725 vs 0.03161175) -- i.e. modelUsage is already fully cumulative on the EARLIER segment while total_cost_usd on that same segment is NOT (it understates the final cost by ~11%). tests/fixtures/klc133/envelope-multiturn-cache.json is derived from exactly that earlier, inconsistent segment and is pinned as 'correct' by test_klc133_envelope_parser.py:34 (in=37, cost_usd=0.02810725 in the same record). Every headless dispatch uses this same modelUsage-preferring parser (not just --verbose runs): if a build-step or review dispatch spawns a subagent via the Agent tool under the default `--print --output-format json` form, the recorded 'provider' attempt would carry full-session token counts next to a `num_turns`/`duration_ms`/`cost_usd` that may reflect only part of the run -- exactly the class of run KLC-133 exists to measure accurately (Q-009). This basis mismatch is not covered by any test (all tests assert only that individual literal fields match the fixture, not that the fields are mutually consistent) and is not discussed in design/adr.md or design/options.md.",
+    "fix": "When num_turns/duration_ms/total_cost_usd and the token counts come from different accounting bases, either (a) for the array form, sum num_turns/duration_ms over every result element and cross-check sum(modelUsage costUSD) against the last element's total_cost_usd, recording a discrepancy flag or preferring the modelUsage-derived cost when they disagree, or (b) at minimum document in docs/process.md that num_turns/duration_ms/cost_usd on a modelUsage-sourced attempt may understate a multi-segment/subagent run, and avoid pinning an internally-inconsistent fixture pair as the AC-1 'correct' expected values without a note.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-1"
+  },
+  {
+    "id": "F-3",
+    "rule_name": "legacy-unclassified",
+    "severity": "LOW",
+    "file": "core/skills/runner.py",
+    "line": 540,
+    "title": "is_error: true with rc==0 and no parseable usage is recorded as an ordinary, non-failed estimated attempt",
+    "body": "_record_run only applies `failed = failed or env.get('is_error') is True` inside the provider branch (when both input_tokens and output_tokens parsed). When the dispatch returns rc==0 but the envelope's usage/modelUsage carry no usable token fields (e.g. `{'type':'result','is_error':true,'usage':{},'modelUsage':{}}`), `_parse_envelope` correctly returns `{'is_error': True}` (no input_tokens/output_tokens keys), so `_record_run` falls into the `elif not failed:` branch (with the caller's `failed=False` since rc==0) and writes an ORDINARY 'estimated' attempt with no `failed` key -- verified by direct call to runner._parse_envelope with this input. A reviewer dispatch in this shape would count as an executed, successful review pass in review_llm_passes_per_ticket even though the run itself reported an error, which contradicts AC-4's intent that an is_error run is treated as failed.",
+    "fix": "Compute `is_error_flag = env.get('is_error') is True` once, before branching on input_tokens/output_tokens, and fold it into the `failed` value used for BOTH branches (not just the provider one) -- or skip writing an 'estimated' attempt at all when is_error is true and no usage parsed, treating it like the no-envelope failure case. Add a test for rc==0 with is_error:true and no usable usage.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-4"
+  },
+  {
+    "id": "F-4",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "tests/fixtures/klc133/envelope-verbose-subagent.json",
+    "line": 137,
+    "title": "Fixture redaction is incomplete: a real local capture path and agentId leak into the committed, gh-mirrored fixture",
+    "body": "The README claims 'identifiers redacted', and the step-1 redaction script (impl-plan.md) only scrubs top-level session_id/uuid/parent_uuid/request_id/cwd and greps for $HOME plus (per the operator's ruling) the org name, the account holder's name and the account email. None of those catch the nested tool_result text embedded inside message content: line 137 (and 120) of the committed envelope-verbose-subagent.json still holds the REAL local capture path `scratch-capture-dir/tasks/AGENTPLACEHOLDER.output`, and line 133 holds the real subagent `agentId: AGENTPLACEHOLDER` -- verified directly by grep on the committed fixture file. This ticket's fixtures are explicitly destined for the public gh mirror (operator ruling at design ack: 'fixtures are committed and later mirrored to the public gh repo'), so a leaked local machine/session path is a real (if low-sensitivity) data-hygiene gap against the redaction claim the README makes and the operator explicitly asked for.",
+    "fix": "Extend the redaction script to also scrub the free-text tool_result content embedded in message bodies (regex for the scratch-path prefix, 'outputFile:'/'output_file:' lines, and the agentId pattern), and add a fixture test asserting no scratch-path or home-directory-path substring remains anywhere in the committed fixture files (not just via the current $HOME-only grep).",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-13"
+  }
+]

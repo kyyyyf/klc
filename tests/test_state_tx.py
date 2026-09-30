@@ -11,6 +11,7 @@ tests (tests/integration/test_klc057_*.py).
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -173,6 +174,68 @@ def test_git_helpers_do_not_raise_when_git_binary_absent(tmp_path, monkeypatch):
     assert cp.returncode != 0, "a missing git binary must yield a non-zero result"
     assert state_sync.ticket_tree_hash(tmp_path, "KLC-1") is None, \
         "ticket_tree_hash must return None (not raise) when git is absent"
+
+
+# ---------------------------------------------------------------------------
+# KLC-133 AC-9: the drain forwards every attempt key it finds
+# ---------------------------------------------------------------------------
+
+def _seed_meta_with_review_card_attempt(kd: Path, ticket: str) -> Path:
+    """A ticket whose `review` phase already holds one estimated card
+    attempt — the carry-forward bait for AC-8's provider-skip rule."""
+    tdir = kd / "tickets" / ticket
+    tdir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "ticket": ticket,
+        "metrics": {"tokens": {"review": {"attempts": [
+            {"id": "existing0001", "ts": "2026-01-01T00:00:00Z",
+             "in": 50, "out": 5, "cache_hit": 0, "source": "estimated",
+             "card_bytes": 321},
+        ]}}},
+    }
+    mp = tdir / "meta.json"
+    mp.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    return mp
+
+
+_ALL_KEYS_JOURNALED = {
+    "id": "prov0000001", "ts": "2026-02-02T00:00:00Z", "phase": "review",
+    "in": 10, "out": 20, "cache_hit": 30, "source": "provider",
+    "cache_write": 40, "cost_usd": 0.5, "cost_basis": "modelUsage",
+    "num_turns": 2, "duration_ms": 900, "failed": True, "run_pass": "step",
+}
+_PARTIAL_KEYS_JOURNALED = {
+    "id": "prov0000002", "ts": "2026-02-02T00:00:01Z", "phase": "review",
+    "in": 11, "out": 21, "cache_hit": 0, "source": "provider",
+    "cost_usd": 0.25, "run_pass": "per-step-review",
+}
+
+
+@pytest.mark.parametrize("record", [_ALL_KEYS_JOURNALED, _PARTIAL_KEYS_JOURNALED],
+                         ids=["all-keys", "partial-keys"])
+def test_drain_forwards_every_ac8_key_from_a_journaled_attempt_into_meta(
+        tmp_path, monkeypatch, record):
+    """AC-9: the drain forwards every AC-8 key actually present on a
+    journaled attempt into meta.json (test-plan-review F-4: including a
+    partial key set, not just an all-keys fixture), and the drained record
+    equals the journaled one apart from the `phase` routing key — with every
+    unset key genuinely absent, never None/0."""
+    import token_journal
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(state_feature, "enabled", lambda: False)
+    kd = _klc(tmp_path)
+    _seed_meta_with_review_card_attempt(kd, "KLC-T9")
+
+    token_journal.append("KLC-T9", dict(record))   # outside any open tx — buffered
+
+    with state_tx.state_tx("KLC-T9", "drain test"):
+        pass
+
+    mp = kd / "tickets" / "KLC-T9" / "meta.json"
+    attempts = json.loads(mp.read_text())["metrics"]["tokens"]["review"]["attempts"]
+    drained = attempts[-1]
+    expected = {k: v for k, v in record.items() if k != "phase"}
+    assert drained == expected
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.py\"",
+            "command": "python3 -c \"import os,runpy,sys; p=r'${CLAUDE_PLUGIN_ROOT}/hooks/gate.py'; sys.exit(0) if not os.path.exists(p) else runpy.run_path(p, run_name='__main__')\"",
             "timeout": 10
           }
         ]
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/remind.py\"",
+            "command": "python3 -c \"import os,runpy,sys; p=r'${CLAUDE_PLUGIN_ROOT}/hooks/remind.py'; sys.exit(0) if not os.path.exists(p) else runpy.run_path(p, run_name='__main__')\"",
             "timeout": 10
           }
         ]
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/heartbeat.py\"",
+            "command": "python3 -c \"import os,runpy,sys; p=r'${CLAUDE_PLUGIN_ROOT}/hooks/heartbeat.py'; sys.exit(0) if not os.path.exists(p) else runpy.run_path(p, run_name='__main__')\"",
             "timeout": 10
           }
         ]

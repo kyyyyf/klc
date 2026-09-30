@@ -70,14 +70,14 @@ Schema per `core/skills/findings.py`:
 ```json
 [
   {
+    "id": "F-1",
     "rule_name": "missing-regression-test",
     "severity": "CRITICAL",
     "file": "payments/refund.py",
     "line": 110,
     "title": "Bug fix without regression test",
     "body": "Bug fix for 'refund skipped on 0-amount orders' has no regression test.\n\nSeverity rationale: per severity_rubric, bug fix without regression test is CRITICAL — next change could reintroduce the bug unnoticed.\n\nFix: Add a test that feeds a 0-amount order to refund and asserts the ledger entry is produced.",
-    "fix": "def test_refund_zero_amount_order():\n    order = Order(amount=0)\n    result = refund(order)\n    assert result.ledger_entry is not None",
-    "reviewer": "test-coverage"
+    "fix": "def test_refund_zero_amount_order():\n    order = Order(amount=0)\n    result = refund(order)\n    assert result.ledger_entry is not None"
   }
 ]
 ```
@@ -89,7 +89,8 @@ Schema per `core/skills/findings.py`:
 - `title` — one-line summary (no `[SEVERITY]` prefix).
 - `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
 - `fix` — concrete test code snippet or `null`.
-- `reviewer` — always `"test-coverage"`.
+- `id` — unique within this findings.json, e.g. `"F-1"`, `"F-2"`.
+- Do not add `reviewer`: intake stamps it from the partial directory name.
 
 Empty case (no findings):
 ```json

@@ -43,7 +43,54 @@ worth a false positive on a peripheral diff.
 - Pre-existing issues → silent drop.
 - Maximum 5 findings (this is a cheap pass, not a deep audit).
 
-## Output format
+Each finding must have a `rule_name` from this catalog:
+
+- `correctness-bug` — an obvious bug introduced by the diff.
+- `missing-test-coverage` — changed lines with no new or modified test.
+- `spec-misalignment` — the change does not match spec/ticket.
+
+## Output format (Phase 1 structured findings)
+
+You must emit **two outputs** in sequence:
+
+### 1. findings.json
+
+Write a JSON array to `.klc/reports/partials-<TS>/cheap/findings.json`.
+Schema per `core/skills/findings.py`:
+
+```json
+[
+  {
+    "id": "F-1",
+    "rule_name": "missing-test-coverage",
+    "severity": "MEDIUM",
+    "file": "path/to/file.py",
+    "line": 42,
+    "title": "Changed branch has no covering test",
+    "body": "The new `if idempotency_key:` branch (file.py:42) has no test exercising it.",
+    "fix": "Add a test that constructs a request with an idempotency_key and asserts the branch runs."
+  }
+]
+```
+
+**Field requirements:**
+- `id` — unique within this findings.json, e.g. `"F-1"`, `"F-2"`.
+- `rule_name` — from the catalog above. Never invent.
+- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`.
+- `file`, `line` — exact location from the diff.
+- `title` — one-line summary (no `[SEVERITY]` prefix).
+- `body` — the issue, citing `file:line`.
+- `fix` — concrete suggestion or `null`.
+- Do not add `reviewer`: intake stamps it from the partial directory name.
+
+Empty case (no findings):
+```json
+[]
+```
+
+### 2. Markdown partial
+
+After writing `findings.json`, render the same findings as markdown:
 
 ```markdown
 ## Cheap review — <ticket>

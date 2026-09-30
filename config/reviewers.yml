@@ -39,7 +39,7 @@ external_reviewer:
     - architecture
     - performance
     - readability
-    - test_coverage
+    - test-coverage
   output_format: markdown
   report_path:   .klc/reports/external-review-{timestamp}.md
 
@@ -74,6 +74,12 @@ review:
     S: 3
     M: 4
     L: 6
+  dedupe:
+    # KLC-127: token-Jaccard threshold (title + first 200 chars of body,
+    # lower-cased, stop words dropped) `findings.dedupe` merges at, inclusive
+    # (>=). Read by `findings.min_similarity` via `review_plan.load_reviewers_cfg`;
+    # falls back to this same value when the key or the file is missing.
+    min_similarity: 0.15
 
 cascade:
   # When enabled, review_cascade.py runs scope_delta + scan_sentinels +

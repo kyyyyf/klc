@@ -73,26 +73,21 @@ def _write_card(tmp_path: Path, name: str, spec_path: Path) -> Path:
 
 def test_executed_pass_appends_one_reviewer_tagged_attempt(tmp_path, monkeypatch):
     """AC-3 (test-plan row): three executed headless passes each append
-    exactly one reviewer-tagged attempt through the one writer, so the
-    count of reviewer-tagged records equals the count of executed passes."""
+    exactly one reviewer-tagged attempt, so the count of reviewer-tagged
+    records equals the count of executed passes. KLC-133 options F-103:
+    drives the REAL run_agent through a fake anthropic dispatcher (the real
+    dispatcher contract, C-004) instead of faking rr.run_agent and spying on
+    the review runner's own write — KLC-133 step-5 removed that write; the
+    review runner now delegates telemetry to run_agent."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     tdir = _seed_ticket(tmp_path, "KLC-990")
     rr = _load_review_runner()
+    import runner
 
-    def _fake_run_agent(*, phase_id, prompt_path, out_path, inputs, track):
-        out_path.write_text("partial output\n", encoding="utf-8")
-        return 0
-
-    monkeypatch.setattr(rr, "run_agent", _fake_run_agent)
-
-    calls: list[dict] = []
-    real_write = budget_guard.write_token_metrics
-
-    def _spy(*args, **kwargs):
-        calls.append(kwargs)
-        return real_write(*args, **kwargs)
-
-    monkeypatch.setattr(budget_guard, "write_token_metrics", _spy)
+    envelope_text = (FW_ROOT / "tests" / "fixtures" / "klc133"
+                     / "envelope-single.json").read_text(encoding="utf-8")
+    monkeypatch.setitem(runner._DISPATCH, "anthropic",
+                        lambda *a, **k: (0, envelope_text, ""))
 
     reviewers = ["security", "architecture", "performance"]
     for name in reviewers:
@@ -101,35 +96,31 @@ def test_executed_pass_appends_one_reviewer_tagged_attempt(tmp_path, monkeypatch
         rc = rr.main([str(card), str(partial)])
         assert rc == 0
 
-    assert len(calls) == 3, "one write_token_metrics call per executed pass"
-    assert all("reviewer" in kw for kw in calls), \
-        "every call must carry a reviewer keyword"
-    assert {kw["reviewer"] for kw in calls} == set(reviewers)
-
     meta = json.loads((tdir / "meta.json").read_text())
     tagged = [rec for _phase, rec in metrics.iter_attempts(meta, "KLC-990")
               if rec.get("reviewer")]
     assert len(tagged) == 3, \
         "the count of reviewer-tagged records must equal the count of " \
         "executed passes (AC-3)"
+    assert {rec["reviewer"] for rec in tagged} == set(reviewers)
 
 
 def test_failed_dispatch_appends_no_reviewer_tagged_attempt(tmp_path, monkeypatch):
-    """Regression pin (impl-plan D-017): a failed dispatch (rc != 0) never
-    appends a reviewer-tagged attempt. This already held before this step's
-    GREEN, because review-runner.py called run_agent without ticket= at all
-    (F-011) — the pin proves the new write path stays outcome-gated too."""
+    """Regression pin (impl-plan D-017): a failed dispatch (rc != 0) with no
+    usable envelope never appends a reviewer-tagged attempt. KLC-133 options
+    F-103: drives the REAL run_agent through a fake anthropic dispatcher
+    that returns rc=1 with no parseable stdout (AC-4's "records nothing"
+    case), rather than faking rr.run_agent directly."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     tdir = _seed_ticket(tmp_path, "KLC-991")
     rr = _load_review_runner()
+    import runner
 
-    def _failing_run_agent(*, phase_id, prompt_path, out_path, inputs, track):
-        return 1
+    monkeypatch.setitem(runner._DISPATCH, "anthropic",
+                        lambda *a, **k: (1, "", "boom: dispatch failed"))
 
-    monkeypatch.setattr(rr, "run_agent", _failing_run_agent)
-
-    card = _write_card(tmp_path, "drift", tdir / "spec.md")
-    partial = tmp_path / "drift.partial.md"
+    card = _write_card(tmp_path, "security", tdir / "spec.md")
+    partial = tmp_path / "security.partial.md"
     rc = rr.main([str(card), str(partial)])
     assert rc == 1
 
@@ -505,6 +496,112 @@ def test_conditional_pass_skipped_by_track_gate_labels_the_reason(tmp_path, monk
     deep_impact = next(p for p in plan["passes"] if p["reviewer"] == "deep-impact")
     assert deep_impact["status"] == "skipped"
     assert deep_impact["skip_reason"] == "track XS not in enabled_for_tracks"
+
+
+# --- KLC-127 AC-29: re-planning the same diff keeps executed passes executed --
+
+def test_replan_for_the_same_diff_sha256_keeps_every_already_executed_pass_executed(
+        tmp_path, monkeypatch):
+    """AC-29: plan, record_pass("code-review"), plan again through rv.main for
+    the SAME diff — the pass stays `executed` and `generated_at` is unchanged
+    (so a later `handback.py take` step-0 planner call never records the
+    same pass twice)."""
+    project_root, spec_path = _seed_project(tmp_path, track="M")
+    monkeypatch.setenv("PROJECT_ROOT", str(project_root))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _stub_claude_on_path(tmp_path, monkeypatch)
+    models_mod._reset_cache()
+    diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
+
+    rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
+    assert rc == 0
+    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review-plan.json"
+    first_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    entry = next(p for p in first_plan["passes"] if p["reviewer"] == "code-review")
+    assert entry["status"] == "planned"
+
+    review_plan.record_pass("KLC-990", "code-review")
+    executed_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert next(p for p in executed_plan["passes"]
+               if p["reviewer"] == "code-review")["status"] == "executed"
+
+    rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
+    assert rc == 0
+    second_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    entry = next(p for p in second_plan["passes"] if p["reviewer"] == "code-review")
+    assert entry["status"] == "executed"
+    assert second_plan["generated_at"] == executed_plan["generated_at"]
+
+
+def test_replan_for_a_different_diff_resets_executed_to_planned(tmp_path, monkeypatch):
+    """AC-29 (pin): a DIFFERENT diff — a different diff_sha256 — plans fresh;
+    an executed pass from the old diff's plan is not carried forward."""
+    project_root, spec_path = _seed_project(tmp_path, track="M")
+    monkeypatch.setenv("PROJECT_ROOT", str(project_root))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _stub_claude_on_path(tmp_path, monkeypatch)
+    models_mod._reset_cache()
+    diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
+
+    rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
+    assert rc == 0
+    review_plan.record_pass("KLC-990", "code-review")
+
+    other_diff = _write_diff(
+        tmp_path, "diff2.patch",
+        "--- a/OTHER.md\n+++ b/OTHER.md\n@@ -1 +1 @@\n-old\n+a genuinely different diff\n")
+    rc = rv.main(["--diff", str(other_diff), "--spec", str(spec_path), "--plan-only"])
+    assert rc == 0
+
+    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review-plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    entry = next(p for p in plan["passes"] if p["reviewer"] == "code-review")
+    assert entry["status"] == "planned"
+
+
+def test_replan_never_revives_a_pass_that_is_now_skipped(tmp_path, monkeypatch):
+    """AC-29 (pin: main re-plans fresh): the SAME diff, but the ticket's
+    track changed so the new plan now marks `drift` skipped — the pass is
+    never revived to `executed` even though the old plan had it executed."""
+    project_root, spec_path = _seed_project(tmp_path, track="M")
+    monkeypatch.setenv("PROJECT_ROOT", str(project_root))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _stub_claude_on_path(tmp_path, monkeypatch)
+    models_mod._reset_cache()
+    diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
+
+    rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
+    assert rc == 0
+    review_plan.record_pass("KLC-990", "drift")
+
+    meta_path = project_root / ".klc" / "tickets" / "KLC-990" / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["track"] = "XS"                        # spec_review.should_run("XS") is False
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+
+    rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
+    assert rc == 0
+    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review-plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    entry = next(p for p in plan["passes"] if p["reviewer"] == "drift")
+    assert entry["status"] == "skipped"
+
+
+def test_carry_forward_ignores_an_unreadable_old_plan(tmp_path):
+    """AC-29: an unreadable/garbled old plan (not a dict, or a dict missing
+    diff_sha256) is ignored — `carry_forward` returns the new plan
+    untouched rather than raising."""
+    new_plan = review_plan.build_plan(
+        ticket="KLC-990", track="M", path="client", diff_sha256="abc123", cap=None,
+        override=False,
+        passes=[review_plan.pass_entry("code-review", "independent", "n/a",
+                                       None, None, "planned")])
+    for old_plan in (None, "not-a-dict", 42, {"no_diff_sha256_key": True}):
+        result = review_plan.carry_forward(dict(new_plan), old_plan)
+        assert result["passes"][0]["status"] == "planned"
 
 
 if __name__ == "__main__":

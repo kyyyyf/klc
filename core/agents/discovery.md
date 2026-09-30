@@ -400,7 +400,7 @@ gate the ack.
 
 - **Who spawns it**: the orchestrator / autorunner (like the code reviewer). You
   do not make the LLM call yourself; you finish the spec and the review fires
-  around it. The reviewer prompt is `core/agents/spec-reviewer.md`.
+  around it. The reviewer prompt is `klc-plugin/agents/spec-reviewer.md`.
 - **Track scaling**: full on M/L, cascade on S, skipped on XS. At the spec phase
   the only escalation signal available is a **risk tag** (user-facing / data /
   security / migration / coordination) — there is no diff yet, so sentinel /

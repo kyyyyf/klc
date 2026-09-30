@@ -330,7 +330,7 @@ A spec carrying any of the above will fail the mechanical self-review gate
 
 ## Independent spec review (S = cascade, KLC-084)
 
-The independent spec reviewer (`core/agents/spec-reviewer.md`) that is expected on
+The independent spec reviewer (`klc-plugin/agents/spec-reviewer.md`) that is expected on
 M/L discovery **cascades** on the S track: it is skipped by default and fires only
 when an escalation signal is present. At the spec phase that signal is a **risk
 tag** — user-facing / data / security / migration / coordination — since there is
@@ -353,7 +353,7 @@ expected surfaces one note and still passes.
 
 For the S track, discovery-lite also produces `impl-plan.md`, so it is the ack that
 FINALIZES the plan — and the independent impl-plan reviewer
-(`core/agents/impl-plan-reviewer.md`) applies here too, the third instance of the
+(`klc-plugin/agents/impl-plan-reviewer.md`) applies here too, the third instance of the
 same seam (after the spec and, on M/L, the test-plan). Like the spec reviewer above
 it **cascades** on S: skipped by default, fired only on an escalation signal. As with
 the spec reviewer above, the only signal available here is a **risk tag** (user-facing

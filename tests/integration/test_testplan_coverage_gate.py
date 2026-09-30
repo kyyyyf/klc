@@ -30,8 +30,10 @@ from core.skills import advisories as _adv  # noqa: E402  (KLC-117)
 _CLEAN_REVIEW = '```json\n{"findings":[],"decisions_to_confirm":[]}\n```\n'
 # A verdict with one finding, to check the ack persists it and a probe does not.
 _REVIEW_WITH_FINDING = (
-    '```json\n{"findings":[{"id":"F-1","category":"missing-edge-case",'
-    '"severity":"high","detail":"AC-2 gate has no negative case"}],'
+    '```json\n{"findings":[{"id":"F-1","rule_name":"missing-edge-case",'
+    '"severity":"HIGH","file":"test-plan.md","line":null,'
+    '"title":"AC-2 gate has no negative case",'
+    '"body":"AC-2 gate has no negative case"}],'
     '"decisions_to_confirm":[]}\n```\n'
 )
 

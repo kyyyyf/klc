@@ -1,0 +1,44 @@
+[
+  {
+    "id": "F-1",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "core/skills/planning-retriever.py",
+    "line": 221,
+    "title": "_symbols_by_file_name raises on a non-dict element in inventory[\"symbols\"], contradicting its own docstring's degrade promise",
+    "body": "`_symbols_by_file_name` calls `s.get(...)` on every element `core.shared.inventory.symbols(inventory)` returns. `inv_symbols` only checks that `symbols` is a list, not that each element is a dict, so a malformed inventory (a hand-edited or corrupted `inventory.json`, or a stray non-dict entry from a future producer bug) makes `build_trace` raise `AttributeError` instead of degrading. I reproduced this directly: took a real trace-building fixture (`retriever_views` from `_klc137_fixtures.py`), appended `1` to `inv['symbols']`, and called `build_trace` \u2014 it raised `AttributeError: 'int' object has no attribute 'get'` where the pre-ticket retriever (commit 58b44d91) on the same input returns a normal `status:'ok'` trace. The function's own docstring claims it 'degrades exactly like every other optional inventory read in this module,' but it does not: every other optional-input read in this module (and `planning_validate.py`'s own inventory loop, `core/skills/planning_validate.py:217`, `if isinstance(s, dict) and s.get('file')`) guards exactly this shape. The real `build_inventory()` never emits non-dict symbol entries today, so this is a latent robustness gap rather than a live bug, but it breaks the AC-7/C-005 'never raises on the old/malformed shape' discipline this ticket is otherwise careful about everywhere else (e.g. `symbol_range()`'s own 'never raises' contract).",
+    "fix": "In `_symbols_by_file_name`, skip elements that are not `isinstance(s, dict)` (matching `planning_validate.py`'s own guard), or wrap the loop body in a narrow try/except that skips a malformed element. Add one reader-compat or emission test that feeds an inventory with a stray non-dict `symbols` element and asserts `build_trace` still returns `status:'ok'` with the malformed element simply excluded from `line_ranges`.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-7"
+  },
+  {
+    "id": "F-2",
+    "rule_name": "legacy-unclassified",
+    "severity": "MEDIUM",
+    "file": "tests/integration/test_klc137_line_ranges_emission.py",
+    "line": 102,
+    "title": "AC-6's primary sort key (IDF weight, descending) is exercised only by ties \u2014 no test would catch it being reversed or dropped",
+    "body": "AC-6 requires `line_ranges` entries to be 'ordered by the IDF weight of the symbol's best matching token descending, then by start ascending, then by symbol name.' The only ordering test, `test_line_ranges_capped_at_3_ordered_by_idf_then_start_then_name_and_byte_reproducible`, uses the 'base' fixture where its own docstring states all five `widget_*` candidates 'are tied on IDF weight, since widget is their only shared query token' \u2014 so the assertion `[e['symbol'] for e in entries] == [...]` is actually driven entirely by the `start`-ascending tiebreak, not by the primary IDF-descending key. I verified this by mutation: in a scratch clone, I changed `_line_ranges`'s sort key from `(-best[k], k[2], k[0], k[1], k[3])` to `(best[k], k[2], k[0], k[1], k[3])` (ascending instead of descending IDF weight \u2014 this would silently invert which 3 of more-than-3 candidates survive the cap on any file with genuinely differing weights) and reran the full klc137 emission/evaluator/real-substrate/trace-size suite: all 16 tests still passed. Given how deliberately this ticket pins every other rule with a real-substrate case (the wide25 cap test, the dedup test, the null-line_end sibling test), this is a real gap relative to the ticket's own testing standard, not a hypothetical one.",
+    "fix": "Add a fixture (or extend 'wide25'/'base') with more than 3 query-matching symbols whose best-matching tokens carry genuinely different IDF weights (e.g. one candidate's token is unique to that document, others share a common token across the corpus so their IDF is lower), and assert the kept-and-ordered list puts the rare-token symbol first even when its `start` is later than a tied-weight competitor's.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-6"
+  },
+  {
+    "id": "F-3",
+    "rule_name": "legacy-unclassified",
+    "severity": "LOW",
+    "file": "core/skills/deterministic_inventory.py",
+    "line": 28,
+    "title": "Module docstring's inline symbol-shape example is a second, now-stale copy of SYMBOL_FIELDS",
+    "body": "The docstring says (lines 16-19): 'FROZEN inventory.json schema \u2014 stated ONCE, in core.shared.inventory ... this docstring used to carry its own copy of the shape; it now points at the single statement so the schema cannot drift into two documents.' Directly below that sentence, the docstring still shows an inline example symbol dict (`{\"name\": str, \"kind\": str, \"file\": str, \"line\": int, \"sig\": str, \"visibility\": ..., \"source_of_truth\": ..., \"lang\": str, \"rule\": str}`) that omits the new `line_end` field this ticket added to `SYMBOL_FIELDS`/`CANONICAL_SCHEMA`. The comment's own stated purpose (avoid a second, driftable copy) is undercut by the fact that a second copy still exists and has now visibly drifted \u2014 exactly the failure mode C-001/KLC-103 AC-6 was written to prevent.",
+    "fix": "Add `\"line_end\": int | None,` to the inline example (cheapest fix), or better, delete the inline dict entirely and replace it with a pointer to `core.shared.inventory.CANONICAL_SCHEMA`, matching the docstring's own stated intent.",
+    "reviewer": "code-review",
+    "kind": "code-review",
+    "ref": "",
+    "ac": "AC-3"
+  }
+]

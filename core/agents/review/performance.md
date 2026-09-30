@@ -119,14 +119,14 @@ Schema per `core/skills/findings.py`:
 ```json
 [
   {
+    "id": "F-1",
     "rule_name": "n-plus-one",
     "severity": "HIGH",
     "file": "api/orders.py",
     "line": 88,
     "title": "N+1 query in paginated list",
     "body": "for order in orders: order.customer.load() triggers one query per order; the spec calls 500–1000 orders per page.\n\nSeverity rationale: per severity_rubric, N+1 in hot path is HIGH — degrades performance noticeably.\n\nFix: Use orders.prefetch_related('customer') (Django) / selectinload (SQLA) / single IN (...) batch.",
-    "fix": "orders.prefetch_related('customer')  # Django\n# or\nstmt = select(Order).options(selectinload(Order.customer))  # SQLA",
-    "reviewer": "performance"
+    "fix": "orders.prefetch_related('customer')  # Django\n# or\nstmt = select(Order).options(selectinload(Order.customer))  # SQLA"
   }
 ]
 ```
@@ -138,7 +138,8 @@ Schema per `core/skills/findings.py`:
 - `title` — one-line summary (no `[SEVERITY]` prefix).
 - `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
 - `fix` — concrete code suggestion or `null`.
-- `reviewer` — always `"performance"`.
+- `id` — unique within this findings.json, e.g. `"F-1"`, `"F-2"`.
+- Do not add `reviewer`: intake stamps it from the partial directory name.
 
 Empty case (no findings):
 ```json

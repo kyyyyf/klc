@@ -116,7 +116,7 @@ ask — follow `config/reviewers.yml` and record the cascade decision.
 ### 1b. Independent drift review (KLC-099 / drift-check D-04)
 
 Alongside the code reviewers, spawn the **fresh drift-reviewer**
-(`core/agents/drift-reviewer.md`) — the SUBJECTIVE judgment complement to KLC-098's
+(`klc-plugin/agents/drift-reviewer.md`) — the SUBJECTIVE judgment complement to KLC-098's
 deterministic scope/step drift. It reads the built diff + the ticket's recorded
 `[!DECISION D-nnn]` items + `spec.md`, and writes its two-sink verdict to
 `drift-review.md` (findings[] + decisions_to_confirm[]). This is what the **integrate
@@ -132,31 +132,29 @@ cascade would allow cheap. Record `review_depth: cheap|full` and
 
 ### 1b. Planning-slice / impact-radius audit (KLC-071)
 
-Before launching the sub-agents, cross-check the diff against the
-planning views so the aggregate report can flag scope and downstream
-gaps. Read on demand (all degrade-not-fail — skip a missing view with a
-one-line `[INFO]` note, do not block):
+Cross-check the diff against the planning views before launching
+sub-agents, to flag scope/downstream gaps. Read on demand — degrade-not-
+fail: a missing view gets one `[INFO]` note, never a block:
 
 - `.klc/index/module_edges.json` + `.klc/index/symbol_usage.json` —
-  review the **impact radius**. For each changed public symbol, read
+  the **impact radius**. For each changed public symbol, read
   `symbol_usage[<file>::<name>].used_by` / `tested_by` / `change_risk`
-  and confirm the diff (or the tests) covers the direct consumers; a
+  and confirm the diff (or tests) covers the direct consumers; a
   `high` `change_risk` symbol changed without touching its consumers or
   their tests is a `MEDIUM` "missing downstream" finding.
 - `.klc/tickets/<KEY>/retrieval_trace.json` (if present) +
   `meta.affected_modules` — the intended **planning slice**. Resolve
-  every changed file to its module (via `modules.json`). Flag, as a
-  `MEDIUM` finding, any changed file whose module is **outside**
-  `affected_modules` and is not explained in `spec.md` / the impl-plan
-  (an unexplained edit outside the selected slice). Also cross-check the
-  diff against the trace's `files_likely_to_edit` and `stop_rules`: an
-  edit far outside `files_likely_to_edit`, or one that violates an entry
-  in `stop_rules` without a stated reason, is the same `MEDIUM`
-  "unexplained edit outside the slice" finding. The trace is advisory — `meta`/`spec`
-  win on any conflict; skip it when absent or `status:"unavailable"`. A
-  change to a shared file (`file_roles` `eligible_as_primary:false`) is a
-  warning, not a block — note its consumers so the author can decide the
-  scope.
+  every changed file to its module (via `modules.json`). Flag, as
+  `MEDIUM`, any changed file whose module is **outside**
+  `affected_modules` and unexplained in `spec.md` / the impl-plan. Also
+  cross-check against the trace's `files_likely_to_edit` and
+  `stop_rules`: an edit far outside `files_likely_to_edit`, or one
+  violating a `stop_rules` entry without a stated reason, is the same
+  `MEDIUM` "unexplained edit outside the slice" finding. The trace is
+  advisory — `meta`/`spec` win on conflict; skip when absent or
+  `status:"unavailable"`. A change to a shared file (`file_roles`
+  `eligible_as_primary:false`) is a warning, not a block — note its
+  consumers so the author can decide the scope.
 - Confirm the tests in the diff match the affected modules
   (`test_map.json` `module_to_tests`); a changed production file left at
   `coverage:"none"` is an `INFO`/`LOW` "no direct test" note.
@@ -172,9 +170,10 @@ concurrently. Each writes its output to
 `.klc/reports/<reviewer>-<timestamp>.partial.md`.
 
 ### 3. Parse partials
-Extract every issue tagged `[SEVERITY]`. An issue is **blocking** iff
-its severity is in `blocking_severity`. The aggregator counts from the
-headers and ignores the manual trailer; mismatches warn to stderr.
+`findings.json` (the one shape) is validated/pooled per reviewer; a
+schema error skips the WHOLE file, one note, never partial. An issue is
+**blocking** iff `severity` is in `blocking_severity`. `[SEVERITY]`
+markdown is a fallback only, read when no `findings.json` exists.
 
 ### 4. External reviewer (default-on for S/M/L)
 The external reviewer runs for S/M/L tickets unless one of these applies:
@@ -188,7 +187,11 @@ The external reviewer runs for S/M/L tickets unless one of these applies:
 It runs on **both** the cheap and full cascade paths for S/M/L.
 To force-run on XS, pass `--external`.
 
-Invoke `core/agents/external-review.md` with the same context.
+Invoke `klc-plugin/agents/external-review.md` with the same context.
+
+Take the code-review answers in with `handback.py take --kind code-review`,
+the external answer with `--kind external-review`; render the table from
+`review/findings-pool.json` after `findings.py pool`.
 
 ### 5. Aggregate
 Render `core/templates/review-report.md.j2` with:
@@ -243,8 +246,8 @@ contract: write the partial atomically; on failure produce a
 ## Integrity checks
 - `review.py` records `diff.sha256` in each partials directory. Reuse
   is refused when the hash does not match the current diff.
-- Issues are counted from `[SEVERITY]` headers only; the human-readable
-  trailer cannot distort the verdict.
+- Issues count from `findings.json` (step 3), not `[SEVERITY]` headers;
+  each `take` REPLACES the stored file, never appends.
 - Retention policy (`reviewers.yml::reports.retention_*`) prunes old
   `pending-*/partials-*` and keeps only the N most-recent `review-*.md`.
 

@@ -49,14 +49,18 @@ def test_consume_delegates_to_seam(monkeypatch, tmp_path):
 
 
 def test_validate_accepts_drift_rejects_spec_category():
-    """AC-3: validate accepts a DRIFT_CHECK category and rejects a spec-only one under the kind."""
+    """AC-3: validate accepts a DRIFT_CHECK rule_name and rejects a spec-only one
+    under the kind (KLC-127: the one Finding shape — a raw dict, not
+    spec_review.Finding, which no longer exists)."""
     import drift_review
     import spec_review
     good = spec_review.ReviewOutput(
-        findings=[spec_review.Finding("F-1", "decision-violation", "medium", "d")])
+        raw_findings=[{"id": "F-1", "rule_name": "decision-violation", "severity": "MEDIUM",
+                      "file": "spec.md", "line": None, "title": "d", "body": "d"}])
     assert spec_review.validate(good, kind=drift_review.DRIFT_CHECK) == []
     bad = spec_review.ReviewOutput(
-        findings=[spec_review.Finding("F-1", "infidelity", "medium", "d")])  # spec-only
+        raw_findings=[{"id": "F-1", "rule_name": "infidelity", "severity": "MEDIUM",
+                      "file": "spec.md", "line": None, "title": "d", "body": "d"}])  # spec-only
     assert spec_review.validate(bad, kind=drift_review.DRIFT_CHECK) != []
 
 

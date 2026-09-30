@@ -404,7 +404,11 @@ def _golden_hunks(old: list[str], new: list[str]):
 
 def test_design_golden_diff_confined_to_inputs_and_fallback_hunks():
     """AC-12: the re-frozen golden differs from the base only inside the
-    Inputs / degraded-fallback span."""
+    Inputs / degraded-fallback span, or — KLC-127's own, later, equally
+    confined and intentional change — the Independent impl-plan review
+    span's in-client spawn path (`core/agents/` -> `klc-plugin/agents/`,
+    AC-16). Two disjoint confined spans, not a loosened gate: a hunk
+    landing anywhere else in the file still fails this test."""
     res = subprocess.run(["git", "-C", str(FW), "show", f"{BASE_SHA}:{GOLDEN_REL}"],
                          capture_output=True, text=True)
     if res.returncode != 0:
@@ -417,8 +421,19 @@ def test_design_golden_diff_confined_to_inputs_and_fallback_hunks():
     hi_o = old.index("## Symbol verification")
     lo_n = new.index("## Inputs")
     hi_n = new.index("## Symbol verification")
+    # KLC-127 D-120: the Independent impl-plan review section's spawn-path
+    # line (AC-16) is the one hunk allowed outside the KLC-112 span above.
+    klc127_lo_o = old.index("## Independent impl-plan review (M/L, KLC-094)")
+    klc127_hi_o = old.index("## Hard rules")
+    klc127_lo_n = new.index("## Independent impl-plan review (M/L, KLC-094)")
+    klc127_hi_n = new.index("## Hard rules")
     for _tag, i1, i2, j1, j2 in hunks:
-        assert lo_o <= i1 and i2 <= hi_o and lo_n <= j1 and j2 <= hi_n
+        in_klc112_span = lo_o <= i1 and i2 <= hi_o and lo_n <= j1 and j2 <= hi_n
+        in_klc127_span = (klc127_lo_o <= i1 and i2 <= klc127_hi_o
+                          and klc127_lo_n <= j1 and j2 <= klc127_hi_n)
+        assert in_klc112_span or in_klc127_span, (
+            f"hunk ({i1}, {i2}, {j1}, {j2}) lands outside both confined spans"
+        )
 
 
 # --------------------------------------------------------------------------- #

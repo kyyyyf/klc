@@ -13,8 +13,10 @@ You are a senior engineer performing a code review. Review the following code ch
 {{ focus_areas | join(', ') }}
 
 ## Instructions
-- Report issues with severity: CRITICAL / HIGH / MEDIUM / LOW / INFO
-- For each issue: specify file, line number, description, and suggested fix
+{{ finding_schema }}
+- This review has no fixed rule_name list and no decision topics:
+  `rule_name` is your own lower-case kebab-case slug (e.g. `sql-injection`,
+  not `sql_injection` or `SQL Injection`), and `decisions_to_confirm` must
+  be `[]`.
 - End with verdict: APPROVED or CHANGES REQUESTED
 - Be specific and actionable. No vague feedback.
-- Output in markdown format.
