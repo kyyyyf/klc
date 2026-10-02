@@ -117,7 +117,17 @@ def check_findings(items, *, rule_names, kind, handback=False) -> list[str]:
         if rn == LEGACY_RULE_NAME:
             known = not handback                      # D-118: stored files only
         if not known:
-            if rule_names:
+            if rn == LEGACY_RULE_NAME:
+                # KLC-154: this value is written only by the stored-files
+                # migration (D-118) — a hand-back naming it is refused with
+                # ITS OWN reason, never the generic "unknown"/kebab-case
+                # wording (neither of which applies: the slug IS well-formed
+                # and, for a fixed-vocabulary kind, not simply "unknown").
+                errors.append(
+                    f"finding {fid}: rule_name {rn!r} is reserved for the KLC-154 "
+                    "migration of stored files and cannot be handed back; use a "
+                    "rule_name from this kind's vocabulary")
+            elif rule_names:
                 errors.append(f"finding {fid}: unknown rule_name {rn!r}")
             else:
                 # free-vocabulary kinds (code-review/external-review, step-12/F-2):

@@ -250,10 +250,38 @@ def test_legacy_unclassified_is_refused_in_a_handback_and_accepted_in_a_stored_l
                              reviewer="code-review")
     if entry_point == "handback":
         errors = handback.validate_handback("code-review", _handback(findings=[finding]))
-        assert any("unknown rule_name" in e for e in errors)
+        assert any("reserved" in e for e in errors)
     else:
         errors = handback.validate_findings("code-review", [finding])
         assert errors == []
+
+
+@pytest.mark.parametrize("kind", ["spec", "code-review"])
+def test_legacy_unclassified_refused_with_reserved_message(kind):
+    """AC-15: a hand-back carrying `rule_name: legacy-unclassified` is
+    refused with a message naming the KLC-154 migration as the reason the
+    value is reserved — never the kebab-case-slug wording — for both a
+    fixed-vocabulary kind (spec) and a free-vocabulary kind (code-review)."""
+    import findings as _findings
+    finding = _clean_finding(kind, rule_name=_findings.LEGACY_RULE_NAME)
+    errors = handback.validate_handback(kind, _handback(findings=[finding]))
+    joined = " ".join(errors)
+    assert "reserved for the KLC-154 migration" in joined, errors
+    assert "kebab-case" not in joined
+    assert "slug" not in joined
+
+
+def test_unknown_free_vocabulary_slug_keeps_the_kebab_case_hint():
+    """Regression guard: a genuinely unknown free-vocabulary slug (NOT
+    `legacy-unclassified`) keeps today's kebab-case-hint message exactly."""
+    finding = _clean_finding("code-review", rule_name="Not Kebab Case")
+    errors = handback.validate_handback("code-review", _handback(findings=[finding]))
+    assert any(
+        "unknown rule_name 'Not Kebab Case' — rule_name must be a "
+        "lower-case kebab-case slug (letters, digits and hyphens only, "
+        "e.g. 'missing-test'), not snake_case, Title Case or a placeholder" in e
+        for e in errors
+    ), errors
 
 
 # --- the clean path ------------------------------------------------------------

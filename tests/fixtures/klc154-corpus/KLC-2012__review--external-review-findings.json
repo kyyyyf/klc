@@ -1,0 +1,18 @@
+[
+  {
+    "severity": "medium",
+    "file": "core/skills/example_module.py",
+    "line": 11,
+    "title": "Sample in-client finding 1",
+    "body": "The reviewer noticed a small defect 1 worth a follow-up patch.",
+    "fix": null
+  },
+  {
+    "severity": "low",
+    "file": "core/skills/example_module.py",
+    "line": 12,
+    "title": "Sample in-client finding 2",
+    "body": "The reviewer noticed a small defect 2 worth a follow-up patch.",
+    "fix": null
+  }
+]

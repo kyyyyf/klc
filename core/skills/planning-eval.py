@@ -56,6 +56,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_FILE_DIR))
 import module_membership as _mm  # noqa: E402  (KLC-066: the one resolver)
 import file_universe as _fu  # noqa: E402  (KLC-105: the one file universe)
+from core.phases import state as _state  # noqa: E402  (KLC-149: the one state-branch name)
 
 REPORT_SCHEMA_VERSION = 1
 
@@ -120,44 +121,195 @@ def _git(args: list[str], repo: Path) -> tuple[int, str]:
     return r.returncode, r.stdout
 
 
+def _configured_remotes(repo: Path) -> list[str]:
+    rc, out = _git(["remote"], repo)
+    return [r.strip() for r in out.splitlines() if r.strip()] if rc == 0 else []
+
+
+def _code_ref_args(repo: Path) -> list[str]:
+    """The code refs: local branches, remote-tracking branches and tags,
+    minus the state branch (`core.phases.state.STATE_BRANCH`, local and on
+    every configured remote), plus the current `HEAD` when it resolves and
+    is not the state branch (KLC-149). The state name is read at call time
+    so a patched constant retargets the exclusion with no special-casing of
+    the old name (AC-6). Each `--exclude` binds only to the NEXT
+    glob-selecting option (`--branches`/`--remotes`/`--tags`), so it is
+    repeated before each one; the remote-tracking exclusion is one literal
+    `<remote>/<state>` per `git remote` entry, never a `*`-glob (external
+    review F-2) — wildmatch lets `*` cross a `/`, so `*/<state>` also drops a
+    genuine code branch merely named `.../<state>` (e.g. `feature/<state>`
+    pushed to a remote). Naming the state branch out of
+    `--branches`/`--remotes`/`--tags` here only keeps those three options
+    from STARTING a walk at it; it says nothing about a commit on that
+    branch being reached some other, unexcluded way (a tag that targets it
+    directly, or a detached `HEAD` checked out at its tip, or — for a
+    hypothetical NON-ORPHAN state branch — plain ancestry shared with a
+    code branch) — see `_state_only_commits` and `git_touched` for the
+    commit-identity filter that closes those gaps (external review F-3,
+    code review F-1, review round 2 external F-1)."""
+    state = _state.STATE_BRANCH
+    args = [f"--exclude={state}", "--branches"]
+    for remote in _configured_remotes(repo):
+        args.append(f"--exclude={remote}/{state}")
+    args += ["--remotes", f"--exclude={state}", "--tags"]
+    rc, out = _git(["rev-parse", "--symbolic-full-name", "HEAD"], repo)
+    if rc == 0 and out.strip() != f"refs/heads/{state}":
+        args.append("HEAD")            # detached HEAD included; unborn HEAD skipped (rc != 0)
+    return args
+
+
+def _state_only_commits(repo: Path) -> tuple[set[str], list[str] | None]:
+    """SHAs reachable from a state-branch ref (`core.phases.state.STATE_BRANCH`,
+    local and on every configured remote) but from NO CODE BRANCH — a local
+    branch or a remote-tracking branch other than the state ones (KLC-149
+    external review F-1). step-6's `_state_exclusion_revs` fed `^<state-ref>`
+    negative revisions straight into the walk: that excludes EVERY commit
+    reachable from the state branch's tip, ancestors included, with no
+    regard for whether some OTHER code branch also reaches them — a state
+    branch forked from `main`, or `main` later merged into it, silently
+    dropped `main`'s own shared history too. The fix computes the state-ONLY
+    set first (this function) and the caller removes exactly those SHAs
+    from its own already-matched commit list by plain membership, in
+    Python — never by handing git a reachability-based negative revision
+    for them, which would reintroduce the same over-exclusion.
+
+    Computed as ONE bounded `git rev-list <state refs> --not <code-branch
+    refs>` call — the same bounded, per-remote `--exclude` lists
+    `_code_ref_args` already builds for `--branches`/`--remotes` (never a
+    glob, never thousands of arguments on a command line, and never one
+    `^sha` per history commit either).
+
+    TAGS AND HEAD NEVER RESCUE a commit here, on purpose: only local and
+    remote-tracking BRANCHES count as "reachable from a code branch". The
+    live `klc-state` branch is an orphan (no shared history with any code
+    branch at all), so this reachability subtlety never arises there in
+    practice; it matters only for a hypothetical non-orphan state branch,
+    and even then a tag or a detached `HEAD` pointing straight at a
+    state-only commit must not resurrect it (external review F-3's tag/HEAD
+    gap stays closed for the non-orphan case too).
+
+    Read at call time, like `_code_ref_args` (AC-6). A repo with no state
+    branch at all (no ref resolves) returns `(set(), None)` with no extra
+    git call — that is the ordinary, common case and carries no failure.
+
+    Returns `(state_only_shas, failed_rev_list_argv)`. `failed_rev_list_argv`
+    is `None` whenever the probe did not fail (including the no-ref-resolves
+    case above); otherwise it is the exact `git rev-list ...` argv that
+    exited non-zero, for `git_touched` to name in its fail-closed stderr
+    warning (KLC-149 review round 3 external F-1). Before this fix, a
+    failure here was indistinguishable from "nothing is state-only"
+    (`return set()`), so a real git-level failure silently kept whatever
+    state-only commits the tag/HEAD gap (external review F-3) or a
+    shared-history state branch (review round 2 external F-1) exist
+    precisely to drop — reporting a clean recall instead of a derivation
+    gap. Once at least one state ref has resolved, the rev-list call is
+    load-bearing: its failure must propagate, never be swallowed."""
+    state = _state.STATE_BRANCH
+    remotes = _configured_remotes(repo)
+    state_refs = [f"refs/heads/{state}"]
+    state_refs += [f"refs/remotes/{remote}/{state}" for remote in remotes]
+    resolved = []
+    for ref in state_refs:
+        rc, _ = _git(["rev-parse", "--verify", "--quiet", ref], repo)
+        if rc == 0:
+            resolved.append(ref)
+    if not resolved:
+        return set(), None
+    branch_args = [f"--exclude={state}", "--branches"]
+    for remote in remotes:
+        branch_args.append(f"--exclude={remote}/{state}")
+    branch_args.append("--remotes")
+    rev_list_args = ["rev-list", *resolved, "--not", *branch_args]
+    rc, out = _git(rev_list_args, repo)
+    if rc != 0:
+        return set(), ["git", *rev_list_args]
+    return {ln.strip() for ln in out.splitlines() if ln.strip()}, None
+
+
 def git_touched(key: str, repo: Path) -> tuple[list[str], bool]:
     """Return (files_after_exclusion, source_present) for a ticket's commits.
 
-    This is the **best-effort** live path (see docs §Git-derivation caveats); the
-    stored-patch seam is authoritative. `source_present` is True iff
-    `git log --grep=<key>` (word-bounded) matched at least one commit — reported
-    SEPARATELY from the post-exclusion file list so the caller can tell two very
-    different cases apart:
+    This is the **best-effort** live path; the stored-patch seam is
+    authoritative. Walks CODE REFS ONLY (`_code_ref_args`): local branches,
+    remote-tracking branches and tags, minus the state branch
+    (`core.phases.state.STATE_BRANCH`, local and on every remote, excluded by
+    one exact literal per remote, never a glob — external review F-2), plus
+    the current `HEAD` unless `HEAD` is the state branch itself. Naming the
+    state branch out of those three glob options only keeps them from
+    STARTING a walk at it; a tag pointing straight at the state branch's
+    tip, or a detached `HEAD` checked out there, would still reach the same
+    commits some other way, so every grep-matched commit that is
+    STATE-ONLY (`_state_only_commits`: reachable from the state branch but
+    from no code BRANCH — tags and HEAD never rescue one) is dropped from
+    the matched-commit list by plain SHA membership in Python, never by a
+    second reachability-based git exclusion (external review F-3, code
+    review F-1, review round 2 external F-1 — a state branch that shares
+    history with a code branch, by forking from it or later being merged
+    into it, must not lose that shared history just because it is ALSO
+    reachable from the state branch; the live `klc-state` branch is an
+    orphan, so this only bites a hypothetical non-orphan state branch).
+    This differs by design from `phase_completion.integrate_ground_truth`,
+    which diffs one live branch (or a recorded range) at integrate time;
+    see `docs/architecture.md` §Offline ground truth (KLC-149).
+
+    `source_present` is True iff at least one grep-matched commit on a code
+    ref SURVIVES the state-only filter above — reported SEPARATELY from the
+    post-exclusion file list so the caller can tell two very different
+    cases apart:
       - no matching commit          -> ([], False) — a real derivation gap (skip);
       - commits matched but every    -> ([], True)  — a real 0-footprint evaluation
         changed path was excluded                     (score it, recall 0), NOT a gap.
 
-    Merge commits: `git log --name-only` suppresses merge diffs by default, so a
-    key that lands only on a `--no-ff` MERGE would derive no files. Each matched
-    merge's first-parent diff (`<sha>^..<sha>` — the files it integrated into the
-    target branch, not both sides doubled) is added so merge-only tickets get
-    their real footprint instead of a spurious recall-0.
+    A third case fails CLOSED the same visible way as the first: if
+    `_state_only_commits`' own rev-list probe fails after a state ref has
+    resolved, this returns `([], False)` too, plus one `stderr` warning
+    naming *key* and the failed `git` argv (review round 3 external F-1) —
+    never silently falls back to treating the failure as "nothing is
+    state-only", which would re-admit exactly the commits that filter
+    exists to drop.
+
+    Merge commits: a key that lands only on a `--no-ff` MERGE would derive no
+    files from a plain diff (a merge's OWN diff is empty against either
+    parent in the usual case). Each matched merge's first-parent diff
+    (`<sha>^..<sha>` — the files it integrated into the target branch, not
+    both sides doubled) is added so merge-only tickets get their real
+    footprint instead of a spurious recall-0; every other matched commit's
+    files come from its own single-commit diff (`git show`), one call per
+    surviving commit — never a blanket name-only log over the refs, which
+    cannot be filtered by commit identity after the fact.
     """
+    refs = _code_ref_args(repo)
     grep = f"--grep={_grep_pattern(key)}"
     # One probe gives both source-presence and the merge SHAs: `%H %P` prints the
     # commit then its parents; >1 parent == a merge.
-    rc, out = _git(["log", "--all", "-E", grep, "--format=%H %P"], repo)
+    rc, out = _git(["log", *refs, "-E", grep, "--format=%H %P"], repo)
     if rc != 0:
         return [], False
     commits = [ln.split() for ln in out.splitlines() if ln.strip()]
     if not commits:
         return [], False
-    merge_shas = [parts[0] for parts in commits if len(parts) > 2]
+    state_only, failed_argv = _state_only_commits(repo)
+    if failed_argv is not None:
+        sys.stderr.write(
+            f"planning-eval: {key}: {' '.join(failed_argv)} failed; "
+            f"refusing to report touched files without the state-only "
+            f"filter (KLC-149 review round 3 external F-1)\n")
+        return [], False
+    commits = [parts for parts in commits if parts[0] not in state_only]
+    if not commits:
+        return [], False
+    merge_shas = {parts[0] for parts in commits if len(parts) > 2}
 
     files: set[str] = set()
-    # Non-merge commits (and the non-suppressed side) via the broad name-only log.
-    rc, out = _git(["log", "--all", "-E", grep, "--name-only", "--pretty=format:"], repo)
-    if rc == 0:
-        files |= {ln.strip() for ln in out.splitlines() if ln.strip()}
-    # Merge augmentation: first-parent diff of each matched merge commit.
-    for sha in merge_shas:
-        rc, out = _git(["diff-tree", "--no-commit-id", "--name-only", "-r",
-                        f"{sha}^", sha], repo)
+    for parts in commits:
+        sha = parts[0]
+        if sha in merge_shas:
+            # Merge augmentation: first-parent diff (the files it integrated).
+            rc, out = _git(["diff-tree", "--no-commit-id", "--name-only", "-r",
+                            f"{sha}^", sha], repo)
+        else:
+            rc, out = _git(["show", "--no-commit-id", "--name-only",
+                            "--pretty=format:", sha], repo)
         if rc == 0:
             files |= {ln.strip() for ln in out.splitlines() if ln.strip()}
 
@@ -196,8 +348,13 @@ def ticket_touched_files(key: str, ticket_dir: Path, repo: Path) -> tuple[list[s
       - "stored-patch"  — a `changed_files.txt` / `*.patch` in the ticket dir.
         AUTHORITATIVE and deterministic; wins when present (even if it resolves to
         no in-scope files: a 0-footprint evaluation, not a derivation gap).
-      - "git-log-grep"  — derived from git history by key. BEST-EFFORT (see the
-        caveats: merge/squash/cross-key-mention/`--all`-widening).
+      - "git-log-grep"  — derived from git history by key, over code refs only
+        (local branches, remote-tracking branches and tags, minus the state
+        branch `core.phases.state.STATE_BRANCH`, plus `HEAD` unless `HEAD` is
+        the state branch — see `git_touched`). BEST-EFFORT (merge / squash /
+        cross-key-mention remain caveats); this differs by design from
+        `phase_completion.integrate_ground_truth`, documented in
+        `docs/architecture.md` §Offline ground truth (KLC-149).
       - "none"          — no source found at all (a real derivation gap)."""
     stored = stored_patch_files(ticket_dir)
     if stored is not None:
@@ -473,6 +630,24 @@ def backfill_rows(tickets_root: Path, modules_data, repo: Path, index_dir: Path,
     return rows
 
 
+def population_summary(rows: list[dict]) -> dict:
+    """The ONE definition of a population's five baseline figures (KLC-149
+    D-207): `render_backfill` and `core/skills/baseline_compare.py` both
+    render from this, so the arithmetic is never computed twice. `None`
+    (never a fabricated `0.0`) when no row in the population is scored."""
+    scored = [r for r in rows if r.get("status") == "ok"]
+    unavailable = [r for r in rows if r.get("status") != "ok"]
+    p5 = [r["precision_at_5"] for r in scored if r.get("precision_at_5") is not None]
+    r10 = [r["recall_at_10"] for r in scored if r.get("recall_at_10") is not None]
+    return {
+        "total": len(rows),
+        "scored": len(scored),
+        "unavailable": len(unavailable),
+        "precision_at_5_mean": _mean(p5) if p5 else None,
+        "recall_at_10_mean": _mean(r10) if r10 else None,
+    }
+
+
 def render_backfill(rows_by_source: dict[str, list[dict]], index_generated_at: str) -> str:
     """The rendered table AC-18 commits. Each source gets its OWN aggregate
     block: a stored mean and a replayed mean are two populations, reported
@@ -490,17 +665,16 @@ def render_backfill(rows_by_source: dict[str, list[dict]], index_generated_at: s
         rows = rows_by_source.get(source) or []
         if not rows:
             continue
-        scored = [r for r in rows if r.get("status") == "ok"]
-        unavailable = [r for r in rows if r.get("status") != "ok"]
-        p5 = [r["precision_at_5"] for r in scored if r.get("precision_at_5") is not None]
-        r10 = [r["recall_at_10"] for r in scored if r.get("recall_at_10") is not None]
+        summary = population_summary(rows)
         lines.append(f"## {source}")
         lines.append("")
-        lines.append(f"- tickets total: {len(rows)}")
-        lines.append(f"- tickets scored: {len(scored)}")
-        lines.append(f"- tickets unavailable: {len(unavailable)}")
-        lines.append(f"- precision@5 mean: {_mean(p5) if p5 else 'null'}")
-        lines.append(f"- recall@10 mean: {_mean(r10) if r10 else 'null'}")
+        lines.append(f"- tickets total: {summary['total']}")
+        lines.append(f"- tickets scored: {summary['scored']}")
+        lines.append(f"- tickets unavailable: {summary['unavailable']}")
+        p5_mean = summary["precision_at_5_mean"]
+        r10_mean = summary["recall_at_10_mean"]
+        lines.append(f"- precision@5 mean: {'null' if p5_mean is None else p5_mean}")
+        lines.append(f"- recall@10 mean: {'null' if r10_mean is None else r10_mean}")
         lines.append("")
         lines.append("| ticket | status | confidence | derivation_source | "
                      "derivation_confidence | precision@5 | recall@10 |")
@@ -722,9 +896,10 @@ def build_report(tickets_root: Path, modules_data, repo: Path,
             "best_effort_tickets": best_effort,
             "note": (
                 "derivation_source per ticket: 'stored-patch' is authoritative; "
-                "'git-log-grep' is best-effort (merge / squash / cross-key-mention / "
-                "--all-widening). For authoritative recall/precision, give each ticket "
-                "a changed_files.txt or *.patch."
+                "'git-log-grep' is best-effort (merge / squash / cross-key-mention) and "
+                "walks code refs only (branches, remote-tracking branches and tags, "
+                "minus the state branch). For authoritative recall/precision, give each "
+                "ticket a changed_files.txt or *.patch."
             ),
             "per_ticket": per_ticket,
         }

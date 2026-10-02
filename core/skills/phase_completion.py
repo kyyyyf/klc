@@ -942,6 +942,26 @@ def _project_repo():
         return None
 
 
+def _live_merge_base(repo) -> str:
+    """KLC-166 step-1 (D-002): the ONE live merge-base rule (KLC-128):
+    `origin/main`, else local `main`. Used by `_committed`,
+    `_pre_merge_range_patch` and `ticket_diff_range` so the rule has exactly
+    one expression instead of three inline copies. Empty string on any
+    failure (never raises — delegates to `_git`, which already degrades
+    that way)."""
+    return (_git(["merge-base", "HEAD", "origin/main"], repo)
+            or _git(["merge-base", "HEAD", "main"], repo))
+
+
+def _non_klc_paths(name_only: str) -> set:
+    """KLC-166 step-1 (D-002): the `.klc/`-path filter shared by
+    `_committed`, `_pre_merge_range_patch`, `_resolve_ground_truth` and
+    `ticket_diff_range` — given a `git diff --name-only` style newline-joined
+    listing, return the set of non-empty paths that do NOT start with
+    `.klc/`."""
+    return {p for p in name_only.split("\n") if p.strip() and not p.startswith(".klc/")}
+
+
 def _pre_merge_range_patch(ticket: str, phase_id: str) -> dict | None:
     """KLC-128 D-201/D-202: stage `{base, head, recorded_at_phase,
     recorded_at}` for the pre-merge range, or return None to stage nothing.
@@ -958,13 +978,12 @@ def _pre_merge_range_patch(ticket: str, phase_id: str) -> dict | None:
     if _head_branch_mismatch(ticket) is not None:
         return None  # KLC-129 D-002: never record another ticket's diff
     repo = _project_repo()
-    base = (_git(["merge-base", "HEAD", "origin/main"], repo)
-            or _git(["merge-base", "HEAD", "main"], repo))
+    base = _live_merge_base(repo)
     head = _git(["rev-parse", "HEAD"], repo)
     if not (_SHA_RE.match(base or "") and _SHA_RE.match(head or "")):
         return None
     out = _git(["diff", "--name-only", base, head], repo)
-    if not any(p.strip() and not p.startswith(".klc/") for p in out.split("\n")):
+    if not _non_klc_paths(out):
         return None                       # latest NON-EMPTY range wins (Q-001)
     import datetime as _dt
     return {"base": base, "head": head, "recorded_at_phase": phase_id,
@@ -1065,11 +1084,11 @@ def _committed(repo=None, *, cache: dict | None = None) -> tuple[set, set]:
         # resolution the ground-truth resolver uses — instead of a second,
         # duplicated try/except doing the identical thing.
         repo = _project_repo()
-    base = _git(["merge-base", "HEAD", "origin/main"], repo) or _git(["merge-base", "HEAD", "main"], repo)
+    base = _live_merge_base(repo)
     if not base:
         return set(), set()
     out = _git(["diff", "--name-only", base, "HEAD"], repo)
-    paths = {p for p in out.split("\n") if p.strip() and not p.startswith(".klc/")}
+    paths = _non_klc_paths(out)
     return _paths_to_modules(paths, cache), paths
 
 
@@ -1186,6 +1205,52 @@ def _is_ancestor(base: str, head: str, repo) -> bool:
     return bool(mb) and mb == base
 
 
+def _validated_recorded_range(ticket: str, repo) -> tuple[dict | None, str, bool]:
+    """KLC-166 step-5 (review round 1, F-3): the recorded-range validation
+    shared by `_resolve_ground_truth` and `ticket_diff_range` — read
+    `meta.pre_merge_range` (`_read_pre_merge_range`), validate ancestry
+    (`_is_ancestor`), and require at least one changed path outside
+    `.klc/` (`_non_klc_paths`). Never raises (each helper it calls already
+    degrades that way). The SAME two git calls in the SAME order as
+    before this extraction (KLC-128 git-call-count bound unchanged).
+
+    On success: `({"base", "head", "paths"}, "", False)`, *paths* being the
+    `_non_klc_paths` result the caller needs (`_resolve_ground_truth`
+    turns it into modules; `ticket_diff_range` does not need it); the
+    third element is meaningless on success and always `False`.
+
+    On failure: `(None, reason, no_range)`, where *reason* names exactly
+    what was wrong, UNPREFIXED, and *no_range* is `True` only when
+    `_read_pre_merge_range` itself found nothing usable to validate
+    (missing or malformed — there was never a range to check ancestry or
+    resolvability against), `False` when a range WAS recorded but failed
+    the ancestry or resolvability check below.
+
+    KLC-166 step-6 (review round 2, F-1): this distinction is why the
+    return widened from a 2-tuple — `_resolve_ground_truth` must apply its
+    KLC-129 branch-mismatch reason ONLY when *no_range* is `True`; a
+    recorded-but-invalid range reports its OWN reason even when `HEAD` also
+    sits on another ticket's branch (see that function's docstring). This
+    was the historical, pre-step-5 precedence; step-5's extraction had
+    collapsed all three failures onto the same `(None, reason)` shape and
+    so silently lost it. `ticket_diff_range` does not need the
+    distinction (it has no mismatch leg to prioritise over) and ignores
+    the third element, keeping its own historical `"{live_why}; {reason}"`
+    wording unchanged."""
+    rng, why = _read_pre_merge_range(ticket)
+    if rng is None:
+        return None, why, True
+    if not _is_ancestor(rng["base"], rng["head"], repo):
+        return None, (f"recorded pre-merge range base is not an ancestor of head: "
+                      f"{rng['base']}..{rng['head']}"), False
+    out = _git(["diff", "--name-only", rng["base"], rng["head"]], repo)
+    rpaths = _non_klc_paths(out)
+    if not rpaths:                                   # D-204: no extra probe call
+        return None, (f"recorded pre-merge range {rng['base']}..{rng['head']} "
+                      "is not resolvable in this clone"), False
+    return {"base": rng["base"], "head": rng["head"], "paths": rpaths}, "", False
+
+
 def _resolve_ground_truth(ticket: str, cache: dict) -> dict:
     """KLC-128 D-203: the ONE ground-truth derivation at the integrate ack —
     live, then recorded, then none. Never raises, and never falls back to a
@@ -1196,32 +1261,81 @@ def _resolve_ground_truth(ticket: str, cache: dict) -> dict:
     never trusted (`source` is never `"live-merge-base"` in that case) and
     resolution falls straight through to the ticket's own recorded range, or
     to `"none"` with the mismatch as its reason when no range is recorded
-    either."""
+    either.
+
+    KLC-166 step-6 (review round 2, F-1): "when no range is recorded
+    either" is load-bearing — the mismatch reason must win ONLY when
+    `_validated_recorded_range` found nothing recorded at all (its
+    `no_range` flag). A range that IS recorded but fails ancestry or
+    resolvability reports THAT reason even while `HEAD` also sits on
+    another ticket's branch; the mismatch never hides a bad recorded
+    range. step-5's extraction had collapsed this into a bare
+    `mismatch or why` for every failure, silently reversing the
+    precedence (no test caught it — this step adds one)."""
     try:
         mismatch = _head_branch_mismatch(ticket)          # KLC-129 D-001/D-002
         if mismatch is None:
             mods, paths = _committed(cache=cache)         # today's live rule, unchanged (AC-3)
             if paths:
                 return _gt(mods, paths, "live-merge-base", None)
-        rng, why = _read_pre_merge_range(ticket)
-        if rng is None:
-            return _gt((), (), "none", mismatch or why)
         repo = _project_repo()
         # KLC-128 step-7 (review MEDIUM, AC-8/AC-12): validate ancestry BEFORE
         # diffing — the one extra git call the review ruling allows on this
         # leg (D-128-3 updates the AC-10 bound from <= 3 to <= 4).
-        if not _is_ancestor(rng["base"], rng["head"], repo):
-            return _gt((), (), "none",
-                      f"recorded pre-merge range base is not an ancestor of head: "
-                      f"{rng['base']}..{rng['head']}")
-        out = _git(["diff", "--name-only", rng["base"], rng["head"]], repo)
-        rpaths = {p for p in out.split("\n") if p.strip() and not p.startswith(".klc/")}
-        if not rpaths:                                   # D-204: no extra probe call
-            return _gt((), (), "none", f"recorded pre-merge range {rng['base']}..{rng['head']} "
-                                       "is not resolvable in this clone")
-        return _gt(_paths_to_modules(rpaths, cache), rpaths, "recorded-range", None)
+        # KLC-166 step-5 (F-3): this whole leg is now the shared
+        # `_validated_recorded_range` (also used by `ticket_diff_range`),
+        # same two git calls in the same order.
+        rng, why, no_range = _validated_recorded_range(ticket, repo)
+        if rng is None:
+            # KLC-166 step-6 (F-1): mismatch wins only when NOTHING was
+            # recorded; a recorded-but-invalid range reports its own reason.
+            return _gt((), (), "none", (mismatch or why) if no_range else why)
+        return _gt(_paths_to_modules(rng["paths"], cache), rng["paths"], "recorded-range", None)
     except Exception as exc:  # noqa: BLE001 — never propagate (AC-12)
         return _gt((), (), "none", f"ground truth unavailable: {type(exc).__name__}: {exc}")
+
+
+def ticket_diff_range(ticket: str) -> tuple[dict | None, str]:
+    """KLC-166 step-1: the ticket's own committed range for the hand-back
+    planner bootstrap (`handback._run_planner`, step-2) — live, then
+    recorded, built only from the KLC-128/KLC-129 helpers above (D-002: no
+    third copy of the merge-base or mismatch rule). Never raises.
+
+    Live range: `merge-base(HEAD, origin/main or main)..HEAD`, when HEAD is
+    not on another ticket's branch (`_head_branch_mismatch`, KLC-129 D-002)
+    and that range changes at least one path outside `.klc/` (AC-1).
+
+    Recorded range: `meta.pre_merge_range`, after the same SHA, ancestry and
+    non-empty checks `_resolve_ground_truth`'s recorded leg applies (AC-2),
+    when the live range is unusable for any reason: HEAD on another
+    ticket's branch, no merge-base computable, or no changed path outside
+    `.klc/` (spec-review F-6 / test-plan-review F-1).
+
+    Otherwise `(None, reason)`, where *reason* names both legs (AC-3)."""
+    try:
+        repo = _project_repo()
+        live_why = _head_branch_mismatch(ticket, repo)          # C-002
+        if live_why is None:
+            base, head = _live_merge_base(repo), _git(["rev-parse", "HEAD"], repo)
+            if not (_SHA_RE.match(base or "") and _SHA_RE.match(head or "")):
+                live_why = "no merge-base of HEAD with origin/main or main"
+            elif not _non_klc_paths(_git(["diff", "--name-only", base, head], repo)):
+                live_why = f"the live range {base[:12]}..{head[:12]} changes no path outside .klc/"
+            else:
+                return {"base": base, "head": head, "source": "live-merge-base"}, ""
+        # KLC-166 step-5 (F-3): the recorded leg is now the shared
+        # `_validated_recorded_range` (also used by `_resolve_ground_truth`),
+        # same two git calls in the same order; only the live-leg prefix
+        # on the reason is added here. The third element (whether nothing
+        # was recorded at all) is `_resolve_ground_truth`'s mismatch-vs-
+        # recorded precedence call to make, not this function's — there is
+        # no mismatch leg here to prioritise over, so it is ignored.
+        rng, why, _no_range = _validated_recorded_range(ticket, repo)
+        if rng is None:
+            return None, f"{live_why}; {why}"
+        return {"base": rng["base"], "head": rng["head"], "source": "recorded-range"}, ""
+    except Exception as exc:  # noqa: BLE001
+        return None, f"range unavailable: {type(exc).__name__}: {exc}"
 
 
 _RUN_SCOPE: dict | None = None     # KLC-128 D-205: lives for one outermost ack.run, keyed by ticket

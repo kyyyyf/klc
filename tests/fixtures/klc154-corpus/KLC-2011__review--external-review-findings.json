@@ -1,0 +1,10 @@
+[
+  {
+    "severity": "medium",
+    "file": "core/skills/example_module.py",
+    "line": null,
+    "title": "Sample in-client finding 1",
+    "body": "The reviewer noticed a small defect 1 worth a follow-up patch.",
+    "fix": null
+  }
+]

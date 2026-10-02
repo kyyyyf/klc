@@ -13,7 +13,9 @@ module is the six-kind registry (`KINDS`) plus the two validators:
                                     `reviewer` field, if present, must equal
                                     `kind` (or be empty), and the KLC-154
                                     migration's `LEGACY_RULE_NAME` is refused
-                                    here (a hand-back is never the migration).
+                                    here as a value reserved for that
+                                    migration (a hand-back is never the
+                                    migration).
   `validate_findings(kind, items)` — an already-stored or pooled list of
                                     Finding dicts, where `reviewer` may be any
                                     reviewer slug (a headless reviewer name
@@ -27,10 +29,15 @@ hand-back and counts its review pass.
 """
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -284,15 +291,120 @@ def take(kind: str, ticket: str, file: Path) -> int:
     return 0
 
 
+@dataclass(frozen=True)
+class PlannerResult:
+    """KLC-166 step-2 (D-003): `_run_planner`'s result — truthy iff `ok`, so
+    the nine bare-`bool` stubs across the unmodified hand-back suites keep
+    working unchanged (`bool(True)`/`bool(False)` behave exactly as before);
+    `reason` is the AC-5 note's `<reason>` on a failure."""
+    ok: bool
+    reason: str = ""
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+
+_PLANNER_BUDGET_S = 120
+_clock = time.monotonic          # KLC-166 step-2 (D-006): tests pin this to make the budget exact
+
+
+def _last_stderr_line(stderr) -> str:
+    """KLC-166 step-2/step-3: the last non-empty line of a subprocess's
+    stderr, decoding bytes if needed. Empty string when there is none."""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
+    return lines[-1] if lines else ""
+
+
+def _reject_plan(ticket: str, plan_file: Path) -> None:
+    """KLC-166 step-5 (review round 1, F-2): move a plan `_plan_outcome`
+    rejects aside to `review/review-plan.rejected-<UTC ts>.json`, inside
+    the SAME ticket directory, so the next `take` sees `review-plan.json`
+    as missing again and re-plans from scratch instead of being stuck
+    behind a plan for the wrong diff forever. Only ever called for a plan
+    written in THIS call (never one that pre-dates it, A-002). Degrade-
+    not-fail: an `OSError` here is swallowed — the plan is simply left in
+    place, same as before this fix."""
+    import datetime as _dt
+    ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    try:
+        dest = klc_ticket_dir(ticket) / "review" / f"review-plan.rejected-{ts}.json"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        plan_file.replace(dest)
+    except OSError:
+        pass
+
+
+def _plan_outcome(ticket, completed, diff_file: Path, *, pre_existing: bool) -> PlannerResult:
+    """KLC-166 step-3 (D-005, AC-4): `review.py` exit 2 means BOTH "refused
+    before planning" and "over the cap, plan already written" — only the
+    plan itself (its existence, and its `diff_sha256` matching the file
+    just passed) tells them apart; the exit code alone never does.
+
+    KLC-166 step-5 (review round 1, F-2): a plan rejected here (a
+    `diff_sha256` mismatch, or an exit code outside {0, 2} with a plan
+    written) is moved aside (`_reject_plan`) when it was written in THIS
+    call (*pre_existing* is False) — never when it already existed before
+    the call, which can only be a concurrent `review.py` run's output
+    (A-002) and is left exactly as `write_plan` wrote it.
+
+    KLC-166 step-6 (review round 2, F-2): the unreadable-plan branch below
+    (exit 0/2, a plan file exists, but it does not even parse as JSON) was
+    missed by step-5's fix — it returned failure without moving the plan
+    aside, so an unreadable plan blocked `_record` from ever re-planning
+    (`record_pass` keeps raising `RecordRefused` forever, same bug F-2
+    fixed for the sha-mismatch and bad-exit-code branches). It now moves
+    aside too, under the same *pre_existing* guard (A-002: never a plan
+    pre-dating this call)."""
+    want = hashlib.sha256(diff_file.read_bytes()).hexdigest()
+    plan_file = klc_ticket_dir(ticket) / "review-plan.json"
+    if completed.returncode in (0, 2) and plan_file.is_file():
+        try:
+            plan = json.loads(plan_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            if not pre_existing:
+                _reject_plan(ticket, plan_file)
+            return PlannerResult(False, f"review-plan.json for {ticket} is unreadable: {exc}")
+        got = plan.get("diff_sha256") if isinstance(plan, dict) else None
+        if got == want:
+            return PlannerResult(True)
+        reason = (f"review-plan.json for {ticket} has diff_sha256 "
+                 f"{str(got)[:12]}, not the planned diff's {want[:12]}")
+        if not pre_existing:
+            _reject_plan(ticket, plan_file)
+        return PlannerResult(False, reason)
+    if completed.returncode not in (0, 2) and plan_file.is_file() and not pre_existing:
+        _reject_plan(ticket, plan_file)
+    return PlannerResult(False, _last_stderr_line(completed.stderr)
+                         or f"review.py exited {completed.returncode} and wrote no "
+                            f"review-plan.json for {ticket}")
+
+
 def _record(ticket, reviewer, output) -> None:
+    """KLC-166 step-3 (AC-5): exactly one note on every planner failure —
+    a reported one (AC-3/AC-4), or a raised `subprocess.TimeoutExpired`/
+    `OSError` (the exception text is the reason) — and NEVER the
+    `RecordRefused` hint "run the planner (--plan-only)", since the planner
+    itself already ran and failed in every one of those cases (that hint is
+    only honest when `_record` never called the planner at all).
+
+    KLC-166 step-5 (review round 1, F-1): the planner call is guarded by a
+    BROAD `except Exception`, not just `(OSError, subprocess.SubprocessError)`
+    — an `ImportError`/`AttributeError` from the lazy `import
+    phase_completion`, or any other exception `ticket_diff_range` might
+    raise, must degrade to the same one note (C-003), never escape `take`
+    after the verdict is already stored."""
     if not (klc_ticket_dir(ticket) / "review-plan.json").is_file():
         try:
-            planned = _run_planner(ticket)
-        except (OSError, subprocess.SubprocessError) as exc:
-            planned = False
-            print(f"handback: note: planner failed ({exc})")
-        if not planned and not (klc_ticket_dir(ticket) / "review-plan.json").is_file():
-            print("handback: note: no review plan could be written; pass not recorded")
+            result = _run_planner(ticket)
+        except Exception as exc:  # noqa: BLE001 — C-003: any planner failure is one note
+            result = PlannerResult(False, str(exc) or type(exc).__name__)
+        if not result:
+            reason = (getattr(result, "reason", "")
+                      or "planner reported failure without a reason")
+            print(f"handback: note: planner did not write a review plan ({reason}); "
+                  "pass not recorded")
             return
     try:
         review_plan.record_pass(ticket, reviewer, output=output)
@@ -300,14 +412,58 @@ def _record(ticket, reviewer, output) -> None:
         print(f"handback: note: pass not recorded ({exc})")
 
 
-def _run_planner(ticket) -> bool:
-    spec_md = klc_ticket_dir(ticket) / "spec.md"
-    diff_range = "main" + "." * 3 + "HEAD"
-    rc = subprocess.run([sys.executable, str(framework_root() / "scripts" / "review.py"),
-                        "--plan-only", "--diff", diff_range, "--spec", str(spec_md)],
-                       cwd=str(project_root()), capture_output=True, text=True,
-                       timeout=120).returncode
-    return rc in (0, 2)                             # 2 = over the cap, plan already written
+def _run_planner(ticket) -> PlannerResult:
+    """KLC-166 step-2: the planner bootstrap. Lazily imports
+    `phase_completion` (D-001: `scripts/review.py` imports `handback` at
+    module level, so a top-level import here would load that module's graph
+    on every review run); takes the ticket's range from
+    `phase_completion.ticket_diff_range` (AC-1/AC-2/AC-3); materialises
+    `git diff <base> <head>` to a `mkstemp` file in the system temporary
+    directory (never the project tree or `.klc/tickets`, AC-6); passes that
+    file to `review.py --plan-only`; removes the file in a `finally` on
+    every return path, including a raised `TimeoutExpired`/`OSError`
+    (AC-6); and keeps one `_PLANNER_BUDGET_S`-second budget for the whole
+    call (Q-006/D-006). Success is `_plan_outcome`'s AC-4 post-condition
+    (KLC-166 step-3, D-005) — the exit code alone never decides it.
+
+    KLC-166 step-5 (review round 1, F-2): *pre_existing* records whether
+    `review-plan.json` was already on disk BEFORE the `review.py` call, so
+    `_plan_outcome` moves aside only a plan written in THIS call, never one
+    that pre-dates it (A-002)."""
+    import phase_completion          # D-001: lazy import only
+    deadline = _clock() + _PLANNER_BUDGET_S
+    rng, why = phase_completion.ticket_diff_range(ticket)
+    if rng is None:
+        return PlannerResult(False, why)                     # AC-3: no review.py run
+    plan_file = klc_ticket_dir(ticket) / "review-plan.json"
+    pre_existing = plan_file.is_file()
+    fd, name = tempfile.mkstemp(prefix="klc-plan-", suffix=".diff")
+    os.close(fd)
+    diff_file = Path(name)
+    try:
+        left = deadline - _clock()
+        if left <= 0:
+            return PlannerResult(False, f"planner budget of {_PLANNER_BUDGET_S} s used up")
+        g = subprocess.run(["git", "diff", rng["base"], rng["head"]],
+                           cwd=str(project_root()), capture_output=True,
+                           timeout=min(60, left))
+        if g.returncode != 0:
+            return PlannerResult(False, f"git diff {rng['base'][:12]}..{rng['head'][:12]} "
+                                        f"failed: {_last_stderr_line(g.stderr)}")
+        diff_file.write_bytes(g.stdout)
+        left = deadline - _clock()
+        if left <= 0:
+            return PlannerResult(False, f"planner budget of {_PLANNER_BUDGET_S} s used up")
+        r = subprocess.run([sys.executable, str(framework_root() / "scripts" / "review.py"),
+                            "--plan-only", "--diff", str(diff_file),
+                            "--spec", str(klc_ticket_dir(ticket) / "spec.md")],
+                           cwd=str(project_root()), capture_output=True, text=True,
+                           errors="replace",  # KLC-166 step-5 F-1: never raise UnicodeDecodeError
+                           timeout=left)
+        return _plan_outcome(ticket, r, diff_file, pre_existing=pre_existing)  # AC-4 (D-005, D-007)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            diff_file.unlink()                               # AC-6, every return path
 
 
 def _read_stored_findings(path: Path, kind: str, notes: list) -> list:
@@ -432,9 +588,16 @@ def main(argv=None) -> int:
     p_take.add_argument("--kind", required=True, choices=sorted(KINDS))
     p_take.add_argument("--ticket", required=True)
     p_take.add_argument("--file", required=True, type=Path)
+    p_mig = sub.add_parser("migrate", help="KLC-154: migrate stored findings to the one shape")
+    p_mig.add_argument("--tickets-root", required=True)
+    p_mig.add_argument("--dry-run", action="store_true")
+    p_mig.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     if args.cmd == "take":
         return take(args.kind, args.ticket, args.file)
+    if args.cmd == "migrate":
+        import findings_migrate  # noqa: E402  (lazy: the only handback -> findings_migrate edge)
+        return findings_migrate.cli(args.tickets_root, dry_run=args.dry_run, as_json=args.json)
     return 2
 
 

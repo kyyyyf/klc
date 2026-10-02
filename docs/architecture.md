@@ -511,6 +511,44 @@ and the reconciliation table are recorded in
 `.klc/tickets/KLC-108/measure/README.md` and
 `.klc/tickets/KLC-108/build-log.md`.
 
+### Offline ground truth (KLC-149)
+
+`planning-eval.git_touched` reconstructs a ticket's footprint after its branch
+is gone: every commit whose message names the key, on code refs only, which
+means local branches, remote-tracking branches and tags, minus the state
+branch (`core.phases.state.STATE_BRANCH`, local and on every remote), plus
+`HEAD` unless HEAD is the state branch. The state branch holds ticket state,
+not code; walking every ref also reached the `.klc/` worktree's HEAD and put
+35 to 51 state files into single tickets' ground truth. A ticket whose only
+key commits are state commits is now a derivation gap (`source_kind` none).
+The exclusion is exact, never a glob: one literal `<remote>/<state>` per
+configured remote, because a glob lets `*` cross a `/` and would also drop a
+genuine code branch merely named `.../<state>` (for example `feature/<state>`
+pushed to a remote; review round 1 external F-2). Naming the state branch out
+of `--branches`/`--remotes`/`--tags` only keeps those three options from
+STARTING a walk at it; a tag pointing straight at the state branch's tip, or
+a detached `HEAD` checked out there, would still reach the same commits some
+other way. Round 1 closed that gap with a negative revision
+(`^refs/heads/<state>`), but a negative revision excludes EVERY commit
+reachable from the state branch's tip, ancestors included — wrong the moment
+the state branch shares history with a code branch (forked from it, or later
+merged into it), because it then drops that shared history too (review round
+2 external F-1). The live `klc-state` branch is an orphan with no shared
+history, so this never bit production, but the fix is exact rather than
+lucky: `git_touched` computes the STATE-ONLY commits (reachable from the
+state branch — local and on every remote — but from no CODE BRANCH, a local
+or remote-tracking branch other than the state ones) as one bounded
+`git rev-list <state refs> --not <code-branch refs>` call, then drops exactly
+those SHAs from its own already-matched commit list by plain membership in
+Python — never by handing git a second reachability-based exclusion, which
+would reintroduce the same over-exclusion. Tags and HEAD never rescue a
+state-only commit from this filter (only branches count as "reachable from a
+code branch"), so a tag pointing straight at the state branch's tip, or a
+detached `HEAD` checked out there, stays excluded exactly as before. This
+differs by design from `phase_completion.integrate_ground_truth`, which diffs
+one live branch (or a recorded range) at integrate and drops only the
+`.klc/` prefix, while the offline path filters with `_BASELINE_EXCL`.
+
 ## Symbol line ranges (KLC-137)
 
 `inventory.json` keeps where each ast-grep symbol ends, not only where it

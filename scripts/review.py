@@ -1165,7 +1165,9 @@ def main(argv: list[str]) -> int:
                                  description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--diff", required=True,
-                    help="Unified diff file OR a git ref (HEAD, main...feat, ...).")
+                    help="A unified-diff file, or one git ref that is diffed against "
+                         "the working tree (git diff REF). A range is not accepted: "
+                         "write the range's diff to a file and pass the file.")
     ap.add_argument("--spec", required=True, type=Path,
                     help="Path to the ticket spec.")
     ap.add_argument("--external", action="store_true",

@@ -1,0 +1,3035 @@
+{
+  "label": "old",
+  "code_commit": "afdb764ec7505c1e20bfc88f5aa249730d68a8e3",
+  "command": "python3 CODE_DIR/core/skills/planning-eval.py --backfill --trace-source both --tickets REPO_ROOT/.klc/tickets --modules REPO_ROOT/.klc/index/modules.json --index REPO_ROOT/.klc/index --repo REPO_ROOT --out WORK_DIR/old.json --out-md WORK_DIR/old.md",
+  "measured": "2026-10-02T08:25:23.838174+00:00",
+  "index_generation": "2026-10-02T08:00:44Z",
+  "rows": {
+    "stored": [
+      {
+        "ticket": "KLC-001",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-003",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-004",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-005",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-006",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-007",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-008",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-009",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-010",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-011",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-012",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-014",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-015",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-016",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-017",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-018",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-019",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-02",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-020",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-021",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-022",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-034",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-035",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-036",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-037",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-038",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-039",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-040",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-041",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-042",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-043",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-044",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-045",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-046",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-047",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-048",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-049",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-050",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-051",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-052",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-053",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-054",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-055",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-056",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-057",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-058",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-059",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-060",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-061",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-062",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-063",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-064",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-065",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-066",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-067",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-068",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-069",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-070",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-071",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-072",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-073",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-074",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-075",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-076",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-077",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-078",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-079",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-080",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-081",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-082",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-083",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-084",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-085",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-086",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-087",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-088",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-089",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-090",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-091",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-092",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-093",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-094",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-095",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-096",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-097",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-098",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-099",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-100",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-101",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-102",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-103",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-104",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-105",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-106",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-107",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-108",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-109",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-110",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-111",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-112",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-113",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-114",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-115",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-116",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-117",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-118",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-119",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-120",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-121",
+        "trace_source": "stored",
+        "status": "unavailable",
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort"
+      },
+      {
+        "ticket": "KLC-122",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "high",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.024691358024691357
+      },
+      {
+        "ticket": "KLC-123",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "low",
+        "degraded_inputs": [
+          "inventory.json"
+        ],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.03225806451612903
+      },
+      {
+        "ticket": "KLC-124",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "low",
+        "degraded_inputs": [
+          "inventory.json"
+        ],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.044444444444444446
+      },
+      {
+        "ticket": "KLC-125",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-126",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.024390243902439025
+      },
+      {
+        "ticket": "KLC-127",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.016853932584269662
+      },
+      {
+        "ticket": "KLC-128",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.016129032258064516
+      },
+      {
+        "ticket": "KLC-129",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-130",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.07407407407407407
+      },
+      {
+        "ticket": "KLC-131",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.018867924528301886
+      },
+      {
+        "ticket": "KLC-132",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-133",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.012345679012345678
+      },
+      {
+        "ticket": "KLC-134",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-135",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-136",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-137",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.010309278350515464
+      },
+      {
+        "ticket": "KLC-138",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.0125
+      },
+      {
+        "ticket": "KLC-139",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.023255813953488372
+      },
+      {
+        "ticket": "KLC-140",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-141",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-142",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-143",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-144",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-145",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-146",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-147",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-148",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-149",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.043478260869565216
+      },
+      {
+        "ticket": "KLC-150",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-151",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-152",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-153",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.007142857142857143
+      },
+      {
+        "ticket": "KLC-154",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.002840909090909091
+      },
+      {
+        "ticket": "KLC-155",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-156",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-157",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-158",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-159",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-160",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-161",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-162",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-163",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-164",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-165",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.007462686567164179
+      },
+      {
+        "ticket": "KLC-166",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-167",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-168",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-169",
+        "trace_source": "stored",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      }
+    ],
+    "replayed": [
+      {
+        "ticket": "KLC-001",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "high",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.2
+      },
+      {
+        "ticket": "KLC-003",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.06666666666666667
+      },
+      {
+        "ticket": "KLC-004",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.125
+      },
+      {
+        "ticket": "KLC-005",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-006",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-007",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.08333333333333333
+      },
+      {
+        "ticket": "KLC-008",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.058823529411764705
+      },
+      {
+        "ticket": "KLC-009",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.07692307692307693
+      },
+      {
+        "ticket": "KLC-010",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.045454545454545456
+      },
+      {
+        "ticket": "KLC-011",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-012",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.4
+      },
+      {
+        "ticket": "KLC-014",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.3333333333333333
+      },
+      {
+        "ticket": "KLC-015",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.16666666666666666
+      },
+      {
+        "ticket": "KLC-016",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-017",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.14285714285714285
+      },
+      {
+        "ticket": "KLC-018",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.2727272727272727
+      },
+      {
+        "ticket": "KLC-019",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.25
+      },
+      {
+        "ticket": "KLC-02",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.058823529411764705
+      },
+      {
+        "ticket": "KLC-020",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.8,
+        "recall_at_10": 0.35714285714285715
+      },
+      {
+        "ticket": "KLC-021",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.2727272727272727
+      },
+      {
+        "ticket": "KLC-022",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.375
+      },
+      {
+        "ticket": "KLC-034",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.18181818181818182
+      },
+      {
+        "ticket": "KLC-035",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-036",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.09523809523809523
+      },
+      {
+        "ticket": "KLC-037",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-038",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-039",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.25
+      },
+      {
+        "ticket": "KLC-040",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.1
+      },
+      {
+        "ticket": "KLC-041",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.18181818181818182
+      },
+      {
+        "ticket": "KLC-042",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.2
+      },
+      {
+        "ticket": "KLC-043",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.2222222222222222
+      },
+      {
+        "ticket": "KLC-044",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.07692307692307693
+      },
+      {
+        "ticket": "KLC-045",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.16666666666666666
+      },
+      {
+        "ticket": "KLC-046",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-047",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-048",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-049",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-050",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.1875
+      },
+      {
+        "ticket": "KLC-051",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.2
+      },
+      {
+        "ticket": "KLC-052",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.014492753623188406
+      },
+      {
+        "ticket": "KLC-053",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.25
+      },
+      {
+        "ticket": "KLC-054",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "high",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.5
+      },
+      {
+        "ticket": "KLC-055",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.2
+      },
+      {
+        "ticket": "KLC-056",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.5
+      },
+      {
+        "ticket": "KLC-057",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.09523809523809523
+      },
+      {
+        "ticket": "KLC-058",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.25
+      },
+      {
+        "ticket": "KLC-059",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-060",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.16666666666666666
+      },
+      {
+        "ticket": "KLC-061",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-062",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.2222222222222222
+      },
+      {
+        "ticket": "KLC-063",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.5
+      },
+      {
+        "ticket": "KLC-064",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.1111111111111111
+      },
+      {
+        "ticket": "KLC-065",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-066",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.0784313725490196
+      },
+      {
+        "ticket": "KLC-067",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "high",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.11764705882352941
+      },
+      {
+        "ticket": "KLC-068",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.04
+      },
+      {
+        "ticket": "KLC-069",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.16666666666666666
+      },
+      {
+        "ticket": "KLC-070",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.043478260869565216
+      },
+      {
+        "ticket": "KLC-071",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.030303030303030304
+      },
+      {
+        "ticket": "KLC-072",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.06666666666666667
+      },
+      {
+        "ticket": "KLC-073",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-074",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.09523809523809523
+      },
+      {
+        "ticket": "KLC-075",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.05263157894736842
+      },
+      {
+        "ticket": "KLC-076",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.08823529411764706
+      },
+      {
+        "ticket": "KLC-077",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.8,
+        "recall_at_10": 0.11904761904761904
+      },
+      {
+        "ticket": "KLC-078",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.2222222222222222
+      },
+      {
+        "ticket": "KLC-079",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.06666666666666667
+      },
+      {
+        "ticket": "KLC-080",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-081",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.0625
+      },
+      {
+        "ticket": "KLC-082",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.03571428571428571
+      },
+      {
+        "ticket": "KLC-083",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.14814814814814814
+      },
+      {
+        "ticket": "KLC-084",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.09090909090909091
+      },
+      {
+        "ticket": "KLC-085",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.125
+      },
+      {
+        "ticket": "KLC-086",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.07142857142857142
+      },
+      {
+        "ticket": "KLC-087",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.07692307692307693
+      },
+      {
+        "ticket": "KLC-088",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.08333333333333333
+      },
+      {
+        "ticket": "KLC-089",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.08333333333333333
+      },
+      {
+        "ticket": "KLC-090",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.0625
+      },
+      {
+        "ticket": "KLC-091",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-092",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-093",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-094",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.047619047619047616
+      },
+      {
+        "ticket": "KLC-095",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "high",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.16666666666666666
+      },
+      {
+        "ticket": "KLC-096",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-097",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.0625
+      },
+      {
+        "ticket": "KLC-098",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "high",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.037037037037037035
+      },
+      {
+        "ticket": "KLC-099",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.05555555555555555
+      },
+      {
+        "ticket": "KLC-100",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.13333333333333333
+      },
+      {
+        "ticket": "KLC-101",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-102",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.03571428571428571
+      },
+      {
+        "ticket": "KLC-103",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.010309278350515464
+      },
+      {
+        "ticket": "KLC-104",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.041666666666666664
+      },
+      {
+        "ticket": "KLC-105",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.05194805194805195
+      },
+      {
+        "ticket": "KLC-106",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.04032258064516129
+      },
+      {
+        "ticket": "KLC-107",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.043478260869565216
+      },
+      {
+        "ticket": "KLC-108",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.031914893617021274
+      },
+      {
+        "ticket": "KLC-109",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.014598540145985401
+      },
+      {
+        "ticket": "KLC-110",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.043478260869565216
+      },
+      {
+        "ticket": "KLC-111",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.046153846153846156
+      },
+      {
+        "ticket": "KLC-112",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-113",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.03296703296703297
+      },
+      {
+        "ticket": "KLC-114",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.041666666666666664
+      },
+      {
+        "ticket": "KLC-115",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.04938271604938271
+      },
+      {
+        "ticket": "KLC-116",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.04477611940298507
+      },
+      {
+        "ticket": "KLC-117",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.08695652173913043
+      },
+      {
+        "ticket": "KLC-118",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.8,
+        "recall_at_10": 0.07017543859649122
+      },
+      {
+        "ticket": "KLC-119",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.03571428571428571
+      },
+      {
+        "ticket": "KLC-120",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.013888888888888888
+      },
+      {
+        "ticket": "KLC-121",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.013157894736842105
+      },
+      {
+        "ticket": "KLC-122",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-123",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.04838709677419355
+      },
+      {
+        "ticket": "KLC-124",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.044444444444444446
+      },
+      {
+        "ticket": "KLC-125",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-126",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.024390243902439025
+      },
+      {
+        "ticket": "KLC-127",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.02247191011235955
+      },
+      {
+        "ticket": "KLC-128",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.03225806451612903
+      },
+      {
+        "ticket": "KLC-129",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.02857142857142857
+      },
+      {
+        "ticket": "KLC-130",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.07407407407407407
+      },
+      {
+        "ticket": "KLC-131",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.018867924528301886
+      },
+      {
+        "ticket": "KLC-132",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-133",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.024691358024691357
+      },
+      {
+        "ticket": "KLC-134",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-135",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-136",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-137",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.010309278350515464
+      },
+      {
+        "ticket": "KLC-138",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.01875
+      },
+      {
+        "ticket": "KLC-139",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.4,
+        "recall_at_10": 0.023255813953488372
+      },
+      {
+        "ticket": "KLC-140",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-141",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-142",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-143",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-144",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-145",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-146",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-147",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-148",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-149",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.2,
+        "recall_at_10": 0.043478260869565216
+      },
+      {
+        "ticket": "KLC-150",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-151",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-152",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-153",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.007142857142857143
+      },
+      {
+        "ticket": "KLC-154",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "high",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.6,
+        "recall_at_10": 0.008522727272727272
+      },
+      {
+        "ticket": "KLC-155",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-156",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-157",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-158",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-159",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-160",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-161",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-162",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-163",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-164",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-165",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.007462686567164179
+      },
+      {
+        "ticket": "KLC-166",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-167",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-168",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      },
+      {
+        "ticket": "KLC-169",
+        "trace_source": "replayed",
+        "status": "ok",
+        "confidence": "medium",
+        "degraded_inputs": [],
+        "derivation_source": "git-log-grep",
+        "derivation_confidence": "best-effort",
+        "precision_at_5": 0.0,
+        "recall_at_10": 0.0
+      }
+    ]
+  }
+}
