@@ -11,6 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _klc128_fixtures import (  # noqa: E402
     _merged_no_recording,
     _read_meta,
+    _retrieval_rec,
+    _capture_drift_reports,
+    _last_drift_report,
     _run_ack,
     _seed_ticket,
 )
@@ -42,10 +45,9 @@ def test_malformed_pre_merge_range_missing_head_key_does_not_raise(tmp_path, mon
     rc = _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1)
     assert rc == 0
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["ground_truth_source"] == "none"
-    meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["metrics"]["retrieval"]["ground_truth_source"] == "none"
+    assert _retrieval_rec(tdir.parents[2], tdir.name)["ground_truth_source"] == "none"
 
 
 def test_range_pointing_at_unreachable_objects_does_not_raise(tmp_path, monkeypatch):
@@ -64,10 +66,9 @@ def test_range_pointing_at_unreachable_objects_does_not_raise(tmp_path, monkeypa
     rc = _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1)
     assert rc == 0
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["ground_truth_source"] == "none"
-    meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["metrics"]["retrieval"]["ground_truth_source"] == "none"
+    assert _retrieval_rec(tdir.parents[2], tdir.name)["ground_truth_source"] == "none"
 
 
 def test_git_binary_unavailable_does_not_raise(tmp_path, monkeypatch):
@@ -85,6 +86,7 @@ def test_git_binary_unavailable_does_not_raise(tmp_path, monkeypatch):
     (tdir / "retrieval_trace.json").write_text(json.dumps(_OK_TRACE), encoding="utf-8")
 
     monkeypatch.setenv("PROJECT_ROOT", str(clone))
+    _capture_drift_reports(monkeypatch)       # this test owns its capture (order-independent)
     import phase_completion as _pc
 
     def _raise(args, repo=None):
@@ -98,7 +100,6 @@ def test_git_binary_unavailable_does_not_raise(tmp_path, monkeypatch):
     import lifecycle as _lc
     _lc.set_state(ticket, "integrate", "ack-needed", event="manual-completion", note="test")
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["ground_truth_source"] == "none"
-    meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["metrics"]["retrieval"]["ground_truth_source"] == "none"
+    assert _retrieval_rec(tdir.parents[2], tdir.name)["ground_truth_source"] == "none"

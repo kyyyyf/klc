@@ -54,7 +54,7 @@ def test_take_code_review_then_external_review_plans_and_records_both_passes_in_
     M ticket with no `review-plan.json`. `take --kind code-review` then
     `take --kind external-review` each run the real planner and the real
     `review.py`. Afterwards the plan exists, both passes are `executed`,
-    and `meta.json` carries exactly two reviewer-tagged attempts."""
+    and `meta.json` carries no reviewer-tagged attempt (no usage was reported)."""
     _bare_and_clone(tmp_path)
     clone = tmp_path / "clone"
     _branch_with_commits(clone, TICKET, [
@@ -65,8 +65,8 @@ def test_take_code_review_then_external_review_plans_and_records_both_passes_in_
     tdir.mkdir(parents=True, exist_ok=True)
     meta = {
         "ticket": TICKET, "kind": "bug", "kind_source": "user",
-        "phase": "build:work", "phase_history": [], "track": "M",
-        "route_hint": "M", "route_confidence": "high",
+        "phase": "build:work", "phase_history": [], "track": "L",
+        "route_hint": "L", "route_confidence": "high",
         "affected_modules": ["widgets"], "risk_tags": [],
         "estimate": {"complexity": 1, "uncertainty": 1, "risk": 1, "manual": 1, "total": 4},
         "layer": "code", "budgets": {},
@@ -88,7 +88,7 @@ def test_take_code_review_then_external_review_plans_and_records_both_passes_in_
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     _stub_claude_on_path(tmp_path, monkeypatch)
 
-    assert not (tdir / "review-plan.json").exists()
+    assert not (tdir / "review" / "review-plan-r1.json").exists()
 
     vfile1 = tmp_path / "code-review-verdict.json"
     vfile1.write_text(json.dumps(_verdict()), encoding="utf-8")
@@ -100,8 +100,10 @@ def test_take_code_review_then_external_review_plans_and_records_both_passes_in_
     rc2 = handback.take("external-review", TICKET, vfile2)
     assert rc2 == 0
 
-    plan = json.loads((tdir / "review-plan.json").read_text(encoding="utf-8"))
+    plan = json.loads((tdir / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     by_reviewer = {p["reviewer"]: p for p in plan["passes"]}
     assert by_reviewer["code-review"]["status"] == "executed"
     assert by_reviewer["external"]["status"] == "executed"
-    assert len(_tagged_attempts(tdir)) == 2
+    # KLC-174: no usage block in a hand-written verdict -> no attempt is
+    # recorded (there is no `estimated` fallback); the plan still counts both.
+    assert _tagged_attempts(tdir) == []

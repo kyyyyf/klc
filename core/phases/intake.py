@@ -156,6 +156,19 @@ def _description_from_raw(text: str) -> str:
     return text.strip()
 
 
+def _record_index_commit(ticket: str) -> None:
+    """KLC-176: stamp `meta.index_commit` (project git HEAD at intake). Best-effort."""
+    import subprocess
+    r = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                       cwd=str(project_root()))
+    sha = r.stdout.strip() if r.returncode == 0 else ""
+    if not sha:
+        return
+    meta = _lc.read_meta(ticket)
+    meta["index_commit"] = sha
+    _lc.write_meta(ticket, meta)
+
+
 def _planning_retrieve(ticket: str) -> None:
     """KLC-073 — build the per-ticket `retrieval_trace.json` deterministically.
 
@@ -168,7 +181,9 @@ def _planning_retrieve(ticket: str) -> None:
 
     Authority (CRITICAL): the retriever writes ONLY `retrieval_trace.json` and
     proposes `affected_modules_hint`. It NEVER touches `meta.affected_modules` —
-    that stays discovery/operator-owned. This helper opens neither meta.json.
+    that stays discovery/operator-owned. This helper writes only
+    `meta.index_commit` (KLC-176 provenance: the project commit the index was
+    built against, so a trace regenerated later can be labelled), nothing else.
 
     Degrade-not-fail: when the planning views are absent (early bootstrap) the
     retriever writes `status:"unavailable"` and exits 0. This helper additionally
@@ -190,6 +205,7 @@ def _planning_retrieve(ticket: str) -> None:
         spec.loader.exec_module(mod)
         # deterministic mode = the intake hot path (no model, byte-reproducible).
         mod.main(["--ticket", ticket, "--query", query, "--mode", "deterministic"])
+        _record_index_commit(ticket)
     except (Exception, SystemExit) as exc:  # advisory — never break intake
         sys.stderr.write(f"[planning] retrieval skipped (non-fatal): {exc}\n")
 
@@ -323,23 +339,19 @@ def run(argv: list[str]) -> int:
     meta = {
         "ticket":        args.ticket,
         "kind":          args.kind or "unknown",
-        "kind_source":   "user" if args.kind else "heuristic",
         "phase":         "intake:ack-needed",
         "phase_history": [{"phase": "intake:ack-needed", "started_at": _now()}],
         "track":         route_hint,
         "estimate":      None,
         "layer":         None,
         "affected_modules": [],
+        "layout":        2,      # KLC-176: marks the compact ticket layout (no legacy fallbacks)
         "created":       _now(),
         "owner":         identity.current(),
         "jira_url":      jira_url,
-        "links":         [],
         "rework_count":  {},
         "route_hint":       route_hint,
-        "route_signals":    route["signals"],
         "route_confidence": route["confidence"],
-        "route_decision":   route["decision"],
-        "mentions":         route["mentions"],
         "clarify_required": route["confidence"] == "low",
         "metrics":       {"intake_ms": int((_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds() * 1000)},
     }

@@ -36,6 +36,8 @@ def build_artifact_links(ticket: str, cfg: "JiraConfig") -> str:  # type: ignore
     ticket_dir_resolved = ticket_dir.resolve()
     for name, rel_path in (cfg.artifact_paths or {}).items():
         full_path = ticket_dir / rel_path
+        if rel_path == "design.md" and not full_path.exists():
+            full_path = ticket_dir / "design" / "options.md"   # archived ticket
         # Reject absolute paths and traversals outside ticket directory.
         try:
             resolved = full_path.resolve()

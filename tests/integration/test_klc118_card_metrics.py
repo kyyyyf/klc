@@ -43,7 +43,7 @@ def _seed(tmp_path: Path, ticket: str, *, phase: str, track: str = "M",
 
 # --- AC-5: no-downgrade + carry-forward -------------------------------------- #
 
-def test_card_render_records_estimated_tokens_without_downgrading_a_provider_entry(
+def test_card_render_records_no_attempt_and_leaves_a_provider_entry_untouched(
         tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     import artefacts
@@ -70,22 +70,18 @@ def test_card_render_records_estimated_tokens_without_downgrading_a_provider_ent
         after = json.loads(mp.read_text())["metrics"]["tokens"]
         assert after["review"] == before, \
             "a provider-sourced record for a different phase must be untouched"
-        design_attempts = budget_guard.normalize_attempts(after["design"])["attempts"]
-        assert design_attempts[-1]["source"] == "estimated"
-        assert design_attempts[-1]["card_bytes"] == render.card_bytes
-        assert render.est_tokens > 0
+        assert "design" not in after, "KLC-174: a render records no attempt"
+        assert render.card_bytes > 0
 
         # (2) rendering the SAME phase (review) must not rewrite the existing
-        # provider attempt — KLC-119 AC-3: appending cannot overwrite. The
-        # pre-KLC-119 bare record is preserved verbatim under "legacy" and a
-        # new `estimated` attempt is appended alongside it.
+        # provider attempt, and (KLC-174) appends nothing next to it.
         artefacts.render_card("KLC-MET1", "review", meta)
     after2 = json.loads(mp.read_text())["metrics"]["tokens"]["review"]
-    assert after2["legacy"] == before, \
-        "re-rendering review must preserve its provider-sourced record verbatim"
+    assert after2 == before, \
+        "re-rendering review must leave its provider-sourced record verbatim"
     normalized = budget_guard.normalize_attempts(after2)
     sources = [a["source"] for a in normalized["attempts"]]
-    assert sources == ["provider", "estimated"], sources
+    assert sources == ["provider"], sources
     provider_attempt = normalized["attempts"][0]
     assert provider_attempt["in"] == 500 and provider_attempt["out"] == 100 \
         and provider_attempt["cache_hit"] == 50
@@ -131,7 +127,7 @@ def test_write_token_metrics_never_downgrades_provider_and_carries_card_bytes(
 
 # --- AC-6: klc next prints both numbers -------------------------------------- #
 
-def test_klc_next_prints_card_bytes_and_estimated_tokens_human_and_json(
+def test_klc_next_prints_card_bytes_human_and_json(
         tmp_path):
     env = {**os.environ, "PROJECT_ROOT": str(tmp_path)}
     env.pop("KLC_CARD_ROOT", None)
@@ -142,7 +138,6 @@ def test_klc_next_prints_card_bytes_and_estimated_tokens_human_and_json(
     assert r.returncode == 0, r.stdout + r.stderr
     out = r.stdout + r.stderr
     assert "bytes" in out
-    assert "est" in out.lower() or "token" in out.lower()
 
     import re
     m = re.search(r"cat (\S+)", out)
@@ -156,16 +151,11 @@ def test_klc_next_prints_card_bytes_and_estimated_tokens_human_and_json(
         capture_output=True, text=True, env=env)
     assert r2.returncode == 0, r2.stdout + r2.stderr
     info = json.loads(r2.stdout)
-    assert "card" in info and "card_bytes" in info and "card_est_tokens" in info
+    assert "card" in info and "card_bytes" in info and "card_est_tokens" not in info
     card2 = Path(info["card"])
     assert card2.exists(), \
         "klc next --json must actually render the card, not skip it"
     assert info["card_bytes"] == card2.stat().st_size
-
-    sys.path.insert(0, str(SKILLS_DIR))
-    import budget_guard
-    assert info["card_est_tokens"] == budget_guard.estimate_tokens(
-        card2.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

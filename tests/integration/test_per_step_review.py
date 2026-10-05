@@ -11,6 +11,9 @@ import pytest
 _FW_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_FW_ROOT))
 sys.path.insert(0, str(_FW_ROOT / "core" / "skills"))
+sys.path.insert(0, str(_FW_ROOT / "tests"))
+
+import klc114_helpers as h  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -91,19 +94,12 @@ def ticket_dir(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _pin_green_verdict(monkeypatch):
-    """KLC-114 D-202/F-2: this suite exercises the per-step REVIEWER hook,
-    not the ledger verdict. Its fake dispatches write a report and never
-    commit, so the real judge would return `unverified: no-commits` for
-    every step and turn these passing tests red. Pin a green verdict here;
-    the verdict logic itself has its own tests (KLC-114)."""
-    import build_orchestrator as _bo
-    import step_ledger as _sl
-    monkeypatch.setattr(_bo, "_judge_step",
-                        lambda ticket, step, repo=None, **kw:
-                            _sl.StepVerdict(f"step-{step}", _sl.GREEN))
-    monkeypatch.setattr(_sl, "verify_build_steps",
-                        lambda *a, **kw: _sl.LedgerReport(a[0] if a else "", []))
+def _pin_step_state(monkeypatch):
+    """KLC-174: this suite exercises the per-step REVIEWER hook, not git-derived
+    step state. Its fake dispatches write a report and never commit, so the real
+    `step_state` would call every step pending. `FakeStepState` marks a step green
+    once `record_verify` runs; the derivation itself is tested in test_klc174_*."""
+    return h.pin_step_state(monkeypatch, [1, 2])
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +168,7 @@ def test_severity_routing_unknown_is_blocking():
 
 def test_compose_review_input_contains_brief_and_report(ticket_dir, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    build = ticket_dir / ".klc" / "tickets" / "KLC-T3" / "build"
+    build = ticket_dir / ".klc" / "scratch" / "KLC-T3" / "build"
     build.mkdir(parents=True, exist_ok=True)
     (build / "step-1-brief.md").write_text("## Brief\nsome brief content\n")
     (build / "step-1-impl-report.md").write_text("## Outcome\ngreen\n")
@@ -205,8 +201,8 @@ def test_post_green_hook_blocks_until_resolved(ticket_dir, monkeypatch):
     review_calls = []
     review_results = [[_make_finding("CRITICAL")], []]  # first blocked, second clear
 
-    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
-        build_calls.append(str(prompt_path))
+    def stub_dispatch(phase_id, prompt_path, out_path, *, inputs=None, track=None):
+        build_calls.append(str((inputs or {}).get("brief", prompt_path)))
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
         return 0
@@ -246,7 +242,7 @@ def test_injected_reason_lint_rejects_prejudgment():
 def test_review_report_rendered(ticket_dir, monkeypatch):
     """A routed result renders a non-empty step-N-review.md with Findings + Verdict."""
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    build = ticket_dir / ".klc" / "tickets" / "KLC-T3" / "build"
+    build = ticket_dir / ".klc" / "scratch" / "KLC-T3" / "build"
     build.mkdir(parents=True, exist_ok=True)
 
     from per_step_review import route_findings, _write_review
@@ -265,7 +261,7 @@ def test_review_report_rendered(ticket_dir, monkeypatch):
 
 def test_compose_review_input_includes_step_diff(ticket_dir, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    build = ticket_dir / ".klc" / "tickets" / "KLC-T3" / "build"
+    build = ticket_dir / ".klc" / "scratch" / "KLC-T3" / "build"
     build.mkdir(parents=True, exist_ok=True)
     (build / "step-1-brief.md").write_text("brief\n")
     (build / "step-1-impl-report.md").write_text("report\n")
@@ -283,7 +279,7 @@ def test_per_step_gate_persists_logged_findings(ticket_dir, monkeypatch):
     (ticket_dir / ".klc" / "tickets" / "KLC-T3" / "meta.json").write_text(
         _json.dumps(_META_M))
 
-    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
+    def stub_dispatch(phase_id, prompt_path, out_path, *, inputs=None, track=None):
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
         return 0
@@ -298,7 +294,7 @@ def test_per_step_gate_persists_logged_findings(ticket_dir, monkeypatch):
     result = _per_step_gate("KLC-T3", 1, _META_M, stub_dispatch)
     assert result is True  # MEDIUM doesn't block
 
-    build = ticket_dir / ".klc" / "tickets" / "KLC-T3" / "build"
+    build = ticket_dir / ".klc" / "scratch" / "KLC-T3" / "build"
     review_path = build / "step-1-review.md"
     assert review_path.exists()
     assert "MEDIUM" in review_path.read_text()
@@ -322,7 +318,7 @@ def test_lint_reasons_wired_via_per_step_gate(ticket_dir, monkeypatch):
 
 def test_planted_defect_caught_before_advance(ticket_dir, monkeypatch):
     """Reviewer always returns CRITICAL; after PER_STEP_REREVIEW_CAP re-reviews
-    step-1 is marked blocked and step-2 is never dispatched."""
+    the build stops (non-zero) and step-2 is never dispatched."""
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
     import json as _json
     (ticket_dir / ".klc" / "tickets" / "KLC-T3" / "meta.json").write_text(
@@ -330,8 +326,8 @@ def test_planted_defect_caught_before_advance(ticket_dir, monkeypatch):
 
     build_calls = []
 
-    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
-        build_calls.append(str(prompt_path))
+    def stub_dispatch(phase_id, prompt_path, out_path, *, inputs=None, track=None):
+        build_calls.append(str((inputs or {}).get("brief", prompt_path)))
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
         return 0
@@ -348,7 +344,3 @@ def test_planted_defect_caught_before_advance(ticket_dir, monkeypatch):
 
     # step-2 was never dispatched as an impl step
     assert not any("step-2-brief" in c for c in build_calls)
-
-    from build_ledger import Ledger
-    led = Ledger.load("KLC-T3")
-    assert led.steps[0].state == "blocked"

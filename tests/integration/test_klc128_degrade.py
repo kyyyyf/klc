@@ -16,6 +16,8 @@ from _klc128_fixtures import (  # noqa: E402
     _merge,
     _merged_no_recording,
     _read_meta,
+    _retrieval_rec,
+    _last_drift_report,
     _run_ack,
     _seed_ticket,
     _set_phase,
@@ -45,11 +47,10 @@ def test_legacy_ticket_with_no_recorded_range_degrades_with_a_named_reason(tmp_p
 
     assert _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1) == 0
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert "no recorded pre-merge range" in (report["scope_drift"]["skipped"] or "")
 
-    meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    rec = meta["metrics"]["retrieval"]
+    rec = _retrieval_rec(tdir.parents[2], tdir.name)
     assert rec["status"] == "unavailable"
     assert "no recorded pre-merge range" in rec["reason"]
 
@@ -95,7 +96,7 @@ def test_range_pointing_at_objects_absent_from_this_clone_degrades_with_a_named_
 
     assert _run_ack(clone_b, ticket, "integrate", monkeypatch=monkeypatch, pick=1) == 0
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     reason = report["scope_drift"]["skipped"] or ""
     # KLC-128 step-7 (review MEDIUM, D-128-3): the new ancestry pre-check
     # (`git merge-base <base> <head>`) fails identically for "objects absent
@@ -132,7 +133,6 @@ def test_squash_with_keyless_subject_never_falls_back_to_key_grep(tmp_path, monk
     assert not any(call and call[0] == "log" for call in log), log
     assert not any("--grep" in call for call in log), log
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["ground_truth_source"] == "none"
-    meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["metrics"]["retrieval"]["status"] == "unavailable"
+    assert _retrieval_rec(tdir.parents[2], tdir.name)["status"] == "unavailable"

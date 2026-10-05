@@ -57,7 +57,7 @@ def _seed_with_live_range(tmp_path: Path, ticket: str, *, with_spec: bool = True
 
 
 def _plan_path(clone: Path, ticket: str) -> Path:
-    return clone / ".klc" / "tickets" / ticket / "review-plan.json"
+    return clone / ".klc" / "tickets" / ticket / "review" / "review-plan-r1.json"
 
 
 def test_success_requires_review_py_exit_0_or_2_and_a_plan_with_the_matching_diff_sha256(
@@ -108,7 +108,7 @@ def test_failure_reason_carries_review_pys_last_stderr_line_on_an_unresolvable_d
     tmp_path, monkeypatch
 ):
     """AC-4: a passthrough swaps the `--diff` value to the literal
-    `main...HEAD` (the historical bug) right before the real `review.py`
+    `no-such-ref...HEAD` (`main...HEAD` is a valid range since KLC-175) right before the real `review.py`
     call. The reported reason is exactly `review.py`'s last non-empty
     stderr line, not a generic wrapper message."""
     ticket = "KLC-977"
@@ -122,14 +122,14 @@ def test_failure_reason_carries_review_pys_last_stderr_line_on_an_unresolvable_d
     def _swap_diff_to_a_range(argv, *a, **kw):
         if isinstance(argv, list) and argv and argv[0] == sys.executable:
             argv = list(argv)
-            argv[argv.index("--diff") + 1] = "main...HEAD"
+            argv[argv.index("--diff") + 1] = "no-such-ref...HEAD"
         return real_run(argv, *a, **kw)
 
     monkeypatch.setattr(subprocess, "run", _swap_diff_to_a_range)
     result = handback._run_planner(ticket)
     assert not result
-    assert result.reason.startswith(
-        "[review][err] --diff is neither a file nor a resolvable git ref")
+    assert result.reason == (
+        "[review][err] --diff no-such-ref...HEAD: end 'no-such-ref' does not resolve")
 
 
 def test_take_prints_exactly_one_reason_note_and_exits_0_on_a_reported_planner_failure(
@@ -163,8 +163,8 @@ def test_take_prints_exactly_one_reason_note_and_exits_0_on_a_reported_planner_f
         "handback: note: planner did not write a review plan (")
     assert note_lines[0].endswith("); pass not recorded")
     assert "run the planner (--plan-only)" not in out
-    assert (clone / ".klc" / "tickets" / ticket_a
-           / "review" / "code-review-findings.json").is_file()
+    assert f"verdict for {ticket_a} accepted" in out     # still taken (KLC-173: an empty verdict stores no file)
+    assert not (clone / ".klc" / "tickets" / ticket_a / "findings.json").exists()
 
 
 @pytest.mark.parametrize("exc_factory", [

@@ -320,7 +320,8 @@ def test_consume_reuses_seam_and_records_findings(tmp_path):
     )
     advisories, findings = tr.consume(tmp_path, "M", {"risk_tags": []}, persist=True)
     assert len(findings) == 1 and findings[0]["rule_name"] == "missing-edge-case"
-    assert (tmp_path / "test-plan-review-findings.json").exists()  # persisted
+    assert (tmp_path / "findings.json").exists()  # persisted
+    assert not (tmp_path / "test-plan-review-findings.json").exists()
     assert any(a.startswith("test-plan-review[decision") for a in advisories)
     assert any("finding(s) recorded" in a for a in advisories)
 
@@ -335,6 +336,7 @@ def test_consume_probe_does_not_write(tmp_path):
     )
     advisories, findings = tr.consume(tmp_path, "M", {"risk_tags": []}, persist=False)
     assert findings and not (tmp_path / "test-plan-review-findings.json").exists()
+    assert not (tmp_path / "findings.json").exists()       # KLC-173: a probe stores nothing
     assert advisories  # still surfaced
 
 

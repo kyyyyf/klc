@@ -45,6 +45,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import findings  # noqa: E402
+import findings_store  # noqa: E402
 import review_plan  # noqa: E402
 import spec_review  # noqa: E402
 from _paths import framework_root, klc_ticket_dir, project_root  # noqa: E402
@@ -84,10 +85,8 @@ def _kinds() -> dict:
         "test-plan": ind(testplan_review.TEST_PLAN_REVIEW, "test-plan.md"),
         "impl-plan": ind(implplan_review.IMPL_PLAN_REVIEW, "impl-plan.md"),
         "drift": ind(drift_review.DRIFT_CHECK, "spec.md", "drift", counts=True),
-        "code-review": KindSpec("code-review", None, (), "", "review/code-review-findings.json",
-                                "code-review", True),
-        "external-review": KindSpec("external-review", None, (), "",
-                                    "review/external-review-findings.json", "external", True),
+        "code-review": KindSpec("code-review", None, (), "", None, "code-review", True),
+        "external-review": KindSpec("external-review", None, (), "", None, "external", True),
     }
 
 
@@ -110,6 +109,10 @@ def validate_findings(kind, items) -> list[str]:
     partial): `reviewer` may be any slug, and `LEGACY_RULE_NAME` is accepted
     (it is written only by the KLC-154 migration, D-118).
     """
+    if kind in findings_store.STORE_ONLY_KINDS:       # KLC-175: layer0, free kebab-case rules
+        if not isinstance(items, list):
+            return ["findings must be a list"]
+        return findings.check_findings(items, rule_names=None, kind=kind)
     spec = KINDS.get(kind)
     if spec is None:
         return [f"unknown kind {kind!r} (one of {', '.join(KINDS)})"]
@@ -277,18 +280,52 @@ def take(kind: str, ticket: str, file: Path) -> int:
         return _refuse(errors, ticket=ticket, kind=kind, text=text,   # keeps the raw answer
                        skip_save=already_rejected)                    # unless it is one already
     spec = KINDS[kind]
-    if spec.stored:
-        records = [findings.Finding.from_dict({**f, "reviewer": kind, "kind": kind}).to_dict()
+    plan_failure = None
+    if spec.plan_reviewer:                           # F-004: plan FIRST, so the round below is the plan's
+        plan_failure = _ensure_plan(ticket)
+    if kind in ("code-review", "external-review"):
+        rnd = _round_for(ticket, kind)               # plan round, else max(plan, latest) + 1
+        records = [findings.Finding.from_dict({**f, "reviewer": kind, "kind": kind, "round": rnd})
                    for f in doc.get("findings") or []]
         try:
-            _atomic_write_json(tdir / spec.stored, records)
+            findings_store.write_kind(tdir, kind, rnd, records,
+                                      replaces=lambda f: f.reviewer == kind)
         except OSError as exc:
-            return _refuse([f"could not store {spec.stored}: {exc}"])
+            return _refuse([f"could not store findings.json: {exc}"])
     if spec.plan_reviewer:
-        _record(ticket, spec.plan_reviewer, Path(file))   # every refusal is one note
+        _count_pass(ticket, spec.plan_reviewer, Path(file), plan_failure)   # every refusal is one note
     print(f"handback: {kind} verdict for {ticket} accepted "
           f"({len(doc.get('findings') or [])} finding(s))")
     return 0
+
+
+def _current_diff_sha(ticket) -> Optional[str]:
+    """sha256 of the ticket's current diff — the digest a review plan records as
+    `diff_sha256`. One helper (`review_plan.diff_sha_for_ticket`) for the planner
+    and for this comparison (F-006). None when it cannot be had. Never raises."""
+    return review_plan.diff_sha_for_ticket(ticket)
+
+
+def _round_for(ticket, kind) -> int:
+    """KLC-173: the findings round of a code-review/external-review/headless
+    store. Called AFTER the plan step, so when the ticket's latest review plan
+    was made for the diff in front of us that plan's round is the answer for
+    every kind taken for that diff (a plan without a `round` is round 1).
+    Otherwise (a stale plan the planner could not replace, an unknown diff, no
+    plan at all) `max(latest plan round, latest round of *kind*) + 1`, so a
+    different diff, or no plan, can never overwrite earlier findings."""
+    tdir = klc_ticket_dir(ticket)
+    plan_path = review_plan.latest_plan_path(ticket)
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path else None
+    except (OSError, ValueError):
+        plan = None
+    plan_round = review_plan.round_of(plan_path) if plan_path else 0
+    if isinstance(plan, dict) and plan.get("diff_sha256"):
+        cur = _current_diff_sha(ticket)
+        if cur and cur == plan["diff_sha256"]:
+            return plan_round                            # the one source of the round
+    return max(plan_round, findings_store.latest_round(tdir, kind)) + 1
 
 
 @dataclass(frozen=True)
@@ -320,7 +357,7 @@ def _last_stderr_line(stderr) -> str:
 def _reject_plan(ticket: str, plan_file: Path) -> None:
     """KLC-166 step-5 (review round 1, F-2): move a plan `_plan_outcome`
     rejects aside to `review/review-plan.rejected-<UTC ts>.json`, inside
-    the SAME ticket directory, so the next `take` sees `review-plan.json`
+    the SAME ticket directory, so the next `take` sees that round's plan
     as missing again and re-plans from scratch instead of being stuck
     behind a plan for the wrong diff forever. Only ever called for a plan
     written in THIS call (never one that pre-dates it, A-002). Degrade-
@@ -336,7 +373,8 @@ def _reject_plan(ticket: str, plan_file: Path) -> None:
         pass
 
 
-def _plan_outcome(ticket, completed, diff_file: Path, *, pre_existing: bool) -> PlannerResult:
+def _plan_outcome(ticket, completed, diff_file: Path, *, pre_existing: bool,
+                  before: Optional[Path] = None) -> PlannerResult:
     """KLC-166 step-3 (D-005, AC-4): `review.py` exit 2 means BOTH "refused
     before planning" and "over the cap, plan already written" — only the
     plan itself (its existence, and its `diff_sha256` matching the file
@@ -356,32 +394,71 @@ def _plan_outcome(ticket, completed, diff_file: Path, *, pre_existing: bool) -> 
     (`record_pass` keeps raising `RecordRefused` forever, same bug F-2
     fixed for the sha-mismatch and bad-exit-code branches). It now moves
     aside too, under the same *pre_existing* guard (A-002: never a plan
-    pre-dating this call)."""
+    pre-dating this call).
+
+    KLC-173 AC-7: the plan examined is the LATEST round's file. *before* is the
+    latest plan path before the planner ran; a different path now means this
+    call wrote a new round, which is rejectable even though an older round was
+    already on disk."""
     want = hashlib.sha256(diff_file.read_bytes()).hexdigest()
-    plan_file = klc_ticket_dir(ticket) / "review-plan.json"
-    if completed.returncode in (0, 2) and plan_file.is_file():
+    plan_file = review_plan.latest_plan_path(ticket)
+    if plan_file is not None and before is not None and plan_file != before:
+        pre_existing = False                                 # a round written in THIS call
+    if completed.returncode in (0, 2) and plan_file is not None and plan_file.is_file():
         try:
             plan = json.loads(plan_file.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             if not pre_existing:
                 _reject_plan(ticket, plan_file)
-            return PlannerResult(False, f"review-plan.json for {ticket} is unreadable: {exc}")
+            return PlannerResult(False, f"{plan_file.name} for {ticket} is unreadable: {exc}")
         got = plan.get("diff_sha256") if isinstance(plan, dict) else None
         if got == want:
             return PlannerResult(True)
-        reason = (f"review-plan.json for {ticket} has diff_sha256 "
+        reason = (f"{plan_file.name} for {ticket} has diff_sha256 "
                  f"{str(got)[:12]}, not the planned diff's {want[:12]}")
         if not pre_existing:
             _reject_plan(ticket, plan_file)
         return PlannerResult(False, reason)
-    if completed.returncode not in (0, 2) and plan_file.is_file() and not pre_existing:
+    if (completed.returncode not in (0, 2) and plan_file is not None
+            and plan_file.is_file() and not pre_existing):
         _reject_plan(ticket, plan_file)
     return PlannerResult(False, _last_stderr_line(completed.stderr)
                          or f"review.py exited {completed.returncode} and wrote no "
-                            f"review-plan.json for {ticket}")
+                            f"review plan for {ticket}")
 
 
-def _record(ticket, reviewer, output) -> None:
+def _plan_is_stale(ticket, plan_path: Path) -> bool:
+    """KLC-173 AC-7: True when the current diff's sha256 is known and differs
+    from the plan's `diff_sha256` — the diff changed, so this take needs a new
+    round's plan. An unknown current sha, or an unreadable plan, is not stale
+    here (the old rule: a plan on disk is used as it is)."""
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    want = plan.get("diff_sha256") if isinstance(plan, dict) else None
+    cur = _current_diff_sha(ticket)
+    return bool(want and cur and cur != want)
+
+
+def _ensure_plan(ticket) -> Optional[str]:
+    """The planning half of the old `_record` (KLC-173 F-004: it runs BEFORE the
+    round is chosen). Runs the planner when there is no plan or the latest plan
+    is stale. Returns None when a usable plan is on disk, else the failure
+    reason; `_count_pass` prints it as the one note."""
+    latest = review_plan.latest_plan_path(ticket)
+    if latest is None or _plan_is_stale(ticket, latest):
+        try:
+            result = _run_planner(ticket)
+        except Exception as exc:  # noqa: BLE001 — C-003: any planner failure is one note
+            result = PlannerResult(False, str(exc) or type(exc).__name__)
+        if not result:
+            return (getattr(result, "reason", "")
+                    or "planner reported failure without a reason")
+    return None
+
+
+def _count_pass(ticket, reviewer, output, plan_failure=None) -> None:
     """KLC-166 step-3 (AC-5): exactly one note on every planner failure —
     a reported one (AC-3/AC-4), or a raised `subprocess.TimeoutExpired`/
     `OSError` (the exception text is the reason) — and NEVER the
@@ -395,17 +472,10 @@ def _record(ticket, reviewer, output) -> None:
     phase_completion`, or any other exception `ticket_diff_range` might
     raise, must degrade to the same one note (C-003), never escape `take`
     after the verdict is already stored."""
-    if not (klc_ticket_dir(ticket) / "review-plan.json").is_file():
-        try:
-            result = _run_planner(ticket)
-        except Exception as exc:  # noqa: BLE001 — C-003: any planner failure is one note
-            result = PlannerResult(False, str(exc) or type(exc).__name__)
-        if not result:
-            reason = (getattr(result, "reason", "")
-                      or "planner reported failure without a reason")
-            print(f"handback: note: planner did not write a review plan ({reason}); "
-                  "pass not recorded")
-            return
+    if plan_failure is not None:
+        print(f"handback: note: planner did not write a review plan ({plan_failure}); "
+              "pass not recorded")
+        return
     try:
         review_plan.record_pass(ticket, reviewer, output=output)
     except review_plan.RecordRefused as exc:
@@ -427,7 +497,7 @@ def _run_planner(ticket) -> PlannerResult:
     (KLC-166 step-3, D-005) — the exit code alone never decides it.
 
     KLC-166 step-5 (review round 1, F-2): *pre_existing* records whether
-    `review-plan.json` was already on disk BEFORE the `review.py` call, so
+    a review plan was already on disk BEFORE the `review.py` call, so
     `_plan_outcome` moves aside only a plan written in THIS call, never one
     that pre-dates it (A-002)."""
     import phase_completion          # D-001: lazy import only
@@ -435,8 +505,8 @@ def _run_planner(ticket) -> PlannerResult:
     rng, why = phase_completion.ticket_diff_range(ticket)
     if rng is None:
         return PlannerResult(False, why)                     # AC-3: no review.py run
-    plan_file = klc_ticket_dir(ticket) / "review-plan.json"
-    pre_existing = plan_file.is_file()
+    before = review_plan.latest_plan_path(ticket)
+    pre_existing = before is not None
     fd, name = tempfile.mkstemp(prefix="klc-plan-", suffix=".diff")
     os.close(fd)
     diff_file = Path(name)
@@ -460,7 +530,8 @@ def _run_planner(ticket) -> PlannerResult:
                            cwd=str(project_root()), capture_output=True, text=True,
                            errors="replace",  # KLC-166 step-5 F-1: never raise UnicodeDecodeError
                            timeout=left)
-        return _plan_outcome(ticket, r, diff_file, pre_existing=pre_existing)  # AC-4 (D-005, D-007)
+        return _plan_outcome(ticket, r, diff_file, pre_existing=pre_existing,
+                             before=before)  # AC-4 (D-005, D-007)
     finally:
         with contextlib.suppress(FileNotFoundError):
             diff_file.unlink()                               # AC-6, every return path
@@ -501,25 +572,112 @@ def _read_stored_findings(path: Path, kind: str, notes: list) -> list:
     return out
 
 
-def load_ticket_findings(ticket_dir) -> tuple:
+_STORE_KIND_TO_KEY = findings_store.KEY_BY_STORE_KIND     # the one mapping lives in the store
+
+
+_PLAN_DRIVEN_KINDS = ("code-review", "external-review")
+
+
+def _plan_round(ticket_dir: Path):
+    """The current review-plan round of the live ticket in *ticket_dir*, or None
+    when there is no plan (or the directory is not the live ticket directory,
+    e.g. an archived ticket)."""
+    try:
+        from _paths import klc_ticket_dir
+        if Path(klc_ticket_dir(ticket_dir.name)).resolve() != Path(ticket_dir).resolve():
+            return None
+        plan = review_plan.latest_plan_path(ticket_dir.name)
+    except Exception:
+        return None
+    return review_plan.round_of(plan) if plan is not None else None
+
+
+def _latest_rounds(rows: list, ticket_dir=None) -> list:
+    """Rows of each kind's LATEST round only. For the plan-driven kinds
+    (code-review, external-review) the cutoff is the current review-plan round,
+    so a clean newer round (no rows) hides the older rounds' fixed findings
+    (R2-001); with no plan, or for the other kinds, it is the highest round
+    present in the store."""
+    top: dict = {}
+    for d in rows:
+        k = str(d.get("kind") or "")
+        top[k] = max(top.get(k, 0), findings_store._round_of(d))
+    plan_round = _plan_round(Path(ticket_dir)) if ticket_dir is not None else None
+    if plan_round is not None:
+        for k in _PLAN_DRIVEN_KINDS:
+            if k in top:
+                top[k] = max(top[k], plan_round)
+    return [d for d in rows
+            if findings_store._round_of(d) == top[str(d.get("kind") or "")]]
+
+
+def _load_store_findings(ticket_dir: Path, all_rounds: bool = False) -> tuple:
+    """KLC-173: the findings of a ticket that has one `findings.json`. By default
+    only each kind's latest round is read (an older round's fixed findings must
+    not re-enter the pool, F-005). Records are validated per (kind, round,
+    reviewer) group: ids repeat across kinds and rounds, and every reviewer
+    numbers its own hand-back from F-001 (F-002). A bad group is skipped with one
+    note. Ids that still collide across reviewers of one (kind, round) are
+    re-keyed `<id>@<reviewer>` instead of dropping anything. Finding.kind is
+    restated as the KINDS key (`spec`, `drift`, ...) so the pool's REVIEW_KINDS
+    test is unchanged."""
+    rows, notes = findings_store.read_dicts(ticket_dir)
+    if not all_rounds:
+        rows = _latest_rounds(rows, ticket_dir)
+    groups: dict = {}
+    for d in rows:
+        skind = str(d.get("kind") or "")
+        key = _STORE_KIND_TO_KEY.get(skind)
+        reviewer = str(d.get("reviewer") or key or skind)
+        groups.setdefault((skind, findings_store._round_of(d), reviewer), []).append(
+            {**d, "kind": key} if key else d)
+    items: list = []
+    owner: dict = {}                      # (kind, round, id) -> reviewer that holds it
+    for (skind, rnd, reviewer), raw in groups.items():
+        key = _STORE_KIND_TO_KEY.get(skind)
+        if key is None:
+            notes.append(f"findings.json: unknown kind {skind!r} skipped")
+            continue
+        errors = validate_findings(key, raw)
+        if errors:
+            old_shape = any("old independent shape" in e or "old in-client shape" in e
+                            for e in errors)
+            suffix = " (run the KLC-154 migration)" if old_shape else ""
+            notes.append(f"{skind}: old shape or invalid in findings.json round {rnd} "
+                         f"({'; '.join(errors[:3])}){suffix}")
+            continue
+        for d in raw:
+            fid = str(d.get("id"))
+            if owner.setdefault((key, rnd, fid), reviewer) != reviewer:
+                fid = f"{fid}@{reviewer}"
+            items.append(findings.Finding.from_dict(
+                {**d, "id": fid, "kind": key, "reviewer": d.get("reviewer") or key}))
+    return items, notes
+
+
+def load_ticket_findings(ticket_dir, all_rounds: bool = False) -> tuple:
     """Every stored, derived and headless finding of one ticket directory
-    (AC-17): the `code-review`/`external-review` stored files,
-    `review/headless-findings.json` (D-111), and for each of the four
-    independent kinds its derived `<kind>-review-findings.json` when it
-    exists, else its `.md` verdict parsed read-only (never writing the
-    derived JSON as a side effect, D-106). Returns `(items, notes)` —
+    (AC-17): the ticket's one `findings.json`, or, for an archived ticket, the
+    old per-kind files and the old pooled headless file (D-111; paths from
+    `findings_store`), with each independent kind's `.md` verdict parsed
+    read-only when it has no old derived file (never writing the derived JSON
+    as a side effect, D-106). From a one-file ticket only each
+    kind's latest round is returned unless *all_rounds* is True (F-005).
+    Returns `(items, notes)` —
     `notes` names every file skipped and why; nothing here ever raises."""
     ticket_dir = Path(ticket_dir)
+    if findings_store.path(ticket_dir).is_file():
+        return _load_store_findings(ticket_dir, all_rounds)
     items: list = []
     notes: list = []
 
     for kind, spec in KINDS.items():
-        if spec.stored:
-            path = ticket_dir / spec.stored
+        if kind in ("code-review", "external-review"):      # archived ticket: old stored file
+            path = ticket_dir / findings_store.legacy_rel(kind)
             if path.is_file():
                 items.extend(_read_stored_findings(path, kind, notes))
         else:
-            derived = ticket_dir / f"{kind}-review-findings.json"
+            derived = ticket_dir / findings_store.legacy_rel(kind)
             if derived.is_file():
                 items.extend(_read_stored_findings(derived, kind, notes))
             elif spec.binding is not None:
@@ -533,7 +691,7 @@ def load_ticket_findings(ticket_dir) -> tuple:
                         out = spec_review.parse_review(text, spec.binding)
                         items.extend(out.findings)
 
-    headless = ticket_dir / "review" / "headless-findings.json"
+    headless = ticket_dir / findings_store.legacy_headless_rel()
     if headless.is_file():
         items.extend(_read_stored_findings(headless, "code-review", notes))
 
@@ -541,18 +699,20 @@ def load_ticket_findings(ticket_dir) -> tuple:
 
 
 def write_headless_findings(ticket: str, items: list) -> Optional[Path]:
-    """D-111: write the validated, stamped headless findings for *ticket* to
-    `review/headless-findings.json`, so `findings.py pool` counts the
-    headless partials among the review kinds (`load_ticket_findings` reads
-    this file as a `code-review` review kind). Degrade-not-fail: returns
-    `None` on any write error or when *ticket* is not given, never raises."""
+    """D-111 / KLC-173: append the validated, stamped headless partials of
+    *ticket* to `findings.json` as `code-review` records of the current round,
+    so `findings.py pool` counts them among the review kinds. Only earlier
+    headless records of that round are replaced; the `take`n code-review
+    findings stay. Degrade-not-fail: returns `None` on any write error, when
+    *ticket* is not given, or when there is nothing to store; never raises."""
     if not ticket:
         return None
     try:
-        path = klc_ticket_dir(ticket) / "review" / "headless-findings.json"
-        _atomic_write_json(path, [f.to_dict() for f in items])
-        return path
-    except OSError:
+        rnd = _round_for(ticket, "code-review")
+        return findings_store.write_kind(
+            klc_ticket_dir(ticket), "code-review", rnd, list(items),
+            replaces=lambda f: f.reviewer != "code-review")
+    except (OSError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -588,16 +748,9 @@ def main(argv=None) -> int:
     p_take.add_argument("--kind", required=True, choices=sorted(KINDS))
     p_take.add_argument("--ticket", required=True)
     p_take.add_argument("--file", required=True, type=Path)
-    p_mig = sub.add_parser("migrate", help="KLC-154: migrate stored findings to the one shape")
-    p_mig.add_argument("--tickets-root", required=True)
-    p_mig.add_argument("--dry-run", action="store_true")
-    p_mig.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     if args.cmd == "take":
         return take(args.kind, args.ticket, args.file)
-    if args.cmd == "migrate":
-        import findings_migrate  # noqa: E402  (lazy: the only handback -> findings_migrate edge)
-        return findings_migrate.cli(args.tickets_root, dry_run=args.dry_run, as_json=args.json)
     return 2
 
 

@@ -43,6 +43,8 @@ from _paths import klc_tickets_dir  # noqa: E402
 from artefacts import acquire_lock, LockedError  # noqa: E402
 
 _AUDIT_EVENT = "note-migration"
+# Migrated notes belong to archived tickets, which still keep the per-phase
+# `<phase>/ack-advisories.json`; the one-file `advisories.json` exists only on new tickets.
 _POINTER = "see {phase_id}/ack-advisories.json"
 
 

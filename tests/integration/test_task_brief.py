@@ -247,7 +247,7 @@ def test_cli_writes_brief_and_scaffold(ticket_dir, monkeypatch):
     from core.phases import task_brief as tb_phase
     rc = tb_phase.run(["KLC-T1", "3"])
     assert rc == 0
-    build = ticket_dir / ".klc" / "tickets" / "KLC-T1" / "build"
+    build = ticket_dir / ".klc" / "scratch" / "KLC-T1" / "build"
     assert (build / "step-3-brief.md").exists()
     assert (build / "step-3-impl-report.md").exists()
 
@@ -271,7 +271,6 @@ def test_handoff_templates_exist():
     tmpl_dir = _FW_ROOT / "core" / "templates"
     assert (tmpl_dir / "task-brief.md.j2").exists()
     assert (tmpl_dir / "step-impl-report.md.j2").exists()
-    assert (tmpl_dir / "step-review-package.md.j2").exists()
     assert (tmpl_dir / "step-review.md.j2").exists()
 
 
@@ -280,20 +279,9 @@ def test_impl_report_template_sections(ticket_dir, monkeypatch):
     from task_brief import _render_report_skeleton
     rendered = _render_report_skeleton("KLC-T1", 3)
     assert "## Outcome" in rendered
-    assert "## Evidence" in rendered
+    assert "## Evidence" not in rendered
     assert "## Notes" in rendered
 
-
-def test_review_package_template_sections():
-    from jinja2 import Environment, FileSystemLoader
-    tmpl_dir = str(_FW_ROOT / "core" / "templates")
-    env = Environment(loader=FileSystemLoader(tmpl_dir), keep_trailing_newline=True)
-    rendered = env.get_template("step-review-package.md.j2").render(
-        ticket="KLC-T1", step=3, brief="b", report="r", diff="d"
-    )
-    assert "## Brief" in rendered
-    assert "## Report" in rendered
-    assert "## Diff" in rendered
 
 
 def test_review_template_sections():
@@ -324,7 +312,7 @@ def test_scaffold_does_not_overwrite_filled_report(ticket_dir, monkeypatch):
         del _sys.modules[mod_name]
     from core.phases import task_brief as tb_phase
     tb_phase.run(["KLC-T1", "3"])
-    report = ticket_dir / ".klc" / "tickets" / "KLC-T1" / "build" / "step-3-impl-report.md"
+    report = ticket_dir / ".klc" / "scratch" / "KLC-T1" / "build" / "step-3-impl-report.md"
     report.write_text("## Outcome\ngreen\n## Evidence\n```\nok\n```\n")
     tb_phase.run(["KLC-T1", "3"])
     assert "green" in report.read_text()

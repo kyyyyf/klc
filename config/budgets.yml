@@ -1,26 +1,18 @@
-# budgets.yml — per-track prompt input limits and budget counters.
+# budgets.yml — warn-only real-spend check and autorunner cap.
 #
 # Consumed by:
-#   - core/skills/runner.py (prompt size guard before dispatch)
-#   - core/skills/metrics.py (budget counter rollup)
+#   - core/skills/budget_guard.py (real_spend_warning)
+#   - core/skills/autorunner.py (consecutive_auto_transitions cap)
 #
-# Two-tier system:
-#   soft_limits — warning only; run proceeds but stderr shows the overage.
-#                 Helps track context growth before it becomes a problem.
-#   hard_limits — hard block; runner refuses dispatch and writes a
-#                 [!QUESTION] item to out_path instead of calling the model.
+# Why no card-size limits any more (KLC-174): the old soft/hard limits compared
+# an ESTIMATE of the prompt size (bytes / 4) with fixed numbers and could block
+# a dispatch. Real usage is now imported from transcripts / read from the
+# provider envelope, so the check looks at REAL spend and only warns.
 #
-# Estimation (KLC-119 D-006): budget_guard.estimate_tokens is the ONE
-# size-to-token rule in the framework — max(1, len(text.encode("utf-8")) // 4),
-# i.e. UTF-8 BYTES divided by four, not characters. Every caller that
-# converts a prompt/card size to a token count (the card renderer, the
-# step-brief renderer, the headless runner, the budget check) shares this
-# one function; its calibration status against real usage is derived from
-# the corpus, not hardcoded — see budget_guard.calibration_statement() and
-# docs/process.md's "Token telemetry & budget guard" section.
-# Phase-level budget counters (rework loops, retries) live in
-# meta.json:budgets and are defined per-ticket; this file only holds
-# the static per-track input-size limits.
+# real_spend_warn: budget_guard.real_spend_warning(track, ticket) compares the
+# ticket's measured input tokens so far (sources `provider` + `transcript`)
+# with factor x the median per-ticket total of the last `window` archived
+# tickets of the same track. No measured data -> no warning. It never blocks.
 
 version: 1
 
@@ -31,16 +23,8 @@ version: 1
 # top-level key; a KLC_AUTORUN_CAP env var overrides it.
 consecutive_auto_transitions: 20
 
-# Soft limits: warn on stderr, run proceeds.
-soft_limits:
-  XS:    6000    # ~24 KB — heads-up before XS context gets too wide
-  S:    15000    # ~60 KB
-  M:    45000    # ~180 KB
-  L:   150000   # ~600 KB
-
-# Hard limits: refuse dispatch, write [!QUESTION] to output.
-hard_limits:
-  XS:   12000    # ~48 KB — anything bigger almost certainly belongs in S
-  S:    30000    # ~120 KB
-  M:    90000    # ~360 KB
-  L:   300000   # ~1.2 MB
+# Warn when a ticket's measured spend exceeds factor x the median of the last
+# `window` archived tickets on its track.
+real_spend_warn:
+  window: 10
+  factor: 1.5

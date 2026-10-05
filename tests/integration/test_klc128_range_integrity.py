@@ -24,6 +24,7 @@ from _klc128_fixtures import (  # noqa: E402
     _git,
     _merge,
     _rev_parse,
+    _last_drift_report,
     _run_ack,
     _seed_ticket,
     _set_phase,
@@ -71,7 +72,7 @@ def test_recorded_range_base_not_an_ancestor_of_head_degrades_with_a_named_reaso
     assert rc == 0
 
     import json
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["ground_truth_source"] == "none"
     reason = report["scope_drift"]["skipped"] or ""
     assert "recorded pre-merge range base is not an ancestor of head" in reason

@@ -195,6 +195,28 @@ def _add_commit(clone: Path, rel: str, content: str, message: str) -> None:
     _git(clone, "commit", "-m", message)
 
 
+LAST_DRIFT_REPORT: dict = {}
+
+
+def _capture_drift_reports(monkeypatch) -> None:
+    """KLC-173: drift_check.write_report no longer persists drift-report.json, so
+    record the report it RETURNS to the ack flow for the tests that inspect it."""
+    import drift_check as _dc
+    real = _dc.write_report
+    LAST_DRIFT_REPORT.clear()
+
+    def _wrapped(*a, **k):
+        rep = real(*a, **k)
+        LAST_DRIFT_REPORT.clear()
+        LAST_DRIFT_REPORT.update(rep)
+        return rep
+    monkeypatch.setattr(_dc, "write_report", _wrapped)
+
+
+def _last_drift_report() -> dict:
+    return dict(LAST_DRIFT_REPORT)
+
+
 def _run_ack(clone: Path, ticket: str, phase: str, *, monkeypatch, pick=1,
             persist: bool = True):
     """Point ``PROJECT_ROOT`` at *clone* and drive the real ack flow from
@@ -210,6 +232,12 @@ def _run_ack(clone: Path, ticket: str, phase: str, *, monkeypatch, pick=1,
     never touches ``ack.run`` at all, so it can never write anything.
     """
     monkeypatch.setenv("PROJECT_ROOT", str(clone))
+    _capture_drift_reports(monkeypatch)
+    # KLC-174: these fixtures seed no impl-plan.md/steps.json (they test the
+    # integrate evaluators, not the build step gate, which test_klc174_build_ack
+    # covers), so the step-state arm of the build ack is pinned green here.
+    import step_state as _ss
+    monkeypatch.setattr(_ss, "check_build", lambda *a, **k: (True, ""))
     if not persist:
         import phase_completion as _pc
         return _pc.can_complete(ticket, phase, persist=False)
@@ -223,6 +251,18 @@ def _run_ack(clone: Path, ticket: str, phase: str, *, monkeypatch, pick=1,
 def _read_meta(clone: Path, ticket: str) -> dict:
     p = clone / ".klc" / "tickets" / ticket / "meta.json"
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _retrieval_rec(root: Path, ticket: str) -> dict:
+    """The ticket's retrieval record. Since KLC-176 it is only in the derived
+    .klc/knowledge/retrieval-eval.jsonl (last row wins), not in meta.json."""
+    rec: dict = {}
+    p = root / ".klc" / "knowledge" / "retrieval-eval.jsonl"
+    for line in (p.read_text(encoding="utf-8").splitlines() if p.exists() else []):
+        row = json.loads(line)
+        if row.get("ticket") == ticket:
+            rec = row
+    return rec
 
 
 def _meta_bytes(clone: Path, ticket: str) -> bytes:

@@ -4,7 +4,7 @@
 The **query-time capstone** of the planning index (planning_indexer.md
 §"Query-time: retriever, а не статический router"). It turns a feature
 description into a ranked, explainable project slice and materialises it per
-ticket as ``.klc/tickets/<KEY>/retrieval_trace.json``.
+ticket as ``.klc/scratch/<KEY>/retrieval_trace.json``.
 
 It consumes the merged planning views — ``modules.json`` v2 (KLC-066),
 ``file_roles.json`` / ``symbol_usage`` (KLC-071), ``module_edges.json`` v2 and
@@ -927,10 +927,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--in-inventory", type=Path, default=idx / "inventory.json")
     ap.add_argument("--in-token-idf", type=Path, default=idx / "token_idf.json")
     ap.add_argument("--out", type=Path, default=None,
-                    help="output trace path (default .klc/tickets/<KEY>/retrieval_trace.json)")
+                    help="output trace path (default .klc/scratch/<KEY>/retrieval_trace.json)")
     args = ap.parse_args(argv)
 
-    out = args.out or (_base() / ".klc" / "tickets" / args.ticket / "retrieval_trace.json")
+    if args.out is None:
+        # KLC-176: the trace is derived, so it lives under the card root
+        # (`.klc/scratch/<KEY>/`), not in the tracked ticket directory.
+        from core.shared.paths import transient_dir
+        out = transient_dir(args.ticket) / "retrieval_trace.json"
+    else:
+        out = args.out
 
     modules = _load(args.in_modules)
     file_roles = _load(args.in_file_roles)

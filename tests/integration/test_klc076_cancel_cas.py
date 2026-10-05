@@ -147,9 +147,11 @@ def test_cancel_from_work_cas_supersedes_and_pushes(tmp_path, monkeypatch):
     assert peer_meta["phase"] == "cancelled"
     peer = tmp_path / "peer"
     assert not (peer / "tickets" / "KLC-976A" / "build" / "impl-plan.md").exists(), \
-        "the current-phase artefact must have been moved to _superseded/"
-    assert list((peer / "tickets" / "KLC-976A" / "_superseded").glob("*/build/**/impl-plan.md")), \
-        "the superseded artefact must ride the CAS-pushed commit"
+        "the current-phase artefact must have been removed from the ticket dir"
+    # KLC-176: no _superseded/ copy; the commit that still holds the file is in meta.
+    assert not (peer / "tickets" / "KLC-976A" / "_superseded").exists()
+    rec = peer_meta["superseded"][-1]
+    assert rec["phase"] == "build" and rec["commit"], rec
 
 
 def test_cancel_from_ack_cas_pushes(tmp_path, monkeypatch):

@@ -223,6 +223,12 @@ def extract_summary(report_text: str, *, verdict: Optional[str] = None) -> str:
         header += " — CHANGES REQUESTED"
     if not body:
         body = "See the KLC review report for details."
+    # KLC-175 AC-9: the deterministic reading order goes into the comment too
+    # (critical tier first, as the report writes it).
+    wtl = re.search(r"^## Where to look[ \t]*\n.*?(?=^## |\Z)", report_text,
+                    re.MULTILINE | re.DOTALL)
+    if wtl:
+        body = f"{body}\n\n{wtl.group(0).strip()}"
     return f"{header}\n\n{body}"
 
 

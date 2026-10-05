@@ -1,4 +1,4 @@
-"""KLC-042: build orchestrator — ledger, dispatch loop, resume, CLI verb."""
+"""KLC-042 / KLC-174: build orchestrator — dispatch loop on step_state, resume, CLI verb."""
 from __future__ import annotations
 
 import json
@@ -12,6 +12,9 @@ import pytest
 _FW_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_FW_ROOT))
 sys.path.insert(0, str(_FW_ROOT / "core" / "skills"))
+sys.path.insert(0, str(_FW_ROOT / "tests"))
+
+import klc114_helpers as h  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -90,224 +93,148 @@ def ticket_dir(tmp_path):
     return tmp_path
 
 
-@pytest.fixture(autouse=True)
-def _pin_green_verdict(monkeypatch):
-    """KLC-114 D-202/F-2: this suite exercises the DISPATCH LOOP, not the
-    ledger verdict. Its fake dispatches write a report and never commit, so
-    the real judge would return `unverified: no-commits` for every step and
-    turn these passing tests red. Pin a green verdict here; the verdict
-    logic itself has its own tests (KLC-114)."""
-    import build_orchestrator as _bo
-    import step_ledger as _sl
-    monkeypatch.setattr(_bo, "_judge_step",
-                        lambda ticket, step, repo=None, **kw:
-                            _sl.StepVerdict(f"step-{step}", _sl.GREEN))
-    monkeypatch.setattr(_sl, "verify_build_steps",
-                        lambda *a, **kw: _sl.LedgerReport(a[0] if a else "", []))
+@pytest.fixture()
+def fake(monkeypatch):
+    """KLC-174: this suite exercises the DISPATCH LOOP, not git-derived state. Its
+    fake dispatches write a report and never commit, so the real `step_state`
+    would call every step pending. `FakeStepState` stands in for derive/record."""
+    return h.pin_step_state(monkeypatch, [1, 2])
 
 
-# ---------------------------------------------------------------------------
-# step-1 tests: Ledger roundtrip
-# ---------------------------------------------------------------------------
-
-def test_ledger_roundtrip(ticket_dir, monkeypatch):
-    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    from build_ledger import Ledger
-    led = Ledger.from_plan("KLC-T2")
-    assert len(led.steps) == 2
-    assert led.steps[0].state == "pending"
-    assert led.steps[1].state == "pending"
-    assert led.first_pending() == 1
-
-    led.mark("step-1", "green", model="claude-sonnet-4-6")
-    led.save()
-
-    led2 = Ledger.load("KLC-T2")
-    assert led2.steps[0].state == "green"
-    assert led2.steps[0].model == "claude-sonnet-4-6"
-    assert led2.steps[0].ts is not None
-    import re as _re
-    assert _re.match(r"\d{4}-\d{2}-\d{2}T", led2.steps[0].ts)
-    assert led2.first_pending() == 2
-
-
-def test_ledger_from_plan_preserves_green(ticket_dir, monkeypatch):
-    """Re-derive from plan after step-1 green: green outcome survives."""
-    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    from build_ledger import Ledger
-    led = Ledger.from_plan("KLC-T2")
-    led.mark("step-1", "green", model="m")
-    led.save()
-
-    led2 = Ledger.from_plan("KLC-T2")   # re-derive (plan may have been edited)
-    assert led2.steps[0].state == "green"
-    assert led2.first_pending() == 2
-
-
-def test_ledger_all_green_returns_none(ticket_dir, monkeypatch):
-    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    from build_ledger import Ledger
-    led = Ledger.from_plan("KLC-T2")
-    led.mark("step-1", "green", model="m")
-    led.mark("step-2", "green", model="m")
-    assert led.first_pending() is None
-
-
-def test_ledger_load_returns_none_when_absent(ticket_dir, monkeypatch):
-    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    from build_ledger import Ledger
-    assert Ledger.load("KLC-T2") is None
-
-
-def test_ledger_malformed_raises(ticket_dir, monkeypatch):
-    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    from build_ledger import Ledger
-    build_dir = ticket_dir / ".klc" / "tickets" / "KLC-T2" / "build"
-    build_dir.mkdir(parents=True, exist_ok=True)
-    (build_dir / "progress.md").write_text("not-yaml-frontmatter\n")
-    with pytest.raises(ValueError):
-        Ledger.load("KLC-T2")
-
-
-def test_ledger_load_converts_running_to_pending(ticket_dir, monkeypatch):
-    """Crash recovery: a step with state running is reset to pending on load."""
-    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-    from build_ledger import Ledger
-    build_dir = ticket_dir / ".klc" / "tickets" / "KLC-T2" / "build"
-    build_dir.mkdir(parents=True, exist_ok=True)
-    (build_dir / "progress.md").write_text(
-        "---\nticket: KLC-T2\nsteps:\n"
-        "  - id: step-1\n    state: running\n    model: m\n"
-        "  - id: step-2\n    state: pending\n"
-        "---\n# Build progress — KLC-T2\n"
-    )
-    led = Ledger.load("KLC-T2")
-    assert led.steps[0].state == "pending"  # running → pending
-    assert led.steps[1].state == "pending"
-
-
-# ---------------------------------------------------------------------------
-# step-2 tests: orchestrator dispatch loop
-# ---------------------------------------------------------------------------
-
-def test_orchestrator_dispatches_each_pending_step(ticket_dir, monkeypatch):
-    """Stub dispatch is called once per step in order; ledger ends all-green."""
-    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-
-    calls = []
-
-    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
-        calls.append((phase_id, str(prompt_path), str(out_path)))
+def _ok(calls=None):
+    def stub_dispatch(phase_id, prompt_path, out_path, *, inputs=None, track=None):
+        if calls is not None:
+            calls.append(str((inputs or {}).get("brief", prompt_path)))
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
         return 0
+    return stub_dispatch
 
+
+def test_orchestrator_dispatches_each_pending_step(ticket_dir, monkeypatch, fake):
+    """Dispatch is called once per step in order; each step is green via record_verify."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    calls = []
     from build_orchestrator import run_build
-    rc = run_build("KLC-T2", dispatch=stub_dispatch)
+    rc = run_build("KLC-T2", dispatch=_ok(calls))
 
     assert rc == 0
     assert len(calls) == 2
-    assert "step-1" in calls[0][1]
-    assert "step-2" in calls[1][1]
-
-    from build_ledger import Ledger
-    led = Ledger.load("KLC-T2")
-    assert led.steps[0].state == "green"
-    assert led.steps[1].state == "green"
+    assert "step-1" in calls[0]
+    assert "step-2" in calls[1]
+    assert fake.recorded == [1, 2]
+    assert fake.green == {1, 2}
 
 
-def test_model_note_printed_on_fallback(ticket_dir, monkeypatch, capsys):
+def test_no_progress_ledger_is_written(ticket_dir, monkeypatch, fake):
+    """KLC-174: progress is derived; build/progress.md is no longer written."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    from build_orchestrator import run_build
+    assert run_build("KLC-T2", dispatch=_ok()) == 0
+    build_dir = ticket_dir / ".klc" / "tickets" / "KLC-T2" / "build"
+    assert not (build_dir / "progress.md").exists()
+
+
+def test_model_note_printed_on_fallback(ticket_dir, monkeypatch, capsys, fake):
     """MODEL_NOTE is printed when check_subagent_dispatch returns a note string."""
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-
-    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
-        return 0
-
     import build_orchestrator as _bo
     monkeypatch.setattr(_bo, "check_subagent_dispatch", lambda resolved: "MODEL_NOTE fallback test")
+    _bo.run_build("KLC-T2", dispatch=_ok())
+    assert "MODEL_NOTE" in capsys.readouterr().out
 
-    from build_orchestrator import run_build
-    run_build("KLC-T2", dispatch=stub_dispatch)
-
-    captured = capsys.readouterr()
-    assert "MODEL_NOTE" in captured.out
-
-
-# ---------------------------------------------------------------------------
-# step-3 tests: resume + blocked semantics
-# ---------------------------------------------------------------------------
 
 def test_resume_skips_completed_steps(ticket_dir, monkeypatch):
-    """Seed step-1 green in ledger; run_build dispatches only step-2."""
+    """step-1 already green in step_state; run_build dispatches only step-2."""
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-
-    from build_ledger import Ledger
-    led = Ledger.from_plan("KLC-T2")
-    led.mark("step-1", "green", model="m")
-    led.save()
-
+    fk = h.pin_step_state(monkeypatch, [1, 2], green={1})
     calls = []
-
-    def stub_dispatch(phase_id, prompt_path, out_path, *, track=None):
-        calls.append(str(prompt_path))
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
-        return 0
-
     from build_orchestrator import run_build
-    rc = run_build("KLC-T2", dispatch=stub_dispatch)
-
-    assert rc == 0
+    assert run_build("KLC-T2", dispatch=_ok(calls)) == 0
     assert len(calls) == 1
     assert "step-2" in calls[0]
+    assert fk.recorded == [2]
 
 
-def test_blocked_step_halts_and_is_resumable(ticket_dir, monkeypatch):
-    """Stub returns non-zero for step-1 → step-1 blocked, step-2 never dispatched.
-    Second run re-dispatches step-1 because first_pending() returns steps where
-    state != green, including blocked.
-    """
+def test_blocked_step_halts_and_is_resumable(ticket_dir, monkeypatch, fake):
+    """A failing dispatch halts the build, records no verify, and the next run
+    re-dispatches the same step (it is simply not green)."""
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-
     call_log = []
 
-    def failing_dispatch(phase_id, prompt_path, out_path, *, track=None):
-        call_log.append(("fail", str(prompt_path)))
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text("## Outcome\nerror\n", encoding="utf-8")
+    def failing_dispatch(phase_id, prompt_path, out_path, *, inputs=None, track=None):
+        call_log.append(str((inputs or {}).get("brief", prompt_path)))
         return 1
 
     from build_orchestrator import run_build
-    rc = run_build("KLC-T2", dispatch=failing_dispatch)
+    assert run_build("KLC-T2", dispatch=failing_dispatch) == 1
+    assert len(call_log) == 1 and "step-1" in call_log[0]
+    assert fake.recorded == []
+    assert fake.green == set()
 
-    assert rc != 0
-    assert len(call_log) == 1
-    assert "step-1" in call_log[0][1]
+    calls = []
+    assert run_build("KLC-T2", dispatch=_ok(calls)) == 0
+    assert len(calls) == 2  # step-1 retried + step-2
 
-    from build_ledger import Ledger
-    led = Ledger.load("KLC-T2")
-    assert led.steps[0].state == "blocked"
-    assert led.steps[0].reason == "dispatch rc=1"
-    assert led.steps[1].state == "pending"
 
-    # Second run re-dispatches the blocked step (treated as pending)
-    call_log.clear()
+def test_not_green_after_verify_halts_without_dispatching_next(ticket_dir, monkeypatch):
+    """A dispatch that returns 0 is NOT enough: a step whose recorded verify fails
+    keeps the build blocked and step-2 is never dispatched."""
+    monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
+    fk = h.pin_step_state(monkeypatch, [1, 2], fail={1})
+    calls = []
+    from build_orchestrator import run_build
+    assert run_build("KLC-T2", dispatch=_ok(calls)) == 1
+    assert len(calls) == 1 and "step-1" in calls[0]
+    assert fk.recorded == [1]
 
-    def success_dispatch(phase_id, prompt_path, out_path, *, track=None):
-        call_log.append(("ok", str(prompt_path)))
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text("## Outcome\ngreen\n", encoding="utf-8")
+
+def test_empty_plan_is_not_a_finished_build(tmp_path, monkeypatch, capsys):
+    """KLC-174: an impl-plan with no steps is not 'all green' — build-run fails."""
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
+    tdir = tmp_path / ".klc" / "tickets" / "KLC-T2"
+    tdir.mkdir(parents=True)
+    (tdir / "impl-plan.md").write_text("# nothing\n")
+    (tdir / "meta.json").write_text(_META)
+    from build_orchestrator import run_build
+    assert run_build("KLC-T2", dispatch=_ok()) == 1
+    assert "no steps" in capsys.readouterr().err
+
+
+def test_real_step_state_decides_green(tmp_path, monkeypatch):
+    """No fakes: a dispatch that makes the red then green commit, with an
+    allowlisted VERIFY, ends green only because step_state recorded and derived it."""
+    import json as _json
+    import subprocess
+    repo = h.make_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("PROJECT_ROOT", str(repo))
+    plan = _PLAN.split("## step-2")[0].replace("**VERIFY:** pytest",
+                                              "**VERIFY:** `python3 -m pytest tests/test_first.py -q`")
+    tdir = repo / ".klc" / "tickets" / "KLC-T2"
+    tdir.mkdir(parents=True)
+    (tdir / "impl-plan.md").write_text(plan)
+    (tdir / "spec.md").write_text(_SPEC)
+    (tdir / "meta.json").write_text(_META)
+
+    def dispatch(phase_id, prompt_path, out_path, *, inputs=None, track=None):
+        h.commit(repo, {"tests/test_first.py": "def test_a():\n    assert True\n"},
+                 "KLC-T2 step-1: add failing tests")
+        h.commit(repo, {"src/first.py": "def first(): pass\n"}, "KLC-T2 step-1: first step")
         return 0
 
-    rc2 = run_build("KLC-T2", dispatch=success_dispatch)
-    assert rc2 == 0
-    assert len(call_log) == 2  # step-1 retried + step-2
+    from build_orchestrator import run_build
+    import step_state
+    assert run_build("KLC-T2", dispatch=dispatch) == 0
+    recs = step_state.derive("KLC-T2")
+    assert [r["state"] for r in recs] == ["green"]
+    steps_json = _json.loads((tdir / "build" / "steps.json").read_text())
+    assert steps_json["steps"]["1"]["verify"]["exit_code"] == 0
+    assert not (tdir / "build" / "progress.md").exists()
 
 
 # ---------------------------------------------------------------------------
-# step-4 tests: build-run verb + CLI handler
+# build-run verb + CLI handler
 # ---------------------------------------------------------------------------
 
 def test_build_run_verb_registered():
@@ -315,33 +242,13 @@ def test_build_run_verb_registered():
     assert '"build-run"' in text or "'build-run'" in text
 
 
-def test_build_run_appends_progress_and_returns_zero(ticket_dir, monkeypatch):
-    """CLI via core/phases/build_run runs orchestrator; progress.md shows green."""
+def test_build_run_cli_returns_orchestrator_rc(ticket_dir, monkeypatch):
+    """CLI via core/phases/build_run delegates to the orchestrator and returns its rc."""
     monkeypatch.setenv("PROJECT_ROOT", str(ticket_dir))
-
-    import importlib, sys as _sys
-    for mod in list(_sys.modules.keys()):
-        if "build_run" in mod or "build_orchestrator" in mod or "build_ledger" in mod:
-            del _sys.modules[mod]
-
-    def _stub_run_build(ticket, *, dispatch=None):
-        from build_ledger import Ledger
-        led = Ledger.from_plan(ticket)
-        for s in led.steps:
-            led.mark(s.id, "green", model="m")
-        led.save()
-        return 0
-
-    import unittest.mock as _mock
-    with _mock.patch.dict(_sys.modules, {}):
-        import build_orchestrator as _bo
-        with _mock.patch.object(_bo, "run_build", side_effect=_stub_run_build):
-            from core.phases import build_run as br_phase
-            importlib.reload(br_phase)
-            rc = br_phase.run(["KLC-T2"])
-
-    assert rc == 0
-    from build_ledger import Ledger
-    led = Ledger.load("KLC-T2")
-    assert led is not None
-    assert all(s.state == "green" for s in led.steps)
+    import build_orchestrator as _bo
+    from core.phases import build_run as br_phase
+    with patch.object(_bo, "run_build", return_value=0) as rb:
+        assert br_phase.run(["KLC-T2"]) == 0
+    rb.assert_called_once_with("KLC-T2")
+    with patch.object(_bo, "run_build", return_value=1):
+        assert br_phase.run(["KLC-T2"]) == 1

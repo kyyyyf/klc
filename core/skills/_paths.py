@@ -77,6 +77,13 @@ def klc_ticket_dir(ticket_id: str) -> Path:
     return klc_tickets_dir() / ticket_id
 
 
+def design_doc_path(ticket_id: str) -> Path:
+    """design.md for a new ticket, design/options.md for an archived one."""
+    tdir = klc_ticket_dir(ticket_id)
+    new = tdir / "design.md"
+    return new if new.exists() else tdir / "design" / "options.md"
+
+
 CARD_ROOT_ENV = "KLC_CARD_ROOT"
 
 
@@ -97,6 +104,21 @@ def klc_card_path(ticket_id: str, phase_id: str, step: int | None = None) -> Pat
     `core/skills/artefacts.py:card_path` for the reader-facing resolver."""
     name = f"_prompt_step_{step}.md" if step is not None else "_prompt.md"
     return klc_card_root() / ticket_id / phase_id / name
+
+def transient_dir(ticket_id: str) -> Path:
+    """Derived per-ticket files (retrieval trace, build step files) under the
+    card root, never under the tracked ticket directory (KLC-176)."""
+    return klc_card_root() / ticket_id
+
+
+def transient_read_path(ticket_id: str, rel: str) -> Path:
+    """Where to READ a transient file: scratch first, then the legacy path in
+    the ticket directory (old tickets), else the scratch path (KLC-176)."""
+    new = transient_dir(ticket_id) / rel
+    if new.exists():
+        return new
+    old = klc_ticket_dir(ticket_id) / rel
+    return old if old.exists() else new
 
 
 def klc_ticket_scratch_dir(ticket_id: str) -> Path:

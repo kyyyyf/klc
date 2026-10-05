@@ -47,16 +47,16 @@ def _write_card(tmp_path: Path, name: str, spec_path: Path) -> Path:
 
 _SUCCESS_CASES = [
     pytest.param(lambda: fixture_text("envelope-single.json"), "provider", id="envelope"),
-    pytest.param(lambda: "plain reviewer text, no envelope", "estimated", id="plain-text"),
+    pytest.param(lambda: "plain reviewer text, no envelope", None, id="plain-text"),
 ]
 
 
 @pytest.mark.parametrize("build_stdout,expected_source", _SUCCESS_CASES)
-def test_successful_dispatch_leaves_exactly_one_review_attempt_provider_or_estimated(
+def test_successful_dispatch_leaves_one_provider_attempt_or_none_without_usage(
         tmp_path, klc133_hermetic, monkeypatch, build_stdout, expected_source):
     """AC-5: a successful dispatch leaves exactly one `review` attempt
-    (provider when the envelope parsed, estimated with `card_bytes`
-    otherwise), tagged with the reviewer name and carrying no `run_pass`
+    when the envelope parsed (none without usage — KLC-174 step-5 removed
+    the `estimated` fallback), tagged with the reviewer name and carrying no `run_pass`
     key (test-plan-review F-3: the reviewer/run_pass tag families never
     both appear on one attempt)."""
     import runner
@@ -74,15 +74,15 @@ def test_successful_dispatch_leaves_exactly_one_review_attempt_provider_or_estim
     assert rc == 0
 
     attempts = all_attempts("KLC-RR1", "review")
+    if expected_source is None:
+        assert attempts == []
+        return
     assert len(attempts) == 1
     a = attempts[0]
     assert a["source"] == expected_source
     assert a["reviewer"] == "security"
     assert "run_pass" not in a
-    if expected_source == "estimated":
-        assert a["card_bytes"] == card.stat().st_size
-    else:
-        assert "card_bytes" not in a
+    assert "card_bytes" not in a
 
 
 # --- a failed dispatch leaves at most the AC-4 failed:true attempt ----------

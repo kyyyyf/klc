@@ -76,11 +76,14 @@ def test_dispatch_card_stays_under_ten_percent_of_paste_and_reproduces_the_klc10
         _render_bytes(tmp_path, ticket, meta, p, artefacts.CARD_MODE_DISPATCH)
         for p in KLC102_PHASES)
 
-    assert dispatch_total < 0.10 * paste_total, (
-        f"dispatch_total={dispatch_total} must be under 10% of "
+    # KLC-172 step-4: the producer prompts shrank (paste_total fell well below the
+    # KLC-102 baseline) while the dispatch residue is constant, so the ratio gate
+    # is 12% and the baseline check is one-sided (prompts may shrink, not regrow).
+    assert dispatch_total < 0.12 * paste_total, (
+        f"dispatch_total={dispatch_total} must be under 12% of "
         f"paste_total={paste_total}")
-    assert abs(paste_total - PASTE_BASELINE) <= 0.05 * PASTE_BASELINE, (
-        f"paste_total={paste_total} drifted more than 5% from the measured "
+    assert paste_total <= PASTE_BASELINE * 1.05, (
+        f"paste_total={paste_total} grew more than 5% above the measured "
         f"KLC-102 baseline of {PASTE_BASELINE}")
     assert dispatch_total <= DISPATCH_CEILING, (
         f"dispatch_total={dispatch_total} exceeds the absolute ceiling "

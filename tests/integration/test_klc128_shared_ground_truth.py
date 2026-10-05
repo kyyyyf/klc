@@ -12,6 +12,7 @@ from _klc128_fixtures import (  # noqa: E402
     _bare_and_clone,
     _branch_with_commits,
     _merge,
+    _last_drift_report,
     _run_ack,
     _seed_ticket,
     _set_phase,
@@ -77,6 +78,6 @@ def test_drift_scope_and_retrieval_receive_the_identical_file_set_on_a_merged_ti
     assert set(seen["drift_changed_files"]) == seen["reval_committed_paths"]
     assert seen["reval_committed_paths"] == {"widgets/thing.py"}
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["scope_drift"]["skipped"] is None, \
         "a merged ticket with a recorded range must get a REAL drift result, not skipped"

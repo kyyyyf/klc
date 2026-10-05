@@ -72,7 +72,7 @@ def _sha(p: Path) -> str:
 
 def test_work_build_state(tmp_path, monkeypatch):
     """AC-1: at `build:work`, `work --json` reports the build STEP card path for
-    the current impl_step (not step 1) and the phase outputs (`build-log.md`)."""
+    the current impl_step (not step 1) and the phase outputs (`build/steps.json`)."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _seed(tmp_path, "KLC-900", phase="build:work", track="S", impl_step=3)
 
@@ -85,7 +85,7 @@ def test_work_build_state(tmp_path, monkeypatch):
         f"build must point at the per-step card at the scratch root, got {info['prompt']!r}"
     assert "_prompt_step_1.md" not in info["prompt"], \
         "must be the CURRENT step card, not step 1"
-    assert "build-log.md" in info["outputs"]
+    assert "build/steps.json" in info["outputs"]
 
 
 def test_work_build_state_defaults_step_1(tmp_path, monkeypatch):
@@ -121,7 +121,7 @@ def test_work_human_output_has_phase_and_card(tmp_path, monkeypatch):
     assert rc == 0, out
     assert "build:work" in out
     assert ".klc/scratch/KLC-903/build/_prompt_step_2.md" in out
-    assert "build-log.md" in out
+    assert "build/steps.json" in out
 
 
 # --- AC-2: :ack-needed picks; :ack -> klc next ------------------------------- #

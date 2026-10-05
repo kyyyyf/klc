@@ -200,10 +200,10 @@ _ESTIMATED_INPUTS = [
 
 
 @pytest.mark.parametrize("stdout_text", _ESTIMATED_INPUTS)
-def test_no_measured_key_appears_on_an_estimated_attempt(
+def test_dispatch_without_usable_usage_records_no_attempt(
         tmp_path, klc133_hermetic, monkeypatch, stdout_text):
-    """AC-3: an estimated attempt never carries a measured key (cost_usd/
-    cost_basis/num_turns/duration_ms/cache_write)."""
+    """AC-3 / KLC-174 step-5: a reply without usable usage leaves NO attempt
+    (the `estimated` fallback is gone, so no measured key can sit on one)."""
     import runner
     project = klc133_hermetic
     seed_ticket(project, "KLC-R6", track="M", phase="build:work")
@@ -214,11 +214,7 @@ def test_no_measured_key_appears_on_an_estimated_attempt(
     rc = runner.run_agent("build", prompt_path, out_path,
                           telemetry_ticket="KLC-R6")
     assert rc == 0
-    attempts = all_attempts("KLC-R6", "build")
-    assert len(attempts) == 1
-    assert attempts[0]["source"] == "estimated"
-    for key in ("cost_usd", "cost_basis", "num_turns", "duration_ms", "cache_write"):
-        assert key not in attempts[0]
+    assert all_attempts("KLC-R6", "build") == []
 
 
 # --- AC-4: a failed run that still holds usage is recorded failed: true -----
@@ -292,13 +288,12 @@ def test_successful_run_attempt_has_no_failed_key(tmp_path, klc133_hermetic, mon
 
 # --- step-10 review-fix (AC-4, code-review LOW + external LOW) --------------
 
-def test_is_error_with_rc0_and_no_usable_usage_is_recorded_failed_true(
+def test_is_error_with_rc0_and_no_usable_usage_records_nothing(
         tmp_path, klc133_hermetic, monkeypatch):
     """AC-4: rc 0 with an `is_error: true` envelope but no parseable
-    input_tokens/output_tokens must be recorded `failed: true` (folded in
-    BEFORE the provider/estimated branch is chosen), not as an ordinary
-    successful `estimated` attempt — an is_error run must never count as an
-    executed, successful review pass."""
+    input_tokens/output_tokens records NOTHING (KLC-174 step-5: no
+    `estimated` attempt), so an is_error run never counts as an executed,
+    successful review pass."""
     import runner
     project = klc133_hermetic
     seed_ticket(project, "KLC-R12", track="M", phase="review:work")
@@ -314,11 +309,7 @@ def test_is_error_with_rc0_and_no_usable_usage_is_recorded_failed_true(
                           telemetry_ticket="KLC-R12", reviewer="security")
     assert rc == 0  # the CLI itself still "succeeded" procedurally
 
-    attempts = all_attempts("KLC-R12", "review")
-    assert len(attempts) == 1
-    assert attempts[0]["failed"] is True
-    assert attempts[0]["source"] == "estimated"
-    assert attempts[0]["reviewer"] == "security"
+    assert all_attempts("KLC-R12", "review") == []
 
 
 # --- C-003: a telemetry-write failure never changes rc or output ------------

@@ -77,7 +77,7 @@ def _run(clone: Path, ticket: str, monkeypatch):
 def _plan(clone: Path, ticket: str) -> dict:
     import json
     return json.loads((clone / ".klc" / "tickets" / ticket
-                       / "review-plan.json").read_text(encoding="utf-8"))
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
 
 
 def test_live_range_diffs_merge_base_to_head_and_matches_the_written_plan(
@@ -251,7 +251,7 @@ def test_no_usable_range_writes_no_plan_and_names_both_the_branch_and_the_missin
     assert not result
     assert "KLC-967" in result.reason
     assert "no recorded pre-merge range for this ticket" in result.reason
-    assert not (clone / ".klc" / "tickets" / ticket_a / "review-plan.json").exists()
+    assert not (clone / ".klc" / "tickets" / ticket_a / "review" / "review-plan-r1.json").exists()
 
 
 @pytest.mark.parametrize("ticks,expect_review_call,note", [

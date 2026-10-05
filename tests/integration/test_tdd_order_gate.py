@@ -129,6 +129,10 @@ def _make_build_ticket(
     (ticket_dir / "impl-plan.md").write_text(
         impl_plan.format(ticket=ticket), encoding="utf-8"
     )
+    # KLC-174: the ack reads recorded verifies instead of an Evidence section.
+    sys.path.insert(0, str(_FW_ROOT / "tests"))
+    import klc114_helpers
+    klc114_helpers.seed_steps(ticket_dir, tmp_path / "repo")
     return ticket_dir
 
 

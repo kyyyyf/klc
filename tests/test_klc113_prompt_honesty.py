@@ -24,7 +24,7 @@ AGENTS_DIR = FW / "core" / "agents"
 GONE = {
     "core/agents/test-planner.md":         ["test-framework.json", "symbols_by_module.json"],
     "core/agents/test.md":                 ["test-framework.json"],
-    "core/agents/review/test-coverage.md": ["test-framework.json"],
+    "core/agents/review/code-review.md":  ["test-framework.json"],
     "core/agents/discovery.md":            ["validator.md", ".klc/config/discovery.yml"],
     "core/agents/impl.md":                 ["verifier", "symbols_by_module.json"],
     "core/agents/design.md":               ["verifier"],
@@ -149,7 +149,7 @@ def test_review_subdir_included_in_scan() -> None:
     """Q-003 — the scan glob widens to core/agents/review/*.md, which
     generate_agents itself does not descend into."""
     files = ph._prompt_files()
-    assert any(f.name == "test-coverage.md" and "review" in str(f) for f in files)
+    assert any(f.name == "code-review.md" and "review" in str(f) for f in files)
 
 
 def test_negative_arm_reports_injected_fake_path_and_verb(tmp_path) -> None:

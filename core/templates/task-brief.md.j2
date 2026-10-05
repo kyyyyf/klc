@@ -28,3 +28,17 @@
 
 {{ decisions }}
 {% endif %}
+
+## Review findings for this step
+
+{% if findings_lines %}
+{% for l in findings_lines %}
+{{ l }}
+{% endfor %}
+{% else %}
+(none)
+{% endif %}
+
+## When green
+
+Commit the step, then run `klc step verify {{ ticket }} {{ step }}` (re-run it after any later fix commit).

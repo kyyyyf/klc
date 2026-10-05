@@ -67,7 +67,7 @@ def test_process_md_review_documents_plan_cap_and_over_cap_flag():
     """AC-11 companion: docs/process.md documents the plan, the cap
     defaults and --over-cap."""
     text = (FW_ROOT / "docs" / "process.md").read_text(encoding="utf-8")
-    assert "review-plan.json" in text
+    assert "review/review-plan-r<N>.json" in text
     assert "--over-cap" in text
     assert "max_llm_passes" in text
     assert "review_llm_passes_per_ticket" in text
@@ -77,7 +77,7 @@ def test_record_cli_appends_one_tagged_attempt_and_marks_pass_executed(
         tmp_path, monkeypatch):
     """AC-3: python3 core/skills/review_plan.py record --ticket <KEY>
     --reviewer <name> appends exactly one reviewer-tagged attempt and
-    marks the pass executed in review-plan.json; a repeated call for the
+    marks the pass executed in review/review-plan-r<N>.json; a repeated call for the
     same run is idempotent (same attempt id, still one tagged attempt)."""
     project_root = tmp_path / "proj"
     monkeypatch.setenv("PROJECT_ROOT", str(project_root))
@@ -127,10 +127,9 @@ def test_record_cli_appends_one_tagged_attempt_and_marks_pass_executed(
     meta_after = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
     tagged = [rec for _phase, rec in metrics.iter_attempts(meta_after, "KLC-995")
               if rec.get("reviewer") == "code-review"]
-    assert len(tagged) == 1, \
-        "two record calls for the same pass of the same run must collapse to one attempt"
+    assert tagged == [], "KLC-174 step-5: record writes no token attempt"
 
-    plan_after = json.loads((tdir / "review-plan.json").read_text(encoding="utf-8"))
+    plan_after = json.loads((tdir / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     entry = next(p for p in plan_after["passes"] if p["reviewer"] == "code-review")
     assert entry["status"] == "executed"
 

@@ -44,7 +44,7 @@ def _spec_text(ticket: str) -> str:
         f"---\nticket: {ticket}\nkind: feature\nauthority: agent\n---\n\n"
         "## Goals\nTest.\n\n## Acceptance Criteria\n- AC-1: pass.\n\n"
         "## Estimate\ncomplexity: 1\n\n"
-        "- Option A: first approach\n- Option B: second approach\n\n"
+        "## Approaches\n- Option A: first approach\n- Option B: second approach\n\n"
         "Picked: Option A — simpler\n"
     )
 

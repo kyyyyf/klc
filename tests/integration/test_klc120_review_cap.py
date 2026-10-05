@@ -67,6 +67,16 @@ _HARMLESS_DIFF = (
 )
 
 
+# Every layer-2 signal at once: a critical-tier path (auth/) -> security,
+# `def` -> architecture + deep-impact, `# perf:hot` -> performance. With the
+# one code-review that is five planned passes, over the M cap of 4 (external
+# is off by default on M).
+_ALL_SIGNALS_DIFF = (
+    "--- a/core/auth/foo.py\n+++ b/core/auth/foo.py\n@@ -1 +1 @@\n"
+    "-old\n+def bar(x):  # perf:hot\n+    return x\n"
+)
+
+
 def _clear_keys(monkeypatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -74,12 +84,11 @@ def _clear_keys(monkeypatch) -> None:
 
 def test_review_refuses_when_planned_exceeds_cap_without_override(tmp_path):
     """AC-5 (e2e): scripts/review.py CLI (subprocess), planned-pass count
-    seeded above the M cap of 4 (the real generic manifest's four
-    reviewers.always plus the external pass, five total on the full
-    headless path) with no --over-cap. Exits non-zero, no job card, plan
-    printed."""
+    seeded above the M cap of 4 (KLC-175: code-review plus all four
+    layer-2 specialists, five total) with no --over-cap. Exits non-zero, no
+    job card, plan printed."""
     project_root, spec_path = _seed_project(tmp_path, track="M")
-    diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
+    diff_path = _write_diff(tmp_path, "diff.patch", _ALL_SIGNALS_DIFF)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "claude").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -101,7 +110,7 @@ def test_review_refuses_when_planned_exceeds_cap_without_override(tmp_path):
     job_cards = list((project_root / ".klc" / "reports").glob("pending-*/job-*.md"))
     assert job_cards == [], "no job card must be written when the run is refused"
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     assert review_plan.counted(plan) == 5
 
 
@@ -126,7 +135,7 @@ def test_over_cap_plan_never_reaches_the_auto_dispatch_runner(tmp_path, monkeypa
         encoding="utf-8",
     )
     monkeypatch.setenv("REVIEW_RUNNER", str(fake_runner))
-    diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
+    diff_path = _write_diff(tmp_path, "diff.patch", _ALL_SIGNALS_DIFF)
 
     rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path)])
     assert rc == 2
@@ -134,10 +143,9 @@ def test_over_cap_plan_never_reaches_the_auto_dispatch_runner(tmp_path, monkeypa
 
 
 def test_skipped_passes_never_count_toward_the_cap(tmp_path, monkeypatch):
-    """AC-5/D-005 cross-check: on the client path the four manifest
-    reviewers.always entries are always skipped, so only code-review,
-    drift and external count — three against the M cap of four does not
-    refuse."""
+    """AC-5/D-005 cross-check: with no signal the four layer-2 specialists
+    are listed but skipped, so only code-review and drift count — two
+    against the M cap of four does not refuse."""
     project_root, spec_path = _seed_project(tmp_path, track="M")
     monkeypatch.setenv("PROJECT_ROOT", str(project_root))
     _clear_keys(monkeypatch)
@@ -149,12 +157,13 @@ def test_skipped_passes_never_count_toward_the_cap(tmp_path, monkeypatch):
     assert rc == 0
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
-    always_names = {"security", "architecture", "performance", "test-coverage"}
-    skipped_always = [p for p in plan["passes"] if p["reviewer"] in always_names]
-    assert len(skipped_always) == 4
-    assert all(p["status"] == "skipped" for p in skipped_always)
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
+    specialists = {"security", "architecture", "performance", "deep-impact"}
+    skipped = [p for p in plan["passes"] if p["reviewer"] in specialists]
+    assert len(skipped) == 4
+    assert all(p["status"] == "skipped" for p in skipped)
     assert review_plan.counted(plan) <= plan["cap"]
+    assert review_plan.counted(plan) == 2
 
 
 def test_review_dispatches_over_cap_with_override_flag_and_records_cap_override(
@@ -163,7 +172,7 @@ def test_review_dispatches_over_cap_with_override_flag_and_records_cap_override(
     over-cap passes and the review report frontmatter carries
     cap_override: true with the cap value."""
     project_root, spec_path = _seed_project(tmp_path, track="M")
-    diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
+    diff_path = _write_diff(tmp_path, "diff.patch", _ALL_SIGNALS_DIFF)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "claude").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -221,7 +230,7 @@ def test_refused_run_leaves_previous_report_bytes_unchanged(tmp_path, monkeypatc
     fake_runner = tmp_path / "fake_runner.py"
     fake_runner.write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
     monkeypatch.setenv("REVIEW_RUNNER", str(fake_runner))
-    diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
+    diff_path = _write_diff(tmp_path, "diff.patch", _ALL_SIGNALS_DIFF)
 
     rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path)])
     assert rc == 2
@@ -249,7 +258,7 @@ def test_offline_rerun_hint_repeats_over_cap(tmp_path, monkeypatch, capsys):
     diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
 
     rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--over-cap"])
-    assert rc == 0   # L's cap is 6; 5 passes on this diff does not refuse
+    assert rc == 0   # L's cap is 6; this diff plans code-review + external
     out = capsys.readouterr().out
     assert "--over-cap" in out
 

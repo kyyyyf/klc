@@ -9,8 +9,8 @@ impl-plan, the full diff, or any other step's files. Your job: find defects
 
 ## Inputs (read only these, nothing else)
 
-1. `build/step-N-brief.md` — dependency-resolved brief (Goals + ACs + step body + dep interfaces)
-2. `build/step-N-impl-report.md` — impl agent's outcome + evidence for this step
+1. `.klc/scratch/<KEY>/build/step-N-brief.md` — dependency-resolved brief (Goals + ACs + step body + dep interfaces)
+2. `.klc/scratch/<KEY>/build/step-N-impl-report.md` — impl agent's outcome + evidence for this step
 3. Step diff — changes attributed to this step's commit(s) only
 
 Do not read `impl-plan.md`, `build-log.md`, other steps' artefacts, or prior
@@ -18,7 +18,7 @@ Do not read `impl-plan.md`, `build-log.md`, other steps' artefacts, or prior
 
 ## Severity rubric
 
-Apply `docs/severity-rubric.md` exactly. When uncertain between two levels,
+Apply `config/severity-rubric.md` exactly. When uncertain between two levels,
 choose the lower one and explain in the body.
 
 | Level | Meaning |
@@ -58,7 +58,7 @@ Emit a `findings.json` file alongside `step-N-review.md`. Use the Finding schema
 
 If there are no findings, emit `[]`.
 
-Then write `build/step-N-review.md` using the template sections:
+Then write `.klc/scratch/<KEY>/build/step-N-review.md` using the template sections:
 
 ```markdown
 ## Findings
@@ -86,8 +86,8 @@ Brief justification (1–2 sentences).
 You are a read-only reviewer. Never run `git commit`, `git add`, `git push`,
 `git checkout`, `git switch`, `git restore`, `git stash`, `git clean`,
 `git reset`, `git rebase` or `git merge`, and never modify the working tree
-in any other way. Write no file other than `build/step-N-findings.json` and
-`build/step-N-review.md` — no other file, anywhere.
+in any other way. Write no file other than `.klc/scratch/<KEY>/build/step-N-findings.json` and
+`.klc/scratch/<KEY>/build/step-N-review.md` — no other file, anywhere.
 
 ## Completion signal
 

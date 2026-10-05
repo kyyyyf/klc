@@ -3,8 +3,8 @@
 Ticket: **{{ ticket }}** · track: **{{ track }}** · kind: **{{ kind }}**
 
 You are in the **Build** phase, TDD loop. Your job: make the failing
-test(s) for **step-{{ step }}** pass. Read the role prompt below, then
-produce the outputs listed at the bottom.
+test(s) for **step-{{ step }}** pass. {% if role_carried %}Your role is carried by the subagent definition; produce{% else %}Read the role prompt below, then
+produce{% endif %} the outputs listed at the bottom.
 
 ---
 
@@ -29,12 +29,24 @@ produce the outputs listed at the bottom.
 **Rollback**: {{ step_rollback }}
 {% endif %}
 
+### Review findings for this step
+
+{% if findings_lines %}
+{% for l in findings_lines %}
+{{ l }}
+{% endfor %}
+{% else %}
+(none)
+{% endif %}
+
 ### Roadmap contract (from impl-plan.md)
 
 - **RED**: write/confirm the failing test before code.
 - **GREEN**: smallest change to pass RED.
-- **VERIFY**: run the step's targeted command before signalling success.
 - **COMMIT**: one logical commit after green, using the step's subject.
+- **VERIFY**: then run `klc step verify {{ ticket }} {{ step }}` — it executes the
+  step's VERIFY and records the result in `build/steps.json`. Re-run it after
+  any later fix commit.
 
 If any of these are missing for a behaviour-changing step, stop and add
 `[!QUESTION blocks=build]` to `impl-plan.md`; do not infer a new plan.
@@ -43,7 +55,7 @@ If any of these are missing for a behaviour-changing step, stop and add
 
 {{ step_red }}
 
-### VERIFY — run before signalling success
+### VERIFY — `klc step verify {{ ticket }} {{ step }}` runs this after the green commit
 
 {{ step_verify }}
 
@@ -55,7 +67,9 @@ If any of these are missing for a behaviour-changing step, stop and add
 
 ## Role prompt
 
-{% if impl_prompt is not none %}
+{% if role_carried %}
+Role prompt: carried by the klc-impl subagent definition.
+{% elif impl_prompt is not none %}
 {{ impl_prompt }}
 {% elif impl_prompt_ref is not none %}
 **Before acting, read the role prompt at:**
@@ -89,6 +103,6 @@ LSP is insufficient.
 
 ## When done
 
-After tests are green, emit `IMPL_STEP_OK {{ ticket }} step-{{ step }}` and
+After tests are green, commit, run `klc step verify {{ ticket }} {{ step }}`, then emit `IMPL_STEP_OK {{ ticket }} step-{{ step }}` and
 run `klc step {{ ticket }} {{ step + 1 }}` to get the next step's card,
 or `klc ack {{ ticket }} --pick 1` if this was the last step.

@@ -95,7 +95,8 @@ conventions. It must be runnable with the command in CLAUDE.md's
 
 ### 5. Verify
 
-Run the test suite (or the targeted subset) yourself:
+(XS has no impl-plan, so there is no `klc step verify` and no
+`build/steps.json` entry.) Run the test suite (or the targeted subset) yourself:
 ```
 <test command from CLAUDE.md>
 ```

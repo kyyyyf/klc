@@ -6,7 +6,6 @@ tests/prompt_harness.py (offline harness) and core/skills/phase_completion.py
 """
 from __future__ import annotations
 
-import fnmatch
 import re
 import sys
 from pathlib import Path
@@ -171,30 +170,6 @@ def _split_paths(value: str) -> list[str]:
         if part:
             paths.append(part)
     return paths
-
-
-def affected_allows(path: str, entries: list[str]) -> bool:
-    """True when *path* is covered by one declared `Affected:` entry
-    (KLC-114 AC-2). Notation only — the `tests`/`klc-plugin` POLICY widenings
-    live in `step_ledger._out_of_scope`, not here.
-
-    An entry matches *path* when it is: an exact match; a glob pattern
-    (contains `*`, `?` or `[`) that `fnmatch`-matches *path*; a directory
-    prefix (ends with `/`) that *path* starts with; or a bare basename (no
-    `/`) that *path* ends with, on a path boundary."""
-    for raw in entries:
-        d = _strip_annotation(raw)
-        if not d:
-            continue
-        if path == d:
-            return True
-        if any(ch in d for ch in "*?[") and fnmatch.fnmatch(path, d):
-            return True
-        if d.endswith("/") and path.startswith(d):
-            return True
-        if "/" not in d and path.endswith("/" + d):
-            return True
-    return False
 
 
 def extract_step_fields(body: str) -> dict:

@@ -79,10 +79,14 @@ def test_inclient_spawn_instructions_name_the_rendered_plugin_path_not_the_raw_s
     `{{include:...}}` line."""
     text = (CORE_AGENTS / doc_name).read_text(encoding="utf-8")
     for reviewer_name in reviewers:
-        assert f"klc-plugin/agents/{reviewer_name}" in text, (
-            f"{doc_name} must name klc-plugin/agents/{reviewer_name} as the "
-            f"rendered prompt handed to the subagent"
-        )
+        # KLC-172 step-4: producer prompts no longer describe the downstream
+        # reviewer spawn, so only review.md must still name the rendered path;
+        # every doc must never point at the raw source.
+        if doc_name == "review.md":
+            assert f"klc-plugin/agents/{reviewer_name}" in text, (
+                f"{doc_name} must name klc-plugin/agents/{reviewer_name} as the "
+                f"rendered prompt handed to the subagent"
+            )
         assert f"`core/agents/{reviewer_name}`" not in text, (
             f"{doc_name} must not still point the in-client spawn at the raw "
             f"core/agents/{reviewer_name} source"

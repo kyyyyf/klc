@@ -25,7 +25,7 @@ for _p in (str(_PROJECT_ROOT_DIR), str(_SKILLS)):
         sys.path.insert(0, _p)
 
 from findings import Finding  # noqa: E402
-from _paths import klc_ticket_dir, framework_root  # noqa: E402
+from _paths import transient_dir, transient_read_path, framework_root  # noqa: E402
 import lint_review_prompts  # noqa: E402
 
 _BLOCKING = {"CRITICAL", "HIGH"}
@@ -93,7 +93,7 @@ def _write_review(ticket: str, step: int, result: "RouteResult") -> None:
         verdict=verdict,
     )
 
-    build = klc_ticket_dir(ticket) / "build"
+    build = transient_dir(ticket) / "build"
     build.mkdir(parents=True, exist_ok=True)
     (build / f"step-{step}-review.md").write_text(rendered, encoding="utf-8")
 
@@ -104,9 +104,8 @@ def compose_review_input(ticket: str, step: int, *, step_diff: str = "") -> str:
     step_diff: the git diff for this step's commit(s). Callers that know the
     commit range should pass it; omitting it produces a valid but diff-less package.
     """
-    build = klc_ticket_dir(ticket) / "build"
-    brief_path = build / f"step-{step}-brief.md"
-    report_path = build / f"step-{step}-impl-report.md"
+    brief_path = transient_read_path(ticket, f"build/step-{step}-brief.md")
+    report_path = transient_read_path(ticket, f"build/step-{step}-impl-report.md")
 
     parts = []
     if brief_path.exists():

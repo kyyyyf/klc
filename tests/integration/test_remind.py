@@ -84,7 +84,7 @@ def _fabricate_completable_discovery(root: Path, ticket: str, *,
     tdir.mkdir(parents=True)
     meta = {
         "ticket": ticket,
-        "kind": "bug",
+        "kind": "tech",
         "phase": phase,
         "phase_history": [],
         "track": "M",
@@ -103,14 +103,14 @@ def _fabricate_completable_discovery(root: Path, ticket: str, *,
     spec = (
         "---\n"
         f"ticket: {ticket}\n"
-        "kind: bug\n"
+        "kind: tech\n"
         "authority: human\n"
         "risk_tags: [data]\n"
         "---\n\n"
         f"# {ticket} — completable discovery fixture\n\n"
         "## Goals\n\nMake the thing read-only.\n\n"
         "## Acceptance Criteria\n\n1. AC-1: given X, when Y, then Z.\n\n"
-        "## Approaches considered\n\n"
+        "## Approaches\n\n"
         "- Approach A — keyword flag: gate the write behind a defaulted keyword.\n"
         "- Approach B — relocate: move the write to the ack path.\n\n"
         "Picked: Approach A — smallest blast radius.\n\n"

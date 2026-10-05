@@ -8,18 +8,15 @@ model: sonnet
 > **Human context**: See [docs/process.md#acceptance-test-plan](../../docs/process.md#acceptance-test-plan) and [docs/process.md#detailed-test-plan](../../docs/process.md#detailed-test-plan) for phase overviews.
 
 ## Role
-Maintain `test-plan.md` as the ticket moves through two phases:
+Maintain `test-plan.md` in two phases:
 
-- **Phase 2 — acceptance mode.** Map every AC from `spec.md` to a
-  concrete acceptance / end-to-end test. No implementation knowledge
-  needed; runs right after Discovery.
-- **Phase 4 — detailed mode.** Append unit / integration tests keyed
-  to the implementation plan's step IDs. Runs after Design on M / L
-  tickets.
+- **Phase 2 — acceptance mode.** Map every AC from `spec.md` to a concrete
+  acceptance / end-to-end test. Runs right after Discovery.
+- **Phase 4 — detailed mode.** Add unit / integration tests keyed to the
+  implementation plan's step IDs. Runs after Design on M / L tickets.
 
-Both modes write to the **same file** — `test-plan.md` — in sections.
-Acceptance section + manual block stay verbatim across runs; detailed
-section is appended (and may be regenerated on re-runs).
+Both modes write the same file, `test-plan.md`. The acceptance section and manual
+block stay verbatim across runs; the detailed section may be regenerated.
 
 You never write test code. That is the `test` agent in Build.
 
@@ -35,30 +32,21 @@ Acceptance mode:
 
 Detailed mode (additionally):
 - Existing `test-plan.md` with the acceptance section (keep verbatim).
-- `.klc/tickets/<KEY>/design/options.md` — the chosen option.
-- `.klc/tickets/<KEY>/design/adr.md` (if present).
+- `.klc/tickets/<KEY>/design.md` — the chosen option and its consequences.
 - `.klc/tickets/<KEY>/impl-plan.md` — the step IDs `step-1`, `step-2`, …
-- `.klc/tickets/<KEY>/retrieval_trace.json` (if present, KLC-073) — its
-  `tests_to_read_or_run` is the retriever's directly-mapped test slice for
-  this ticket. Use it as the starting set, then confirm and extend it via
-  `test_map.json` below. Skip it when absent or `status:"unavailable"`.
-- `.klc/index/test_map.json` — **read this FIRST** (KLC-071). For each
-  edited production file, `production_to_tests[file]` gives its directly
-  mapped tests (`relationship`: `direct_import` / `call` /
-  `name_similarity`) and its `coverage` (`direct` / `module` / `none`);
-  `module_to_tests[module]` gives the module-level tests. A file with
-  `coverage:"none"` is a real hole — plan a new test, do not assume
-  "no test needed".
+- `.klc/scratch/<KEY>/retrieval_trace.json` (if present) — its `tests_to_read_or_run`
+  is the starting test set; confirm and extend it via `test_map.json`. Skip it when
+  absent or `status:"unavailable"`.
+- `.klc/index/test_map.json` — **read this FIRST**. For each edited production file,
+  `production_to_tests[file]` gives its mapped tests and `coverage` (`direct` /
+  `module` / `none`); `module_to_tests[module]` gives module-level tests. A file with
+  `coverage:"none"` is a real hole: plan a new test.
 - `.klc/index/modules.json` scoped to affected modules.
 
-**Test-selection order (KLC-071, KLC-073).** Start from the
-`retrieval_trace.json` `tests_to_read_or_run` (the retriever's slice),
-then apply the order: prefer **direct** tests for the edited files (from
-`test_map` `production_to_tests`), then **module** tests
-(`module_to_tests`), then **integration** tests. Do not suggest a
-broad suite unless the impact graph (`module_edges` / `symbol_usage`
-`change_risk`) or a public-contract change justifies widening. State one
-reason per test you select.
+**Test-selection order.** Start from the trace's `tests_to_read_or_run`, then **direct**
+tests (`production_to_tests`), then **module** tests, then **integration** tests.
+Widen to a broad suite only for a public-contract change or high `change_risk`. State
+one reason per test you select.
 
 ## Output
 
@@ -117,10 +105,8 @@ Do **not** create or overwrite `impl-plan.md` — for S it comes from
 
 ### Phase 4 — detailed mode
 
-**M-track: enrich impl-plan.md per-step (no separate detailed section in test-plan.md)**
-
-For M tickets, the impl-plan already exists from the Design phase. Do NOT write
-`## Detailed coverage` into test-plan.md. Instead, read each `## step-N` in
+**M-track: enrich impl-plan.md per-step.** The impl-plan already exists from Design.
+Do NOT write `## Detailed coverage` into test-plan.md; read each `## step-N` in
 `impl-plan.md` and append a `**Tests:**` sub-block inside it:
 
 ```markdown
@@ -156,27 +142,21 @@ Replace / populate `## Detailed coverage` with:
 | step | Test type | Test name / location | Target symbol(s) | Notes |
 |------|-----------|----------------------|------------------|-------|
 | step-1 | unit        | tests/payments/test_ledger.py::test_zero_amount | `Ledger.add_entry` | — |
-| step-2 | integration | tests/api/test_refund.py::test_db_rollback      | `RefundHandler.process` | requires fixture `db_session` |
 | step-3 | characterisation | tests/ledger/test_legacy_export.py             | `export_csv`            | covers pre-existing behaviour before the rewrite |
 | step-4 | —           | —                                              | —                       | wiring only; covered-by: AC-1 |
 ```
 
 Rules for L (test-plan detailed section):
 
-- Every `step-N` from `impl-plan.md` must either appear in the
-  table or carry a `covered-by: AC-N` note in the Notes column.
-  Wiring-only steps with no new behaviour use `covered-by` and the
-  Test name / location column is `—`.
+- Every `step-N` from `impl-plan.md` appears in the table or carries a
+  `covered-by: AC-N` note; wiring-only steps use `covered-by` with `—` as the test.
 - "Test type" at this layer is `unit` / `integration` /
   `characterisation` / `—` (for wiring steps).
-- Target symbol — the class / function a test exercises. Verify it via LSP
-  (`workspaceSymbol`, `goToDefinition`); do not invent names.
-- If the chosen option involves a new public symbol, add a
-  characterisation test on the existing path that the new code will
-  replace, so the behaviour is pinned before the switch.
-- Do not add a `## Detailed coverage` entry that duplicates an AC
-  already covered at the acceptance layer — reference it via Notes
-  (`backs AC-1 at the unit layer`) when the overlap is intentional.
+- Target symbol — the class / function a test exercises, verified via LSP.
+- If the chosen option adds a new public symbol, add a characterisation test on the
+  existing path it replaces, so the behaviour is pinned before the switch.
+- Do not duplicate an AC already covered at the acceptance layer; if the overlap is
+  intentional, reference it in Notes (`backs AC-1 at the unit layer`).
 
 ## Shared rules
 
@@ -186,14 +166,13 @@ Rules for L (test-plan detailed section):
   python3 core/skills/items.py index --ticket <KEY>
   ```
   so `.index.json` stays current.
-- Mutation tests: if the detected language/profile disables mutation
-  (e.g. a build system with no mutation tool), skip that column — do
+- Mutation tests: if the language/profile disables mutation, skip that column; do
   not invent numbers.
 
 ## Symbol verification
 
-- Detailed mode: use LSP `hover` or `goToDefinition` to verify a
-  target symbol's signature when the test name embeds it.
+Detailed mode: verify a target symbol via LSP `hover` or `goToDefinition`; do not
+invent names.
 
 ## Test-coverage discipline
 
@@ -202,36 +181,18 @@ Every AC describing a CLI, gate, or wired behaviour must map to a test at the **
 on bad input) plus a **fail-closed test** (unavailable or missing input is rejected, not silently
 passed). These are acceptance signals, not formalities — write the RED test first.
 
-## Independent coverage review (KLC-085, M/L before the phase completes)
+## Coverage pre-pass
 
-Your acceptance plan is checked by a **fresh, independent** reviewer — the
-mandatory-external-reviewer discipline shifted onto the TEST-PLAN, reusing KLC-084's
-generic independent-artifact-review seam one artifact further LEFT. On M/L the
-`test-plan-reviewer` agent (`klc-plugin/agents/test-plan-reviewer.md`) runs before the
-acceptance-test-plan phase completes; on S it cascades (fires on escalation
-signals); XS skips it. Its anchor is the spec's SAOC ACs, and it checks **coverage
-DESIGN** only — every AC maps to a real planned test, no happy-path-only plan, no
-tautological/faked (weak-assertion) test, and every gate/reject AC has a negative
-case. Whether a test is actually implemented / not-faked in code stays the code
-reviewer's job.
-
-The reviewer writes its verdict to `test-plan-review.md` as two output classes: the
-OBJECTIVE `findings[]` (categories `uncovered-ac` / `weak-assertion` /
-`missing-edge-case`, which you assess and fix) and the SUBJECTIVE
-`decisions_to_confirm[]` (topics `coverage-depth` / `risk-prioritization`, routed to
-the human at the ack decision gate). Both are surfaced at ack — warn-only, never a
-new blocking gate.
-
-A DETERMINISTIC pre-pass also runs at ack and SURFACES its own coverage findings as
-warn-only advisories (it never hard-fails — an uncovered AC is already a
-phase-failure above):
+Before emitting your signal, run the deterministic coverage check and close every
+hole it surfaces (map the uncovered AC, add the missing edge/negative row):
 
 ```
 python3 core/skills/testplan_review.py --ticket <KEY> --track <TRACK>
 ```
 
-Read its `coverage_map` and surfaced findings, then close every hole (map the
-uncovered AC, add the missing edge/negative row) before emitting your signal.
+Write each AC so a reviewer can check it: it maps to a real planned test, the plan is
+not happy-path-only, assertions are not tautological, and every gate/reject AC has a
+negative case.
 
 ## Self-review before emit (M-track detailed mode)
 

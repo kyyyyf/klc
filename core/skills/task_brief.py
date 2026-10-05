@@ -1,9 +1,10 @@
 """task_brief.py — dependency-resolved step brief for fresh-subagent dispatch.
 
 Public API:
-    build_step_brief(ticket: str, step: int) -> str
+    build_step_brief(ticket: str, step: int, *, findings=None) -> str
         Renders a Markdown brief for one impl-plan step containing:
-          - spec Goals + ACs (global constraints)
+          - spec Goals + ACs (global constraints; full for step 1, a pointer later)
+          - the review findings that concern this step
           - target step's full body
           - only the Interfaces + COMMIT surface of each Depends-on step
           - recorded DECISION lines from the plan
@@ -13,6 +14,7 @@ Public API:
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -26,6 +28,7 @@ for _p in (str(_PROJECT_ROOT_DIR), str(_SKILLS)):
 from impl_plan_check import parse_impl_plan_steps, extract_step_fields  # noqa: E402
 from artefacts import _extract_goals_acs  # noqa: E402
 from _paths import klc_ticket_dir, framework_root  # noqa: E402
+import findings_store  # noqa: E402
 
 _DEPENDS_RE = re.compile(r"(?im)^\s*-?\s*\*{0,2}Depends-on\*{0,2}:\s*(.+)$")
 _DECISION_RE = re.compile(r"(?m)^.*\bDECISION\s+D-\d+\b.*$")
@@ -75,7 +78,45 @@ def _decisions(plan_text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _render(goals_acs: str, target: dict, dep_surfaces: list[dict], decisions: str, ticket: str, step: int) -> str:
+_FINDINGS_KINDS = ("spec-review", "test-plan-review", "impl-plan-review", "layer0")
+
+
+def _mentions(text: str, step_num: int, addresses: set[str]) -> bool:
+    """True when free text names `step-N` (word-bounded, so step-2 never
+    matches step-20) or any AC id in *addresses* (so AC-1 never matches AC-12)."""
+    if re.search(rf"\bstep-{step_num}\b", text, re.IGNORECASE):
+        return True
+    return any(ac_id in addresses for ac_id in re.findall(r"\bAC-\d+\b", text))
+
+
+def step_findings(ticket: str, step_num: int) -> list[dict]:
+    """KLC-172: the review findings that concern one step. Stored findings carry
+    their step / AC reference as free text in `ref` (`ac` is "" and there is no
+    `step` key), so a finding matches when its `ref` — or, when `ref` is empty,
+    its `title` + `body` — names `step-N` or one of the step's `Addresses:` ACs;
+    an explicit integer `step == N` matches too. The brief lists them so the
+    build agent no longer reads the three findings files."""
+    tdir = klc_ticket_dir(ticket)
+    steps = parse_impl_plan_steps(_read_plan(ticket))
+    addresses = set(_by_id(steps, f"step-{step_num}").get("addresses") or [])
+    out: list[dict] = []
+    for kind in _FINDINGS_KINDS:
+        for d in findings_store.read_dicts(tdir, kind=kind)[0]:
+            ref = " ".join(str(d.get(k) or "") for k in ("ref", "ac")).strip()
+            text = ref or f"{d.get('title') or ''} {d.get('body') or ''}"
+            if (type(d.get("step")) is int and d["step"] == step_num) \
+                    or _mentions(text, step_num, addresses):
+                out.append(d)
+    return out
+
+
+def _finding_line(d: dict) -> str:
+    return (f"- [{d.get('severity', '?')}] {d.get('rule_name', '?')} — "
+            f"{d.get('title', '')} ({d.get('file', '?')}:{d.get('line', '?')})")
+
+
+def _render(goals_acs: str, target: dict, dep_surfaces: list[dict], decisions: str, ticket: str, step: int,
+            findings_lines: list[str] | None = None) -> str:
     try:
         from jinja2 import Environment, FileSystemLoader
     except ImportError:
@@ -95,10 +136,11 @@ def _render(goals_acs: str, target: dict, dep_surfaces: list[dict], decisions: s
         target=target,
         dep_surfaces=dep_surfaces,
         decisions=decisions,
+        findings_lines=findings_lines or [],
     )
 
 
-def build_step_brief(ticket: str, step: int) -> str:
+def build_step_brief(ticket: str, step: int, *, findings: list[dict] | None = None) -> str:
     """Render a dependency-resolved brief for impl-plan step N."""
     plan_text = _read_plan(ticket)
     steps = parse_impl_plan_steps(plan_text)
@@ -115,8 +157,17 @@ def build_step_brief(ticket: str, step: int) -> str:
     goals_acs = _extract_goals_acs(klc_ticket_dir(ticket) / "spec.md")
     if goals_acs.startswith("_("):
         raise ValueError(f"spec.md for ticket {ticket!r} is missing or unparseable: {goals_acs}")
+    # KLC-172: full Goals+ACs once (step 1, or a one-step plan); later steps
+    # get a pointer: the spec is one `Read` away and the ACs were already
+    # assessed at step 1, so repeating them in every brief is waste.
+    if step != 1 and len(steps) > 1:
+        goals_acs = (f"Goals and ACs: see .klc/tickets/{ticket}/spec.md "
+                     f"(sent with step 1)")
+    if findings is None:
+        findings = step_findings(ticket, step)
     decisions = _decisions(plan_text)
-    return _render(goals_acs, target, dep_surfaces, decisions, ticket, step)
+    return _render(goals_acs, target, dep_surfaces, decisions, ticket, step,
+                   [_finding_line(d) for d in findings])
 
 
 def _render_report_skeleton(ticket: str, step: int) -> str:

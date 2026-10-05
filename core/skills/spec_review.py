@@ -294,7 +294,7 @@ def summarize_findings(output: ReviewOutput, kind: ReviewKind = SPEC_REVIEW) -> 
     highs = sum(1 for f in output.findings if f.severity.upper() in ("HIGH", "CRITICAL"))
     return [
         f"{kind.name}-review: {len(output.findings)} finding(s) recorded "
-        f"({highs} high) in {kind.name}-review-findings.json — assess before build"
+        f"({highs} high) in findings.json — assess before build"
     ]
 
 
@@ -305,19 +305,18 @@ def record_findings(output: ReviewOutput, ticket_dir: Path | None = None,
     """Return the findings as dicts for the implementer to assess.
 
     When *ticket_dir* is given, also persist them to
-    `<ticket_dir>/<kind.name>-review-findings.json` so the build phase can read
+    `<ticket_dir>/findings.json` (kind `<name>-review`, round 1) so the build phase can read
     them (mirrors how the code-reviewer's findings are assessed, not auto-applied).
     Degrade-safe: a write failure or a degraded output never raises.
     """
     records = [f.to_dict() for f in output.findings]
     if ticket_dir is not None:
         try:
-            path = Path(ticket_dir) / f"{kind.name}-review-findings.json"
-            path.write_text(
-                json.dumps(records, indent=2, ensure_ascii=False) + "\n",
-                encoding="utf-8",
-            )
-        except OSError:
+            import findings_store
+            findings_store.write_kind(Path(ticket_dir),
+                                      findings_store.STORE_KIND_BY_KEY[kind.name], 1,
+                                      list(output.findings))
+        except (OSError, ValueError, KeyError, TypeError):
             pass  # degrade-not-fail: recording is best-effort
     return records
 
@@ -421,7 +420,7 @@ def consume_records(ticket_dir: Path, track: str | None, signals: dict | None = 
         if errors:
             old = any(isinstance(r, dict) and k in r for r in output.raw_findings
                       for k in ("category", "detail", "suggested_fix"))
-            hint = "; old shape: migrated by KLC-154 (handback.py migrate)" if old else ""
+            hint = "; old shape: re-run the reviewer with the current finding schema" if old else ""
             records.append(_rec("medium", "schema",
                                 f"{kind.name}-review[schema]: {len(errors)} error(s): "
                                 f"{'; '.join(errors[:3])}{hint}"))
@@ -430,7 +429,7 @@ def consume_records(ticket_dir: Path, track: str | None, signals: dict | None = 
         if output.findings:
             highs = sum(1 for f in output.findings if f.severity.upper() in ("HIGH", "CRITICAL"))
             msg = (f"{kind.name}-review: {len(output.findings)} finding(s) recorded "
-                   f"({highs} high) in {kind.name}-review-findings.json — assess before build")
+                   f"({highs} high) in findings.json — assess before build")
             records.append(_rec("high" if highs else "medium", "findings", msg))
 
         # Write only on the persisting (ack) path; a probe records nothing.
@@ -454,7 +453,7 @@ def consume(ticket_dir: Path, track: str | None, signals: dict | None = None,
         human already sees); carries every routed decision_to_confirm, a collapsed
         findings summary (so the OBJECTIVE primary output is not silent), and any
         schema-validation note.
-      * findings   -> recorded to `<kind.name>-review-findings.json` for the build
+      * findings   -> recorded to `findings.json` for the build
         phase to assess — but ONLY when `persist` is True. A read-only probe
         (`persist=False`, used by `klc remind` / gate-policy signal collection)
         surfaces the same advisories WITHOUT writing (read-only verbs don't write).

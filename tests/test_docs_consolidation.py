@@ -110,7 +110,7 @@ def test_process_doc_absorbed_markers():
         "Product Manager",          # roles.md
         "Framework operator",       # roles.md
         "TDD loop",                 # glossary.md / build
-        "options-lite.md",          # process-artifacts.md
+        "build/steps.json",         # process-artifacts.md (options-lite.md retired, KLC-176)
         "cheap_escape_rate",        # process-metrics.md
         "meta.blocked_by",          # epics.md
         "public mirror",            # dual-remote workflow
@@ -124,9 +124,9 @@ def test_process_doc_retains_doc_honesty_strings():
     """AC-2 / AC-9: the two doc-honesty tests (klc093/094) keep passing — the
     consolidated process.md still names the findings files + build/assess wiring."""
     t = (DOCS / "process.md").read_text("utf-8")
-    for s in ("test-plan-review-findings.json",
-              "impl-plan-review-findings.json",
-              "spec-review-findings.json", "impl.md"):
+    for s in ("findings.json", "test-plan-review",
+              "impl-plan-review",
+              "spec-review", "impl.md"):
         assert s in t, s
 
 
@@ -214,7 +214,7 @@ _DELETED_DOCS = [
 # The machine-coupled + operational docs that STAY (spec-review D-1, C-002).
 _KEPT_DOCS = [
     "process.md", "architecture.md", "constitution.md", "coverage-taxonomy.md",
-    "tracks.md", "severity-rubric.md",
+    "tracks.md",  # severity-rubric.md moved to config/ (KLC-172)
 ]
 
 # Dirs the repo-wide dead-link net must return zero hits over (AC-10 scope).

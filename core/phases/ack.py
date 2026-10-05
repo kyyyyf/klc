@@ -77,6 +77,8 @@ def _run(argv: list[str]) -> int:
                     help="apply gate-policy: auto-ack conditional picks when signals are clean")
     ap.add_argument("--json", action="store_true",
                     help="machine-readable JSON output")
+    ap.add_argument("--note", default="",
+                    help="free text recorded with the outcome (manual: meta.manual.note)")
     ap.add_argument("--no-index-refresh", action="store_true",
                     help="skip the deterministic index refresh for this run "
                          "(KLC-107)")
@@ -142,6 +144,9 @@ def _run(argv: list[str]) -> int:
                             _lc.set_state(
                                 args.ticket, pid, new_state,
                                 event="manual-completion", note=note,
+                                # F-001: a failed advisories write must keep the
+                                # gate dirty, so the history entry says so.
+                                extra=advisories.history_marker(args.ticket, pid),
                             )
                     except holder.HolderConflictError as e:
                         hid = e.holder.get("id") if e.holder else "?"
@@ -311,7 +316,7 @@ def _run(argv: list[str]) -> int:
                     # enforced by the state_tx envelope: it raises StaleStateError
                     # before this body if the pull changed the ticket's committed
                     # state at all — phase, meta, OR any artifact/gate input.
-                    acked["new_state"] = _lc.apply_ack(args.ticket, pick_id)
+                    acked["new_state"] = _lc.apply_ack(args.ticket, pick_id, args.note)
                     if tx is not None:
                         ident = {"id": identity.current(),
                                  "machine": socket.gethostname()}
@@ -387,11 +392,8 @@ def _run(argv: list[str]) -> int:
 
             if new_st == _ph.STATE_WORK:
                 step = 1 if new_pid == "build" else None
-                # KLC-119 AC-6: render_card() measures the card (records an
-                # `estimated` attempt) — this render happens AFTER the tx
-                # above has already committed and pushed (F-013), so the
-                # write lands in the journal and the NEXT state_tx for this
-                # ticket drains it (AC-4/AC-5).
+                # render_card() only renders and measures the card size; it
+                # records no token attempt (KLC-174).
                 card = render_card(args.ticket, new_pid, meta, step=step).path
                 print(f"→ {new_state}")
                 print(f"  cat {card}")

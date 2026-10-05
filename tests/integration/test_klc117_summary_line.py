@@ -46,6 +46,8 @@ def test_empty_advisory_result_when_no_producer_emits(tmp_path, monkeypatch):
         "# Implementation plan — KLC-EMPTY\n", encoding="utf-8")
 
     monkeypatch.setattr(_pc, "_impl_plan_steps", lambda d: [])
+    import step_state  # KLC-174: step gate is covered in test_klc174_build_ack.py
+    monkeypatch.setattr(step_state, "check_build", lambda *a, **k: (True, ""))
     monkeypatch.setattr(acov, "check", lambda *a, **k: acov.Report(track="M"))
 
     ok, msg = _pc.can_complete_build("KLC-EMPTY", persist=True)

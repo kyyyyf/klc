@@ -36,7 +36,7 @@ for _p in (str(_project_root_dir), str(_file_dir)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from core.shared.paths import klc_ticket_dir, klc_ticket_meta_file, project_root  # noqa: E402
+from core.shared.paths import design_doc_path, klc_ticket_dir, klc_ticket_meta_file, project_root  # noqa: E402
 import items as _items  # noqa: E402
 
 EVIDENCE_VALUES = _items.EVIDENCE_VALUES
@@ -202,6 +202,9 @@ STEP_PREMISE = "step-premise"
 # shipped design document uses) is never swallowed into the last option's span.
 _ANY_H2_RE = re.compile(r"^##\s+")
 _OPTION_HEADING_RE = re.compile(r"(?i)^##\s+Option\b.*$")
+# design.md nests its options one level down (`### Option A`) under `## Options`.
+_H3_OPTION_HEADING_RE = re.compile(r"(?i)^###\s+Option\b.*$")
+_ANY_H2_H3_RE = re.compile(r"^#{2,3}\s+")
 # Both spellings seen in shipped design documents (F-002): `(recommended)` and
 # `(recommended: true)`.
 _RECOMMENDED_RE = re.compile(r"(?i)\(\s*recommended(\s*:\s*true)?\s*\)")
@@ -212,12 +215,15 @@ def _option_section_line_spans(text: str) -> list[tuple[int, int, bool]]:
     """[(start_line, end_line_exclusive, recommended)] per `## Option` heading,
     1-indexed to match `item.line`/index `line` numbering."""
     lines = text.splitlines()
-    heads = [i for i, ln in enumerate(lines) if _ANY_H2_RE.match(ln)]
+    heads = [i for i, ln in enumerate(lines) if _ANY_H2_H3_RE.match(ln)]
     spans = []
     for k, idx in enumerate(heads):
-        if not _OPTION_HEADING_RE.match(lines[idx]):
+        h2 = _OPTION_HEADING_RE.match(lines[idx])
+        if not (h2 or _H3_OPTION_HEADING_RE.match(lines[idx])):
             continue
-        end = heads[k + 1] if k + 1 < len(heads) else len(lines)
+        # a `## Option` span ends at the next `##`; a `### Option` one at the next `##`/`###`
+        nxt = [h for h in heads[k + 1:] if not h2 or _ANY_H2_RE.match(lines[h])]
+        end = nxt[0] if nxt else len(lines)
         spans.append((idx + 1, end + 1, bool(_RECOMMENDED_RE.search(lines[idx]))))
     return spans
 
@@ -230,7 +236,8 @@ def load_bearing(ticket: str) -> tuple[dict, list]:
     notes: list[Finding] = []
     channels: dict[str, str] = {}
 
-    options_path = klc_ticket_dir(ticket) / "design" / "options.md"
+    options_path = design_doc_path(ticket)
+    options_rel = options_path.relative_to(klc_ticket_dir(ticket)).as_posix()
     options_text = options_path.read_text(encoding="utf-8") if options_path.exists() else ""
     spans = _option_section_line_spans(options_text)
     if spans and not any(r for _, _, r in spans):
@@ -242,11 +249,11 @@ def load_bearing(ticket: str) -> tuple[dict, list]:
 
     # Document-level channel: any evidence-bearing item type (D-005 explicitly
     # discusses a document-channel ASSUMPTION, not only DECISION) sitting in
-    # `design/options.md` outside every excluded (non-recommended) span.
+    # `design.md` (or legacy `design/options.md`) outside every excluded (non-recommended) span.
     for item_id, rec in index.items():
         if (rec["type"] in ("DECISION", "ASSUMPTION", "FACT")
                 and rec["status"] == "active"
-                and rec["file"] == "design/options.md"
+                and rec["file"] == options_rel
                 and not any(s <= rec["line"] < e for s, e in excluded)):
             channels[item_id] = DOCUMENT
 

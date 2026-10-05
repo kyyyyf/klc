@@ -204,13 +204,12 @@ def run(argv: list[str]) -> int:
                 print(json.dumps({"ticket": args.ticket, "phase": new_state,
                                   "track": meta.get("track"),
                                   "card": str(render.path),
-                                  "card_bytes": render.card_bytes,
-                                  "card_est_tokens": render.est_tokens}))
+                                  "card_bytes": render.card_bytes}))
                 return 0
 
             print(f"→ {new_state}")
             print(f"  cat {render.path}")
-            print(f"    # card: {render.card_bytes} bytes, ~{render.est_tokens} est tokens")
+            print(f"    # card: {render.card_bytes} bytes")
             if new_pid == "build":
                 print(f"    # paste into your agent; use `klc step {args.ticket} N` for subsequent steps")
             else:

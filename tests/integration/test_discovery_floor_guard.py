@@ -16,7 +16,7 @@ def _write_spec(ticket_dir: Path, ticket: str) -> None:
         "## Goals\nTest.\n\n## Acceptance Criteria\n- AC-1: pass.\n\n"
         "## Estimate\ncomplexity: 1\n\n"
         # KLC-032 gate: M-track can_complete_discovery requires ≥2 approaches + pick
-        "- Option A: first approach\n"
+        "## Approaches\n- Option A: first approach\n"
         "- Option B: second approach\n\n"
         "Picked: Option A — simpler\n",
         encoding="utf-8",
@@ -115,7 +115,7 @@ def test_no_downgrade_unaffected(tmp_path, monkeypatch):
 
 
 def test_downgrade_audited_in_meta(tmp_path, monkeypatch):
-    """A permitted downgrade backfills track_source + blast_radius into meta.json."""
+    """A permitted downgrade backfills track_source into meta.json."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket = "KLC-T04"
     ticket_dir = tmp_path / ".klc" / "tickets" / ticket
@@ -132,7 +132,7 @@ def test_downgrade_audited_in_meta(tmp_path, monkeypatch):
     assert ok
     meta = json.loads((ticket_dir / "meta.json").read_text())
     assert meta["track_source"] == "discovery"
-    assert meta["blast_radius"] == {"available": True, "external_dependents": []}
+    assert "blast_radius" not in meta        # KLC-176: write-only, no longer persisted
 
 
 def test_operator_retrack_not_blocked(tmp_path, monkeypatch):

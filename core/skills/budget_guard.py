@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""budget_guard.py — prompt-size budget helpers, shared by runner.py and
-the orchestrator (KLC-052).
+"""budget_guard.py — token telemetry writer plus the warn-only real-spend check.
 
-Moved out of runner.py verbatim (behavior preserved) so an advisory,
-non-dispatching check (`check_prompt_budget`) can be reused by the
-orchestrator loop before it even attempts a dispatch, instead of only
-being enforced inline inside `run_agent`.
+Why: the old card-size gate compared an ESTIMATE of the prompt with fixed
+limits. KLC-174 replaced it with `real_spend_warning`, which compares what a
+ticket REALLY spent (usage imported from transcripts or read from the provider
+envelope) with the recent history of the same track. It only warns; nothing in
+this module blocks a dispatch, and nothing writes an `estimated` attempt.
 """
 from __future__ import annotations
 
@@ -13,63 +13,39 @@ import datetime as _dt
 import json
 import re
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 
 
-# --- budget loading ------------------------------------------------------------
+# --- real-spend warning config ---------------------------------------------------
 
-def load_budget_limits() -> tuple[dict[str, int], dict[str, int]]:
-    """Return (soft_limits, hard_limits) from config/budgets.yml.
+_REAL_SPEND_DEFAULTS = {"window": 10, "factor": 1.5}
 
-    Supports both the new soft_limits/hard_limits keys and the legacy
-    prompt_input_limits key (treated as hard limit only).
-    """
+
+def load_real_spend_config() -> dict:
+    """`real_spend_warn: {window, factor}` from config/budgets.yml, falling
+    back to the defaults (last 10 archived tickets, 1.5x the median)."""
+    cfg = dict(_REAL_SPEND_DEFAULTS)
     try:
         import yaml
         from _paths import framework_root
         path = framework_root() / "config" / "budgets.yml"
-        if not path.exists():
-            return {}, {}
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        soft = {k: int(v) for k, v in (data.get("soft_limits") or {}).items()}
-        hard = {k: int(v) for k, v in (data.get("hard_limits") or {}).items()}
-        # legacy fallback
-        if not hard and not soft:
-            legacy = {k: int(v) for k, v in
-                      (data.get("prompt_input_limits") or {}).items()}
-            return {}, legacy
-        return soft, hard
+        raw = data.get("real_spend_warn") or {}
+        if isinstance(raw.get("window"), int) and raw["window"] > 0:
+            cfg["window"] = raw["window"]
+        if isinstance(raw.get("factor"), (int, float)) and raw["factor"] > 0:
+            cfg["factor"] = float(raw["factor"])
     except Exception:
-        return {}, {}
+        pass
+    return cfg
 
 
 # --- token telemetry helpers ----------------------------------------------------
 
-def estimate_tokens_from_bytes(n: int) -> int:
-    """The ONE size-to-token divisor (KLC-119 D-006), for a caller that
-    already has a measured byte count (e.g. a file's on-disk size) rather
-    than text in memory. `estimate_tokens` below delegates here — a
-    caller with bytes in hand must call THIS, never re-derive `// 4`
-    locally (KLC-120 review-fix MEDIUM: scripts/review-runner.py used to)."""
-    return max(1, n // 4)
-
-
-def estimate_tokens(text: str) -> int:
-    """The ONE size-to-token rule (KLC-119 D-006): 1 token ~ 4 UTF-8 bytes.
-
-    Pinned to bytes rather than characters (Q-005): `card_bytes` is already
-    recorded in bytes and the two units differ by under 1.1% on real cards
-    (spec F-014), so a single rule removes the ambiguity rather than keeping
-    two numbers that mostly agree.
-    """
-    return estimate_tokens_from_bytes(len(text.encode("utf-8")))
-
-
 def _new_attempt_id() -> str:
     """12 hex chars from uuid4 — distinct even for two attempts recorded in
-    the same second (AC-2). A backfilled attempt uses a deterministic digest
-    instead (see token_backfill.py, D-004)."""
+    the same second (AC-2). An imported transcript attempt passes a
+    deterministic id instead (see token_import.py)."""
     return uuid.uuid4().hex[:12]
 
 
@@ -78,7 +54,8 @@ def _utc_now() -> str:
 
 
 ATTEMPT_OPTIONAL_KEYS = ("run_pass", "cache_write", "cost_usd", "cost_basis",
-                        "num_turns", "duration_ms", "failed")
+                        "num_turns", "duration_ms", "failed",
+                        "model", "agent_id", "agent_type")
 _MEASURED_KEYS = ("cache_write", "cost_usd", "cost_basis", "num_turns", "duration_ms")
 
 
@@ -92,7 +69,10 @@ def attempt_record(tokens_in: int, tokens_out: int, cache_hit: int,
                    cost_basis: str | None = None,
                    num_turns: int | None = None,
                    duration_ms: int | None = None,
-                   failed: bool | None = None) -> dict:
+                   failed: bool | None = None,
+                   model: str | None = None,
+                   agent_id: str | None = None,
+                   agent_type: str | None = None) -> dict:
     """One attempt record — the unit `write_token_metrics` appends (AC-2/AC-3).
     The identifier is always assigned here (by the writer), never left to the
     caller, so two callers can never collide on one (D-004).
@@ -114,11 +94,17 @@ def attempt_record(tokens_in: int, tokens_out: int, cache_hit: int,
             `runner._parse_envelope` corrected `cost_usd` to the
             modelUsage-derived, basis-consistent figure because it disagreed
             with the envelope's own `total_cost_usd`; absent otherwise, same
-            provider-only gate as the other measured keys."""
+            provider-only gate as the other measured keys.
+
+    KLC-172: `source == "transcript"` (usage imported from a Claude Code
+            subagent transcript) is measured too, so it keeps the same
+            keys and `cache_hit` as "provider". `model`, `agent_id` and
+            `agent_type` are keyword-only, stored only when passed."""
+    measured = source in ("provider", "transcript")
     rec = {"id": attempt_id or _new_attempt_id(),
            "ts": ts or _utc_now(),
            "in": tokens_in, "out": tokens_out,
-           "cache_hit": cache_hit if source == "provider" else 0,
+           "cache_hit": cache_hit if measured else 0,
            "source": source}
     if card_bytes is not None:
         rec["card_bytes"] = card_bytes
@@ -128,7 +114,11 @@ def attempt_record(tokens_in: int, tokens_out: int, cache_hit: int,
         rec["reviewer"] = reviewer
     if run_pass:
         rec["run_pass"] = run_pass
-    if source == "provider":
+    for key, value in (("model", model), ("agent_id", agent_id),
+                       ("agent_type", agent_type)):
+        if value:
+            rec[key] = value
+    if measured:
         for key, value in zip(
                 _MEASURED_KEYS,
                 (cache_write, cost_usd, cost_basis, num_turns, duration_ms)):
@@ -230,7 +220,7 @@ def _append_into_meta(ticket: str, phase_id: str, rec: dict) -> None:
 
 def write_token_metrics(ticket: str | None, phase_id: str,
                          tokens_in: int, tokens_out: int,
-                         cache_hit: int, source: str = "estimated",
+                         cache_hit: int, source: str = "provider",
                          card_bytes: int | None = None, *,
                          step: int | None = None,
                          attempt_id: str | None = None,
@@ -242,7 +232,10 @@ def write_token_metrics(ticket: str | None, phase_id: str,
                          cost_basis: str | None = None,
                          num_turns: int | None = None,
                          duration_ms: int | None = None,
-                         failed: bool | None = None) -> None:
+                         failed: bool | None = None,
+                         model: str | None = None,
+                         agent_id: str | None = None,
+                         agent_type: str | None = None) -> None:
     """The single writer (AC-1) of ``meta.json:metrics.tokens.<phase_id>``.
 
     KLC-119: appends an attempt record to an ordered per-phase attempts list
@@ -259,10 +252,11 @@ def write_token_metrics(ticket: str | None, phase_id: str,
     the next `state_tx` for that ticket drains it — so a telemetry write
     NEVER modifies a tracked file outside an open transaction (AC-4/AC-5).
 
-    source: "provider" (real API usage), "signal" (the completion signal's
-            own usage block) or "estimated" (derived from the rendered
-            artefact's measured size). cache_hit is always 0 unless
-            source == "provider".
+    source: "provider" (real API usage), "transcript" (usage imported from a
+            subagent transcript) or "signal" (the completion signal's own
+            usage block). Old archived metas may still carry "estimated"
+            records; no writer produces them any more (KLC-174).
+            cache_hit is always 0 unless the source is measured.
     card_bytes: the rendered artefact's measured byte size. When omitted,
             carries forward the phase's last-known card size so a caller
             that only has token counts doesn't drop it.
@@ -286,7 +280,9 @@ def write_token_metrics(ticket: str | None, phase_id: str,
                          reviewer=reviewer, run_pass=run_pass,
                          cache_write=cache_write, cost_usd=cost_usd,
                          cost_basis=cost_basis, num_turns=num_turns,
-                         duration_ms=duration_ms, failed=failed)
+                         duration_ms=duration_ms, failed=failed,
+                         model=model, agent_id=agent_id,
+                         agent_type=agent_type)
     try:
         import token_journal
         if token_journal.tx_open(ticket):
@@ -334,79 +330,6 @@ def find_second_writers(root: Path, exclude: set[Path] | None = None) -> list[Pa
     return hits
 
 
-# --- AC-7 single-estimator scan ---------------------------------------------
-
-_SIZE_TO_TOKEN_RE = re.compile(r'//\s*4\b')
-
-
-def find_second_estimators(root: Path, exclude: set[Path] | None = None) -> list[Path]:
-    """AC-7: scan `core/` AND `scripts/` under *root* for a second
-    size-to-token rule. `estimate_tokens`/`estimate_tokens_from_bytes`
-    (this module) are the ONE functions permitted to convert a measured
-    size into a token count; any other `// 4` integer-division site is a
-    competing rule (D-006 deletes the one that used to live in
-    `artefacts._record_card_metrics`; KLC-120 review-fix MEDIUM widened
-    the scan to `scripts/` after `scripts/review-runner.py` grew its own
-    hand-rolled copy)."""
-    root = Path(root)
-    exclude = {p.resolve() for p in (exclude or set())}
-    exclude.add(_SELF_FILE)
-    hits: list[Path] = []
-    for base in (root / "core", root / "scripts"):
-        if not base.exists():
-            continue
-        for py in base.rglob("*.py"):
-            if py.resolve() in exclude:
-                continue
-            try:
-                text = py.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            if _SIZE_TO_TOKEN_RE.search(text):
-                hits.append(py)
-    return hits
-
-
-# --- advisory budget check (KLC-052) --------------------------------------------
-
-@dataclass
-class BudgetVerdict:
-    hard_breach: bool
-    soft_breach: bool
-    estimated:   int
-    limit:       int | None
-
-
-def check_prompt_budget(track: str, estimated: int) -> BudgetVerdict:
-    """Advisory check: does `estimated` tokens breach the soft/hard
-    limit for `track`? Does not dispatch or write anything — callers
-    (e.g. the orchestrator) decide what to do with the verdict."""
-    soft_limits, hard_limits = load_budget_limits()
-    hard = hard_limits.get(track)
-    soft = soft_limits.get(track)
-    return BudgetVerdict(
-        hard_breach=bool(hard and estimated > hard),
-        soft_breach=bool(soft and estimated > soft),
-        estimated=estimated,
-        limit=hard,
-    )
-
-
-# --- AC-9 fail-closed dispatch gate (/klc:run) ------------------------------
-
-def gate_card_dispatch(track: str, est_tokens: int | None) -> BudgetVerdict:
-    """AC-9: the callable the `/klc:run` prose calls (C-006). No estimate is
-    NOT zero — it is a hard breach, so a card that failed to render (or
-    whose estimate is otherwise unavailable) can never be dispatched past
-    the gate. When an estimate IS available this is exactly
-    `check_prompt_budget`."""
-    if est_tokens is None:
-        _soft_limits, hard_limits = load_budget_limits()
-        return BudgetVerdict(hard_breach=True, soft_breach=True,
-                             estimated=-1, limit=hard_limits.get(track))
-    return check_prompt_budget(track, est_tokens)
-
-
 # --- AC-8 / KLC-133 AC-11 calibration statement -----------------------------
 
 def _total_input(a: dict) -> int:
@@ -444,3 +367,65 @@ def calibration_statement(by_phase: dict[str, list[dict]]) -> str:
         return "uncalibrated: no provider-sourced attempts in the corpus"
     return (f"estimated in / provider total input (in + cache_hit + cache_write) = "
             f"{sum(pairs) / len(pairs):.2f} over {len(pairs)} provider-paired phases")
+
+
+# --- KLC-174 AC-8: warn-only real-spend check ---------------------------------
+
+_MEASURED_SOURCES = ("provider", "transcript")
+
+
+def _measured_total(meta: dict, ticket: str) -> int:
+    """A ticket's REAL input spend: the total input of every measured
+    (`provider` / `transcript`) attempt, committed or still in the journal."""
+    import metrics
+    return sum(_total_input(rec) for _phase, rec in metrics.iter_attempts(meta, ticket)
+               if rec.get("source") in _MEASURED_SOURCES)
+
+
+def _archived_spends(track: str, window: int) -> list[int]:
+    import metrics
+    from _paths import klc_tickets_archive_dir, klc_tickets_dir
+    rows: list[tuple[int, int]] = []
+    for base in (klc_tickets_dir(), klc_tickets_archive_dir()):
+        if not base.exists():
+            continue
+        for meta_file in base.glob("*/meta.json"):
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if meta.get("phase") != "archived" or meta.get("track") != track:
+                continue
+            key = meta_file.parent.name
+            spend = _measured_total(meta, key)
+            if spend > 0:
+                rows.append((metrics._ticket_ordinal(key), spend))
+    rows.sort()
+    return [spend for _o, spend in rows[-window:]]
+
+
+def real_spend_warning(track: str, ticket: str | None = None) -> str | None:
+    """Warn-only: a one-line warning when *ticket*'s measured input so far
+    exceeds `factor` x the median per-ticket total of the last `window`
+    archived tickets of *track*; None otherwise. None too when there is no
+    measured data (no ticket, no measured corpus, no spend yet). Never raises
+    and never blocks — the caller just surfaces the line."""
+    try:
+        if not ticket or not track:
+            return None
+        import statistics
+        from _paths import klc_ticket_meta_file
+        cfg = load_real_spend_config()
+        spends = _archived_spends(track, cfg["window"])
+        if not spends:
+            return None
+        median = statistics.median(spends)
+        meta = json.loads(klc_ticket_meta_file(ticket).read_text(encoding="utf-8"))
+        current = _measured_total(meta, ticket)
+        if current <= 0 or current <= cfg["factor"] * median:
+            return None
+        return (f"{ticket}: measured input so far {current} tokens exceeds "
+                f"{cfg['factor']}x the median {median:g} of the last "
+                f"{len(spends)} archived {track} tickets (warning only)")
+    except Exception:
+        return None

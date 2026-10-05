@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """tests/test_budget_guard.py — KLC-052 step-2: budget_guard extraction.
 
-check_prompt_budget(track, estimated) is the advisory (non-dispatching)
-counterpart of runner.py's inline hard/soft-limit guard, so the
-orchestrator can decide whether to even attempt a dispatch.
+(The KLC-052 card-size gate was replaced by the warn-only real-spend check
+in KLC-174 step-5; see tests/integration/test_klc174_budget_warn.py.)
 """
 from __future__ import annotations
 
@@ -19,23 +18,6 @@ sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 
 import budget_guard  # noqa: E402
 import token_journal  # noqa: E402
-
-
-def test_hard_breach_is_flagged():
-    with patch.object(budget_guard, "load_budget_limits",
-                       return_value=({"XS": 100}, {"XS": 200})):
-        verdict = budget_guard.check_prompt_budget("XS", 250)
-    assert verdict.hard_breach is True
-    print("PASS: hard breach is flagged")
-
-
-def test_soft_breach_warns_not_blocks():
-    with patch.object(budget_guard, "load_budget_limits",
-                       return_value=({"XS": 100}, {"XS": 200})):
-        verdict = budget_guard.check_prompt_budget("XS", 150)
-    assert verdict.hard_breach is False
-    assert verdict.soft_breach is True
-    print("PASS: soft breach warns, does not block")
 
 
 # --- KLC-133 AC-8: the six new attempt keys -----------------------------------
@@ -171,13 +153,12 @@ def test_failed_false_and_empty_run_pass_leave_no_key():
     assert "run_pass" not in rec
 
 
-def test_attempt_optional_keys_is_the_seven_keys_after_klc133_step10():
-    """AC-8/step-10 review-fix ([!DECISION D-118]): ATTEMPT_OPTIONAL_KEYS
-    names exactly the seven attempt keys, cost_basis added alongside the
-    original six (AC-1 basis-consistency fix)."""
+def test_attempt_optional_keys_after_klc172_transcript_fields():
+    """AC-8/step-10 review-fix ([!DECISION D-118]): the seven KLC-133 keys,
+    plus KLC-172's model/agent_id/agent_type so the journal drain keeps them."""
     assert budget_guard.ATTEMPT_OPTIONAL_KEYS == (
         "run_pass", "cache_write", "cost_usd", "cost_basis", "num_turns",
-        "duration_ms", "failed")
+        "duration_ms", "failed", "model", "agent_id", "agent_type")
 
 
 if __name__ == "__main__":

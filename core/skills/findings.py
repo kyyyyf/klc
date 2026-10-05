@@ -29,6 +29,13 @@ _OLD_INDEPENDENT_KEYS = ("category", "detail", "suggested_fix")
 LEGACY_RULE_NAME = "legacy-unclassified"      # written only by the KLC-154 migration (D-118)
 
 
+def _as_round(raw) -> int:
+    try:
+        return int(raw or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
 @dataclass
 class Finding:
     """Structured code review finding.
@@ -51,6 +58,7 @@ class Finding:
     kind: str = ""
     ref: str = ""
     ac: str = ""
+    round: int = 1                 # KLC-173: review round; NOT part of issue_id
     issue_id: str = field(init=False, default="")
 
     def __post_init__(self):
@@ -78,6 +86,7 @@ class Finding:
             kind=str(d.get("kind") or ""),
             ref=str(d.get("ref") or ""),
             ac=str(d.get("ac") or ""),
+            round=_as_round(d.get("round")),
         )
 
     def to_dict(self) -> dict:

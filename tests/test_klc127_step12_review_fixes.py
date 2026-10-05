@@ -164,7 +164,7 @@ def test_template_renders_kebab_case_focus_and_states_no_decisions():
     env = Environment(undefined=StrictUndefined, keep_trailing_newline=True)
     tpl = env.from_string(tpl_path.read_text(encoding="utf-8"))
     schema = (CORE_AGENTS / "_includes" / "finding-schema.md").read_text(encoding="utf-8")
-    rendered = tpl.render(spec="s", diff="d", claude_md_context="c",
+    rendered = tpl.render(context="c",
                           focus_areas=["security", "test-coverage"],
                           finding_schema=schema)
     assert "test_coverage" not in rendered

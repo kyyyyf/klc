@@ -71,13 +71,13 @@ Repeat until STOP or archived:
       definition; you need a fresh `dispatch`-mode card. Call
       `core.skills.artefacts.render_card(<KEY>, phase_id, meta,
       step=<step, build only>, mode=resolved.card_mode)` and keep the
-      result as `card_render` (its `est_tokens`/`card_bytes`). Then the
-      advisory budget check, on THAT card's own number:
-      `core.skills.budget_guard.gate_card_dispatch(track,
-      card_render.est_tokens if card_render else None)` — a render
-      failure passes `None`, which the gate treats as a hard breach
-      (fail-closed), never as zero. If `verdict.hard_breach`: surface
-      a blocking question and STOP (do not dispatch).
+      result as `card_render` (its `card_bytes`). Then the warn-only
+      real-spend check: `core.skills.budget_guard.real_spend_warning(track,
+      ticket=<KEY>)`. It compares the ticket's MEASURED input so far
+      (transcript/provider usage) with 1.5x the median of the last archived
+      tickets on this track and returns a one-line warning, or `None`
+      (also when there is no measured data yet). If it returns a line,
+      show it to the human and CONTINUE — it never blocks a dispatch.
    b. If `resolved.runs_inline` (XS fast-track): do the phase's work
       yourself, inline, in this loop. Then construct the same
       completion-signal JSON a subagent would emit (see below).
@@ -87,8 +87,8 @@ Repeat until STOP or archived:
       parsing in (d), call
       `core.skills.run_signal.record_signal_tokens(signal, <KEY>,
       phase_id, card_render)` — a `signal.tokens` block records a
-      `signal`-sourced attempt; its absence falls back to the card's
-      own `estimated` attempt from (a).
+      `signal`-sourced attempt; its absence records nothing (real usage
+      comes from `core/skills/token_import.py`).
    d. Parse: `core.skills.run_signal.parse_signal(result, expected_phase
       =phase_id)`.
       - If `None` (unparseable / missing keys / phase mismatch / bad
@@ -103,33 +103,25 @@ Repeat until STOP or archived:
    e. **Blocking questions — STOP.** If `signal.blocking_questions` is
       non-empty: surface them to the human and stop. Do not paraphrase
       them away.
-   f. **Post-build step ledger pass.** Build phase only, and only when 5d
-      parsed the signal as `done` and 5e found no blocking questions: run
-      `python3 core/skills/step_ledger.py --ticket <KEY>` from the project
-      root. It re-runs each impl-plan step's VERIFY command, derives that
-      step's touched files from its own commits, writes `build/progress.md`
-      and refreshes the machine-made `## Evidence` rows. Report any `red`,
-      `scope-violation` or `unverified` verdict to the human verbatim. This
-      is a report, not a decision: you still ack in step 6 exactly as
-      before, and `build.verify_steps: false` skips this sub-step entirely.
-      Never run it on a retried dispatch or a parked one — a build that is
-      not finished has nothing to verify. This CLI invocation is a
-      DELIBERATE extra VERIFY execution beyond the one `klc ack`'s own
-      `can_complete_build` call makes internally (which shares one
-      per-ack Verdict cache between its own arms, KLC-114 review round
-      1) — the two calls do not share a cache with each other, so each
-      step's VERIFY runs once here AND once more inside `ack`. This is
-      intentional (Q-001): the operator sees the verdicts BEFORE deciding
-      whether to ack at all, which a cache spanning two separate process
-      invocations cannot offer without persisting the re-run output to
-      disk between them.
+   f. **Record step verifies.** Build phase only, when 5d
+      parsed `done` and 5e found no blocking questions: run
+      `klc step verify <KEY> N` for any plan step whose result in
+      `build/steps.json` is missing or stale (a fix commit came after it).
+      This writes `build/steps.json` (it executes the step's VERIFY). Report a failed or `unverified` result to the human verbatim. `klc ack`
+      only READS `build/steps.json`; it runs no VERIFY itself. Never do this
+      on a retried or parked dispatch: an unfinished build has nothing to verify.
+   g. **Review phase.** The review agent is given `--diff recorded` (the
+      ticket's pre-merge range) and plans three layers: deterministic layer 0,
+      one `code-review` (layer 1), specialists only on signal (layer 2). Do not
+      add the old cheap/full passes by hand; if the plan refuses over the cap,
+      surface it and stop rather than passing `--over-cap` yourself.
 6. **Advance.** On a clean `signal.signal == "done"` with no blocking
    questions: run `klc ack <KEY> --auto`.
    - Non-zero exit (ambiguous pick / gate paused / scope conflict):
      STOP, surface the CLI's stderr verbatim — do not guess a pick.
      When `ack --auto` paused on a dirty `advisory` signal (KLC-117),
      the stderr line names the signal but not its content: read
-     `<ticket-dir>/<phase-id>/ack-advisories.json` and report its
+     `<ticket-dir>/advisories.json`, take the key for `<phase-id>`, and report its
      `high` and `medium` records to the human, with a bare count of
      the rest. Never parse the summary line or the phase-history note
      for advisory detail — the JSON is the machine-readable source and

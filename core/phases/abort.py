@@ -2,8 +2,9 @@
 """`klc abort <ticket> [--cancel --reason "<why>"]` — two distinct modes.
 
 **Plain `klc abort <ticket>`** — cancel current :work, return to previous :ack.
-Only valid from a `<X>:work` state. Moves current phase artefacts to
-`_superseded/<ts>/<phase>/`, resets budget counters, and drops back
+Only valid from a `<X>:work` state. Supersedes the current phase
+artefacts (deleted and recoverable from the commit in `meta.superseded`, or
+kept under `_superseded/<ts>/<phase>/` when untracked or modified), resets budget counters, and drops back
 to the previous phase's `:ack` (or `intake:ack-needed` if the current
 phase is the first one). Use it when the current :work is going nowhere — for
 example, `build:work` step 3 is stuck and you want to revisit the design before
@@ -12,7 +13,7 @@ continuing. After abort you're in an `:ack` state from which `klc jump` is legal
 **`klc abort <ticket> --cancel --reason "<why>"`** — terminate the ticket to the
 `cancelled` terminal from ANY state (`intake:ack-needed` / `<X>:ack` / `<X>:work`),
 for a ticket that will never be done (KLC-076). `--reason` is required. From a
-`:work` state it first moves the current phase's artefacts to `_superseded/`
+`:work` state it first supersedes the current phase's artefacts
 exactly like plain abort, then terminates. A `cancelled` ticket is terminal:
 ack/next/ship/jump/abort refuse to advance it (like `archived`). Unlike
 `archived`, a cancelled ticket is NOT counted as completed work by metrics.
@@ -80,7 +81,8 @@ def run(argv: list[str]) -> int:
                     holder.release_holder(args.ticket, ident)
             new_state = aborted["new_state"]
             print(f"ABORTED → {new_state}")
-            print(f"  current phase artefacts moved to _superseded/")
+            print("  current phase artefacts superseded (deleted and recoverable from the "
+                  "commit in meta.superseded; kept under _superseded/ when untracked or modified)")
             print(f"  budgets reset; `klc jump <phase> {args.ticket}` is now legal")
             return 0
     except state_sync.StaleStateError:

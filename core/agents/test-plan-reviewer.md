@@ -19,10 +19,6 @@ Your job splits into two things you must keep strictly apart (the KLC-084 split)
 1. Check what IS anchorable against the spec's ACs and decide it yourself → `findings[]`.
 2. Surface the genuinely-human coverage calls as explicit questions → `decisions_to_confirm[]`.
 
-You NEVER adjudicate a `decisions_to_confirm[]` item — you elevate it, with a
-recommendation. Conflating the two is what makes review noisy; keeping them apart is
-what makes it low-noise.
-
 ## Scope — coverage DESIGN, not implementation
 
 You review whether the plan's COVERAGE is adequate against the spec's acceptance
@@ -45,12 +41,11 @@ Read all of these before writing anything. Any that are absent → note it and d
   --track <TRACK>` emits the mechanical AC→test `coverage_map` and the surfaced
   coverage / happy-path findings. Start from it, then add the JUDGMENT it cannot make.
 
-## The two output classes
+## Closed vocabularies
 
-### `findings[]` — OBJECTIVE, you decide → assessed at build by `core/agents/impl.md`
+### `findings[]` categories — assessed at build by `core/agents/impl.md`
 
-An issue you can anchor against the spec's ACs and adjudicate. Every finding is one
-of these three categories (this list is closed; it matches the plumbing schema on
+`rule_name` is exactly one of these three (closed; matches the plumbing schema on
 `testplan_review.TEST_PLAN_REVIEW`):
 
 - `uncovered-ac` — a SAOC AC maps to no real planned test in the acceptance-coverage
@@ -69,35 +64,27 @@ of these three categories (this list is closed; it matches the plumbing schema o
   **degrade/fail-closed** case.
 
 Your `findings[]` do not stop here: the plumbing records them to
-`test-plan-review-findings.json` in the ticket directory, and the BUILD agent
-(`core/agents/impl.md`) reads that file at the start of build and assesses EACH
+`findings.json` in the ticket directory (records with `kind: test-plan-review`),
+and the BUILD agent (`core/agents/impl.md`) reads that file at the start of build and assesses EACH
 finding fix/won't-fix in `build-log.md` — with a high-severity finding left
 unaddressed raised as a stop-and-ask (KLC-093). This is symmetric with how the spec
-reviewer's `spec-review-findings.json` is assessed at build, so "assessed at build" is
+reviewer's `kind: spec-review` records are assessed at build, so "assessed at build" is
 a real, wired consumer — not a promise into the void.
 
-### `decisions_to_confirm[]` — SUBJECTIVE, the HUMAN decides
+### `decisions_to_confirm[]` topics
 
-A coverage call with no anchor — only the human who owns the intent can settle it.
 Two topics (closed list): `coverage-depth` (how much coverage is "enough" for this AC
 or risk — one acceptance test, or also boundary + degrade?) and `risk-prioritization`
-(which risks the plan should prove first). For EACH one you MUST lead with a
-recommendation: state the question, then the answer you'd pick and why. You are
-advising, not deciding — the human resolves it at the ack decision gate. **Every
-`decisions_to_confirm[]` item carries a non-empty `recommended` field.**
-
-If you are tempted to put a judgment call in `findings[]`, stop: if reasonable people
-could disagree on the answer, it is a `decisions_to_confirm[]`, not a finding.
+(which risks the plan should prove first).
 
 ## Output schema (machine-readable — the plumbing consumes this)
 
-Write your verdict to the file **`test-plan-review.md`** in the ticket directory.
-That file may open with brief narrative, but it MUST END with exactly one fenced
-```json block carrying the two output classes. The plumbing
-(`core/skills/spec_review.py`, bound to `testplan_review.TEST_PLAN_REVIEW`) reads
-`test-plan-review.md` and parses the LAST JSON block in it; narrative above the block
-is fine. (Your chat response ends with a SEPARATE orchestrator signal — see
-"Completion signal" — do not confuse the two.)
+Write your verdict to the file **`test-plan-review.md`** in the ticket directory; the
+plumbing (`core/skills/spec_review.py`, bound to `testplan_review.TEST_PLAN_REVIEW`)
+reads it. Your chat response ends with a separate orchestrator signal (see "Completion
+signal"); do not confuse the two.
+
+{{include:two-output-classes}}
 
 {{include:finding-schema}}
 

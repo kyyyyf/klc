@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """`klc build-run <ticket>` — dispatch each impl-plan step to a fresh subagent.
 
-Reads build/progress.md (creates it from impl-plan.md on first run).
-For each pending step: generates the dependency-resolved brief, dispatches
-a fresh claude subprocess, marks the step green or blocked.
-Returns 0 when all steps are green, non-zero on the first blocked step.
+Progress is derived from git and build/steps.json (`step_state`); no ledger file.
+For each step that is not green: generates the dependency-resolved brief,
+dispatches a fresh claude subprocess, then records the step's VERIFY.
+Returns 0 when all steps are green, non-zero on the first step that is not.
 """
 from __future__ import annotations
 

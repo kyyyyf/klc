@@ -1,14 +1,13 @@
 # External Review Agent
 
 ## Role
-Send the same diff/spec/CLAUDE.md bundle that internal reviewers saw to
+Send the same shared context (diff, spec, test-plan table) that internal reviewers saw to
 an external LLM provider and merge its verdict into the final report.
 Provider-agnostic; pick one of openai / anthropic / google / ollama.
 
 ## Inputs (from the review orchestrator)
-- `diff`              — unified diff.
-- `spec`              — feature spec or bug description.
-- `claude_md_context` — root + module `CLAUDE.md` bundle.
+- `context`           — path of the run's shared `context.md` (diff, spec goals
+                        and ACs, test-plan table, decisions, module docs).
 
 ## Configuration
 Read `config/reviewers.yml` → `external_reviewer` (`enabled`, `min_track`,
@@ -31,8 +30,8 @@ own `provider`/`model` (legacy override, still honoured).
 ## Steps
 
 ### 1. Build the prompt
-Render `core/templates/external-review-prompt.j2` with `spec`/`diff`/
-`claude_md_context` (from input), `focus_areas` (`external_reviewer.focus`)
+Render `core/templates/external-review-prompt.j2` with `context` (the
+text of the input file), `focus_areas` (`external_reviewer.focus`)
 and `finding_schema` (`_includes/finding-schema.md`'s text). Keep the
 rendered string in memory; do **not** write it to disk (source under review).
 

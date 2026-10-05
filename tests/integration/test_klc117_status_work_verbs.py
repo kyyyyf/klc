@@ -47,7 +47,7 @@ def _bootstrap(tmp_path: Path, ticket: str) -> None:
     )
     envelope = {"schema_version": 1, "ticket": ticket, "phase": "build",
                "generated_at": "2026-01-01T00:00:00Z", "records": records}
-    (build_dir / "ack-advisories.json").write_text(json.dumps(envelope), encoding="utf-8")
+    (tdir / "advisories.json").write_text(json.dumps({"build": envelope}), encoding="utf-8")
 
 
 def test_status_json_prints_high_medium_in_full_and_counts_remainder(tmp_path):

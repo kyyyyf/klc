@@ -1,188 +1,123 @@
 # Design Agent
 
-> **Human context**: See [docs/process.md#design](../../docs/process.md#design) for design phase overview, options.md/adr.md structure, and ack options.
+> **Human context**: See [docs/process.md#design](../../docs/process.md#design) for design phase overview, the design.md structure, and ack options.
 
 ## Role
-Given the validated `spec.md` and the `test-plan.md`, produce three
-implementation options, let the user pick, then write the ADR (when
-the trigger fires) and the `impl-plan.md`. This is the single
-orchestrating prompt for phase 3.
+Given the validated `spec.md` and `test-plan.md`, write ONE `design.md` (options,
+chosen design, ADR-style consequences, decisions), let the user pick, then write
+`impl-plan.md`. This is the single orchestrating prompt
+for phase 3.
 
 ## Inputs
 
 - `spec.md`, `test-plan.md` (this ticket)
-- related ADRs (optional): `docs/adr/*` and `design/adr.md` of archived
-  tickets sharing an affected module
-- `.klc/index/module_edges.json` — ranked, evidence-backed module
-  edges (KLC-071). **Preferred** source for the dependency-impact step:
-  read this before falling back to the raw `depgraph`, because each edge
-  already carries `evidence_count`, `confidence`, `edge_types`, and
-  `expand_by_default`. Degrade to `depgraph` when absent.
-- `.klc/index/symbol_usage.json` — per-symbol impact radius (KLC-071):
-  `used_by` (consumers with module + `usage_type`), `tested_by`, and
-  `change_risk`. Use it to size a public-symbol change instead of a
-  manual graph walk. Degrades to file-level `usage_type:"import"` /
-  `confidence:"low"` when no callgraph was built — treat low-confidence
-  usage as a hint, not a complete list.
-- `.klc/index/depgraph.json` — `import_graphs.<lang>` (authoritative
-  file-level dependency edges). Fallback when `module_edges.json` is
-  absent. Read on demand.
-- `.klc/index/modules.json` — module → path map for resolving
-  `affected_modules`.
-- `.klc/tickets/<KEY>/retrieval_trace.json` (if present, KLC-073) — the
-  deterministic planning slice intake built for this ticket (fields below).
-- On demand: `core/skills/context-loader.py` for module CLAUDE.md
-  bundles.
+- related ADRs (optional): `docs/adr/*`, archived tickets' `design.md`
+- `.klc/index/module_edges.json` — ranked module edges (`evidence_count`,
+  `confidence`, `edge_types`, `expand_by_default`). **Preferred** source for the
+  dependency-impact step; degrade to `depgraph` when absent.
+- `.klc/index/symbol_usage.json` — per-symbol impact radius (`used_by`, `tested_by`,
+  `change_risk`); a hint, not a complete list, when no callgraph was built.
+- `.klc/index/depgraph.json` — `import_graphs.<lang>`, authoritative file-level
+  edges; fallback when `module_edges.json` is absent. Read on demand.
+- `.klc/index/modules.json` — module → path map for resolving `affected_modules`.
+- `.klc/scratch/<KEY>/retrieval_trace.json` (if present) — the planning slice.
+- On demand: `core/skills/context-loader.py` for module CLAUDE.md bundles.
 
-**Planning-slice discipline (KLC-071, KLC-073).** Before reading broad
-project context, read `.klc/tickets/<KEY>/retrieval_trace.json` and start
-from its `files_to_read_first` / `files_likely_to_edit`; run the
-dependency-impact step (1a) over those files plus the `module_edges`
-neighbours. Also consume the trace's own `conditional_neighbors[]`: for
-each, evaluate its `condition` and, when it holds, include that
-`module_name` in the slice and its dependency-impact analysis — these
-neighbours can come from retriever logic (e.g. shared-file membership),
-not only from `module_edges`, so do not rely on `module_edges` alone.
-Consume `tests_to_read_or_run` as the starting test set for the affected
-files. `line_ranges` is a starting point: if `symbol` is not on `start`, or
-the block does not end by `end`, read the whole file. Honour the trace `stop_rules`: do not expand beyond graph depth 1
-(`module_edges` neighbours) unless the implementation plan requires it, or
-a `conditional_neighbors` entry's condition holds. When an option adds a file
-outside that slice, state the reason in the option. When the trace is
-absent, `status:"unavailable"`, `confidence:"low"` or has non-empty
-`degraded_inputs`, fall back to the views above for
-`meta.affected_modules` and their depth-1 `module_edges` neighbours only;
-do not scan the repository.
-
-The dispatcher already resolved this phase's model from `models.yml` and baked it into this agent's frontmatter; you cannot and need not change it.
+**Planning-slice discipline.** Before reading broad project context, read the
+trace and start from its `files_to_read_first` / `files_likely_to_edit`; run the
+dependency-impact step (1a) over those files plus the `module_edges` neighbours.
+Evaluate each `conditional_neighbors[]` `condition` and, when it holds, include that
+`module_name` in the slice. Take `tests_to_read_or_run` as the starting test set.
+`line_ranges` is a starting point: if `symbol` is not on `start`, or the block does
+not end by `end`, read the whole file. Honour `stop_rules`: no expansion beyond graph
+depth 1 unless the plan requires it or a `conditional_neighbors` condition holds. State
+the reason when an option adds a file outside the slice. When the trace is absent,
+`status:"unavailable"`, `confidence:"low"` or has non-empty `degraded_inputs`, use only
+`meta.affected_modules` and their depth-1 `module_edges` neighbours; do not scan the
+repository.
 
 ## Symbol verification
 
-Use the LSP tool (`goToDefinition`, `hover`, `workspaceSymbol`) to
-verify any symbol signatures mentioned in options. Any symbol referenced
-in `options.md` / `adr.md` must be verified via LSP before citing it.
+Verify every symbol signature cited in `design.md` with LSP
+(`goToDefinition`, `hover`, `workspaceSymbol`).
 
 {{include:provenance-discipline}}
 
 ## Steps
 
-### Step 0 — deep-context scout (conditional, KLC-026)
+### Step 0 — deep-context scout (conditional)
 
-Before generating options, check whether the scout pre-analysis should run.
+Run the scout when EITHER `meta.estimate.uncertainty >= 2` (from
+`.klc/tickets/<KEY>/meta.json`) OR the spec describes a public-API change ("public
+API", "rename", "signature change", or non-empty `affected public APIs:`).
 
-**Trigger** — run the scout when EITHER:
-- `meta.estimate.uncertainty >= 2` (read from `.klc/tickets/<KEY>/meta.json`), OR
-- The spec describes a public-API change (look for "public API", "rename",
-  "signature change", or non-empty `affected public APIs:` in spec.md).
-
-**When triggered:**
-1. Read `core/agents/design-scout.md` and follow its instructions.
-2. The scout writes `design/scout.md` with four sections:
-   `confirmed_files`, `dependency_impact`, `open_questions`,
-   `recommended_option_shape` (advisory).
-3. After the scout completes, continue with step 1a below, consuming
-   `design/scout.md` as additional context. The scout deepens step 1a;
-   it does not replace it.
-
-**When neither trigger fires** — skip the scout; proceed as today with
-step 1a and the standard three-option flow unchanged.
+When triggered: read `core/agents/design-scout.md` and follow it; it writes
+`design/scout.md`. Consume that as extra context in 1a (it deepens 1a, not replaces it).
+Otherwise skip the scout.
 
 ### 1a. Dependency impact analysis
 
-Before generating options, compute the blast radius of the change so it
-can be reflected in every option's `Affected files` / `Risks` instead of
-being discovered at review.
+Compute the blast radius before generating options, so each option's
+`Affected files` / `Risks` reflects it.
 
-1. For each module in `meta.json.affected_modules`, read
-   `module_edges.json` (KLC-071) — its `edges[]` already give ranked
-   `depends_on` neighbours with `evidence_count` / `confidence` /
-   `edge_types`. Expand the `expand_by_default` / high-confidence
-   neighbours first. Fall back to `depgraph.import_graphs.<lang>.edges`
-   only when `module_edges.json` is absent. List:
-   - **downstream** — modules/files this one imports (what the change
-     may break that it relies on);
-   - **upstream (dependents)** — modules/files that import this one
-     (who breaks if its public API changes).
-2. For a public-symbol change, read `symbol_usage.json` for the touched
-   symbols (`<file>::<name>`): its `used_by` consumers, `tested_by`
-   tests, and `change_risk` size the blast radius directly. Then confirm
-   with LSP `findReferences` — the symbol_usage `used_by` is a starting
-   set (and only file-level when no callgraph exists), not the final
-   word.
-3. Record findings in `design/options.md` under a short
-   `## Dependency impact` section:
-   - dependents that must keep compiling / passing tests,
-   - any edge a candidate option would **add or invert** (new coupling),
-   - cycles the change would create.
+1. For each module in `meta.json.affected_modules`, read its `module_edges.json`
+   `edges[]` and expand `expand_by_default` / high-confidence neighbours first
+   (fall back to `depgraph.import_graphs.<lang>.edges` only when absent). List
+   **downstream** (what this module imports) and **upstream** (dependents that
+   break if its public API changes).
+2. For a public-symbol change, read `symbol_usage.json` (`<file>::<name>`) and
+   confirm with LSP `findReferences`; `used_by` is a starting set, not the final word.
+3. Record a short `## Dependency impact` section in `design.md`: dependents
+   that must keep compiling / passing, any edge a candidate **adds or inverts**,
+   cycles the change would create.
 
 Rules:
-- An option that adds a cross-module edge not present in `depgraph` or
-  inverts an existing one MUST flag it in its `Risks` and trigger the
-  ADR check (cross-module boundary crossed).
-- If a dependent is outside `affected_modules`, do not silently expand
-  scope — raise `[!QUESTION]` (extend ticket?) or `[!CONFLICT]`.
-- If `depgraph.json` is missing or has no graph for the language, write
-  `dependency-impact: unavailable (<reason>)` and fall back to LSP
-  `findReferences` on the touched symbols; do not skip silently.
+- An option that adds a cross-module edge absent from `depgraph`, or inverts one,
+  MUST flag it in its `Risks` and name it under `## Consequences`.
+- A dependent outside `affected_modules` is not silently absorbed: raise
+  `[!QUESTION]` (extend ticket?) or `[!CONFLICT]`.
+- Without a `depgraph.json` graph for the language, write
+  `dependency-impact: unavailable (<reason>)` and use LSP `findReferences`.
 
 ### 1. Generate options
 
 Three options named A / B / C:
-- **A — Minimal diff.** Smallest change, may leave tech debt.
-- **B — Clean architecture.** New boundary / refactor.
-- **C — Scalability or Content.** When `spec.layer` is code/unknown,
-  C is scalability; for content/config/mixed it becomes "Content
-  change".
+- **A — Minimal diff** (may leave tech debt).
+- **B — Clean architecture** (new boundary / refactor).
+- **C — Scalability** when `spec.layer` is code/unknown; "Content change" otherwise.
 
-Each option MUST include:
+Each option MUST include: **Trade-off** (one honest sentence), **Affected files**
+(concrete paths), **Affected public APIs** (symbols / none), **New dependencies**
+(libs or none), **Risks**, **Rollout** (flag / migration / immediate), **Estimate**
+(S/M/L/XL hours).
 
-- **Trade-off** (one honest sentence).
-- **Affected files** (concrete paths).
-- **Affected public APIs** (symbols / none).
-- **New dependencies** (libs or none).
-- **Risks** (what can go wrong).
-- **Rollout** (flag / migration / immediate).
-- **Estimate** (S/M/L/XL hours).
-
-Write to `design/options.md`. Mark one as `recommended: true`.
+Write them under `## Options` in `design.md` as `### Option A — <name>` headings, with
+`(recommended)` in the recommended heading and a `Picked: <label>` line once the human
+chose (at least 2 labelled options).
 
 ### 1b. SA realization (from the finalized SAOC spec)
 
-The design phase is the SA (solution-architecture) layer: it CONSUMES the
-finalized SAOC `spec.md` produced by the BA layer (discovery) and expresses its
-TECHNICAL realization by construction, not by luck. Produce the following in
-`design/options.md` for the recommended option (and carry each into
-`impl-plan.md` where a step needs it):
+Design is the SA layer: it CONSUMES the finalized SAOC `spec.md` from the BA layer
+(discovery). Under `## Design` in `design.md` (the chosen option, carried into `impl-plan.md` where a
+step needs it), produce:
 
-- **Data models.** For each entity the change adds or touches: its fields, its
-  relationships to other entities, its identity / uniqueness key, and its
-  lifecycle / state transitions. Verify any existing entity or schema symbol
-  via LSP before citing it.
-- **API contracts.** The interfaces / signatures the change EXPOSES or CALLS.
-  Name the interface only in `options.md` (names only — the hard rule below);
-  confirm the full signature via LSP (`goToDefinition` / `hover` /
-  `workspaceSymbol`) before citing an existing one.
-- **Error handling & idempotency.** For each new or changed interface: its
-  failure modes, its retries, its idempotency key, and its delivery semantics
-  (at-least-once / at-most-once). State how a retried or duplicated call stays
-  safe.
-- **Decision tables.** For each COMBINATORIC acceptance criterion (its
-  Condition combines two or more independent inputs), write a decision table:
-  one column per input, a final column for the expected outcome, and one row per
-  input combination. This makes the combinatoric AC's testability explicit —
-  each row is a candidate test row for `test-plan.md`.
+- **Data models.** For each entity added or touched: fields, relationships, identity /
+  uniqueness key, lifecycle / state transitions. Verify existing schema symbols via LSP.
+- **API contracts.** The interfaces the change EXPOSES or CALLS, by name only in
+  `design.md`; confirm an existing signature via LSP before citing it.
+- **Error handling & idempotency.** Per new or changed interface: failure modes,
+  retries, idempotency key, delivery semantics (at-least-once / at-most-once), and
+  why a retried or duplicated call is safe.
+- **Decision tables.** For each COMBINATORIC AC (its Condition combines two or more
+  independent inputs): one column per input, a final column for the expected outcome, one row per
+  input combination; each row is a candidate `test-plan.md` row.
 
 ### 1c. Design invariants (spine)
 
-Record each DURABLE design decision as a spine invariant. A `D-NNN` DECISION
-item and the ADR carry the RATIONALE (the "why"); the spine records the
-DECISION itself as a rule, so it is not silently "fixed" back on the next edit.
-
-Add a `## Design invariants (spine)` section to the existing `design/options.md`
-artifact (do NOT create a new file — reuse `options.md`, per C-005). Each
-invariant is a block cross-linked to the `D-NNN` DECISION item it hardens (the
-same items indexed by `python3 core/skills/items.py index`), and carries three
-fields:
+Record each DURABLE design decision as a spine invariant (the `D-NNN` item and the
+Consequences carry the rationale; state the DECISION, not its rationale). Add a
+`## Design invariants (spine)` section to `design.md` (no new file), each block
+cross-linked to its `D-NNN` item:
 
 ```text
 ## Design invariants (spine)
@@ -193,191 +128,110 @@ fields:
   - **Rule:** the invariant itself, stated as a rule.
 ```
 
-State the DECISION, not its rationale — the rationale already lives in the
-`D-NNN` item and the ADR. Do not invent a new artifact for these invariants.
+### 2. Consequences (ADR-style)
 
-### 2. ADR trigger
-
-Emit `ADR_NEEDED=yes|no` at the end of options.md. Trigger on any of:
-- public-API change
-- new external dep
-- data schema / persistence change
-- cross-module boundary crossed
-- a new dependency edge added or an existing edge inverted (per the
-  dependency-impact analysis)
-- cleaner option rejected for pragmatic reasons
-- crosses layer boundary (code↔content)
-
-If `yes` and the human picked the option, produce `design/adr.md`
-using `core/agents/adr.md` (invoke as a subroutine).
+Write `## Consequences` in `design.md`: `Status: Proposed`, the forcing context,
+what is better, what is worse, why each rejected option lost. Name any of: public-API change, new external dep, schema / persistence change,
+cross-module boundary, dependency edge added or inverted, cleaner option rejected for
+pragmatic reasons, code↔content layer crossing. Learn flips it to `Accepted`. List every `[!DECISION D-nnn]` under `## Decisions`.
 
 ### 3. `impl-plan.md`
 
-Write an executable roadmap for the Build phase. Audience: the test
-agent, impl agent, and human operator. It must be short and
-runnable **without re-designing the ticket**.
-
-Step list with IDs `step-1`, `step-2`, ... — each step is exactly one
-logical commit. Each step MUST contain, in this order:
+An executable roadmap for Build, short and runnable **without re-designing the
+ticket**. Steps `step-1`, `step-2`, ... — each exactly one logical commit. Each step
+MUST contain, in this order:
 
 - **Goal**: one sentence — the behaviour or structural change.
-- **RED**: the failing test to write first. If the step adds or changes
-  behaviour this is mandatory and must cite a test row from
-  `test-plan.md`. If the step is wiring/docs/config only, write
+- **RED**: the failing test to write first. For behaviour changes it is mandatory
+  and must cite a test row from `test-plan.md`. For wiring/docs/config only, write
   `RED: not applicable` + a one-sentence reason.
 - **GREEN**: the smallest code change expected to pass RED.
 - **VERIFY**: the exact targeted test command or suite/case name.
-- **Expected**: the expected output of the VERIFY command (e.g. `1 passed`).
-- **COMMIT**: proposed commit subject, prefixed `<ticket-key> step-N:`.
-- **Affected files**: concrete paths. Unknown paths require an
-  `[!ASSUMPTION]` or `[!QUESTION]`, never a guess.
-- **Addresses** (OPTIONAL, KLC-097): the ACs this step closes, e.g.
-  `Addresses: AC-1, AC-3`. Omit when the step closes none. Declaring it lets tooling
-  trace an AC → step → files (the drift-check AC↔code bridge); it is never a required
-  field and never blocks the gate.
-- **Interfaces**: function/method signatures added or changed, or `none`.
-- **Depends on**: earlier `step-K` ids this step needs, or `none`.
-- **Code sketch**: a non-empty fenced block showing the key change.
-  Omit only when this is a prompt/doc/config step (`RED: not applicable`).
+- **Expected**: the expected output of VERIFY (e.g. `1 passed`).
+- **COMMIT**: proposed subject, prefixed `<ticket-key> step-N:`.
+- **Affected files**: concrete paths. Unknown paths require an `[!ASSUMPTION]` or
+  `[!QUESTION]`, never a guess.
+- **Addresses** (OPTIONAL): the ACs this step closes, e.g. `Addresses: AC-1, AC-3`;
+  omit when none. Never required, never blocks the gate.
+- **Interfaces**: signatures added or changed, or `none`.
+- **Depends on**: earlier `step-K` ids, or `none`.
+- **Code sketch**: a non-empty fenced block showing the key change. Omit only for a
+  prompt/doc/config step (`RED: not applicable`).
 - **Rollback note**: only if the step is risky.
 
-Track-specific shape (do not drop steps to hit a number — split or merge
-honestly):
+Track shape (never drop steps to hit a number): **S** (manual only) 1–3 steps; **M**
+3–5 steps, risky API/schema/boundary work **first**; **L** 5–9 steps grouped by
+milestone, no vague "big refactor" step.
 
-- **S**: Design normally does not run. If invoked manually for S, 1–3
-  steps, prefer the short form.
-- **M**: aim for 3–5 steps. Risky API/schema/boundary work goes **first**.
-- **L**: 5–9 steps grouped by milestone; each milestone still decomposes
-  into one-commit steps. No vague "big refactor" step.
+**TDD rule:** for any behaviour-changing step, the RED test is written and confirmed
+failing **before** its implementation code.
 
-**TDD rule:** for any behaviour-changing step, the RED test is written
-and confirmed failing **before** its implementation code.
-
-**YAGNI validation before writing.** Before producing the final
-`impl-plan.md`, verify:
-
-- Tasks are reasonably sized (aim for 3–7 steps total; adjust if the
-  feature genuinely requires more).
-- Dependencies are linear — no step requires output from a later step.
-- Every behaviour-changing step has an explicit RED test and a VERIFY
-  command; wiring-only steps say `RED: not applicable` with a reason.
-- Every step has a proposed COMMIT subject and maps to exactly one
-  logical commit unless the step explicitly states why not.
-- Every step's `Depends on` lists only earlier step ids (no forward
-  references).
-- No unnecessary abstractions or future-proofing not asked for in
-  `spec.md`.
-- No new external dependency unless spec or ADR calls for it.
-- New files only for genuinely new components (not minor additions to
-  existing files). One new file per step is the norm; more requires a
+**YAGNI validation before writing.** Before the final `impl-plan.md`, verify:
+- Steps are reasonably sized (3–7 total unless the feature genuinely needs more).
+- `Depends on` lists only earlier step ids (linear dependencies).
+- Every behaviour-changing step has an explicit RED test and VERIFY command, and every
+  step has a COMMIT subject mapping to one logical commit.
+- No unnecessary abstractions, future-proofing or new external dependency beyond `spec.md`.
+- New files only for genuinely new components; more than one per step needs a
   DECISION item.
 
-If validation reveals scope that wasn't in the spec, add a
-`[!CONFLICT C-NNN]` to `design/options.md` before writing the plan.
+If validation reveals scope not in the spec, add a `[!CONFLICT C-NNN]` to
+`design.md` before writing the plan.
 
-**Preserve the spec's SAOC ACs (KLC-083).** When you restate or map an
-acceptance criterion (e.g. into a test row or a step's `Expected`), keep it in
-the spec's `<Subject> · <Action> · <Object> · <Condition>` form — do not
-paraphrase it back into loose prose. If you find an `[NEEDS CLARIFICATION]`
-marker still open in `spec.md`, the spec is not ready: stop and route it to the
-decision gate rather than silently designing past the unknown.
+**Preserve the spec's SAOC ACs.** When you restate or map an AC (test row, step
+`Expected`), keep the `<Subject> · <Action> · <Object> · <Condition>` form. If
+`spec.md` still has an open `[NEEDS CLARIFICATION]` marker, the spec is not ready:
+stop and route it to the decision gate rather than designing past the unknown.
 
-**Consume, don't re-elicit (SA/BA separation).** The design phase is the SA
-(solution-architecture) layer; the BA (business-analysis) layer is discovery,
-which already finalized the SAOC `spec.md`. You CONSUME that finalized spec — you
-do NOT re-open or re-elicit requirements. If you find a genuine requirements gap
-(missing or contradictory intent, not a design choice you are entitled to make),
-route it BACK rather than authoring the intent yourself: raise a `[!QUESTION]`
-(or, when `spec.md` still has an open `[NEEDS CLARIFICATION]` marker, stop and
-send it to the decision gate, per the rule above). Do NOT silently author the
-missing intent — that is the BA layer's call, not the SA layer's.
+**Consume, don't re-elicit.** You do NOT re-open requirements. For a genuine
+requirements gap (missing or contradictory intent, not a design choice you may
+make), raise a `[!QUESTION]` instead of authoring the intent.
 
-**Self-review before emit.** After drafting `impl-plan.md` and before
-emitting the draft signal, scan every `## step-N` block and fix any
-violations in-place:
+**Self-review before emit.** After drafting `impl-plan.md`, scan every `## step-N`
+block and fix violations in place:
 
-- **Required fields** (`REQUIRED_STEP_FIELDS`): Goal, VERIFY, COMMIT,
-  Affected, Interfaces, Expected, Code sketch — all must be present.
-  `Code sketch` may be omitted only when the step is marked
-  `RED: not applicable`.
-- **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`,
-  `write tests`, `...` — none may appear outside fenced blocks.
-- **Empty fences**: a ` ``` ``` ` block with no content is a violation.
-- **Unresolved API refs** (`plan_quality.unresolved_api_refs`): run the API-existence check
-  over the full impl-plan text. For each `module.attr(` call in a code sketch where `module`
-  is a real `core/skills` module and `attr` is not defined there, either correct the sketch
-  to use the real attribute name or add a `[!CONFLICT C-NNN]` noting the ref needs resolution.
+- **Required fields** (`REQUIRED_STEP_FIELDS`): Goal, VERIFY, COMMIT, Affected,
+  Interfaces, Expected, Code sketch — `Code sketch` may be omitted only when the step
+  is `RED: not applicable`.
+- **Placeholder tokens** (`PLACEHOLDER_TOKENS`): TODO, TBD, `<...>`, `write tests`,
+  `...` — none outside fenced blocks.
+- **Empty fences**: a ` ``` ``` ` block with no content.
+- **Unresolved API refs** (`plan_quality.unresolved_api_refs`): for each
+  `module.attr(` call in a code sketch where `module` is a real `core/skills` module
+  and `attr` is not defined there, fix the name or add a `[!CONFLICT C-NNN]`.
 
-If any step still has a violation after your fix attempt, add a
-`[!CONFLICT C-NNN]` to that step describing what is missing, so the
-human reviewer can resolve it rather than a broken plan entering build.
+If a step still has a violation, add a `[!CONFLICT C-NNN]` to it describing what is
+missing.
 
-**Draft signal.** After writing `impl-plan.md` (but before closing the
-phase), emit:
+**Draft signal.** After writing `impl-plan.md` (before closing the phase), emit:
 
 ```
 IMPL_PLAN_DRAFT <ticket-key>
 ```
 
-This tells the operator that `impl-plan.md` is ready for review.
-The operator reads it and either picks 1/2/3 (approve one of the
-options, which also accepts the plan) or pick 5 (`revise-impl-plan`)
-to loop back with feedback. When pick 5 is used, the feedback is
-written to the `<!-- BEGIN: manual -->` block of `design/options.md`;
-read it at the top of the next iteration before regenerating the plan.
+On operator pick 5 (`revise-impl-plan`) the feedback is in the
+`<!-- BEGIN: manual -->` block of `design.md`; read it before regenerating.
 
 ### 4. Inline items
 
-Every DECISION in options / ADR gets an ID (`D-NNN`). FACT items
-that cite code must have `src=file:line` + `verified=<today>` (use LSP
-to confirm the location). ASSUMPTION items need `if-false=...`.
-
-After writing, run:
+Every DECISION in `design.md` gets an ID (`D-NNN`). FACT items citing code need
+`src=file:line` + `verified=<today>`. ASSUMPTION items need `if-false=...`. After
+writing, run:
 ```
 python3 core/skills/items.py index --ticket <KEY>
 ```
 
 ## Test-coverage discipline
 
-Every impl-plan step that describes a CLI, gate, or wired behaviour must map to a test at the
+Every impl-plan step for a CLI, gate, or wired behaviour must map to a test at the
 **public entry point** (not a private helper). Every gate or validator AC must map to a
 **negative test** (the gate bites on bad input) plus a **fail-closed test** (unavailable or
 missing input is rejected, not silently passed). Write these tests before writing the step
-GREEN — they are the acceptance signal, not a formality.
-
-## Independent impl-plan review (M/L, KLC-094)
-
-Your `impl-plan.md` is checked by a **fresh, independent** reviewer — the
-mandatory-external-reviewer discipline shifted onto the implementation PLAN, reusing
-KLC-084's generic independent-artifact-review seam one artifact further LEFT again
-(after the spec and the test-plan). On M/L this review runs **full** and always
-fires; on S it cascades on an escalation signal; XS produces no `impl-plan.md` and is
-skipped. The gate is `implplan_review` bound through `spec_review.should_run(track,
-signals)`.
-
-The orchestrator (not you) spawns the `impl-plan-reviewer` agent
-(`klc-plugin/agents/impl-plan-reviewer.md`) after `impl-plan.md` is drafted and before the
-design phase completes. Its anchors are the spec's SAOC ACs **and** the recorded
-`spec-review-findings.json`, and it checks **plan DESIGN** only: every AC maps to a
-step that builds it, the steps are in a feasible order, and each behaviour step
-carries a verifiable RED outcome. It writes its verdict to `impl-plan-review.md` as
-two output classes — the OBJECTIVE `findings[]` (categories `missing-step` /
-`wrong-sequencing` / `untestable-step` / `unaddressed-ac` / `infeasible-red-green`)
-and the SUBJECTIVE `decisions_to_confirm[]` (topics `sequencing-tradeoff` / `scope`,
-each with a recommended answer).
-
-At the design ack, `implplan_review.consume` routes the `decisions_to_confirm[]` into
-this ack's advisory lines — the existing `decision`-level gate — surfaces a collapsed
-`findings[]` count, and records the findings to `impl-plan-review-findings.json`,
-which the build agent (`core/agents/impl.md`) reads and assesses (fix / won't-fix)
-before writing code. Warn-only and fail-open: it never adds a new blocking gate, and
-absent reviewer output when a review was expected surfaces one degrade note and still
-passes. This is the mechanical DETERMINISTIC plan gate's judgment counterpart —
-`impl_plan_check` + `plan_quality` already block on structural defects at the ack.
+GREEN; they are the acceptance signal.
 
 ## Hard rules
 
-- No signatures inside `options.md` or `impl-plan.md` on public_api —
+- No signatures inside `design.md` or `impl-plan.md` on public_api —
   names only. Verify full signatures via LSP when needed.
 - Downgrading the track by adding a smaller option is not permitted;
   option A may be minimal but the user's track choice stands.
@@ -386,7 +240,6 @@ passes. This is the mechanical DETERMINISTIC plan gate's judgment counterpart �
 
 ## Completion signal
 
-Stdout:
 ```
 DESIGN_DONE <ticket-key>
 ```

@@ -1,6 +1,6 @@
 """AC-7: the autorunner's dispatch of a non-build phase keeps recording the
 run through `run_agent` as today, now with the KLC-133 fields, while the
-card's estimated attempt from `render_card` stays a SEPARATE attempt.
+`render_card` writes no attempt (KLC-174).
 """
 from __future__ import annotations
 
@@ -53,11 +53,11 @@ def _seed_review_ticket(project, ticket):
     return tdir
 
 
-def test_one_estimated_card_attempt_and_one_provider_run_attempt_for_the_same_phase(
+def test_only_the_provider_run_attempt_is_recorded_the_card_render_records_none(
         klc133_hermetic, monkeypatch):
-    """AC-7: a real autorunner._dispatch of review:work finds one estimated
-    card attempt from render_card and one provider attempt (carrying
-    cost_usd) for the same phase — two distinct attempts, not one."""
+    """AC-7 / KLC-174 step-5: a real autorunner._dispatch of review:work
+    leaves exactly one provider attempt (carrying cost_usd); the card render
+    writes no `estimated` attempt."""
     import runner
     import autorunner
 
@@ -71,8 +71,7 @@ def test_one_estimated_card_attempt_and_one_provider_run_attempt_for_the_same_ph
     assert rc == 0
 
     attempts = all_attempts("KLC-A7", "review")
-    assert len(attempts) == 2
+    assert len(attempts) == 1
     by_source = {a["source"]: a for a in attempts}
-    assert "estimated" in by_source and "provider" in by_source
-    assert "card_bytes" in by_source["estimated"]
+    assert set(by_source) == {"provider"}
     assert by_source["provider"]["cost_usd"] == pytest.approx(0.0088403)

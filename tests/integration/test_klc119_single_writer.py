@@ -46,16 +46,6 @@ def test_single_writer_check_fails_when_a_fixture_second_writer_is_introduced(
     )
 
 
-def test_find_second_writers_and_find_second_estimators_stay_empty_after_klc133():
-    """AC-8: pin — after KLC-133 adds the six new attempt keys, both static
-    scans still return an empty list; no second writer or second size-to-token
-    rule was introduced anywhere in core/ or scripts/."""
-    writer_hits = budget_guard.find_second_writers(FW_ROOT)
-    assert writer_hits == [], f"a second writer of metrics.tokens was found: {writer_hits}"
-    estimator_hits = budget_guard.find_second_estimators(FW_ROOT)
-    assert estimator_hits == [], f"a second size-to-token rule was found: {estimator_hits}"
-
-
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

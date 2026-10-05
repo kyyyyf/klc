@@ -8,7 +8,11 @@ from __future__ import annotations
 import json
 import textwrap
 from collections import Counter
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import klc114_helpers as h  # noqa: E402
 
 from _klc133_support import (  # noqa: E402
     FakeAnthropic,
@@ -95,18 +99,17 @@ def _blocking_reply():
 
 def test_one_tagged_provider_attempt_per_headless_dispatch_on_a_blocking_step(
         klc133_hermetic, monkeypatch):
-    """AC-6: one attempt per headless dispatch: telemetry_phase="build",
+    """AC-6 (KLC-174: step state pinned, no git in this hermetic project): one attempt per headless dispatch: telemetry_phase="build",
     step=<n> and run_pass in {"step", "per-step-review", "per-step-fix"}
     (D-115: run_pass counts {"step": 1, "per-step-review": 2,
     "per-step-fix": 1}), all provider, all step == 1, none with a reviewer
     tag."""
     import runner
     import build_orchestrator as bo
-    import settings
 
     project = klc133_hermetic
     _seed_build_ticket(project)
-    monkeypatch.setattr(settings, "build_verify_steps", lambda: False)
+    h.pin_step_state(monkeypatch, [1])
     fake = FakeAnthropic(_blocking_reply())
     monkeypatch.setitem(runner._DISPATCH, "anthropic", fake)
 
@@ -129,12 +132,11 @@ def test_review_llm_passes_per_ticket_is_unchanged_by_build_dispatches(
     track M stays None."""
     import runner
     import build_orchestrator as bo
-    import settings
     import metrics
 
     project = klc133_hermetic
     _seed_build_ticket(project)
-    monkeypatch.setattr(settings, "build_verify_steps", lambda: False)
+    h.pin_step_state(monkeypatch, [1])
     fake = FakeAnthropic(_blocking_reply())
     monkeypatch.setitem(runner._DISPATCH, "anthropic", fake)
 
@@ -155,17 +157,16 @@ def test_injected_dispatch_receives_exactly_todays_arguments(
     step/run_pass tags are only ever added for the DEFAULT telemetry
     dispatch. An XS-track ticket skips per-step review entirely, so the
     only dispatch shape exercised is the plain "build" step call, which
-    never passed `inputs=` before KLC-133 either."""
+    did not pass `inputs=` before KLC-133 and KLC-172 respectively."""
     import build_orchestrator as bo
-    import settings
 
     project = klc133_hermetic
     _seed_build_ticket(project, track="XS")
-    monkeypatch.setattr(settings, "build_verify_steps", lambda: False)
+    h.pin_step_state(monkeypatch, [1])
 
     calls: list[str] = []
 
-    def stub(phase_id, prompt_path, out_path, *, track=None):
+    def stub(phase_id, prompt_path, out_path, *, inputs=None, track=None):
         calls.append(phase_id)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text("Green.\n", encoding="utf-8")

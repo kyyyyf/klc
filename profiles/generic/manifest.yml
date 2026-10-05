@@ -16,18 +16,30 @@ reviewers:
   # per-reviewer diff containing only matching files. Omit to feed the
   # full diff.
   always:
+    # KLC-175 layer 1: the one structured reviewer; it merges the former
+    # architecture, performance and test-coverage passes. Full diff.
+    - path: core/agents/review/code-review.md
+  conditional:
+    # KLC-175 layer 2: specialists run only on signal ($0 gate; the names are
+    # computed by core/skills/review_signals.py, never by a model).
     - path: core/agents/review/security.md
-      # full diff — security needs surrounding context
+      enabled_for_tracks: [S, M, L]
+      triggers:
+        - sentinel_hit
+        - critical_tier
     - path: core/agents/review/architecture.md
       filter: '\.(py|ts|tsx|js|jsx|rs|go|java|kt|cs|cpp|cc|h|hpp)$|(^|/)(pyproject\.toml|package\.json|Cargo\.toml|go\.mod)$'
+      enabled_for_tracks: [S, M, L]
+      triggers:
+        - changed_public_api
+        - dependency_edge_added
     - path: core/agents/review/performance.md
       filter: '\.(py|ts|tsx|js|jsx|rs|go|java|kt|cs|cpp|cc|h|hpp)$'
-    - path: core/agents/review/test-coverage.md
-      filter: '(^|/)(tests?|__tests__|spec)/|_test\.|\.test\.|_spec\.|\.spec\.'
-  conditional:
+      enabled_for_tracks: [S, M, L]
+      triggers:
+        - hot_path
     # deep-impact: recursive reviewer that catches runtime regressions the
     # static import graph misses (stale config/registry/string references).
-    # Runs only on S/M/L tracks when at least one trigger fires ($0 gate, AC-5).
     - path: core/agents/review/deep-impact.md
       enabled_for_tracks: [S, M, L]
       triggers:

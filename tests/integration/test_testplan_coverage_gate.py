@@ -142,7 +142,8 @@ def test_independent_reviewer_verdict_surfaced_at_ack(tmp_path, monkeypatch):
     assert envelope is not None
     assert any("test-plan-review" in r["message"] and "finding(s) recorded" in r["message"]
               for r in envelope["records"])
-    assert (d / "test-plan-review-findings.json").exists()
+    assert (d / "findings.json").exists()
+    assert not (d / "test-plan-review-findings.json").exists()
 
 
 def test_readonly_probe_surfaces_without_writing(tmp_path, monkeypatch):

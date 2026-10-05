@@ -9,10 +9,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _klc128_fixtures import (  # noqa: E402
+    _retrieval_rec,
     _bare_and_clone,
     _branch_with_commits,
     _merge,
     _merged_no_recording,
+    _capture_drift_reports,
+    _last_drift_report,
     _run_ack,
     _seed_ticket,
     _set_phase,
@@ -48,10 +51,10 @@ def test_source_label_is_recorded_range_after_a_merge(tmp_path, monkeypatch):
 
     assert _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1) == 0
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["ground_truth_source"] == "recorded-range"
     meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["metrics"]["retrieval"]["ground_truth_source"] == "recorded-range"
+    assert _retrieval_rec(tdir.parents[2], tdir.name)["ground_truth_source"] == "recorded-range"
 
 
 def test_source_label_is_live_merge_base_when_live_diff_is_non_empty(tmp_path, monkeypatch):
@@ -75,15 +78,16 @@ def test_source_label_is_live_merge_base_when_live_diff_is_non_empty(tmp_path, m
     monkeypatch.setenv("PROJECT_ROOT", str(clone))
     import phase_completion as _pc
     import lifecycle as _lc
+    _capture_drift_reports(monkeypatch)
 
     ok, _msg = _pc.can_complete(ticket, "integrate", persist=True)
     assert ok is True
     _lc.set_state(ticket, "integrate", "ack-needed", event="manual-completion", note="test")
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["ground_truth_source"] == "live-merge-base"
     meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["metrics"]["retrieval"]["ground_truth_source"] == "live-merge-base"
+    assert _retrieval_rec(tdir.parents[2], tdir.name)["ground_truth_source"] == "live-merge-base"
 
 
 def test_source_label_is_none_when_nothing_is_usable(tmp_path, monkeypatch):
@@ -99,8 +103,8 @@ def test_source_label_is_none_when_nothing_is_usable(tmp_path, monkeypatch):
 
     assert _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1) == 0
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["ground_truth_source"] == "none"
     assert report["scope_drift"]["skipped"]
     meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["metrics"]["retrieval"]["ground_truth_source"] == "none"
+    assert _retrieval_rec(tdir.parents[2], tdir.name)["ground_truth_source"] == "none"

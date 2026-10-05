@@ -6,6 +6,9 @@ full_review_offered: {{ full_review_offered | default(false) }}
 full_review_declined: {{ full_review_declined | default(false) }}
 planned_passes: {{ planned_passes | default('n/a') }}
 executed_passes: {{ executed_passes | default('n/a') }}
+review_duplicate_rate: {{ review_duplicate_rate | default('n/a') }}
+inlined_bytes_in_client: {{ inlined_bytes_in_client | default('n/a') }}
+inlined_bytes_headless: {{ inlined_bytes_headless | default('n/a') }}
 {% if cap_override | default(false) %}
 cap_override: true
 cap: {{ cap }}
@@ -21,6 +24,19 @@ cap: {{ cap }}
 | External ({{ external.model }}) | {{ external.total }} | {{ external.blocking }} |
 {% endif %}
 
+{% if where_to_look | default('') %}
+{{ where_to_look }}
+
+{% else %}
+## Where to look
+### Critical
+_None._
+### Important
+_None._
+### Optional
+_None._
+
+{% endif %}
 {% if adrs %}
 ## ADRs in scope
 The following Architecture Decision Records were loaded into review context:
@@ -62,6 +78,9 @@ High-risk patterns found in diff — these force-escalate to CRITICAL and always
 Planned: {{ planned_passes | default('n/a') }} · Executed: {{ executed_passes | default('n/a') }} · per-step build review: not counted
 {% for s in skipped_passes | default([]) %}
 - skipped `{{ s.reviewer }}` — {{ s.skip_reason }}
+{% endfor %}
+{% for n in notes | default([]) %}
+- note: {{ n }}
 {% endfor %}
 
 ## Blocking Issues (must fix before merge)

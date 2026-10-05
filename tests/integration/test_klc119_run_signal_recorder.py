@@ -55,20 +55,20 @@ def test_signal_tokens_present_records_source_signal_absent_falls_back_to_estima
         next_action="ack", tokens=None)
     src2 = run_signal.record_signal_tokens(
         signal_no_tokens, ticket, "build", card_render=_FakeCardRender())
-    assert src2 == "estimated"
+    assert src2 is None            # KLC-174: no `estimated` fallback
     records2 = [r for r in token_journal.read(ticket) if r.get("phase") == "build"]
-    assert records2[-1]["source"] == "estimated"
-    assert records2[-1]["in"] == 55
-    assert records2[-1]["card_bytes"] == 220
+    assert len(records2) == 1 and records2[-1]["source"] == "signal"
 
     # a malformed tokens block (not a dict, or missing "in") is treated as
-    # absent — falls back to the card, never raises.
+    # absent — records nothing, never raises.
     signal_malformed = run_signal.Signal(
         phase="build", signal="done", artifacts=[], blocking_questions=[],
         next_action="ack", tokens={"out": 5})
     src3 = run_signal.record_signal_tokens(
         signal_malformed, ticket, "build", card_render=_FakeCardRender())
-    assert src3 == "estimated"
+    assert src3 is None
+    assert len([r for r in token_journal.read(ticket)
+                if r.get("phase") == "build"]) == 1
 
 
 if __name__ == "__main__":

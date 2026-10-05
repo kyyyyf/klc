@@ -39,7 +39,7 @@ def _fabricate_completable_discovery(root: Path, ticket: str) -> Path:
     tdir = root / ".klc" / "tickets" / ticket
     tdir.mkdir(parents=True)
     meta = {
-        "ticket": ticket, "kind": "bug", "phase": "discovery:work",
+        "ticket": ticket, "kind": "tech", "phase": "discovery:work",
         "phase_history": [], "track": "M", "route_hint": "M",
         "estimate": {"complexity": 2, "uncertainty": 1, "risk": 1,
                      "manual": 1, "total": 5},
@@ -53,14 +53,14 @@ def _fabricate_completable_discovery(root: Path, ticket: str) -> Path:
     (tdir / "spec.md").write_text(
         "---\n"
         f"ticket: {ticket}\n"
-        "kind: bug\n"
+        "kind: tech\n"
         "authority: human\n"
         "risk_tags: [data]\n"
         "---\n\n"
         f"# {ticket} — ack risk_tags fixture\n\n"
         "## Goals\n\nDo the thing.\n\n"
         "## Acceptance Criteria\n\n1. AC-1: given X, when Y, then Z.\n\n"
-        "## Approaches considered\n\n"
+        "## Approaches\n\n"
         "- Approach A — one way to do it.\n"
         "- Approach B — another way to do it.\n\n"
         "Picked: Approach A — because reasons.\n\n"

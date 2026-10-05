@@ -225,17 +225,14 @@ def test_no_gating_side_effects(monkeypatch):
 # --------------------------------------- step-4: report writer / summary / AC-5
 
 def test_report_has_scope_and_step_sections(monkeypatch, tmp_path):
-    """AC-1: write_report emits drift-report.json with both sections + summary."""
+    """AC-1: write_report returns both sections + summary and (KLC-173) persists no file."""
     monkeypatch.setattr(dc, "_scope_compare", lambda t: dict(_CLEAN_SCOPE))
     monkeypatch.setattr(dc, "_read_impl_plan", lambda t: "")
     monkeypatch.setattr(dc, "_git_available", lambda repo: True)
-    out = tmp_path / "drift-report.json"
-    monkeypatch.setattr(dc, "_report_path", lambda t: out)
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     rep = dc.write_report("KLC-096")
-    assert out.exists()
-    data = json.loads(out.read_text())
-    assert "scope_drift" in data and "step_without_commit" in data and "summary" in data
-    assert rep["summary"] == data["summary"]
+    assert "scope_drift" in rep and "step_without_commit" in rep and "summary" in rep
+    assert not list(tmp_path.rglob("drift-report.json"))
 
 
 def test_human_readable_summary_names_content():

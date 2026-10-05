@@ -13,9 +13,10 @@ a red bar; your output is code changes plus an accurate updated plan.
 ## Inputs
 
 For each build step, use `klc task-brief <KEY> N` to generate a
-dependency-resolved brief at `.klc/tickets/<KEY>/build/step-N-brief.md`.
-The brief contains Goals + ACs, the full step body, and only the
-`Interfaces` + `COMMIT` surface of steps it depends on — nothing else.
+dependency-resolved brief at `.klc/scratch/<KEY>/build/step-N-brief.md`.
+The brief carries Goals + ACs for step 1 only (later steps point at
+`spec.md` instead), the full step body, and only the `Interfaces` + `COMMIT`
+surface of steps it depends on — nothing else.
 Use this as your primary step context. A skeleton `step-N-impl-report.md`
 is also scaffolded alongside it for you to fill.
 
@@ -23,9 +24,10 @@ A minimal card (`_prompt_step_N.md`, Goals + ACs + step only, no dependency
 surfaces) is available via `klc step <KEY> N` for interactive/paste workflows.
 
 In the step card / brief:
-- Goals + Acceptance Criteria (from spec.md)
+- Goals + Acceptance Criteria (step 1 only; later steps carry a pointer to spec.md)
 - Current step: title, description, affected files, expected tests
 - Depended-on interfaces (brief only)
+- Review findings for this step
 - Test run command
 
 Reachable on demand (read only when needed):
@@ -41,35 +43,19 @@ Reachable on demand (read only when needed):
 
 The dispatcher already resolved this phase's model from `models.yml` and baked it into this agent's frontmatter; you cannot and need not change it.
 
-## Build orchestrator + progress ledger
+## Step contract (`build/steps.json`)
 
-`klc build-run <KEY>` is the automated dispatch path. It reads
-`build/progress.md` (YAML frontmatter + markdown table) to determine
-which steps are pending and dispatches each to a fresh subprocess.
-`running` state on load → `pending` (crash recovery); blocked steps
-are retried on resume.
+For every plan step, in this order:
 
-Interactive builds use the inline TDD loop; `klc build-run` is the
-hands-off path. Both are re-verified from git.
+1. RED commit — the failing test, using the step subject.
+2. GREEN commit — the smallest change that passes it.
+3. `klc step verify <KEY> N` — runs the step's allowlisted VERIFY once and
+   records the result in `build/steps.json`. `klc ack` only READS that file.
 
-## Progress log
-
-`build-log.md` in the ticket directory is a running journal of every
-build iteration. Read it first on every invocation — it tells you what
-was already attempted, what failed, and what was decided.
-
-Append to it (never overwrite) at the start and end of each iteration:
-
-```markdown
-## Step N — <ISO datetime>
-**Attempt**: <brief description of what you're about to do>
-**Outcome**: green | red | blocked
-**Notes**: <what changed, what failed, link to DECISION if plan diverged>
-```
-
-If `build-log.md` does not exist, create it with a `# Build log — <KEY>`
-header before appending. The log is preserved through review cycles —
-the reviewer and the retrospective agent read it.
+A later fix commit on the step makes the recorded verify stale: re-run
+`klc step verify <KEY> N` after it. `klc build-run` does the same loop
+hands-off. `build-log.md` is optional free notes (decisions, deviations);
+nothing reads it as evidence.
 
 ## TDD loop you participate in
 
@@ -77,10 +63,9 @@ the reviewer and the retrospective agent read it.
 2. The suite was run and confirmed red.
 3. **You** pick up here: make the failing tests pass by editing
    the files listed under the current step's `affected files`.
-4. Run the step's own **VERIFY** command from `impl-plan.md` (surfaced
-   in the step card) — the framework does not invoke it for you, you
-   run it yourself.
-5. If green: record the step as done (see below), move to the next.
+4. Commit green, then run `klc step verify <KEY> N` (it executes the
+   step's **VERIFY** from `impl-plan.md`).
+5. If green: tick the step (see below), move to the next.
 6. If still red after your change: iterate. Each iteration where tests
    are still red bumps `meta.json.budgets.red_test_fix_attempts`. When
    the counter hits `3` the phase stops and escalates.
@@ -128,7 +113,6 @@ For every step whose impl-plan marks `RED:` with a real test (not `not applicabl
 
 1. **Commit the failing test first.** Write the test, confirm it fails, then
    commit with the step subject (e.g. `KLC-NNN step-1: add failing test`).
-   Record `**RED:** <test path>::<test name> failing` in `build-log.md`.
 2. **Then commit the implementation.** Only after the test passes, commit the
    source changes with the step subject.
 
@@ -144,8 +128,7 @@ Steps marked `RED: not applicable — <reason>` (prompt/doc/config only) are exe
 For every step you complete:
 
 - Commit only after the step is green, using the step's `COMMIT`
-  subject when present. If you cannot commit in this environment, record
-  the exact commit subject + changed files in `build-log.md`.
+  subject when present.
 - Produce **one** logical commit per step when practical. A single
   step spread over multiple commits is fine; a single commit
   covering multiple steps is not — traceability (`step-N` → diff)
@@ -167,7 +150,7 @@ For every step you complete:
   `meta.json.affected_modules`, that is **scope creep** — write a
   `[!CONFLICT]` and stop. The human decides whether to extend the
   ticket or split it.
-- You MUST NOT modify `spec.md`, `design/options.md`, `design/adr.md`
+- You MUST NOT modify `spec.md` and `design.md`
   — those are sealed by earlier gates.
 - You MAY modify:
   - `impl-plan.md` (tracked as above)
@@ -211,43 +194,14 @@ Raise a `[!QUESTION]` or `[!CONFLICT]` inline (in `impl-plan.md` or
 
 - a test that must stay passing starts failing for reasons unrelated
   to this ticket (flaky, pre-existing bug);
-- the chosen option from `design/options.md` turns out infeasible —
-  e.g. a required API doesn't behave as the ADR assumed. This is a
+- the chosen option from `design.md` turns out infeasible —
+  e.g. a required API doesn't behave as `design.md` assumed. This is a
   CONFLICT, not a QUESTION; do not pick another option yourself;
 - tests require a fixture / data shape that doesn't exist and
   wasn't mentioned in `test-plan.md`.
 
 In all three the correct answer is **stop writing code**. The
 TDD-loop isn't valid once the upstream assumption cracked.
-
-## Evidence block (required before IMPL_ALL_GREEN)
-
-Before emitting `IMPL_ALL_GREEN`, append an `## Evidence` section to
-`build-log.md` with ONE entry per acceptance criterion in spec.md. An entry
-is a heading (or line) naming its AC id(s), an optional `verdict:` line, and
-a fenced block holding the command (a `$ ` line) and its real pasted output:
-
-````markdown
-## Evidence
-
-### AC-1, AC-2 — the parser extracts one entry per criterion
-
-```
-$ python3 -m pytest tests/integration/test_build_evidence_gate.py -q
-5 passed in 0.04s
-```
-````
-
-Rules:
-- Every AC parsed from spec.md needs an entry, or `klc ack` BLOCKS on M/L.
-  One entry may cover several ids.
-- No `verdict:` line means pass. Use `verdict: deferred(<reason>)` with a
-  non-empty reason when a check could not run.
-- `klc ack` RE-EXECUTES each entry's command under `verify.entry_budget_seconds`.
-  A non-zero exit BLOCKS. A budget overrun or launch error is reported
-  `unverified` with the reason named — it SURFACES on every track; it is
-  neither a pass nor a claim your tests failed.
-- Paste real output — do not fabricate or summarise.
 
 ## Completion signal
 

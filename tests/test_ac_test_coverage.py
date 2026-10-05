@@ -744,6 +744,14 @@ $ python3 -m pytest tests/ -q
 """
 
 
+@pytest.fixture(autouse=True)
+def _steps_green(monkeypatch):
+    """KLC-174: these tests exercise the AC-coverage arm, not the step-state gate
+    (covered by test_klc174_build_ack.py); the fixtures carry no impl-plan/commits."""
+    import step_state
+    monkeypatch.setattr(step_state, "check_build", lambda *a, **k: (True, ""))
+
+
 def _make_full_build_ticket(tmp_path, ticket, track, spec, test_plan, meta_extra=None):
     """A build ticket satisfying the Evidence gate, with spec/test-plan for AC coverage."""
     ticket_dir = tmp_path / ".klc" / "tickets" / ticket
@@ -1006,17 +1014,12 @@ def test_shared_slow_node_referenced_by_two_acs_runs_only_once(tmp_path, monkeyp
         f"{node_run_calls}")
 
 
-def test_can_complete_build_shares_one_verify_arm_deadline_across_all_three_checks(
+def test_can_complete_build_passes_explicit_arm_deadline_to_coverage(
         tmp_path, monkeypatch):
     """review-fix (HIGH, AC-10/AC-11/AC-12): `can_complete_build` must compute
-    ONE shared `verify.arm_budget_seconds` deadline and pass the SAME value to
-    ac_test_coverage.check, evidence_gate.check_evidence and
-    step_verify.check_steps — not let each independently compute its own
-    fresh deadline, which would make the total ack ceiling three arm-budgets
-    instead of one."""
+    ONE shared `verify.arm_budget_seconds` deadline and pass it to
+    ac_test_coverage.check (KLC-174: the Evidence and step-verify arms are gone)."""
     from core.skills.phase_completion import can_complete_build
-    import evidence_gate as _evg_mod
-    import step_verify as _sv_mod
 
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     root = tmp_path / "tests"
@@ -1036,27 +1039,8 @@ def test_can_complete_build_shares_one_verify_arm_deadline_across_all_three_chec
 
     monkeypatch.setattr(acov, "check", spy_acov_check)
 
-    real_check_evidence = _evg_mod.check_evidence
-
-    def spy_check_evidence(*a, **k):
-        seen_deadlines["evidence"] = k.get("deadline")
-        return real_check_evidence(*a, **k)
-
-    monkeypatch.setattr(_evg_mod, "check_evidence", spy_check_evidence)
-
-    real_check_steps = _sv_mod.check_steps
-
-    def spy_check_steps(*a, **k):
-        seen_deadlines["step-verify"] = k.get("deadline")
-        return real_check_steps(*a, **k)
-
-    monkeypatch.setattr(_sv_mod, "check_steps", spy_check_steps)
-
     ok, msg = can_complete_build("KLC-CBSHARE")
     assert ok, msg
-    assert set(seen_deadlines) == {"ac-coverage", "evidence", "step-verify"}, seen_deadlines
-    assert all(v is not None for v in seen_deadlines.values()), (
-        f"every arm must receive an explicit shared deadline: {seen_deadlines}")
-    assert len(set(seen_deadlines.values())) == 1, (
-        f"each arm received a DIFFERENT deadline, expected one shared value: "
-        f"{seen_deadlines}")
+    assert set(seen_deadlines) == {"ac-coverage"}, seen_deadlines
+    assert seen_deadlines["ac-coverage"] is not None, (
+        "KLC-174: the only remaining executing arm still gets an explicit deadline")

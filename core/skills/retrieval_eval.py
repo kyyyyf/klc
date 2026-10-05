@@ -5,8 +5,9 @@ Closes the measurement loop that already has both of its ends built: a
 retrieval trace is written for every ticket at intake (KLC-106), and the
 committed diff is computable at integrate (`phase_completion._committed`).
 This module is the missing middle — it compares the trace against the diff
-and produces one record, persisted into `meta.json:metrics.retrieval` and
-appended to the cross-ticket evidence log, so a *confidently wrong* retriever
+and produces one record: appended in full to the cross-ticket evidence log
+(`retrieval-eval.jsonl`, derived) and, since KLC-176, kept in meta.json only as
+the compact `metrics.retrieval = {score, confidence, at}`, so a *confidently wrong* retriever
 becomes visible (a calibration failure) instead of silently absorbed into an
 average.
 
@@ -89,20 +90,44 @@ _ARROW_FIELDS = ("files_likely_to_edit", "files_to_read_first",
 
 
 def read_trace(ticket: str) -> dict | None:
-    """This ticket's own `retrieval_trace.json`, or None when absent,
-    unreadable, or larger than `_MAX_TRACE_BYTES` (KLC-110 step-9b: the size
-    guard degrades WITHOUT ever parsing the file). AC-21: the evaluator
-    reads no index artifact other than the ticket's own trace and the
-    module map (the module map is resolved upstream, in
-    `phase_completion._committed`, not here)."""
+    """This ticket's own retrieval trace, or None when absent, unreadable, or
+    larger than `_MAX_TRACE_BYTES` (KLC-110 step-9b: the size guard degrades
+    WITHOUT ever parsing the file). AC-21: the evaluator reads no index
+    artifact other than the ticket's own trace and the module map (the module
+    map is resolved upstream, in `phase_completion._committed`, not here).
+
+    KLC-176: the trace lives in `.klc/scratch/<KEY>/` (derived, untracked).
+    Order: scratch, then the legacy copy in the ticket directory, then a trace
+    regenerated from raw.md against the CURRENT index (`rescore_trace`'s replay
+    seam; `meta.index_commit` records the commit the index was built at)."""
     import json
-    from core.shared.paths import klc_ticket_dir
-    path = klc_ticket_dir(ticket) / "retrieval_trace.json"
-    try:
-        if path.stat().st_size > _MAX_TRACE_BYTES:
+    from core.shared.paths import klc_ticket_dir, transient_dir
+    for path in (transient_dir(ticket) / "retrieval_trace.json",
+                 klc_ticket_dir(ticket) / "retrieval_trace.json"):
+        if not path.exists():
+            continue
+        try:
+            if path.stat().st_size > _MAX_TRACE_BYTES:
+                return None
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             return None
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    return _regenerate_trace(ticket)
+
+
+def _regenerate_trace(ticket: str) -> dict | None:
+    """No stored trace anywhere: replay the retriever over raw.md. Advisory, so
+    any problem degrades to None and never raises."""
+    try:
+        from core.shared.paths import klc_index_dir, klc_ticket_dir
+        tdir = klc_ticket_dir(ticket)
+        if not (tdir / "raw.md").exists():
+            return None
+        trace = load_planning_eval().rescore_trace(tdir, klc_index_dir())
+        if isinstance(trace, dict):
+            trace["source"] = "replayed"
+        return trace
+    except Exception:
         return None
 
 
@@ -299,9 +324,22 @@ def consume(ticket, trace, committed_modules, committed_paths, track, *, persist
                   ground_truth=ground_truth)
     if persist:
         import lifecycle as _lc
-        _lc.stage_meta_patch(ticket, {"metrics": {"retrieval": rec}})
+        _lc.stage_meta_patch(ticket, {"metrics": {"retrieval": compact_record(rec)}})
         append_log(ticket, track, rec)
     return rec
+
+
+def compact_record(rec):
+    """The three-field record kept in meta.json (tracked, so every clone sees it):
+    `score` = precision@5 of files_likely_to_edit (null when the evaluation was
+    unavailable or had nothing to score), the claimed `confidence`, and `at`.
+    The full record lives in the derived jsonl row only."""
+    from datetime import datetime, timezone
+    score = None
+    if rec.get("status") == "ok":
+        score = (rec.get("files_likely_to_edit") or {}).get("precision")
+    return {"score": score, "confidence": rec.get("confidence") or "unknown",
+            "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
 def append_log(ticket, track, rec):
@@ -309,8 +347,9 @@ def append_log(ticket, track, rec):
     second physical line and `read_log()` supersedes by ticket key, so no
     aggregate counts one ticket twice and no reader needs a rewrite path. A
     surplus line left by a rolled-back push is harmless for the same reason
-    — the authoritative record is the per-ticket one in meta.json, and this
-    file is derived (AC-16)."""
+    — the durable per-ticket record is the compact `metrics.retrieval` in
+    meta.json (score, confidence, at); this file keeps the full detail, is
+    derived, clone-local and never pushed (AC-16)."""
     import json
     from datetime import datetime, timezone
     from core.shared.paths import klc_knowledge_dir
@@ -339,8 +378,9 @@ def _log_lines():
 def read_log():
     """Ticket key -> its LAST logged row. Superseding on read is the whole
     of AC-9's no-double-count guarantee; an unreadable line is skipped,
-    never raised, because this file is a derived cache and not a source of
-    truth."""
+    never raised. The file is clone-local and derived: the durable record is
+    the compact `metrics.retrieval` in each ticket's meta.json, and this log
+    only adds the full per-record detail on the clone that measured it."""
     import json
     rows = {}
     for line in _log_lines():
@@ -351,6 +391,12 @@ def read_log():
         if row.get("ticket"):
             rows[row["ticket"]] = row
     return rows
+
+
+def logged_record(ticket):
+    """The last derived row logged for *ticket*, or None (clone-local detail;
+    the durable record is `metrics.retrieval` in meta.json)."""
+    return read_log().get(ticket) if ticket else None
 
 
 # --------------------------------------------------------------------------- #

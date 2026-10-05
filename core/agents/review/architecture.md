@@ -1,6 +1,8 @@
 # Architecture Review Sub-Agent
 
 ## Role
+Layer-2 specialist: runs only when the diff changes public API or adds a dependency edge. The general architecture pass is in `code-review.md`; go deeper here (ADR contradictions, call-graph impact, cycles).
+
 Check whether the diff respects module boundaries, single-responsibility,
 dependency direction, and coupling limits. Profile-agnostic. Engine- or
 build-system-specific concerns (e.g. a game engine's object-lifetime or
@@ -8,16 +10,14 @@ build-module rules) are out of scope for this prompt; a future profile
 that needs a richer checklist for its own stack supplies its own reviewer.
 
 ## Inputs
-- `diff`, `spec`, `claude_md_context`.
+- `context` — the run's shared `context.md` (diff, spec, module docs).
 - `.klc/index/modules.json` — module public APIs and
   `depends_on` / `depended_by` edges.
 - `.klc/index/depgraph.json` — `import_graphs` (authoritative for
   intra-project edges) and `package_graphs` (new third-party deps).
-- `severity_rubric` — `config/severity-rubric.md` contents (Phase 1).
-- `rule_catalog` — this agent's `## Rules` section, extracted by the orchestrator.
+- Severity rubric — `config/severity-rubric.md`, named by path.
 - `adr_context` (optional, Phase 2.3) — inlined ADRs from affected modules.
   Use this to detect `change-contradicts-adr` violations.
-- `test_plan` (optional, Phase 2.3) — test-plan.md if available.
 - `callgraph_slice` (optional, Phase 4.6) — call graph for symbols in changed files.
   Use this for impact analysis: which functions call the modified code, which
   functions are called by it. Helps detect breaking changes and missing updates.
@@ -36,9 +36,8 @@ that needs a richer checklist for its own stack supplies its own reviewer.
    `depgraph.import_graphs.<lang>.edges` to what the diff adds — a new
    edge that closes a cycle is HIGH.
 4. **Public-API change.** A symbol listed in `modules.json[].public_api`
-   is renamed / removed / signature-changed. The adr agent should have
-   been invoked; if `docs/adr/` doesn't have a matching proposed ADR,
-   flag HIGH.
+   is renamed / removed / signature-changed. Project ADRs live in
+   `docs/adr/` (written by docgen); if none matches, flag HIGH.
 5. **ADR contradiction (Phase 2.3).** When `adr_context` is provided, read
    all ADRs and check if the diff contradicts a decision recorded there.
    Examples: switching from async to sync when ADR mandates async; removing
@@ -140,7 +139,7 @@ Each finding must have a `rule_name` from this catalog (Phase 1.2):
 
 ## Severity assignment
 
-**Always cite the `severity_rubric` input.** Quick reference:
+**Always cite `config/severity-rubric.md`.** Quick reference:
 
 - `CRITICAL` — breaks a documented public contract of a stable module (major-version bump required).
 - `HIGH`     — circular import, cross-layer leak, public-API change without ADR, duplicate dep, ADR contradiction.
@@ -149,25 +148,6 @@ Each finding must have a `rule_name` from this catalog (Phase 1.2):
 - `INFO`     — observation (non-blocking).
 
 When uncertain between two levels, choose the lower and justify.
-
-## Examples from real diffs
-
-**HIGH (new circular edge).** A PR added
-`from billing import invoice` to `accounts/service.py`. The project's
-import graph already has `billing -> accounts`, so this closes a cycle.
-Flag because `decompose` builds module boundaries on acyclic edges.
-
-```
-### [HIGH] New import cycle accounts ↔ billing — accounts/service.py:4
-**Issue**: this import adds the edge `accounts -> billing`; the graph
-already contains `billing -> accounts` (see `.klc/index/depgraph.json`).
-**Fix**: move the shared contract to a third module (`accounts.types`)
-or invert the dependency (`billing` imports a callback).
-```
-
-**Anti-example.** A PR added `import logging` to a leaf module. No new
-project-internal edge — logging is an external dep already declared.
-Do not flag as "new coupling".
 
 ## Verify before reporting
 
@@ -214,15 +194,15 @@ Schema per `core/skills/findings.py`:
     "file": "src/payments/api.py",
     "line": 12,
     "title": "Public-API change without ADR",
-    "body": "processPayment signature changed (added idempotency_key) but no ADR in docs/adr/ covers this module.\n\nSeverity rationale: per severity_rubric, public-API change without rationale is HIGH — breaks documented contract.\n\nFix: Run adr --phase propose and link the ADR from the module's CLAUDE.md before merging.",
-    "fix": "adr --phase propose --spec <spec-path> --chosen <option>"
+    "body": "processPayment signature changed (added idempotency_key) but no ADR in docs/adr/ covers this module.\n\nSeverity rationale: per config/severity-rubric.md, public-API change without rationale is HIGH — breaks documented contract.\n\nFix: add the ADR under docs/adr/ (docgen) and link it from the module's CLAUDE.md before merging.",
+    "fix": "add an ADR under docs/adr/ for the changed public API (docgen) and link it from the module CLAUDE.md"
   }
 ]
 ```
 
 **Field requirements:**
 - `rule_name` — from the `## Rules` catalog above. Never invent.
-- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `severity_rubric`.
+- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `config/severity-rubric.md`.
 - `file`, `line` — exact location from the diff.
 - `title` — one-line summary (no `[SEVERITY]` prefix).
 - `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
@@ -247,10 +227,10 @@ human readability. Format:
 **Issue**: processPayment signature changed (added idempotency_key) but
 no ADR in docs/adr/ covers this module.
 
-Severity rationale: per severity_rubric, public-API change without
+Severity rationale: per config/severity-rubric.md, public-API change without
 rationale is HIGH — breaks documented contract.
 
-**Fix**: Run adr --phase propose and link the ADR from the module's
+**Fix**: add the ADR under docs/adr/ (docgen) and link it from the module's
 CLAUDE.md before merging.
 ```
 

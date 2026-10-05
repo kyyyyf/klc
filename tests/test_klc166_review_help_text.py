@@ -27,4 +27,5 @@ def test_diff_help_text_no_longer_advertises_a_range_example():
     assert "main...feat" not in text
     assert "main...HEAD" not in text
     assert "unified-diff file" in text.lower()
-    assert "against the working tree" in text.lower()
+    # KLC-175 AC-1 superseded the "working tree" wording: ranges and `recorded` are accepted.
+    assert "recorded" in text.lower()

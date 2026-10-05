@@ -265,7 +265,7 @@ def test_design_ack_via_can_complete_blocks_on_unmeasured_load_bearing_decision(
 def test_design_ack_via_can_complete_persists_override_record(tmp_path, monkeypatch):
     """AC-10: an operator override (meta.deferred_provenance) lets the REAL
     design ack proceed, and persists a provenance[override] record into
-    design/ack-advisories.json — the same artifact gate_policy reads."""
+    advisories.json (design key) — the same artifact gate_policy reads."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket = "KLC-961"
     _make_m_ticket_for_wiring(tmp_path, ticket, options_md=_ASSUMED_OPTIONS,
@@ -274,10 +274,9 @@ def test_design_ack_via_can_complete_persists_override_record(tmp_path, monkeypa
     ok, msg = can_complete(ticket, "design", persist=True)
     assert ok, f"expected the override to let the ack proceed, got: {msg!r}"
 
-    advisories_path = (tmp_path / ".klc" / "tickets" / ticket / "design"
-                       / "ack-advisories.json")
+    advisories_path = tmp_path / ".klc" / "tickets" / ticket / "advisories.json"
     assert advisories_path.exists()
-    envelope = json.loads(advisories_path.read_text(encoding="utf-8"))
+    envelope = json.loads(advisories_path.read_text(encoding="utf-8"))["design"]
     records = [r for r in envelope["records"] if r["source"] == "provenance"]
     assert any("provenance[override]" in r["message"] and "D-1" in r["message"]
               for r in records)
@@ -326,9 +325,8 @@ def test_discovery_lite_ack_via_can_complete_surfaces_without_blocking(tmp_path,
     ok, msg = can_complete_discovery_lite(ticket, persist=True)
     assert ok, f"expected S-track to surface, never block, got: {msg!r}"
 
-    advisories_path = (tmp_path / ".klc" / "tickets" / ticket / "discovery-lite"
-                       / "ack-advisories.json")
+    advisories_path = tmp_path / ".klc" / "tickets" / ticket / "advisories.json"
     assert advisories_path.exists()
-    envelope = json.loads(advisories_path.read_text(encoding="utf-8"))
+    envelope = json.loads(advisories_path.read_text(encoding="utf-8"))["discovery-lite"]
     records = [r for r in envelope["records"] if r["source"] == "provenance"]
     assert any("D-1" in r["message"] for r in records)

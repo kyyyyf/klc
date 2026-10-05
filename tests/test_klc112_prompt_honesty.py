@@ -38,8 +38,8 @@ SCANNED = [*(FW / "core/agents").glob("*.md"), *(FW / "core/agents/review").glob
 
 LANG_RE = re.compile(r"\b(python|typescript|javascript|java|kotlin|golang|rust|ruby|"
                      r"php|swift|scala|csharp)\b", re.I)           # no bare "go" (D-207)
-FRAMEWORK_PREFIXES = (".klc/tickets/", ".klc/index/", "core/", "docs/adr/", "design/")
-FRAMEWORK_FILES = {"raw.md", "CLAUDE.md", "spec.md", "test-plan.md", "meta.json",
+FRAMEWORK_PREFIXES = (".klc/tickets/", ".klc/scratch/", ".klc/index/", "core/", "docs/adr/", "design/")
+FRAMEWORK_FILES = {"raw.md", "CLAUDE.md", "spec.md", "test-plan.md", "design.md", "meta.json",
                    "retrieval_trace.json", "modules.json", "module_edges.json",
                    "retrospective.md", "models.yml"}
 BUILD_LOG_REL = ".klc/tickets/KLC-112/build-log.md"   # the one AC-14 exception (D-204)
@@ -136,7 +136,7 @@ def test_rewritten_sections_name_only_framework_artefacts_no_language_or_profile
     fallback text lives under ## Inputs already)."""
     disc_text = _read(DISCOVERY)
     disc_sections = (_heading_section(disc_text, "## Inputs")
-                     + _heading_section(disc_text, "## Planning slice (read first, KLC-073)"))
+                     + _heading_section(disc_text, "## Planning slice (read first)"))
     design_section = _heading_section(_read(DESIGN), "## Inputs")
     offenders = _non_framework_refs(disc_sections) + _non_framework_refs(design_section)
     assert not offenders, offenders
@@ -286,7 +286,7 @@ def test_discovery_inputs_section_names_only_real_files():
     text = _read(DISCOVERY)
     section = _norm(_heading_section(text, "## Inputs"))
     for token in ("`raw.md`", "root `CLAUDE.md`",
-                  "`.klc/tickets/<KEY>/retrieval_trace.json`",
+                  "`.klc/scratch/<KEY>/retrieval_trace.json`",
                   "`.klc/index/modules.json`"):
         assert token in section, token
     for bundle_name in ("00-raw.md", "10-root-CLAUDE.md", "20-module-docs.md",
@@ -352,7 +352,7 @@ def test_design_inputs_section_names_spec_test_plan_and_optional_adrs():
     text = _read(DESIGN)
     section = _norm(_heading_section(text, "## Inputs"))
     for token in ("`spec.md`", "`test-plan.md`", "`docs/adr/*`",
-                  "`design/adr.md`"):
+                  "`design.md`"):
         assert token in section, token
     for bundle_name in ("design-context/", "00-spec.md", "10-test-plan.md",
                         "20-related-adrs.md"):
@@ -402,38 +402,10 @@ def _golden_hunks(old: list[str], new: list[str]):
     return [op for op in sm.get_opcodes() if op[0] != "equal"]
 
 
-def test_design_golden_diff_confined_to_inputs_and_fallback_hunks():
-    """AC-12: the re-frozen golden differs from the base only inside the
-    Inputs / degraded-fallback span, or — KLC-127's own, later, equally
-    confined and intentional change — the Independent impl-plan review
-    span's in-client spawn path (`core/agents/` -> `klc-plugin/agents/`,
-    AC-16). Two disjoint confined spans, not a loosened gate: a hunk
-    landing anywhere else in the file still fails this test."""
-    res = subprocess.run(["git", "-C", str(FW), "show", f"{BASE_SHA}:{GOLDEN_REL}"],
-                         capture_output=True, text=True)
-    if res.returncode != 0:
-        pytest.skip(f"base commit {BASE_SHA} unavailable (shallow clone?)")
-    old = res.stdout.splitlines()
-    new = _read(GOLDEN).splitlines()
-    hunks = _golden_hunks(old, new)
-    assert hunks, "AC-12: the golden was not re-frozen"
-    lo_o = old.index("## Inputs (from `design-context/`)")
-    hi_o = old.index("## Symbol verification")
-    lo_n = new.index("## Inputs")
-    hi_n = new.index("## Symbol verification")
-    # KLC-127 D-120: the Independent impl-plan review section's spawn-path
-    # line (AC-16) is the one hunk allowed outside the KLC-112 span above.
-    klc127_lo_o = old.index("## Independent impl-plan review (M/L, KLC-094)")
-    klc127_hi_o = old.index("## Hard rules")
-    klc127_lo_n = new.index("## Independent impl-plan review (M/L, KLC-094)")
-    klc127_hi_n = new.index("## Hard rules")
-    for _tag, i1, i2, j1, j2 in hunks:
-        in_klc112_span = lo_o <= i1 and i2 <= hi_o and lo_n <= j1 and j2 <= hi_n
-        in_klc127_span = (klc127_lo_o <= i1 and i2 <= klc127_hi_o
-                          and klc127_lo_n <= j1 and j2 <= klc127_hi_n)
-        assert in_klc112_span or in_klc127_span, (
-            f"hunk ({i1}, {i2}, {j1}, {j2}) lands outside both confined spans"
-        )
+# KLC-172 step-4: test_design_golden_diff_confined_to_inputs_and_fallback_hunks was
+# removed. It pinned that the design golden differs from KLC-112's base only inside two
+# spans; the deliberate prompt diet rewrites the whole design prompt, so the premise
+# no longer holds. The golden is still byte-pinned by test_klc118_card_modes.
 
 
 # --------------------------------------------------------------------------- #

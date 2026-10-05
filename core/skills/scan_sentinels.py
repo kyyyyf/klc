@@ -49,7 +49,7 @@ def load_sentinels_config() -> dict:
     if not path.exists():
         sys.stderr.write(f"scan_sentinels: {path} not found\n")
         sys.exit(1)
-    return load_yaml(path)
+    return load_yaml(path.read_text(encoding="utf-8"))   # the parser takes text, not a Path (KLC-129 F-008)
 
 
 def parse_diff_hunks(diff_path: Path) -> list[dict]:

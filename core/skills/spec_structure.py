@@ -7,6 +7,11 @@ _APPROACH_LABEL_RE = re.compile(
     r"(?im)^\s*(?:[-*]|\d+\.|#{2,3})\s*((?:option|approach|alternative)\s*[a-z0-9]*)\b",
 )
 
+_FENCED_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
+_APPROACHES_HEAD_RE = re.compile(r"(?im)^##[ \t]+approaches[ \t]*$")
+_OPTIONS_HEAD_RE = re.compile(r"(?im)^##[ \t]+options[ \t]*$")
+_NEXT_H2_RE = re.compile(r"(?m)^##[ \t]+\S")
+
 _PICK_LINE_RE = re.compile(r"(?im)^\s*Picked:\s*(.*?)\s*$")
 _DECISION_RE = re.compile(r"\bDECISION\s+D-\d+\b")
 _PLACEHOLDER_RE = re.compile(r"^(?:<[^>]*>|tbd)$", re.IGNORECASE)
@@ -51,3 +56,29 @@ def has_decompose_signal(text: str) -> bool:
 def has_upgrade_m_signal(text: str) -> bool:
     """True iff text contains a DISCOVERY_LITE_UPGRADE_M signal."""
     return bool(_UPGRADE_M_RE.search(text))
+
+
+def approaches_text(text: str) -> str | None:
+    """Body of the `## Approaches` section of spec.md, or None when it is absent.
+
+    Fenced blocks are stripped first, so a heading shown inside a code fence does
+    not count as the section (KLC-176). The body ends at the next `## ` heading.
+    """
+    stripped = _FENCED_RE.sub("", text)
+    m = _APPROACHES_HEAD_RE.search(stripped)
+    if not m:
+        return None
+    rest = stripped[m.end():]
+    nxt = _NEXT_H2_RE.search(rest)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def design_options_text(text: str) -> str | None:
+    """Body of the `## Options` section of design.md, or None when it is absent."""
+    stripped = _FENCED_RE.sub("", text)
+    m = _OPTIONS_HEAD_RE.search(stripped)
+    if not m:
+        return None
+    rest = stripped[m.end():]
+    nxt = _NEXT_H2_RE.search(rest)
+    return rest[: nxt.start()] if nxt else rest

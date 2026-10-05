@@ -99,9 +99,8 @@ def test_take_writes_nothing_and_exits_1_on_any_schema_error(tmp_path, kind, doc
     vfile = _write_verdict(tmp_path / "verdict.json", doc)
     rc = handback.take(kind, TICKET, vfile)
     assert rc == 1
-    spec = handback.KINDS[kind]
-    if spec.stored:
-        assert not (tdir / spec.stored).exists()
+    assert handback.KINDS[kind].stored is None       # KLC-173: no per-kind file any more
+    assert not (tdir / "findings.json").exists()
 
 
 @pytest.mark.parametrize("case", ["missing", "permission", "bad-utf8"])
@@ -188,7 +187,7 @@ def test_take_rejected_verdict_records_no_pass_and_runs_no_planner(tmp_path, mon
     assert rc == 1
     assert calls == []
     tdir = tmp_path / "proj" / ".klc" / "tickets" / TICKET
-    assert not (tdir / "review-plan.json").exists()
+    assert not (tdir / "review" / "review-plan-r1.json").exists()
 
 
 # --- the storing path -----------------------------------------------------------
@@ -196,15 +195,17 @@ def test_take_rejected_verdict_records_no_pass_and_runs_no_planner(tmp_path, mon
 @pytest.mark.parametrize("kind", ["code-review", "external-review"])
 def test_take_stores_findings_as_finding_dicts_with_reviewer_and_kind_stamped(tmp_path, kind):
     """AC-6: a valid code-review/external-review verdict is stored as Finding
-    dicts at review/<kind>-findings.json, reviewer and kind stamped."""
+    dicts in the ticket's findings.json, reviewer, kind and round stamped."""
     doc = _verdict(findings=[_finding(id="F-1"), _finding(id="F-2", line=9)])
     vfile = _write_verdict(tmp_path / "verdict.json", doc)
     rc = handback.take(kind, TICKET, vfile)
     assert rc == 0
     tdir = tmp_path / "proj" / ".klc" / "tickets" / TICKET
-    stored = json.loads((tdir / "review" / f"{kind}-findings.json").read_text(encoding="utf-8"))
+    stored = json.loads((tdir / "findings.json").read_text(encoding="utf-8"))
+    assert not (tdir / "review" / f"{kind}-findings.json").exists()
     assert len(stored) == 2
     for rec in stored:
+        assert rec["round"] == 1
         assert rec["reviewer"] == kind
         assert rec["kind"] == kind
         assert rec["issue_id"]
@@ -223,39 +224,37 @@ def test_take_writes_no_file_at_all_for_the_four_independent_kinds(tmp_path, kin
 
 
 def test_take_derives_the_target_path_from_kind_alone(tmp_path):
-    """AC-6: the target path is derived from --kind alone."""
+    """AC-6 / KLC-173: the one findings.json, kind taken from --kind alone."""
     doc = _verdict(findings=[_finding()])
     vfile = _write_verdict(tmp_path / "verdict.json", doc)
     rc = handback.take("code-review", TICKET, vfile)
     assert rc == 0
     tdir = tmp_path / "proj" / ".klc" / "tickets" / TICKET
-    assert (tdir / "review" / "code-review-findings.json").is_file()
+    assert not (tdir / "review" / "code-review-findings.json").exists()
+    rows = json.loads((tdir / "findings.json").read_text(encoding="utf-8"))
+    assert [(r["kind"], r["round"]) for r in rows] == [("code-review", 1)]
 
 
-def test_take_overwrites_the_previous_intake_latest_wins(tmp_path):
-    """AC-6: taking a second verdict overwrites the first — latest wins."""
-    doc1 = _verdict(findings=[_finding(id="F-1", title="first")])
-    vfile1 = _write_verdict(tmp_path / "v1.json", doc1)
+def test_take_with_no_plan_keeps_the_earlier_take_as_the_next_round(tmp_path):
+    """AC-6 / KLC-173 AC-3: with no plan to say it is the same diff, a second
+    take is stored as the next round and never overwrites the first."""
+    vfile1 = _write_verdict(tmp_path / "v1.json", _verdict(findings=[_finding(id="F-1", title="first")]))
     assert handback.take("code-review", TICKET, vfile1) == 0
-
-    doc2 = _verdict(findings=[_finding(id="F-2", title="second")])
-    vfile2 = _write_verdict(tmp_path / "v2.json", doc2)
+    vfile2 = _write_verdict(tmp_path / "v2.json", _verdict(findings=[_finding(id="F-2", title="second")]))
     assert handback.take("code-review", TICKET, vfile2) == 0
 
     tdir = tmp_path / "proj" / ".klc" / "tickets" / TICKET
-    stored = json.loads((tdir / "review" / "code-review-findings.json").read_text(encoding="utf-8"))
-    assert len(stored) == 1
-    assert stored[0]["title"] == "second"
+    stored = json.loads((tdir / "findings.json").read_text(encoding="utf-8"))
+    assert [(r["round"], r["title"]) for r in stored] == [(1, "first"), (2, "second")]
 
 
-def test_take_stores_an_empty_findings_list_as_an_empty_json_list(tmp_path):
-    """AC-6: an empty findings list is stored as an empty JSON list."""
+def test_take_of_an_empty_findings_list_creates_no_findings_file(tmp_path):
+    """KLC-173 AC-1/AC-2: an empty verdict stores nothing, and no file is created."""
     vfile = _write_verdict(tmp_path / "verdict.json", _verdict())
-    rc = handback.take("code-review", TICKET, vfile)
-    assert rc == 0
+    assert handback.take("code-review", TICKET, vfile) == 0
     tdir = tmp_path / "proj" / ".klc" / "tickets" / TICKET
-    stored = json.loads((tdir / "review" / "code-review-findings.json").read_text(encoding="utf-8"))
-    assert stored == []
+    assert not (tdir / "findings.json").exists()
+    assert not (tdir / "review" / "code-review-findings.json").exists()
 
 
 # --- counting the pass ----------------------------------------------------------
@@ -282,13 +281,13 @@ def test_take_records_exactly_one_reviewer_tagged_pass_through_record_pass(
     rc = handback.take(kind, TICKET, vfile)
     assert rc == 0
 
-    stored_plan = json.loads((tdir / "review-plan.json").read_text(encoding="utf-8"))
+    stored_plan = json.loads((tdir / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     entry = next(p for p in stored_plan["passes"] if p["reviewer"] == plan_reviewer)
     assert entry["status"] == "executed"
 
-    tagged = _tagged_attempts(tdir)
-    assert len(tagged) == 1
-    assert tagged[0]["reviewer"] == plan_reviewer
+    # KLC-174 step-5: the pass is marked executed in the plan; no `estimated`
+    # token attempt is written any more.
+    assert _tagged_attempts(tdir) == []
 
 
 @pytest.mark.parametrize("kind", ["spec", "test-plan", "impl-plan"])
@@ -300,7 +299,7 @@ def test_take_records_no_pass_for_spec_test_plan_and_impl_plan(tmp_path, kind):
     rc = handback.take(kind, TICKET, vfile)
     assert rc == 0
     tdir = tmp_path / "proj" / ".klc" / "tickets" / TICKET
-    assert not (tdir / "review-plan.json").exists()
+    assert not (tdir / "review" / "review-plan-r1.json").exists()
     assert _tagged_attempts(tdir) == []
 
 
@@ -320,4 +319,4 @@ def test_take_twice_with_the_same_verdict_records_one_attempt(tmp_path):
     assert handback.take("code-review", TICKET, vfile) == 0
     assert handback.take("code-review", TICKET, vfile) == 0
 
-    assert len(_tagged_attempts(tdir)) == 1
+    assert _tagged_attempts(tdir) == []        # KLC-174: nothing recorded

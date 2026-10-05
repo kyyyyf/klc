@@ -60,16 +60,25 @@
 # advisory:
 #   threshold: medium        # high | medium | low | info. Default: medium.
 
-# Bounded verification runner budgets (KLC-115) — one Evidence entry re-run,
-# one impl-plan step VERIFY re-run, one AC-referencing pytest node, and the
-# whole verification arm at one build ack. No legacy file.
+# Bounded verification runner budgets (KLC-115) — one impl-plan step VERIFY run
+# (`klc step verify`), one AC-referencing pytest node, and the whole verification
+# arm at one build ack. No legacy file.
 # verify:
-#   entry_budget_seconds: 120   # one Evidence entry command. Default: 120.
 #   step_budget_seconds: 120    # one impl-plan step VERIFY command. Default: 120.
 #   node_budget_seconds: 120    # one AC-referencing pytest node. Default: 120.
-#   arm_budget_seconds: 600     # the whole verification arm at one ack — ONE shared
-#                               # ceiling split across ac-coverage/evidence/step-verify
-#                               # (KLC-115 review-fix), not one per checker. Default: 600.
+#   arm_budget_seconds: 600     # the whole verification arm at one ack (the AC-coverage
+#                               # pytest runs; KLC-174 removed the replay arms). Default: 600.
+
+# VERIFY allowlist (KLC-174). `klc step verify` runs a plan step's VERIFY command
+# only when EVERY `&&` / `;` / `|` segment starts with an allowed program. Built-in:
+# `python3 -m pytest`, `pytest`, `npm test`, `cargo test`, `go test`, `dotnet test`.
+# This key is the ONLY way to add programs (each entry is a command prefix). The
+# allowlist is not a sandbox: the test code itself still runs, so a committed
+# conftest.py can execute anything. A few flags that load code or write outside the
+# repo (`-p`, `-c`, `--basetemp`, `--rootdir`, `--junitxml`, `-exec`, `--config`,
+# `--eval`) are refused, and so is any `#`.
+# verify:
+#   allowed_programs: ["make test", "tox"]
 
 # Scope-guard infra paths (KLC-111). Paths outside the module graph, dropped
 # before module resolution by the scope-guard and accepted as valid module
@@ -78,16 +87,14 @@
 # scope:
 #   infra_paths: [".klc/", "hooks/", ".github/", ".gitlab/", "README.md"]
 
-# Post-build step ledger pass (KLC-114): a mechanical second opinion the
-# orchestrator computes from git and from re-executed VERIFY commands,
-# instead of trusting the builder's own report. No legacy file.
+# Build orchestrator (KLC-114, KLC-174). Progress is derived from git and
+# build/steps.json; there is no ledger file and no re-run pass. No legacy file.
 # build:
-#   verify_steps: true                 # re-run every step's VERIFY and derive
-#                               # scope/TDD-order from git at build ack.
-#                               # false restores today's ack byte-for-byte.
 #   per_step_review_on_verify: false   # dispatch the per-step reviewer when a
-#                               # step's ledger verdict is non-green. Costs a
+#                               # step is not green after its dispatch. Costs a
 #                               # model call, so it opts in.
+#   max_reviews_per_step: 3     # hard cap on per-step review gates for one step in one
+#                               # build-run; the step is then marked blocked. Default: 3.
 
 # Per-file outline `klc skeleton <file>` (KLC-139): computed on demand, never
 # stored. No legacy file.

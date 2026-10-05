@@ -72,8 +72,7 @@ def _render_template(finding_schema=None) -> str:
     from jinja2 import Environment, StrictUndefined
     env = Environment(undefined=StrictUndefined, keep_trailing_newline=True)
     tpl = env.from_string(TEMPLATE_PATH.read_text(encoding="utf-8"))
-    ctx = dict(spec="the spec text", diff="the diff text",
-              claude_md_context="the CLAUDE.md bundle",
+    ctx = dict(context="the shared context",
               focus_areas=["security", "architecture"])
     if finding_schema is not None:
         ctx["finding_schema"] = finding_schema

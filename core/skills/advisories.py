@@ -16,6 +16,7 @@ silently dropped.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,9 +28,10 @@ for _p in (str(_repo_root), str(_file_dir)):
         sys.path.insert(0, _p)
 
 from core.shared.paths import klc_ticket_meta_file, project_root  # noqa: E402
+import store_lock  # noqa: E402
 
-SCHEMA_VERSION = 1
-ARTIFACT_NAME = "ack-advisories.json"
+ARTIFACT_NAME = "advisories.json"            # one phase-keyed file per ticket (KLC-173)
+LEGACY_ARTIFACT_NAME = "ack-advisories.json"  # per-phase file of archived tickets, read-only
 
 SEVERITIES = ("high", "medium", "low", "info")
 SEVERITY_ORDER = {s: i for i, s in enumerate(SEVERITIES)}
@@ -112,25 +114,101 @@ def at_or_above(records, threshold: str) -> bool:
 
 
 def artifact_path(ticket: str, phase_id: str) -> Path:
-    return klc_ticket_meta_file(ticket).parent / phase_id / ARTIFACT_NAME
+    """The ticket's one advisories.json (phase_id is kept for call-site symmetry)."""
+    return klc_ticket_meta_file(ticket).parent / ARTIFACT_NAME
+
+
+def _legacy_path(ticket: str, phase_id: str) -> Path:
+    return klc_ticket_meta_file(ticket).parent / phase_id / LEGACY_ARTIFACT_NAME
+
+
+def _load_doc(path: Path) -> dict:
+    """The phase-keyed document, or {} when absent. Raises OSError when the file
+    exists but is unreadable or not an object, so a write never destroys what
+    it could not parse (F-007)."""
+    if not path.exists():
+        return {}
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:                           # noqa: BLE001
+        raise OSError(f"{path.name} is unreadable: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise OSError(f"{path.name} is not a JSON object")
+    return doc
+
+
+def _corrupt_siblings(path: Path) -> list[Path]:
+    return sorted(path.parent.glob("advisories.corrupt-*.json")) if path.parent.is_dir() else []
+
+
+def store_corrupt(ticket: str) -> bool:
+    """True when a corrupt advisories.json was ever moved aside for *ticket*:
+    its records are lost, so every phase of the ticket reads dirty. Never raises."""
+    try:
+        return bool(_corrupt_siblings(artifact_path(ticket, "")))
+    except Exception:                                  # noqa: BLE001
+        return True
+
+
+def _move_aside(path: Path) -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    os.replace(path, path.with_name(f"advisories.corrupt-{ts}.json"))
+
+
+def _store(path: Path, phase_id: str, records: list[dict]) -> None:
+    """Read-modify-write one phase key under the store lock. No records: drop the
+    key, and delete the file once it is empty, so a clean ack leaves no file, no
+    key and no directory. A corrupt file is moved aside (never silently replaced)
+    to `advisories.corrupt-<ts>.json`; the gate then reads every phase as dirty."""
+    with store_lock.locked(path):
+        try:
+            doc = _load_doc(path)
+        except OSError:
+            _move_aside(path)
+            doc = {}
+        if records:
+            doc[phase_id] = {"generated_at": datetime.now(timezone.utc)
+                                                     .strftime("%Y-%m-%dT%H:%M:%SZ"),
+                             "records": records}
+        else:
+            doc.pop(phase_id, None)
+        if not doc:
+            if path.exists():
+                path.unlink()
+            return
+        store_lock.atomic_write_text(
+            path, json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
+
+
+# (ticket, phase) -> True after a persisting finish whose write failed (F-001).
+# The ack reads it right after can_complete and stamps the history entry, which
+# is what the gate reads; a later successful finish for the pair clears it.
+_WRITE_FAILED: dict = {}
+
+
+def write_failed(ticket: str, phase_id: str) -> bool:
+    return bool(_WRITE_FAILED.get((ticket, phase_id)))
+
+
+def history_marker(ticket: str, phase_id: str):
+    """The `extra` fields the ack adds to the `<phase>:ack-needed` history entry
+    when this phase's advisories could not be written, else None. A missing key
+    is clean only without this marker: a failed write must never read as clean."""
+    return {"advisories": "write-failed"} if write_failed(ticket, phase_id) else None
 
 
 def finish(ticket: str, phase_id: str, sources, persist: bool = True):
     """Collect, persist (ack path only) and render. Returns (records, summary).
 
-    C-002: when `persist` is False NOTHING is written — the probe path used by
-    `klc remind` and gate-policy signal collection must stay write-free, so the
-    mkdir and the write both sit inside the flag. C-001: an unwritable path
-    (OSError on mkdir/write) degrades to an extra info record rather than
-    raising — the ack always completes.
+    C-002: when `persist` is False NOTHING is written (the probe path used by
+    `klc remind` and gate-policy signal collection stays write-free). C-001: an
+    unwritable path (OSError) degrades to an extra info record rather than
+    raising, so the ack always completes.
 
-    review-fix (HIGH, AC-9): when `persist` is True the envelope is written
-    UNCONDITIONALLY, even when `records` is empty — a genuinely clean ack
-    (every producer ran and found nothing) writes `records: []`, a real,
-    informative envelope. Writing only `if records` made `gate_policy` read
-    the absent artifact as DIRTY on the single cleanest possible outcome,
-    inverting AC-9's documented behaviour and defeating `klc ack --auto` for
-    what is very likely the majority of real acks.
+    KLC-173: the records live in one `<ticket>/advisories.json` keyed by phase
+    id. A clean ack writes nothing; the gate reads the missing key as clean only
+    when the ticket history records that phase reaching ack-needed
+    (`ack_recorded`). A clean re-ack removes the phase's stale key.
     """
     records = collect(sources)
     path = artifact_path(ticket, phase_id)
@@ -140,15 +218,10 @@ def finish(ticket: str, phase_id: str, sources, persist: bool = True):
         rel = str(path)
     if persist:
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            envelope = {"schema_version": SCHEMA_VERSION, "ticket": ticket,
-                        "phase": phase_id,
-                        "generated_at": datetime.now(timezone.utc)
-                                                .strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "records": records}
-            path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False)
-                            + "\n", encoding="utf-8")
+            _store(path, phase_id, records)
+            _WRITE_FAILED.pop((ticket, phase_id), None)
         except OSError as exc:                         # C-001: never block an ack
+            _WRITE_FAILED[(ticket, phase_id)] = True
             records.append({"source": "advisories", "severity": "info",
                             "code": "malformed-record",
                             "message": (f"advisory artifact not written — "
@@ -157,11 +230,68 @@ def finish(ticket: str, phase_id: str, sources, persist: bool = True):
 
 
 def read(ticket: str, phase_id: str):
-    """The persisted envelope, or None when absent/unreadable. Never raises."""
+    """The phase's persisted envelope, or None when absent/unreadable. Never raises.
+
+    Reads `<ticket>/advisories.json`; when that file has no key for the phase,
+    falls back to the legacy per-phase `ack-advisories.json` (archived tickets).
+    An unreadable advisories.json is None (the gate stays dirty).
+    """
     try:
-        return json.loads(artifact_path(ticket, phase_id).read_text(encoding="utf-8"))
+        path = artifact_path(ticket, phase_id)
+        if path.exists():
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(doc, dict):
+                return None
+            env = doc.get(phase_id)
+            if isinstance(env, dict):
+                return env
+            if phase_id in doc:
+                return None                            # present but malformed: dirty
+        legacy = _legacy_path(ticket, phase_id)
+        if legacy.exists():
+            return json.loads(legacy.read_text(encoding="utf-8"))
+        return None
     except Exception:                                  # noqa: BLE001
         return None
+
+
+def _ack_entry(ticket: str, phase_id: str):
+    """The latest `<phase_id>:ack-needed` history entry, or None. Never raises."""
+    try:
+        meta = json.loads(klc_ticket_meta_file(ticket).read_text(encoding="utf-8"))
+        target = f"{phase_id}:ack-needed"
+        hits = [e for e in meta.get("phase_history") or []
+                if isinstance(e, dict) and e.get("phase") == target]
+        return hits[-1] if hits else None
+    except Exception:                                  # noqa: BLE001
+        return None
+
+
+def ack_recorded(ticket: str, phase_id: str) -> bool:
+    """True when meta.json phase_history holds `<phase_id>:ack-needed`. Never raises."""
+    return _ack_entry(ticket, phase_id) is not None
+
+
+def missing_key_is_clean(ticket: str, phase_id: str) -> bool:
+    """True when the phase has no record set AND that is a clean outcome: the
+    history records the ack, that ack did not record a failed advisories write,
+    no corrupt advisories.json was moved aside, and advisories.json is absent or
+    a readable object without a malformed entry for the phase (fail-closed).
+    Never raises."""
+    try:
+        entry = _ack_entry(ticket, phase_id)
+        if entry is None or entry.get("advisories") == "write-failed":
+            return False
+        path = artifact_path(ticket, phase_id)
+        if _corrupt_siblings(path):
+            return False
+        if path.exists():
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(doc, dict) or phase_id in doc:
+                return False
+        return True
+    except Exception:                                  # noqa: BLE001
+        return False
 
 
 _ELLIPSIS = "…"

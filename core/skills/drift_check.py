@@ -183,11 +183,6 @@ def _read_impl_plan_path(ticket: str) -> Path:
     return klc_ticket_dir(ticket) / "impl-plan.md"
 
 
-def _report_path(ticket: str) -> Path:
-    """Location of the ticket's drift-report.json (shared $PROJECT_ROOT-aware helper)."""
-    return klc_ticket_dir(ticket) / "drift-report.json"
-
-
 def _summary(rep: dict) -> str:
     """One-line human summary that NAMES the drifted modules / orphan files /
     flagged step-keys / skip-reasons (F-2) — not a constant placeholder."""
@@ -227,17 +222,11 @@ def _summary(rep: dict) -> str:
 
 def write_report(ticket: str, *, repo: Path | str | None = None,
                  ground_truth: dict | None = None) -> dict:
-    """Compute the drift report, attach its summary, and write drift-report.json to
-    the ticket dir. Report-only: the write is best-effort and never raises to the
-    caller (a failed write is recorded, the report dict is still returned)."""
+    """Compute the drift report and attach its summary. KLC-173: nothing is
+    persisted to the ticket dir; the report is returned, and its summary reaches
+    the integrate advisories through phase_completion."""
     rep = compare(ticket, repo=repo, ground_truth=ground_truth)
     rep["summary"] = _summary(rep)
-    try:
-        path = _report_path(ticket)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(rep, indent=2) + "\n", encoding="utf-8")
-    except Exception as exc:  # noqa: BLE001 — report-only: never propagate
-        rep["write_error"] = f"{type(exc).__name__}: {exc}"
     return rep
 
 

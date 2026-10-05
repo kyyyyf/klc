@@ -20,8 +20,7 @@ authoritative classifier. You give a fast, language-agnostic second opinion.
 ## Inputs
 
 - `.klc/tickets/<KEY>/raw.md` — description (+ any prior notes).
-- `.klc/tickets/<KEY>/meta.json` — `route_hint`, `route_confidence`,
-  `route_signals`, `mentions`.
+- `.klc/tickets/<KEY>/meta.json` — `route_hint`, `route_confidence`.
 - `.klc/index/modules.json` — module names + `depended_by` (to gauge
   blast-radius of any module the ticket names).
 
@@ -93,8 +92,8 @@ never reach this path — they park on the interactive phase instead
    `<!-- BEGIN: intake-notes -->` / `<!-- END: intake-notes -->` markers
    (append, do not overwrite prior notes).
 4. Re-run `core/skills/route_heuristic.classify()` on the enriched
-   `raw.md` and update `meta.json:route_hint`/`route_confidence`/
-   `route_signals`/`mentions` accordingly.
+   `raw.md` and update `meta.json:route_hint`/`route_confidence`
+   accordingly.
 5. Clear the gate: set `meta.json:clarify_required = false`.
 6. Only after the gate is cleared does the `klc-discovery` **author**
    subagent run on the enriched input (discovery split, KLC-052 AC-11).

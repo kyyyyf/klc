@@ -60,10 +60,10 @@ _FIXTURE_MAP: dict[str, list[tuple[str, str]]] = {
                             ("impl-plan.md", "impl-plan.md")],
     "review":              [("review.md", "review-report.md")],
     "review-lite":         [("review.md", "review-lite-report.md")],
-    "integrate":           [("integrate.md", "integrate.md")],
+    "integrate":           [],  # outcome lives in meta.json (KLC-176)
     "observe":             [("observe.md", "observe.md")],
     "learn":               [("retrospective.md", "retrospective.md")],
-    "manual":              [],  # created inline (checklist)
+    "manual":              [],  # outcome lives in meta.json (KLC-176)
 }
 
 
@@ -188,14 +188,6 @@ class E2EPipeline:
     def copy_fixture(self, phase_id: str) -> None:
         """Copy fixture artefacts for phase (config-driven via _FIXTURE_MAP)."""
         ticket_dir = self.scratch / ".klc" / "tickets" / self.ticket_key
-
-        if phase_id == "manual":
-            (ticket_dir / "manual-checklist.md").write_text(
-                f"---\nticket: {self.ticket_key}\n---\n"
-                "# Manual Checklist\n\n- [x] Manual step 1\n- [x] Manual step 2\n",
-                encoding="utf-8"
-            )
-            return
 
         for fixture_file, target_name in _FIXTURE_MAP.get(phase_id, []):
             source = FIXTURES / fixture_file

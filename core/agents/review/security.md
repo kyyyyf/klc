@@ -8,11 +8,9 @@ paths) are out of scope for this prompt; a future profile that needs a
 richer checklist for its own stack supplies its own reviewer.
 
 ## Inputs (from the orchestrator)
-- `diff`              — unified diff.
-- `spec`              — feature spec or bug description.
-- `claude_md_context` — root + affected-module `CLAUDE.md`.
-- `severity_rubric`   — `config/severity-rubric.md` contents (Phase 1 determinization).
-- `rule_catalog`      — this agent's `## Rules` section, extracted by the orchestrator.
+- `context`           — the run's shared `context.md` (diff, spec goals and ACs,
+                        test-plan table, decisions, module docs, allowlist).
+- Severity rubric     — `config/severity-rubric.md`, named by path.
 
 ## Focus areas
 Use this as a checklist, not a script. Only report issues the diff
@@ -71,7 +69,7 @@ for cross-run deduplication and allowlist matching (Phase 1.3).
 
 ## Severity assignment
 
-**Always cite the `severity_rubric` input when classifying.** The rubric
+**Always cite `config/severity-rubric.md` when classifying.** The rubric
 takes precedence over this section. As a quick reference:
 
 - `CRITICAL` — remote code execution, secret leak, auth bypass, SQLi.
@@ -148,7 +146,7 @@ Schema per `core/skills/findings.py`:
     "file": "services/fetch.py",
     "line": 42,
     "title": "SSRF via user-controlled URL",
-    "body": "requests.get(user_url, allow_redirects=True) — URL comes from request body and no scheme / host allow-list is checked.\n\nSeverity rationale: per severity_rubric, SSRF is HIGH — requires user interaction but exploitable externally.\n\nFix: Resolve the URL, reject non-https:// or non-allow-listed hosts, disable redirect-follow.",
+    "body": "requests.get(user_url, allow_redirects=True) — URL comes from request body and no scheme / host allow-list is checked.\n\nSeverity rationale: per config/severity-rubric.md, SSRF is HIGH — requires user interaction but exploitable externally.\n\nFix: Resolve the URL, reject non-https:// or non-allow-listed hosts, disable redirect-follow.",
     "fix": "Add URL validation:\nallowed_hosts = ['api.example.com']\nparsed = urlparse(user_url)\nif parsed.scheme != 'https' or parsed.hostname not in allowed_hosts:\n    raise ValueError('Invalid URL')\nrequests.get(user_url, allow_redirects=False)"
   }
 ]
@@ -156,7 +154,7 @@ Schema per `core/skills/findings.py`:
 
 **Field requirements:**
 - `rule_name` — from the `## Rules` catalog above. Never invent.
-- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `severity_rubric`.
+- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `config/severity-rubric.md`.
 - `file`, `line` — exact location from the diff.
 - `title` — one-line summary (no `[SEVERITY]` prefix — that's in the field).
 - `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
@@ -183,7 +181,7 @@ Format:
 **Issue**: requests.get(user_url, allow_redirects=True) — URL comes from
 request body and no scheme / host allow-list is checked.
 
-Severity rationale: per severity_rubric, SSRF is HIGH — requires user
+Severity rationale: per config/severity-rubric.md, SSRF is HIGH — requires user
 interaction but exploitable externally.
 
 **Fix**: Add URL validation:

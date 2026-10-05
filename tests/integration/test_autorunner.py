@@ -22,6 +22,9 @@ _FW_ROOT = Path(__file__).resolve().parents[2]
 for _p in (_FW_ROOT, _FW_ROOT / "core" / "skills", _FW_ROOT / "core" / "phases"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
+sys.path.insert(0, str(_FW_ROOT / "tests"))
+
+import klc114_helpers as h  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -101,9 +104,10 @@ def _write_declared_output(td: Path, rel: str):
     p = td / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     if rel == "build-log.md":
-        p.write_text("## Evidence\n\n```\n$ pytest\n1 passed\n```\n", encoding="utf-8")
-    elif rel.endswith("options.md"):
-        p.write_text("# Design\n## Option A\nADR_NEEDED=no REASON=\"minimal\"\n", encoding="utf-8")
+        p.write_text("# Build log\n\nfree notes\n", encoding="utf-8")
+    elif rel == "design.md":
+        p.write_text("# Design\n\n## Options\n### Option A\n### Option B (recommended)\n"
+                     "Picked: Option B\n\n## Consequences\nStatus: Proposed\n", encoding="utf-8")
     elif rel == "impl-plan.md":
         p.write_text(_IMPL_PLAN.format(t=td.name), encoding="utf-8")
     elif rel.endswith("review-report.md"):
@@ -136,20 +140,16 @@ def _make_green_dispatch(td: Path, calls: list):
 
 @pytest.fixture(autouse=True)
 def _pin_green_verdict(monkeypatch):
-    """KLC-114 D-202/F-2: this suite exercises the AUTONOMOUS RUNNER's
-    lifecycle/guardrail plumbing, not the ledger verdict — its fixture
-    tickets carry no real git commits, so both `build_orchestrator.run_build`
-    (via `_judge_step`) and `can_complete_build` (via
-    `step_ledger.verify_build_steps`) would otherwise report
-    `unverified: no-commits` for every step they touch. Pin a green, no-op
-    ledger pass here; the verdict logic itself has its own tests (KLC-114)."""
-    import build_orchestrator as _bo
-    import step_ledger as _sl
-    monkeypatch.setattr(_bo, "_judge_step",
-                        lambda ticket, step, repo=None, **kw:
-                            _sl.StepVerdict(f"step-{step}", _sl.GREEN))
-    monkeypatch.setattr(_sl, "verify_build_steps",
-                        lambda *a, **kw: _sl.LedgerReport(a[0] if a else "", []))
+    """KLC-174: this suite exercises the AUTONOMOUS RUNNER's lifecycle/guardrail
+    plumbing, not git-derived step state. Its fixture tickets carry no real git
+    commits, so `step_state` would call every step pending. Pin a stateful fake
+    (`record_verify` makes the step green, as the real recorder does after a green
+    commit + passing VERIFY) for `run_build`, and a green `check_build` for the
+    ack path where no dispatch ran. The derivation has its own tests
+    (test_klc174_*)."""
+    import step_state
+    h.pin_step_state(monkeypatch, [1])
+    monkeypatch.setattr(step_state, "check_build", lambda ticket, repo=None, **k: (True, ""))
 
 
 # ===========================================================================

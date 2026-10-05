@@ -155,10 +155,7 @@ def _card_path(ticket: str, phase_id: str) -> Path:
     meta = _lc.read_meta(ticket)
     resolved = _phase_resolver.resolve_phase(
         ticket, phase_id, executor=_phase_resolver.EXECUTOR_HEADLESS)
-    # KLC-119 AC-6: render_card() measures the card (records an `estimated`
-    # attempt); the autorunner opens no transaction of its own around this
-    # call, so the write lands in the journal and drains on the next
-    # transactional verb (e.g. the ack --auto this loop iteration calls next).
+    # render_card() only renders the card; it records no token attempt (KLC-174).
     return _artefacts.render_card(ticket, phase_id, meta,
                                   mode=resolved.card_mode).path
 
@@ -318,8 +315,8 @@ def run(ticket: str, *, dispatch=None, cap: int | None = None) -> RunResult:
                 # ack --auto: walks work→ack-needed→(gate) or acks an ack-needed.
                 # Whether the dispatch produced enough/correct artifacts is decided
                 # here by ack's can_complete gate, which is TRACK-AWARE (e.g. XS
-                # discovery-lite needs only spec.md, S needs spec+options-lite+
-                # impl-plan; phases.yml `outputs` is a superset, not the required
+                # discovery-lite needs only spec.md, S needs spec (with its
+                # ## Approaches section)+impl-plan; phases.yml `outputs` is a superset, not the required
                 # set). The runner does NOT duplicate that per-track logic — an
                 # insufficient dispatch returns rc 1 here and pauses fail-closed
                 # with the gate's own causal reason surfaced below.

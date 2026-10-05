@@ -17,10 +17,9 @@ def test_impl_and_per_step_prompt_edits_stay_within_208000_budget() -> None:
     ticket's `impl.md` clarification, and the clarification's own text is
     the one actually shipped — not just an untouched byte count."""
     rendered_impl = (FW / "klc-plugin" / "agents" / "impl.md").read_text(encoding="utf-8")
-    assert "re-verified from git" in rendered_impl, (
-        "KLC-114's build-orchestrator clarification (that the orchestrator "
-        "re-verifies each step from git afterwards) is missing from the "
-        "REGENERATED klc-plugin/agents/impl.md — run plugin_gen.py"
+    assert "build/steps.json" in rendered_impl, (
+        "KLC-174's step contract (klc step verify -> build/steps.json) is "
+        "missing from the REGENERATED klc-plugin/agents/impl.md — run plugin_gen.py"
     )
 
     total = sum(f.stat().st_size for f in (FW / "klc-plugin" / "agents").glob("*.md"))

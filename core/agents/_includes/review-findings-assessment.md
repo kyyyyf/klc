@@ -1,35 +1,22 @@
-## Assess the independent review findings (before any code)
+## Assess the independent review findings for your step (before any code)
 
-Three independent planning-layer reviewers may have recorded OBJECTIVE
-`findings[]` to the ticket directory before build. All three share ONE
-identical schema — `findings.Finding`
-(`rule_name · severity · file · line · title · body · fix`,
-`severity ∈ CRITICAL|HIGH|MEDIUM|LOW|INFO`), so assess them with the SAME
-logic — there is no second parser and no different discipline for the three
-files.
+Three independent planning-layer reviewers record OBJECTIVE findings before
+build: spec-review, test-plan-review and impl-plan-review. They record into
+the ticket's one `findings.json`, each record tagged with its `kind`
+(`spec-review`, `test-plan-review`, `impl-plan-review`) and its `round`. All
+share one schema, `findings.Finding`
+(`kind · round · rule_name · severity · file · line · title · body · fix`,
+`severity ∈ CRITICAL|HIGH|MEDIUM|LOW|INFO`).
 
-| Reviewer | Findings file | Recorded at | `rule_name` values |
-|---|---|---|---|
-| spec-review (KLC-084) | `spec-review-findings.json` | spec phase | free-form |
-| test-plan-review (KLC-085) | `test-plan-review-findings.json` | acceptance-test-plan phase | `uncovered-ac` / `weak-assertion` / `missing-edge-case` |
-| impl-plan-review (KLC-094) | `impl-plan-review-findings.json` | the ack that finalized `impl-plan.md` | `missing-step` / `wrong-sequencing` / `untestable-step` / `unaddressed-ac` / `infeasible-red-green` |
+Your brief has a `## Review findings for this step` section that lists the
+findings relevant to this step. Do not read the findings files yourself;
+assess the findings listed in the brief, before coding the step:
 
-At the START of build, before writing any code, for each file that exists:
-
-1. Read it. Each entry is a `findings.Finding` dict:
-   `rule_name · severity · file · line · title · body · fix`.
-2. For EACH finding, record an assessment in `build-log.md` — **fix** (the
-   defect is real; note how the build accounts for it, or raise a
-   `[!CONFLICT]`/`[!DECISION]` as appropriate) or **won't-fix** (with a
-   one-line reason). This mirrors the review-report assessment of the code
-   reviewer's findings.
-3. A `HIGH` (or `CRITICAL`) severity finding that is neither fixed nor
-   consciously waived is a stop-and-ask: raise a `[!QUESTION]` / `[!CONFLICT]`
-   rather than building past it.
-4. Absent file → nothing to assess (the reviewer did not run for this track,
-   or its output degraded, or the phase skips it on this track); proceed. Do
-   not fabricate findings.
-
-Record all three assessment blocks under the current build-log step so
-retrospective can see the spec-review, test-plan-review AND impl-plan-review
-findings were handled, not dropped.
+1. For EACH listed finding, record an assessment in `build-log.md` (free notes) — **fix**
+   (the defect is real; note how the build accounts for it, or raise a
+   `[!CONFLICT]`/`[!DECISION]`) or **won't-fix** (with a one-line reason).
+2. A `HIGH` (or `CRITICAL`) finding that is neither fixed nor consciously
+   waived is a stop-and-ask: raise a `[!QUESTION]` / `[!CONFLICT]` rather
+   than building past it.
+3. `(none)` — or an absent findings file — means nothing to assess; proceed.
+   Do not fabricate findings.

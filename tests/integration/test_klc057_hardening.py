@@ -157,9 +157,10 @@ def test_pre_dirtied_tracked_tree_does_not_wedge_and_is_preserved(tmp_path, monk
 
 
 def test_supersede_moves_are_captured_by_the_subtree_commit(tmp_path, monkeypatch):
-    """A pick that supersedes moves artefacts into ``_superseded/`` — files no
-    caller lists. The subtree glob-commit must push the moves (new location in,
-    old location out) without wedging the tree."""
+    """A pick that supersedes a tracked, unmodified artefact deletes it (KLC-176:
+    no `_superseded/` copy) and records the commit that still holds it in
+    meta.superseded[]. The subtree glob-commit must push the delete and the meta
+    without wedging the tree."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     klc = _init_repo(tmp_path, {
         "KLC-3002": _meta("KLC-3002", phase="review-lite:ack-needed", track="XS",
@@ -167,19 +168,20 @@ def test_supersede_moves_are_captured_by_the_subtree_commit(tmp_path, monkeypatc
                                  "since": "2026-01-01T00:00:00Z"}),
     })
     _commit_file(klc, "tickets/KLC-3002/review-lite-report.md", "old report\n")
+    committed = _git(klc, "rev-parse", "HEAD").strip()
     assert state_feature.enabled() is True
 
     import ack as ack_mod
     rc = ack_mod.run(["KLC-3002", "--pick", "2"])  # request-changes → supersede
     assert rc == 0, "supersede ack must succeed"
 
-    assert _remote_meta(klc, "KLC-3002")["phase"] == "xs-build:work"
+    rm = _remote_meta(klc, "KLC-3002")
+    assert rm["phase"] == "xs-build:work"
     assert not _remote_has(klc, "tickets/KLC-3002/review-lite-report.md"), \
-        "the moved-away original must be removed from the pushed tree"
-    _git(klc, "fetch", "origin")
+        "the superseded original must be removed from the pushed tree"
+    assert {"phase": "review-lite", "commit": committed} in rm["superseded"]
     listing = _git(klc, "ls-tree", "-r", "--name-only", "origin/klc-state")
-    assert "_superseded/" in listing and "review-lite-report.md" in listing, \
-        "the superseded copy must be pushed under _superseded/"
+    assert "_superseded/" not in listing, "no copy directory is pushed"
     assert _status(klc) == "", "tree must be clean after a supersede ack"
 
 

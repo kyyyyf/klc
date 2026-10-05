@@ -61,8 +61,11 @@ ALLOWLIST: tuple[AllowlistEntry, ...] = (
     AllowlistEntry(".klc/config/profile.yml",                 "core/skills/profile-resolve.py:56,64"),
     AllowlistEntry(".klc/tickets/*",                          "core/skills/artefacts.py"),
     AllowlistEntry(".klc/reports/*",                          "scripts/review.py"),
+    AllowlistEntry(".klc/scratch/<KEY>/review/context.md",     "scripts/review.py (_write_shared_context)"),
+    AllowlistEntry(".klc/scratch/<KEY>/retrieval_trace.json", "core/skills/planning-retriever.py (KLC-176 scratch trace)"),
+    AllowlistEntry(".klc/scratch/<KEY>/build/*",               "core/skills/build_orchestrator.py (KLC-176 step files)"),
     AllowlistEntry(".klc/knowledge/*",                        "scripts/review.py:1104"),
-    AllowlistEntry("docs/adr/*",                               "core/agents/adr.md"),
+    AllowlistEntry("docs/adr/*",                               "core/agents/docgen.md (ADR index)"),
     # KLC-113 review-fix (MEDIUM): narrowed from a `core/agents/review/*`
     # wildcard, which silently admitted ANY nonexistent path under that
     # directory (the same defect class impl-plan-review F-1 already fixed

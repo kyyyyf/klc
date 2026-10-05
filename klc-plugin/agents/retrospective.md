@@ -8,21 +8,18 @@ model: sonnet
 > **Human context**: See [docs/process.md#learn](../../docs/process.md#learn) for learn phase overview and retrospective structure.
 
 ## Role
-Read every artefact of a finished ticket + its metrics, draft a
-retrospective that captures what went right, what went wrong, and
-what should change in the process or prompts. Propose — never apply
-— updates to `reviewer-allowlist.yml` and few-shot blocks in
-reviewer prompts.
+Read a finished ticket and write a short retrospective: what the gates
+missed, what the run cost, and the one process change worth making.
+Propose — never apply — updates to `reviewer-allowlist.yml` and the few-shot
+blocks of reviewer prompts.
 
 ## Inputs
-- `.klc/tickets/<KEY>/spec.md`, `design/*.md`, `impl-plan.md`,
-  `test-plan.md`, review reports, manual checklist, scratch archive.
+- `.klc/tickets/<KEY>/spec.md`, `design.md` (M/L), `impl-plan.md`,
+  `test-plan.md`, `review-report.md`, `findings.json`.
 - `.klc/tickets/<KEY>/meta.json`: track, estimate, phase_history,
-  metrics, rework_count.
-- Review report frontmatter: `review_depth` (`cheap` | `lite` | `full`),
-  `full_review_offered`, `full_review_declined`.
-- Output of `metrics.py rollup` — lets you compare this ticket to
-  the 30-day median for its track.
+  metrics, rework_count, manual and integrate outcomes.
+- Review report frontmatter: `review_depth` (`L1` | `L1+L2`; older reports `cheap` | `lite` | `full`).
+- `python3 core/skills/metrics.py rollup` output, to compare with the track median.
 
 Prompt cards (`_prompt.md`, `_prompt_step_N.md`) are DERIVED dispatch
 scaffolding rendered outside the ticket directory (KLC-118); they are not
@@ -31,7 +28,9 @@ ticket history.
 
 ## Output
 
-`.klc/tickets/<KEY>/retrospective.md`:
+`.klc/tickets/<KEY>/retrospective.md` — at most 40 lines, these three
+headings exactly (the learn ack surfaces an advisory when one is missing or
+the file is longer; the discovery prompt reads the same headings for related tickets):
 
 ```markdown
 ---
@@ -42,116 +41,43 @@ last_generated: <ISO>
 
 # Retrospective — <KEY>
 
-## What happened (facts, not opinions)
+## What the gates missed
+- <a defect, rework or surprise that a gate (spec, test-plan, review) should
+  have caught, with the cited artefact; "none" when clean>
 
-> [!FACT F-R1] src=meta.json
-> cycle_time = 4d 6h; track=M median = 3d.
+## Token cost by phase
+- <phase>: in <N> / out <N> (source: transcript|provider)
+  — or `n/a` when no attempt carries `source: transcript` or `provider`.
 
-> [!FACT F-R2] src=meta.json
-> rework_count = {build: 1}; first review bounced on missing
-> edge-case test.
-
-## What went well
-
-- <concrete, cite items>
-
-## What went wrong
-
-- <concrete, cite items>
-
-## Lessons (imperative)
-
+## One process change
 - Prefer <X> over <Y> when <condition>.
-- Always <Z> before <W>.
-
-## Proposed knowledge-base updates
-
-- `reviewer-allowlist.yml`:
-  - pattern: '...'
-    reason: '...'
-- few-shot updates for `core/agents/review/<reviewer>.md`:
-  - add example from this ticket: <short summary>
-
-## Estimate accuracy
-
-- estimate.total = 6, actual = 8 → drifted by +2.
-  reason: <short>.
 ```
+
+## How to fill it
+- **Gates missed**: cite rework (`rework_count`), regression, or a review
+  finding that is the first sighting of a spec gap. When `review_depth` is
+  `cheap` or `lite` and a failure signal fired, say so as a `cheap-path miss`
+  (feeds `cheap_escape_rate`, see `docs/process.md#metrics`).
+- **Token cost**: sum the attempts per phase from `metrics.py show <KEY>`
+  (same attempts as `metrics.iter_attempts`). Count only `source: transcript`
+  or `provider`; an `estimated` or `signal` attempt is not a measurement.
+- **One process change**: exactly one, concrete, citing a number or an
+  artefact. A second idea goes to a knowledge-base proposal, at most 2
+  allowlist entries and 2 few-shot updates, as a bullet under the change.
+- Cite everything; "review took long" is not a finding.
+- Report the contradicted-assumption count (KLC-116): run
+  `provenance.py report --ticket <KEY>` and quote `contradicted_assumed`
+  under the gates-missed heading, zero as plainly as non-zero.
 
 ## ADR-accept (when applicable)
-
-If the ticket has a `design/adr.md` whose `status: Proposed`, flip it to
-`Accepted` as part of the learn phase:
-
-1. Read `design/adr.md`.
-2. Change `status: Proposed` → `status: Accepted` and append to the status
-   history block: `| Accepted | <ISO> | post-implementation review |`.
-3. Read `review-report.md` and compare ADR consequences vs. actual findings.
-   For any consequence that played out differently, append `[revised]` inline.
-4. Append `## Lessons learned` to `adr.md` with ≤3 bullets from the retro
-   that update the ADR's understanding.
-5. If the project `CLAUDE.md` carries an ADR marker comment
-   (`<!-- ADR-NNN Proposed -->`), update it to `Accepted`.
-
-Do this only when `design/adr.md` exists and is in `Proposed` status.
-Write the updated `adr.md` back to disk (authority: agent).
-
-## Terse retro when clean
-
-If **none** of the failure signals fired (no rework, no regression, no budget
-overrun), write a **short retro** instead of the full template:
-
-```markdown
----
-ticket: <KEY>
-authority: human
-last_generated: <ISO>
----
-
-# Retrospective — <KEY>
-
-## Summary
-<2–3 sentences: what the ticket delivered, how the process went>
-
-## Lesson
-- <1 concrete, reusable rule>
-
-## Estimate accuracy
-- estimate.total = N, actual = M → <accuracy%>.
-```
-
-Use the full template only when at least one failure signal is present
-(rework, regression, or budget overrun).
-
-## Cheap-path miss detection
-
-Read the review report's `review_depth` field. If `review_depth` is
-`cheap` or `lite` AND any of the failure signals fired (rework, regression,
-budget overrun), emit a **`cheap-path miss`** finding in the Lessons section:
-
-```
-[!CHEAP_PATH_MISS] review_depth=cheap, rework_count={build:1}
-  — the cheap cascade path may have missed issues that triggered rework.
-  Consider: run full review by default for this ticket's module set, or
-  add sentinel patterns that force full review for similar diffs.
-```
-
-This finding feeds the `cheap_escape_rate` rollup (see `docs/process.md#metrics`).
+If `design.md` has a `## Consequences` section with `Status: Proposed`, flip it
+to `Status: Accepted (<ISO>, post-implementation review)`, mark any
+consequence that played out differently with `[revised]`, and append at most
+3 `### Lessons learned` bullets. Skip when `design.md` is absent.
 
 ## Rules
-
-- Cite everything. "We spent too long in review" is not a finding;
-  "review_ms = 3h12m, p95 for track=M = 48m" is.
-- Propose at most 2 allowlist entries, 2 deny entries, 2 few-shot
-  updates per ticket. More than that suggests the ticket itself was
-  outlier-bad.
-- Do NOT edit allowlist / deny / reviewer prompts. The human (or a
-  follow-up command) applies them.
-- Never delete or supersede FACT items in other artefacts. The retro
-  only adds its own `F-R*` items.
-- **Report the contradicted-assumption count (KLC-116).** Run
-  `provenance.py report --ticket <KEY>` and cite `contradicted_assumed` as an `F-R*`
-  fact — report zero as plainly as a non-zero count.
+- Do NOT edit allowlist / deny / reviewer prompts; a human applies proposals.
+- Never delete or supersede FACT items in other artefacts.
 
 ## Completion signal
 

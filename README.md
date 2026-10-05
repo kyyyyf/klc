@@ -266,4 +266,4 @@ The machine-coupled docs stay as their own single sources:
 [`docs/constitution.md`](docs/constitution.md),
 [`docs/coverage-taxonomy.md`](docs/coverage-taxonomy.md),
 [`docs/tracks.md`](docs/tracks.md), and
-[`docs/severity-rubric.md`](docs/severity-rubric.md).
+[`config/severity-rubric.md`](config/severity-rubric.md).

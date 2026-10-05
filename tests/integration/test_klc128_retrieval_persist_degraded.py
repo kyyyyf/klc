@@ -1,5 +1,5 @@
 """KLC-128 step-4 — AC-9: `_retrieval_advisories` persists an `unavailable`
-record to `meta.json:metrics.retrieval` and one line to
+record to the derived retrieval row (meta.json no longer carries it, KLC-176) and one line to
 `.klc/knowledge/retrieval-eval.jsonl` when the trace is absent or its status
 is not `ok`, on the persisting path, with ZERO git invocations and no
 module-map read (KLC-110's spec intended this; it was a bug, not an intended
@@ -17,6 +17,7 @@ from _klc128_fixtures import (  # noqa: E402
     _count_git,
     _merge,
     _read_meta,
+    _retrieval_rec,
     _run_ack,
     _seed_ticket,
     _set_phase,
@@ -101,7 +102,7 @@ def test_absent_trace_persists_unavailable_record_with_zero_git_and_no_module_ma
 
     assert git_log == [], git_log
     assert mod_calls == [], mod_calls
-    rec = _read_meta(clone, ticket)["metrics"]["retrieval"]
+    rec = _retrieval_rec(clone, ticket)
     assert rec["status"] == "unavailable"
     assert "no retrieval trace" in rec["reason"]
     assert rec["ground_truth_source"] == "recorded-range"
@@ -138,7 +139,7 @@ def test_non_ok_status_trace_also_persists_unavailable(tmp_path, monkeypatch):
 
     assert git_log == [], git_log
     assert mod_calls == [], mod_calls
-    rec = _read_meta(clone, ticket)["metrics"]["retrieval"]
+    rec = _retrieval_rec(clone, ticket)
     assert rec["status"] == "unavailable"
     assert "status is" in rec["reason"]
     assert rec["ground_truth_source"] == "recorded-range"
@@ -157,7 +158,7 @@ def test_absent_and_non_ok_degraded_records_carry_distinct_reasons(tmp_path, mon
     monkeypatch.setenv("PROJECT_ROOT", str(clone_a))
     _pc._retrieval_advisories(ticket_a, True, committed={})
     _flush_staged_patch(ticket_a)
-    reason_absent = _read_meta(clone_a, ticket_a)["metrics"]["retrieval"]["reason"]
+    reason_absent = _retrieval_rec(clone_a, ticket_a)["reason"]
 
     tmp_path_b = tmp_path / "b"
     tmp_path_b.mkdir()
@@ -169,7 +170,7 @@ def test_absent_and_non_ok_degraded_records_carry_distinct_reasons(tmp_path, mon
     monkeypatch.setenv("PROJECT_ROOT", str(clone_b))
     _pc._retrieval_advisories(ticket_b, True, committed={})
     _flush_staged_patch(ticket_b)
-    reason_non_ok = _read_meta(clone_b, ticket_b)["metrics"]["retrieval"]["reason"]
+    reason_non_ok = _retrieval_rec(clone_b, ticket_b)["reason"]
 
     assert reason_absent != reason_non_ok
     assert "no retrieval trace" in reason_absent
@@ -196,7 +197,7 @@ def test_degraded_branch_resolves_ground_truth_itself_even_when_drift_never_ran_
     _pc._retrieval_advisories(ticket, True, committed={})   # NOTHING pre-resolved this cache
     _flush_staged_patch(ticket)
 
-    rec = _read_meta(clone, ticket)["metrics"]["retrieval"]
+    rec = _retrieval_rec(clone, ticket)
     assert rec["status"] == "unavailable"
     assert rec.get("ground_truth_source") == "recorded-range"
 
@@ -243,8 +244,7 @@ def test_end_to_end_absent_trace_retrieval_record_carries_recorded_range_source(
 
     assert _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1) == 0
 
-    meta = _read_meta(clone, ticket)
-    rec = meta["metrics"]["retrieval"]
+    rec = _retrieval_rec(clone, ticket)
     assert rec["status"] == "unavailable"
     assert rec["ground_truth_source"] == "recorded-range"
 
@@ -265,8 +265,7 @@ def test_end_to_end_absent_trace_retrieval_record_carries_none_source_when_nothi
 
     assert _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1) == 0
 
-    meta = _read_meta(clone, ticket)
-    rec = meta["metrics"]["retrieval"]
+    rec = _retrieval_rec(clone, ticket)
     assert rec["status"] == "unavailable"
     assert rec["ground_truth_source"] == "none"
 

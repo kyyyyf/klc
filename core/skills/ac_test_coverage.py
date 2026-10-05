@@ -501,8 +501,8 @@ def _verify_nodes(node_ids, repo=None, tests_root=None,
     `{pass, fail, unverified}` (`verify_runner.PASSED/FAILED/UNVERIFIED`).
 
     review-fix (HIGH, AC-10/AC-11/AC-12): *deadline* is a `time.monotonic()`
-    value shared across the WHOLE verification arm for one ack (evidence_gate,
-    step_verify AND this module) — created ONCE at the top of
+    value for the verification arm of one ack (KLC-174: this module is the only
+    arm left; before it was shared with the removed replay arms) — created ONCE at the top of
     `can_complete_build` and threaded down — so the total ack ceiling is one
     `verify.arm_budget_seconds`, not one per call. A caller that has no shared
     deadline (a standalone/test call) still gets one computed here, same as
@@ -875,8 +875,7 @@ def check(ticket: str, track: str, repo: Path | None = None, *,
     spawns no pytest (FIX-2 — a per-prompt probe must not execute the ticket's tests).
 
     *deadline* (review-fix, HIGH, AC-10/AC-11/AC-12): a `time.monotonic()` value
-    shared across the whole verification arm for one ack (this module,
-    `evidence_gate`, `step_verify`) — passed down from `can_complete_build` so
+    for the verification arm of one ack (this module only since KLC-174) — passed down from `can_complete_build` so
     the total ack ceiling is one `verify.arm_budget_seconds`, not one per arm.
     `None` (the default, e.g. a standalone/test call) computes a fresh one.
     """

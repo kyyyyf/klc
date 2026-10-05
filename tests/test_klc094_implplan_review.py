@@ -45,9 +45,12 @@ _IMPLPLAN_CATEGORIES = (
 _IMPLPLAN_TOPICS = ("sequencing-tradeoff", "scope")
 
 # The reviewer findings file the whole loop hangs on.
-_IMPLPLAN_FINDINGS_FILE = "impl-plan-review-findings.json"
-_TESTPLAN_FINDINGS_FILE = "test-plan-review-findings.json"
-_SPEC_FINDINGS_FILE = "spec-review-findings.json"
+# KLC-173: the prompts name the three kinds of the one findings.json; the old
+# per-kind file must never be written.
+_IMPLPLAN_LEGACY_FILE = "impl-plan-review-findings.json"
+_IMPLPLAN_FINDINGS_FILE = "impl-plan-review"
+_TESTPLAN_FINDINGS_FILE = "test-plan-review"
+_SPEC_FINDINGS_FILE = "spec-review"
 
 
 def _read(path) -> str:
@@ -150,7 +153,8 @@ def test_consume_delegates_to_spec_review_seam(tmp_path):
     )
     advisories, findings = ipr.consume(tmp_path, "M", {"risk_tags": []}, persist=True)
     assert len(findings) == 1 and findings[0]["rule_name"] == "wrong-sequencing"
-    assert (tmp_path / _IMPLPLAN_FINDINGS_FILE).exists()  # persisted
+    assert (tmp_path / "findings.json").exists()  # persisted
+    assert not (tmp_path / _IMPLPLAN_LEGACY_FILE).exists()
     assert any(a.startswith("impl-plan-review[decision") for a in advisories), advisories
     assert any("finding(s) recorded" in a for a in advisories), advisories
 
@@ -291,46 +295,33 @@ def _three_subblocks(text: str) -> tuple[str, str, str]:
 
 def test_impl_reads_implplan_findings_file():
     """AC-7: impl.md's build-start assessment step names
-    impl-plan-review-findings.json, instructs reading it, and pins it to the REAL
-    schema + the five REAL impl-plan categories (no promised shape the file lacks)."""
+    impl-plan-review-findings.json and (KLC-172) has the agent assess the findings
+    its brief lists, pinned to the REAL schema (no promised shape the file lacks)."""
     section = _assessment_section(_read(_IMPL))
     assert section, "impl.md must carry the «Assess the independent review findings» step"
     assert _IMPLPLAN_FINDINGS_FILE in section, (
         "the build-start assessment step must name impl-plan-review-findings.json"
     )
-    _, _, ip = _three_subblocks(_read(_IMPL))
-    assert ip, "the impl-plan-review sub-block must exist"
-    assert "read" in ip.lower(), "the sub-block must instruct READING the file"
+    assert "Review findings for this step" in section
     for token in ("rule_name", "severity", "file", "line", "title", "body", "fix"):
-        assert token in ip, f"impl-plan sub-block must name the schema field '{token}'"
-    for cat in _IMPLPLAN_CATEGORIES:
-        assert cat in ip, f"impl-plan sub-block must name the real category '{cat}'"
+        assert token in section, f"assessment step must name the schema field '{token}'"
 
 
 def test_impl_implplan_clause_symmetric_with_other_two():
-    """AC-7 (C-002): the impl-plan-review clause carries every discipline element the
-    spec-review AND test-plan-review clauses carry — one symmetric discipline for
-    three reviewers, so the third block cannot drift weaker."""
-    spec, tp, ip = _three_subblocks(_read(_IMPL))
-    assert spec and tp and ip, "all three sub-blocks must exist"
-    elements = (
-        "fix", "won't-fix", "build-log.md", "high",
-        "[!question]", "[!conflict]", "absent", "fabricate", "rule_name",
-    )
-    ip_low = ip.lower()
-    for el in elements:
-        if el in spec.lower() or el in tp.lower():
-            assert el in ip_low, (
-                f"the impl-plan-review clause is missing '{el}' the other clauses "
-                f"carry — the three must not drift apart (C-002)"
-            )
+    """AC-7 (C-002): ONE shared discipline covers all three reviewers' findings
+    (KLC-172: a single clause that names all three files, so it cannot drift)."""
+    section = _assessment_section(_read(_IMPL))
+    for name in (_SPEC_FINDINGS_FILE, _TESTPLAN_FINDINGS_FILE, _IMPLPLAN_FINDINGS_FILE):
+        assert name in section, f"the shared clause must name {name}"
+    low = section.lower()
+    for el in ("fix", "won't-fix", "build-log.md", "high", "[!question]", "[!conflict]"):
+        assert el in low, f"the shared clause is missing '{el}'"
 
 
 def test_impl_degrades_when_implplan_findings_absent():
-    """AC-8: impl.md degrades when the file is absent — nothing to assess, proceed,
-    do not fabricate findings."""
-    _, _, ip = _three_subblocks(_read(_IMPL))
-    low = ip.lower()
+    """AC-8: impl.md degrades when nothing is listed / the file is absent — nothing
+    to assess, proceed, do not fabricate findings."""
+    low = _assessment_section(_read(_IMPL)).lower()
     assert "absent" in low, "the degrade rule keys on an absent file"
     assert "nothing to assess" in low
     assert "not fabricate" in low or "do not fabricate" in low
@@ -358,7 +349,8 @@ def test_ack_surfaces_and_records_implplan_review_on_persist(tmp_path, monkeypat
                         lambda t: {"track": "M", "risk_tags": []})
 
     advisories = pc._implplan_review_advisories("KLC-XXX", persist=True)
-    assert (tmp_path / _IMPLPLAN_FINDINGS_FILE).exists()  # recorded on persist
+    assert (tmp_path / "findings.json").exists()  # recorded on persist
+    assert not (tmp_path / _IMPLPLAN_LEGACY_FILE).exists()
     assert any(a.startswith("impl-plan-review[decision") for a in advisories), advisories
     assert any("finding(s) recorded" in a for a in advisories), advisories
 
@@ -382,7 +374,8 @@ def test_ack_probe_persist_false_writes_nothing(tmp_path, monkeypatch):
 
     advisories = pc._implplan_review_advisories("KLC-XXX", persist=False)
     assert advisories  # still surfaced
-    assert not (tmp_path / _IMPLPLAN_FINDINGS_FILE).exists()  # but NOTHING written
+    assert not (tmp_path / _IMPLPLAN_LEGACY_FILE).exists()  # but NOTHING written
+    assert not (tmp_path / "findings.json").exists()       # KLC-173: nor in the one store
 
 
 def test_docs_name_build_assessment_of_implplan_findings():
@@ -407,31 +400,11 @@ def test_docs_name_build_assessment_of_implplan_findings():
 
 
 def test_work_agents_document_the_reviewer_spawn():
-    """AC-5/AC-9 (spawn honesty): the reviewer is spawn-documented in the WORK
-    agents that finalize impl-plan.md — design.md (M/L, full) and discovery-lite.md
-    (S, cascade) — exactly as KLC-084 documented spec-review in discovery-lite.md and
-    KLC-085 documented test-plan-review in test-planner.md. Without this the
-    orchestrator never spawns the reviewer, no impl-plan-review.md is ever produced,
-    and every M/L design ack would surface a spurious 'expected but not found'
-    degrade note — the consume side would have no producer."""
-    for path, track_word in ((_DESIGN, "full"), (_DISCOVERY_LITE, "cascade")):
-        text = _read(path)
-        low = text.lower()
-        assert "impl-plan-reviewer.md" in low, (
-            f"{path.name} must document spawning core/agents/impl-plan-reviewer.md"
-        )
-        assert "impl-plan-review.md" in low, (
-            f"{path.name} must name the reviewer's output file impl-plan-review.md"
-        )
-        assert "orchestrator" in low and "spawn" in low, (
-            f"{path.name} must state the orchestrator (not the agent) spawns it"
-        )
-        assert _IMPLPLAN_FINDINGS_FILE in text, (
-            f"{path.name} must name impl-plan-review-findings.json (the recorded file)"
-        )
-        assert track_word in low, (
-            f"{path.name} must state its track behaviour ('{track_word}')"
-        )
+    """KLC-172 step-4 (AC-11): the orchestrator, not the producer, spawns the
+    impl-plan reviewer, so design.md and discovery-lite.md no longer carry the
+    spawn-documentation section the KLC-094 version of this test required."""
+    for path in (_DESIGN, _DISCOVERY_LITE):
+        assert "## Independent impl-plan review" not in _read(path), path.name
 
 
 def test_implplan_binding_degrades_without_reviewer_output(tmp_path):
@@ -441,7 +414,8 @@ def test_implplan_binding_degrades_without_reviewer_output(tmp_path):
     the shared seam."""
     advisories, findings = ipr.consume(tmp_path, "M", {"risk_tags": []}, persist=True)
     assert findings == []
-    assert not (tmp_path / _IMPLPLAN_FINDINGS_FILE).exists()
+    assert not (tmp_path / _IMPLPLAN_LEGACY_FILE).exists()
+    assert not (tmp_path / "findings.json").exists()       # KLC-173: nothing in the one store either
     assert len(advisories) == 1 and advisories[0].startswith("impl-plan-review:"), advisories
     # And XS (skip) is silent — no note, no write.
     xs_adv, xs_find = ipr.consume(tmp_path, "XS", {"risk_tags": []}, persist=True)

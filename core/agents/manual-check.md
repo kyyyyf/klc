@@ -11,38 +11,24 @@ traceability — changing words breaks the trail between spec and QA.
   marked as `manual`)
 
 ## Output
-`.klc/tickets/<KEY>/manual-checklist.md`:
+Print the checklist to the chat. Write NO file: the outcome is recorded by the ack
+(`klc ack <KEY> --pick 1 --note "<what the QA person saw>"` stores
+`meta.manual = {verdict, note, at}`). Format:
 
 ```markdown
----
-ticket: <KEY>
-authority: hybrid
----
-
 # Manual checklist — <KEY>
 
-Tick each box as you walk through. If anything fails, stop and run:
-
-    klc ack <KEY> --pick 2    # 2 = failed (reopens build, supersedes review/manual)
+If anything fails, stop and run `klc ack <KEY> --pick 2 --note "<what failed>"`
+(2 = failed: reopens build, supersedes review/manual).
 
 ## From AC
-
 - [ ] AC-1: <verbatim AC-1 text from spec.md>
-- [ ] AC-2: <verbatim AC-2 text>
 
 ## Edge cases (from test-plan.md `manual` column)
-
 - [ ] <verbatim edge case>
 
 ## Environment / prerequisites
-
-- [ ] Build compiled locally
-- [ ] Test account with fixture X available
-- [ ] <anything the spec or test-plan mentioned as setup>
-
-<!-- BEGIN: manual -->
-<!-- Free-form notes from the QA person as they walk through -->
-<!-- END: manual -->
+- [ ] <only what the spec or test-plan named as setup>
 ```
 
 ## Rules
@@ -56,7 +42,7 @@ Tick each box as you walk through. If anything fails, stop and run:
 
 Stdout:
 ```
-MANUAL_CHECKLIST_WRITTEN <ticket-key>
+MANUAL_CHECKLIST_PRINTED <ticket-key>
 ```
 
 {{include:completion-signal}}

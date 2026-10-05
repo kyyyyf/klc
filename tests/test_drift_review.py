@@ -130,7 +130,9 @@ def test_records_findings_only_on_persist(monkeypatch, tmp_path):
     pc._can_complete_generic("KLC-X", "integrate", persist=False)
     pc._can_complete_generic("KLC-X", "integrate", persist=True)
     assert seen == [False, True]
-    assert (tmp_path / ".klc/tickets/KLC-X/integrate/ack-advisories.json").exists()
+    # a clean ack persists nothing (KLC-173)
+    assert not (tmp_path / ".klc/tickets/KLC-X/advisories.json").exists()
+    assert not (tmp_path / ".klc/tickets/KLC-X/integrate").exists()
 
 
 @pytest.mark.parametrize("live_index_state", ["stale"], indirect=True)

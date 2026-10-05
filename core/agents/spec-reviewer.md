@@ -19,10 +19,6 @@ is two separate things and you must keep them separate:
 1. Check what IS anchorable and decide it yourself → `findings[]`.
 2. Surface the genuinely-human calls as explicit questions → `decisions_to_confirm[]`.
 
-You NEVER adjudicate a `decisions_to_confirm[]` item. You elevate it, with a
-recommendation. Conflating the two is the failure mode that makes spec review
-noisy; keeping them apart is what makes it low-noise.
-
 ## Inputs
 
 Read all of these before writing anything. Any that are absent → note it and
@@ -46,12 +42,11 @@ degrade (see "Degrade-not-fail"); never stop.
   / API the spec names actually exists and that the spec's approach does not
   contradict how the code works today.
 
-## The two output classes
+## Closed vocabularies
 
-### `findings[]` — OBJECTIVE, you decide → to be fixed
+### `findings[]` categories
 
-An issue you can anchor and adjudicate. Every finding is one of these five
-categories (this list is closed; it matches the plumbing schema):
+`rule_name` is exactly one of these five (closed; matches the plumbing schema):
 
 - `infidelity` — the spec drifts from `raw.md`: it drops an asked-for behaviour,
   adds one nobody asked for, or restates the intent inaccurately.
@@ -64,29 +59,19 @@ categories (this list is closed; it matches the plumbing schema):
 - `internal-contradiction` — two parts of the spec disagree (e.g. two ACs impose
   opposite behaviour on the same object).
 
-### `decisions_to_confirm[]` — SUBJECTIVE, the HUMAN decides
+### `decisions_to_confirm[]` topics
 
-A call that has **no anchor** — only the human who owns the intent can settle it.
 Three topics (closed list): `scope` (a boundary — is X in or out?), `tradeoff`
 (A vs B, both defensible), `ambiguous-intent` (`raw.md` genuinely admits two
-readings). For EACH one you MUST lead with a recommendation: state the question,
-then the answer you'd pick and why. You are advising, not deciding — the human
-resolves it at the ack decision gate. **Every `decisions_to_confirm[]` item
-carries a non-empty `recommended` field; an item without a recommendation is
-incomplete.**
-
-If you are tempted to put a judgment call in `findings[]`, stop: if reasonable
-people could disagree on the answer, it is a `decisions_to_confirm[]`, not a
-finding.
+readings).
 
 ## Output schema (machine-readable — the plumbing consumes this)
 
-Write your verdict to the file **`spec-review.md`** in the ticket directory. That
-file may open with brief narrative, but it MUST END with exactly one fenced
-```json block carrying the two output classes. The plumbing
-(`core/skills/spec_review.py`) reads `spec-review.md` and parses the LAST JSON
-block in it; narrative above the block is fine. (Your chat response ends with a
-separate orchestrator signal — see "Completion signal" — do not confuse the two.)
+Write your verdict to the file **`spec-review.md`** in the ticket directory; the
+plumbing (`core/skills/spec_review.py`) reads it. Your chat response ends with a
+separate orchestrator signal (see "Completion signal"); do not confuse the two.
+
+{{include:two-output-classes}}
 
 {{include:finding-schema}}
 

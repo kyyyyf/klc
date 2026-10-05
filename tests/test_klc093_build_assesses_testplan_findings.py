@@ -36,9 +36,11 @@ from plugin_gen import expand_includes  # noqa: E402
 
 # The independent test-plan reviewer's findings file — the REAL file the enriched
 # build prompt must name. `spec_review.record_findings` (via `testplan_review.consume`)
-# writes `{kind.name}-review-findings.json`; `TEST_PLAN_REVIEW.name == "test-plan"`.
-_TESTPLAN_FINDINGS_FILE = "test-plan-review-findings.json"
-_SPEC_FINDINGS_FILE = "spec-review-findings.json"
+# appends records of kind `test-plan-review` to the ticket's one `findings.json`
+# (KLC-173), so the prompts name that kind and that file.
+_TESTPLAN_FINDINGS_FILE = "test-plan-review"
+_SPEC_FINDINGS_FILE = "spec-review"
+_STORE_FILE = "findings.json"
 
 
 def _read(path) -> str:
@@ -83,35 +85,30 @@ def _spec_and_testplan_subblocks(text: str) -> tuple[str, str]:
 
 def test_impl_reads_testplan_findings_file():
     """AC-1: impl.md's build-start assessment step names
-    `test-plan-review-findings.json` and instructs reading it before any code."""
+    the `test-plan-review` kind of `findings.json` and (KLC-173/KLC-172) tells the agent to assess the
+    findings its brief lists instead of reading the file itself."""
     section = _assessment_section(_read(_IMPL))
     assert section, (
-        "impl.md must carry a generalized «Assess the independent review findings» "
-        "H2 step (spec-review + test-plan-review)"
+        "impl.md must carry the «Assess the independent review findings» H2 step"
     )
     assert _TESTPLAN_FINDINGS_FILE in section, (
-        "the build-start assessment step must name test-plan-review-findings.json"
+        "the build-start assessment step must name the test-plan-review kind"
     )
-    # It is read (not merely mentioned): the step tells the agent to read it.
-    _, tp = _spec_and_testplan_subblocks(_read(_IMPL))
-    assert "read" in tp.lower(), (
-        "the test-plan sub-block must instruct READING test-plan-review-findings.json"
+    assert _STORE_FILE in section, "the step must name the one findings.json"
+    assert "Review findings for this step" in section, (
+        "the step must point at the brief's findings section (KLC-172)"
     )
     # Pinned to the REAL schema so the prompt cannot promise a shape the file lacks.
     for token in ("rule_name", "severity", "file", "line", "title", "body", "fix"):
-        assert token in tp, f"test-plan sub-block must name the real schema field '{token}'"
-    # Pinned to the REAL category vocabulary from testplan_review.TEST_PLAN_REVIEW.
-    for cat in ("uncovered-ac", "weak-assertion", "missing-edge-case"):
-        assert cat in tp, f"test-plan sub-block must name the real category '{cat}'"
+        assert token in section, f"assessment step must name the real schema field '{token}'"
 
 
 def test_impl_requires_per_finding_fix_or_wont_fix():
     """AC-2: impl.md requires a per-finding fix/won't-fix assessment of each
-    test-plan-review finding, recorded in build-log.md."""
-    _, tp = _spec_and_testplan_subblocks(_read(_IMPL))
-    low = tp.lower()
+    listed finding, recorded in build-log.md."""
+    low = _assessment_section(_read(_IMPL)).lower()
     assert "fix" in low and "won't-fix" in low, (
-        "test-plan sub-block must require a per-finding fix / won't-fix assessment"
+        "assessment step must require a per-finding fix / won't-fix assessment"
     )
     assert "each" in low, "the assessment is required for EACH finding"
     assert "build-log.md" in low, (
@@ -120,24 +117,23 @@ def test_impl_requires_per_finding_fix_or_wont_fix():
 
 
 def test_impl_high_severity_testplan_finding_is_stop_and_ask():
-    """AC-3: impl.md states that a high-severity test-plan finding neither fixed
-    nor consciously waived is a stop-and-ask (a [!QUESTION] / [!CONFLICT])."""
-    _, tp = _spec_and_testplan_subblocks(_read(_IMPL))
-    low = tp.lower()
+    """AC-3: impl.md states that a high-severity finding neither fixed nor
+    consciously waived is a stop-and-ask (a [!QUESTION] / [!CONFLICT])."""
+    section = _assessment_section(_read(_IMPL))
+    low = section.lower()
     assert "high" in low, "the stop-and-ask rule keys on a high-severity finding"
     assert "stop-and-ask" in low or ("stop" in low and "ask" in low), (
         "an unaddressed high-severity finding must be a stop-and-ask"
     )
-    assert "[!QUESTION]" in tp or "[!CONFLICT]" in tp, (
+    assert "[!QUESTION]" in section or "[!CONFLICT]" in section, (
         "stop-and-ask surfaces as a [!QUESTION] / [!CONFLICT] item"
     )
 
 
 def test_impl_degrades_when_testplan_findings_absent():
-    """AC-4: impl.md degrades gracefully when the file is absent — nothing to
-    assess, proceed, do not fabricate findings."""
-    _, tp = _spec_and_testplan_subblocks(_read(_IMPL))
-    low = tp.lower()
+    """AC-4: impl.md degrades gracefully when nothing is listed or the file is
+    absent — nothing to assess, proceed, do not fabricate findings."""
+    low = _assessment_section(_read(_IMPL)).lower()
     assert "absent" in low, "the degrade rule keys on an absent file"
     assert "nothing to assess" in low, (
         "an absent file means nothing to assess"
@@ -148,31 +144,13 @@ def test_impl_degrades_when_testplan_findings_absent():
 
 
 def test_testplan_clause_symmetric_with_spec_review_clause():
-    """AC-5: the test-plan-review assessment clause carries every discipline element
-    the spec-review clause carries, so the two cannot drift apart. Identical schema
-    → identical assess logic; the test-plan block must not be weaker."""
-    spec, tp = _spec_and_testplan_subblocks(_read(_IMPL))
-    assert spec and tp, "both the spec-review and test-plan-review sub-blocks must exist"
-    # Every load-bearing element present in the spec-review clause must also appear
-    # in the test-plan-review clause. Case-insensitive, symbol-exact for the markers.
-    elements = (
-        "fix",              # fix assessment
-        "won't-fix",        # won't-fix assessment
-        "build-log.md",     # recorded where
-        "high",             # high-severity trigger
-        "[!question]",      # stop-and-ask marker
-        "[!conflict]",      # stop-and-ask marker
-        "absent",           # degrade trigger
-        "fabricate",        # do-not-fabricate degrade guard
-        "rule_name",        # schema field
+    """AC-5: one assessment discipline covers the spec-review AND test-plan-review
+    findings (KLC-172: a single shared clause, so they cannot drift apart)."""
+    section = _assessment_section(_read(_IMPL))
+    assert _SPEC_FINDINGS_FILE in section and _TESTPLAN_FINDINGS_FILE in section, (
+        "both the spec-review and test-plan-review findings files must be named "
+        "in the one shared assessment clause"
     )
-    spec_low, tp_low = spec.lower(), tp.lower()
-    for el in elements:
-        if el in spec_low:
-            assert el in tp_low, (
-                f"the test-plan-review clause is missing '{el}' that the spec-review "
-                f"clause carries — the two must not drift apart (AC-5)"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +167,7 @@ def test_docs_name_build_assessment_of_testplan_findings():
     # process.md: names the test-plan findings file in a build-assessment context
     # (the build agent reads it and assesses each finding).
     assert _TESTPLAN_FINDINGS_FILE in process, (
-        "docs/process.md must name test-plan-review-findings.json"
+        "docs/process.md must name the test-plan-review kind"
     )
     process_low = process.lower()
     assert "impl.md" in process_low, (
@@ -206,8 +184,8 @@ def test_docs_name_build_assessment_of_testplan_findings():
         "test-plan-reviewer.md must name the build agent (core/agents/impl.md) "
         "that assesses its findings — making «assessed at build» concrete"
     )
-    assert _TESTPLAN_FINDINGS_FILE in reviewer, (
-        "test-plan-reviewer.md must name the test-plan-review-findings.json file "
+    assert _STORE_FILE in reviewer and _TESTPLAN_FINDINGS_FILE in reviewer, (
+        "test-plan-reviewer.md must name findings.json and its kind "
         "the build agent reads"
     )
 

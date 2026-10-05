@@ -4,7 +4,7 @@ the six headless reviewer prompts write a one-shape `findings.json` (with
 `id`, without `reviewer`); `scripts/review.py` checks every partial with
 `handback.validate_findings("code-review", list)`, leaves an invalid one out
 with one note naming the reviewer and its errors, stamps `reviewer`/`kind`,
-and writes `review/headless-findings.json` when it knows the ticket.
+and appends to `findings.json` when it knows the ticket.
 
 Hermetic: every test works on tmp_path; PROJECT_ROOT is set only where the
 test needs ticket resolution, never touching the live `.klc/`.
@@ -24,8 +24,8 @@ sys.path.insert(0, str(FW_ROOT / "core" / "skills"))
 
 import review as rv  # noqa: E402
 
-HEADLESS_PROMPTS = ("cheap", "deep-impact", "architecture", "security",
-                    "performance", "test-coverage")
+HEADLESS_PROMPTS = ("deep-impact", "architecture", "security",
+                    "performance", "code-review")
 _REVIEWER_KEY_RE = re.compile(r'"reviewer"\s*:')
 _ID_KEY_RE = re.compile(r'"id"\s*:')
 
@@ -77,9 +77,9 @@ def test_a_valid_partial_is_stamped_with_its_reviewer_name_and_kind(tmp_path):
     assert finding.kind == "code-review"
 
 
-def test_the_headless_run_writes_review_headless_findings_for_a_known_ticket(
+def test_the_headless_run_appends_to_findings_json_for_a_known_ticket(
         tmp_path, monkeypatch):
-    """AC-14/D-111: `_pooled_findings` writes review/headless-findings.json
+    """AC-14/D-111: `_pooled_findings` appends to findings.json
     for a known ticket, so `findings.py pool` counts the headless partials
     among the review kinds."""
     project = tmp_path / "proj"
@@ -93,9 +93,9 @@ def test_the_headless_run_writes_review_headless_findings_for_a_known_ticket(
     pooled, notes = rv._pooled_findings(partials_dir, "KLC-991")
 
     assert len(pooled) == 1
-    path = project / ".klc" / "tickets" / "KLC-991" / "review" / "headless-findings.json"
-    assert path.is_file()
-    stored = json.loads(path.read_text(encoding="utf-8"))
+    tdir = project / ".klc" / "tickets" / "KLC-991"
+    assert not (tdir / "review" / "headless-findings.json").exists()   # KLC-173
+    stored = json.loads((tdir / "findings.json").read_text(encoding="utf-8"))
     assert len(stored) == 1
     assert stored[0]["reviewer"] == "security"
     assert stored[0]["kind"] == "code-review"
@@ -103,11 +103,11 @@ def test_the_headless_run_writes_review_headless_findings_for_a_known_ticket(
 
 @pytest.mark.parametrize("name", HEADLESS_PROMPTS)
 def test_headless_reviewer_prompts_specify_a_one_shape_findings_json_with_id(name):
-    """AC-14: each of the six headless reviewer prompts names findings.json,
+    """AC-14: each of the five headless reviewer prompts names findings.json,
     id, rule_name, title and body, and does not ask for a reviewer field —
     intake stamps it (F-008: architecture/security/performance/test-coverage
-    wrote rule_name with no id; deep-impact wrote markdown only; cheap wrote
-    nothing — this pins that all six now converge)."""
+    wrote rule_name with no id; deep-impact wrote markdown only — this pins that
+    all five now converge)."""
     text = (FW_ROOT / "core" / "agents" / "review" / f"{name}.md").read_text(encoding="utf-8")
     assert "findings.json" in text
     assert _ID_KEY_RE.search(text), f"{name}.md: no \"id\": key in its findings.json schema"

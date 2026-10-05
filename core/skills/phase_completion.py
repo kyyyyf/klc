@@ -221,10 +221,6 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
             # not write, even though the downgrade-safety decision above still ran.
             if persist:
                 meta["track_source"] = "discovery"
-                meta["blast_radius"] = {
-                    "available": True,
-                    "external_dependents": info.get("external_dependents", []),
-                }
                 _lc.write_meta(ticket, meta)
 
     # Self-review gate (KLC-033): reject specs with placeholder/conflict/stub violations.
@@ -245,11 +241,16 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
     if _block:
         return False, _block
 
-    # Approaches+pick gate (KLC-032): M/L discovery must record ≥2 approaches and a pick in spec.md.
-    if not _spec_structure.has_min_approaches(spec_text):
-        return False, "spec.md: fewer than 2 approaches — Socratic protocol requires ≥2 before pick"
-    if not _spec_structure.recorded_pick(spec_text):
-        return False, "spec.md: no recorded pick — add 'Picked: <approach>' before acking"
+    # Bug shape gate (KLC-176): kind bug needs the four bug sections + a regression-test AC.
+    _bug_block = _bug_shape_block(meta, spec_text)
+    if _bug_block:
+        return False, _bug_block
+
+    # Approaches+pick gate (KLC-032, KLC-176): M/L discovery reads both from the
+    # spec.md `## Approaches` section.
+    _appr_block = _approaches_block(spec_text)
+    if _appr_block:
+        return False, _appr_block
 
     # All checks passed — extract risk_tags from spec.md frontmatter into meta.
     # KLC-062: this is a write, so it is gated on the persisting (ack) path only;
@@ -277,7 +278,7 @@ def can_complete_acceptance_test_plan(ticket: str, *, persist: bool = True) -> t
 
     Args:
         persist: when True (default, the ack path) the independent-reviewer seam
-            records its findings to `test-plan-review-findings.json`. Read-only
+            records its findings to `findings.json` (kind test-plan-review). Read-only
             callers (`klc remind`, gate-policy advisory) pass False so the check
             surfaces the same advisories but writes NOTHING (KLC-062 discipline).
             The deterministic coverage gate never writes, so it is unaffected.
@@ -446,7 +447,7 @@ def _testplan_review_advisories(ticket: str, persist: bool) -> list[str]:
     gate is introduced. Findings are recorded to disk for the build phase to assess
     ONLY on the persisting ack path: `persist` is threaded into `consume`, so a
     read-only probe (`klc remind` / gate-policy) surfaces WITHOUT writing
-    `test-plan-review-findings.json` (KLC-062 discipline). Track-scaled and
+    `findings.json` (kind test-plan-review) (KLC-062 discipline). Track-scaled and
     degrade-safe inside the seam; nothing here ever fails the ack.
 
     This is separate from `_testplan_coverage_gate`, which runs 085's own
@@ -492,7 +493,7 @@ def _implplan_review_advisories(ticket: str, persist: bool) -> list[str]:
     SAME advisory stream the operator already reads at the ack that finalizes
     `impl-plan.md` — a `decision`-level gate — and to surface a collapsed count of
     the OBJECTIVE `findings[]`. No new gate is introduced. Findings are recorded to
-    `impl-plan-review-findings.json` for the build agent (`core/agents/impl.md`) to
+    `findings.json` (kind impl-plan-review) for the build agent (`core/agents/impl.md`) to
     assess ONLY on the persisting ack path: `persist` is threaded into `consume`, so
     a read-only probe (`klc remind` / gate-policy) surfaces WITHOUT writing (KLC-062
     discipline). Track-scaled (M/L full, S cascade-on-signal, XS skip — and XS
@@ -556,6 +557,41 @@ def _spec_quality_gate(spec_text: str, meta: dict) -> tuple[str, list[str]]:
             if f.dimension == "markers":
                 warnings.append(f"spec-self-check[markers:deferred]: {f.message}")
     return block_msg, warnings
+
+
+def _is_legacy_layout(meta: dict) -> bool:
+    """True for a ticket created before the KLC-176 layout (no `meta.layout`):
+    only those may still be judged on options-lite.md / design/options.md."""
+    return not meta.get("layout")
+
+
+def _bug_shape_block(meta: dict, spec_text: str) -> str:
+    """Block message when a kind-bug spec lacks the bug sections / regression-test AC (KLC-176)."""
+    if meta.get("kind") != "bug" and _spec_selfreview.spec_kind(spec_text) != "bug":
+        return ""
+    vs = _spec_selfreview.bug_shape_violations(spec_text)
+    if not vs:
+        return ""
+    missing = ", ".join(v["phrase"] for v in vs)
+    return f"spec.md: kind bug requires {missing} — add before ack"
+
+
+def _approaches_block(text: str, *, section: bool = True, label: str = "spec.md") -> str:
+    """Block message unless `text` has >=2 approaches and a pick (KLC-176).
+
+    section=True reads the `## Approaches` body of spec.md text; section=False
+    judges the text as-is (legacy options-lite.md fallback).
+    """
+    body = text
+    if section:
+        body = _spec_structure.approaches_text(text)
+        if body is None:
+            return "spec.md: missing '## Approaches' section — record ≥2 approaches and 'Picked: <approach>'"
+    if not _spec_structure.has_min_approaches(body):
+        return f"{label}: fewer than 2 approaches — Socratic protocol requires ≥2 before pick"
+    if not _spec_structure.recorded_pick(body):
+        return f"{label}: no recorded pick — add 'Picked: <approach>' before acking"
+    return ""
 
 
 def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[bool, str]:
@@ -649,17 +685,24 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
     if _spec_block:
         return False, _spec_block
 
-    # Approaches+pick gate (KLC-032): S-track must have ≥2 approaches and a recorded pick.
-    # XS is exempt (short tasks don't require a formal options artifact).
+    # Bug shape gate (KLC-176): applies to XS and S alike.
+    _bug_block = _bug_shape_block(meta, text)
+    if _bug_block:
+        return False, _bug_block
+
+    # Approaches+pick gate (KLC-032, KLC-176): S-track reads the spec.md `## Approaches`
+    # section. XS is exempt. Read-only fallback: an old ticket that has no such section
+    # but carries options-lite.md is judged on that file, so archived tickets still pass.
     if track == "S":
-        _opts_path = ticket_dir / "options-lite.md"
-        if not _opts_path.exists():
-            return False, "options-lite.md: missing — S-track must record ≥2 approaches and a pick"
-        _opts_text = _opts_path.read_text(encoding="utf-8")
-        if not _spec_structure.has_min_approaches(_opts_text):
-            return False, "options-lite.md: fewer than 2 approaches — Socratic protocol requires ≥2 before pick"
-        if not _spec_structure.recorded_pick(_opts_text):
-            return False, "options-lite.md: no recorded pick — add 'Picked: <approach>' before acking"
+        _legacy = ticket_dir / "options-lite.md"
+        if (_spec_structure.approaches_text(text) is None and _legacy.exists()
+                and _is_legacy_layout(meta)):
+            _appr_block = _approaches_block(
+                _legacy.read_text(encoding="utf-8"), section=False, label="options-lite.md")
+        else:
+            _appr_block = _approaches_block(text)
+        if _appr_block:
+            return False, _appr_block
 
     # Plan-completeness gate (KLC-036): S-track must have impl-plan.md (it is a
     # discovery-lite output for S); XS does not produce one.  When present, the
@@ -743,68 +786,32 @@ def _impl_plan_steps(ticket_dir: Path) -> list[dict]:
 
 def can_complete_build(ticket: str, repo: Path | None = None, *,
                        persist: bool = True) -> tuple[bool, str]:
-    """Check if build phase artifacts are complete.
+    """Check if build phase artifacts are complete (KLC-174).
 
-    Requires build-log.md to exist, be non-empty, and contain an ## Evidence
-    section with at least one non-empty fenced block (KLC-038).
+    The ack READS state and executes no stored command: every impl-plan step must
+    be green with a recorded verify in build/steps.json (`step_state.check_build`,
+    recomputed from git + the plan; the file is never trusted), the red-before-green
+    order must hold (KLC-039; ``RED: not applicable`` steps are exempt) and AC→test
+    coverage must hold (KLC-095). build-log.md is optional free notes.
 
-    Also verifies red-before-green commit ordering for each behaviour step
-    in impl-plan.md (KLC-039).  Steps marked ``RED: not applicable`` are exempt.
     Pass *repo* to override the git repository used for commit attribution
     (defaults to the current working directory).
 
     ``persist`` distinguishes the real ack path (True) from a read-only probe
     (False: ``klc remind`` / gate-policy advisory collection on every prompt). On
     the probe path the AC-coverage arm runs only the STATIC classification and
-    spawns NO pytest (KLC-095 FIX-2) — a per-prompt probe must not execute the
-    ticket's tests. The completability decision is otherwise identical.
-
-    review-fix (HIGH): the AC-coverage / Evidence / step-verify arms below
-    share ONE `verify.arm_budget_seconds` deadline (`_verify_deadline`,
-    computed once here) instead of each independently computing its own —
-    so the total ack ceiling really is one arm budget, not up to three.
-
-    KLC-114 review round 1 (HIGH; AC-1/AC-11/C-005): the step-verify arm and
-    the step-ledger pass below ALSO share one per-ack Verdict cache
-    (`_verify_cache`, keyed by `(ticket, step_id, command)`) so a step's
-    VERIFY command executes at most ONCE per `can_complete_build` call —
-    not once per arm.
+    spawns NO pytest (KLC-095 FIX-2). Unusual on purpose: the coverage arm keeps
+    running the framework's own scoped pytest on the real ack (operator decision);
+    only STORED shell commands are never re-executed.
     """
-    import re as _re
     import time as _time
     import tdd_order as _tdd_order
     import settings as _settings
+    import step_state as _step_state
 
     _verify_deadline = _time.monotonic() + _settings.verify_arm_budget()
-    _verify_cache: dict = {}
 
     ticket_dir = klc_ticket_meta_file(ticket).parent
-    build_log_path = ticket_dir / "build-log.md"
-
-    if not build_log_path.exists():
-        return False, "Missing build-log.md"
-    if build_log_path.stat().st_size == 0:
-        return False, "build-log.md is empty"
-
-    text = build_log_path.read_text(encoding="utf-8")
-
-    # Find ## Evidence heading (level-2 only).
-    evidence_match = _re.search(r"^## Evidence\b", text, _re.MULTILINE)
-    if not evidence_match:
-        return False, "build-log.md: missing ## Evidence section — append evidence of each acceptance check before acking"
-
-    # Find at least one non-empty fenced block after ## Evidence.
-    after_evidence = text[evidence_match.end():]
-    # Stop at the next level-2 heading so we don't bleed into later sections.
-    next_h2 = _re.search(r"^## ", after_evidence, _re.MULTILINE)
-    evidence_section = after_evidence[:next_h2.start()] if next_h2 else after_evidence
-
-    fence_content_re = _re.compile(r"```[^\n]*\n(.*?)```", _re.DOTALL)
-    evidence_ok = any(
-        m.group(1).strip() for m in fence_content_re.finditer(evidence_section)
-    )
-    if not evidence_ok:
-        return False, "build-log.md: ## Evidence section has no non-empty fenced block — paste the command and its output inside a fenced block"
 
     # Red-before-green ordering gate (KLC-039): check each behaviour step.
     for step_info in _impl_plan_steps(ticket_dir):
@@ -841,72 +848,12 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
                                       f"{type(e).__name__} (AC coverage unverified)"),
                           "ref": ""}]
 
-    # KLC-115: the per-AC Evidence gate — an ADDITIONAL arm alongside the
-    # legacy KLC-038 heading+fence check above (never a replacement of it):
-    # every spec_saoc-parsed AC needs a well-formed entry (AC-4/AC-18), and an
-    # entry claiming pass whose re-executed command exits non-zero blocks
-    # (AC-6); an inability to observe (a budget overrun, a launch error, an
-    # exhausted arm budget) SURFACES on every track and never blocks (D-204).
-    # `run_commands=persist`: the real ack path re-executes; the read-only
-    # probe (persist=False) does only the structural per-AC check (AC-5).
-    _evidence_records: list[dict] = []
-    try:
-        import evidence_gate as _evg
-        _erep = _evg.check_evidence(ticket, track, repo, run_commands=persist,
-                                    deadline=_verify_deadline)
-        if _erep.block_reason:
-            return False, f"Evidence: {_erep.block_reason}"
-        _evidence_records = _evg.advisory_records(_erep)
-    except Exception as e:
-        # degrade-not-fail (AC-16): a surprise here is never a silent pass —
-        # it surfaces as a visible advisory naming the reason.
-        _evidence_records = [{"source": "verify", "severity": "medium",
-                              "code": "verify.degraded",
-                              "message": (f"evidence: check did not run — "
-                                          f"{type(e).__name__} (verification unverified)"),
-                              "ref": ""}]
+    # KLC-174: every plan step green with a valid recorded verify (reads only).
+    ok, reason = _step_state.check_build(ticket, repo, persist=persist)
+    if not ok:
+        return False, f"build steps: {reason}"
 
-    # KLC-115: re-execute each impl-plan step's VERIFY command and compare the
-    # ISOLATED Expected outcome token (AC-8/AC-9). Unlike the Evidence arm, an
-    # unlaunchable VERIFY blocks on M/L too (D-205) — it is a defect in the
-    # plan text the author controls, not a property of the suite.
-    _stepverify_records: list[dict] = []
-    try:
-        import step_verify as _sv
-        _srep = _sv.check_steps(ticket, track, repo, run_commands=persist,
-                                deadline=_verify_deadline, cache=_verify_cache)
-        if _srep.block_reason:
-            return False, f"step-verify: {_srep.block_reason}"
-        _stepverify_records = _sv.advisory_records(_srep)
-    except Exception as e:
-        _stepverify_records = [{"source": "verify", "severity": "medium",
-                                "code": "verify.degraded",
-                                "message": (f"step-verify: check did not run — "
-                                            f"{type(e).__name__} (verification unverified)"),
-                                "ref": ""}]
-
-    # KLC-114: the post-build step ledger pass — a mechanical second opinion
-    # computed from git and from re-executed VERIFY commands, run inside this
-    # SAME shared `_verify_deadline` (C-005). Persisting-path only (D-007: the
-    # read-only probe must not spawn a re-run); `build.verify_steps: false`
-    # skips it entirely. Report-only (Q-004): a `red`/`scope-violation`
-    # verdict never blocks here, only surfaces as an advisory.
-    _ledger_records: list[dict] = []
-    if persist and _settings.build_verify_steps():
-        try:
-            import step_ledger as _sl
-            _lrep = _sl.verify_build_steps(ticket, repo, write=True, deadline=_verify_deadline,
-                                           cache=_verify_cache)
-            _ledger_records = _sl.advisory_records(_lrep)
-        except Exception as e:
-            _ledger_records = [{"source": "ledger", "severity": "medium",
-                                "code": "ledger.degraded",
-                                "message": (f"step-ledger: pass did not run — "
-                                            f"{type(e).__name__} (per-step verdicts unverified)"),
-                                "ref": ""}]
-
-    _sources = [("ac-coverage", _acov_records), ("verify", _evidence_records),
-               ("verify", _stepverify_records), ("ledger", _ledger_records)]
+    _sources = [("ac-coverage", _acov_records)]
     _records, _summary = _adv.finish(ticket, "build", _sources, persist)
     return True, _summary
 
@@ -1437,10 +1384,9 @@ def _drift_advisories(ticket: str, persist: bool, *, committed: dict | None = No
     any failure degrades to a single advisory record; this NEVER blocks and NEVER
     raises. Scope-drift is restricted to the COMMITTED branch diff — drifted
     modules by NAME∩NAME, orphan files by PATH∩PATH — so an uncommitted WIP never
-    surfaces. `persist=True` writes drift-report.json (via write_report — the ONLY
-    writer); a read-only probe (persist=False) computes the report without
-    writing. Track-scaled: full on M/L, cascade-on-signal on S (a
-    coordination/risk-tag signal), skip on XS. Fail-OPEN: an unknown/unreadable
+    surfaces. `persist=True` goes through write_report, a read-only probe
+    (persist=False) through compare; neither writes a report file (KLC-173).
+    Track-scaled: full on M/L, cascade-on-signal on S (a coordination/risk-tag signal), skip on XS. Fail-OPEN: an unknown/unreadable
     track runs, since surfacing is safe."""
     # Track-scale first (KLC-128: the one gate `integrate_evaluators_run`
     # shares with the recording seam and the retrieval producer — fail-open,
@@ -1466,8 +1412,8 @@ def _drift_advisories(ticket: str, persist: bool, *, committed: dict | None = No
         if committed is not None:
             gt = integrate_ground_truth(ticket, cache=committed)
             mods, paths = gt["modules"], gt["paths"]
-            # persist=True → write_report persists drift-report.json; persist=False →
-            # compare computes without writing the report (KLC-062 read-only-probe discipline).
+            # KLC-173: write_report returns the report and persists nothing; the
+            # summary flows into the integrate advisories.
             rep = (_drift.write_report(ticket, ground_truth=gt) if persist
                   else _drift.compare(ticket, ground_truth=gt))
         else:
@@ -1523,7 +1469,7 @@ def _drift_review_advisories(ticket: str, persist: bool) -> list[dict]:
     deterministic `_drift_advisories`. Delegates to `drift_review.consume_records`
     (bound to DRIFT_CHECK), which routes the reviewer's `decisions_to_confirm[]`
     + a collapsed findings count into the ack's advisory records and records
-    findings to `drift-review-findings.json` ONLY when `persist` is True (a
+    findings to `findings.json` (kind drift-review) ONLY when `persist` is True (a
     read-only probe surfaces without writing). Fail-open / surface-only: never
     blocks, and any error degrades to a single info record — the seam's
     degrade-not-fail plus this guard mean it never raises."""
@@ -1620,6 +1566,27 @@ def _retrieval_advisories(ticket: str, persist: bool, *, committed=None) -> list
                 pass
 
 
+_RETRO_HEADINGS = ("What the gates missed", "Token cost by phase", "One process change")
+_RETRO_MAX_LINES = 40
+
+
+def retro_shape_advisories(ticket: str) -> list[dict]:
+    """Surface-only (KLC-176 AC-9): a retrospective over 40 lines or without the
+    three fixed headings. Never blocks the learn ack; no file means no advisory
+    (the generic gate already reports a missing output)."""
+    path = klc_ticket_meta_file(ticket).parent / "retrospective.md"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    msgs = []
+    if len(text.splitlines()) > _RETRO_MAX_LINES:
+        msgs.append(f"retrospective.md is longer than {_RETRO_MAX_LINES} lines")
+    msgs += [f"retrospective.md lacks '## {h}'" for h in _RETRO_HEADINGS
+             if f"## {h}" not in text]
+    return [{"source": "retro-shape", "severity": "low", "code": "retro.shape",
+             "message": m, "ref": ""} for m in msgs]
+
+
 def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[bool, str]:
     """Check that all phases.yml outputs exist and are non-empty.
 
@@ -1657,12 +1624,26 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
         return True, ""
 
     ticket_dir = klc_ticket_meta_file(ticket).parent
+    try:
+        meta = _lc.read_meta_ro(ticket)
+    except Exception:
+        meta = {}
     for rel in phase.outputs:
         path = ticket_dir / rel
+        if rel == "design.md" and not path.exists() and _is_legacy_layout(meta):
+            # an in-flight ticket from before KLC-176 still carries design/options.md
+            path = ticket_dir / "design" / "options.md"
+            rel = "design/options.md" if path.exists() else rel
         if not path.exists():
             return False, f"Missing {rel}"
         if path.stat().st_size == 0:
             return False, f"{rel} is empty"
+        if rel == "design.md":
+            _opts = _spec_structure.design_options_text(path.read_text(encoding="utf-8"))
+            if not _spec_structure.has_min_approaches(_opts or ""):
+                return False, "design.md: ## Options needs at least 2 labelled options"
+            if not _spec_structure.recorded_pick(_opts or ""):
+                return False, "design.md: ## Options has no 'Picked:' line"
 
     # Plan-completeness gate (KLC-036): if impl-plan.md is an output of this phase,
     # it must have no violations.
@@ -1689,6 +1670,9 @@ def _can_complete_generic(ticket: str, phase_id: str, *, persist: bool = True) -
         if _prov_block:
             return False, f"design: {_prov_block}"
         _sources.append(("provenance", _prov_records))
+
+    if phase_id == "learn":
+        _sources.append(("retro-shape", lambda: retro_shape_advisories(ticket)))
 
     _records, _summary = _adv.finish(ticket, phase_id, _sources, persist)
     return True, _summary

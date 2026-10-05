@@ -108,8 +108,8 @@ def test_fake_subprocess_returning_2_without_a_plan_is_a_failure(tmp_path, monke
 
     result = _run_with_fake_review_py(clone, ticket, monkeypatch, _fake)
     assert not result
-    assert "boom" in result.reason or "no review-plan.json" in result.reason or (
-        clone / ".klc" / "tickets" / ticket / "review-plan.json").exists() is False
+    assert "boom" in result.reason or "no review plan" in result.reason or (
+        clone / ".klc" / "tickets" / ticket / "review" / "review-plan-r1.json").exists() is False
 
 
 def test_exit_code_other_than_0_or_2_is_a_failure_even_with_a_matching_plan(
@@ -140,7 +140,7 @@ def test_unreadable_plan_after_exit_0_is_a_failure_naming_the_unreadable_plan(
     clone = _seed_with_live_range(tmp_path, ticket)
 
     def _fake(ticket, diff_file):
-        plan_path = clone / ".klc" / "tickets" / ticket / "review-plan.json"
+        plan_path = clone / ".klc" / "tickets" / ticket / "review" / "review-plan-r1.json"
         plan_path.parent.mkdir(parents=True, exist_ok=True)
         plan_path.write_text("not json {{{", encoding="utf-8")
         return subprocess.CompletedProcess([], 0, stdout="", stderr="")

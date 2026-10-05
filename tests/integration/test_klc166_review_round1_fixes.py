@@ -68,7 +68,7 @@ def _seed_with_live_range(tmp_path: Path, ticket: str, *, with_spec: bool = True
 
 
 def _plan_path(clone: Path, ticket: str) -> Path:
-    return clone / ".klc" / "tickets" / ticket / "review-plan.json"
+    return clone / ".klc" / "tickets" / ticket / "review" / "review-plan-r1.json"
 
 
 def _review_dir(clone: Path, ticket: str) -> Path:
@@ -122,7 +122,8 @@ def test_a_non_os_exception_from_ticket_diff_range_stays_one_note_and_take_exits
         "handback: note: planner did not write a review plan "
         "(boom from ticket_diff_range); pass not recorded")
     assert "run the planner (--plan-only)" not in out
-    assert (tdir / "review" / "code-review-findings.json").is_file()
+    assert "verdict for KLC-986 accepted" in out        # still taken (KLC-173: an empty verdict stores no file)
+    assert not (tdir / "findings.json").exists()
 
 
 def test_review_py_printing_a_non_utf8_byte_does_not_crash_take(
@@ -248,6 +249,7 @@ def test_a_pre_existing_plan_is_never_moved_aside_by_plan_outcome(tmp_path, monk
     clone = _seed_with_live_range(tmp_path, "KLC-991")
     monkeypatch.setenv("PROJECT_ROOT", str(clone))
     plan_file = _plan_path(clone, "KLC-991")
+    plan_file.parent.mkdir(parents=True, exist_ok=True)
     plan_file.write_text(json.dumps({"diff_sha256": "f" * 64, "passes": []}, indent=2) + "\n",
                          encoding="utf-8")
     diff_file = tmp_path / "some.diff"

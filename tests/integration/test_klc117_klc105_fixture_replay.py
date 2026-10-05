@@ -42,7 +42,7 @@ def _seed_ticket(tmp_path: Path, ticket: str) -> None:
     }
     (tdir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     (tdir / "build-log.md").write_text(
-        "# build log\n\n## Evidence\n\n```\n$ true\nok\n```\n", encoding="utf-8")
+        "# build log\n\nfree notes (optional since KLC-174)\n", encoding="utf-8")
     (tdir / "impl-plan.md").write_text(
         f"# Implementation plan — {ticket}\n", encoding="utf-8")
 
@@ -53,6 +53,10 @@ def test_klc105_build_ack_note_shrinks_to_cap_with_all_12_records_present(tmp_pa
     _seed_ticket(tmp_path, ticket)
 
     monkeypatch.setattr(pc, "_impl_plan_steps", lambda d: [])
+    # KLC-174: this fixture replays the AC-coverage advisory aggregation, not the
+    # step-state gate (which blocks a plan-less ticket); pin that arm green.
+    import step_state
+    monkeypatch.setattr(step_state, "check_build", lambda t, repo=None, **k: (True, ""))
     rep = acov.Report(track="M", findings=_twelve_weak_findings())
     monkeypatch.setattr(acov, "check", lambda *a, **k: rep)
 
@@ -60,7 +64,7 @@ def test_klc105_build_ack_note_shrinks_to_cap_with_all_12_records_present(tmp_pa
     assert ok is True
     assert summary == (
         "0 high · 0 medium · 12 info — see "
-        f".klc/tickets/{ticket}/build/ack-advisories.json"
+        f".klc/tickets/{ticket}/advisories.json"
     )
 
     envelope = advisories.read(ticket, "build")

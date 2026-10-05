@@ -14,6 +14,9 @@
 #   roles         — named "model types" the user thinks in terms of
 #                   (heavy-reasoning, coding, local-simple, ...).
 #                   Each role maps to a concrete provider + model.
+#                   A role may carry an optional `effort: low|medium|high|xhigh`
+#                   (KLC-172); the anthropic runner passes it as `--effort`.
+#                   Omit it to keep the CLI default.
 #   phase_roles   — which role runs at each phase in config/phases.yml.
 #                   Keys are phase ids; values are role names. Every
 #                   phase with `work.prompt` declared in phases.yml
@@ -63,6 +66,7 @@ roles:
     model:       claude-opus-5-5
     api_key_env: ANTHROPIC_API_KEY
     rank:        3
+    effort:      high
 
   coding:
     provider:    anthropic
@@ -119,8 +123,13 @@ phase_roles:
   review:               coding
   review-internal:      coding         # alias of `review` for sub-agents
   review-external:      external
-  review-cheap:         coding         # single-agent cheap reviewer (cascade peripheral path)
   per-step-review:      coding         # KLC-114: the per-step reviewer the ledger pass dispatches
+  # KLC-172: the four independent planning/drift reviewers are named
+  # explicitly instead of silently falling back to `defaults`.
+  spec-reviewer:        coding
+  test-plan-reviewer:   coding
+  impl-plan-reviewer:   coding
+  drift-reviewer:       coding
   manual:               coding
   integrate:            local-simple
   observe:              local-simple
@@ -137,7 +146,5 @@ per_track:
     discovery-lite: local-simple
     xs-build:       local-simple
     review-lite:    local-simple
-  S:
-    review-cheap: local-simple   # peripheral S diff → Haiku cheap reviewer
   L:
     review-external: heavy-reasoning

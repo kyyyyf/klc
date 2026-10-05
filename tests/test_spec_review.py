@@ -187,10 +187,10 @@ def test_record_findings_returns_dicts():
 
 def test_record_findings_writes_file(tmp_path):
     sr.record_findings(sr.parse_review(_block(_GOOD)), tmp_path)
-    path = tmp_path / "spec-review-findings.json"
-    assert path.exists()
-    data = json.loads(path.read_text())
+    assert not (tmp_path / "spec-review-findings.json").exists()
+    data = json.loads((tmp_path / "findings.json").read_text())
     assert {d["id"] for d in data} == {"F-1", "F-2"}
+    assert {(d["kind"], d["round"]) for d in data} == {("spec-review", 1)}
 
 
 # --- track scaling ----------------------------------------------------------
@@ -270,7 +270,8 @@ def test_consume_reads_output_routes_and_records(tmp_path):
     advisories, findings = sr.consume(tmp_path, "M")
     assert any("RECOMMENDED:" in a for a in advisories)
     assert {f["id"] for f in findings} == {"F-1", "F-2"}
-    assert (tmp_path / "spec-review-findings.json").exists()
+    assert (tmp_path / "findings.json").exists()
+    assert not (tmp_path / "spec-review-findings.json").exists()
 
 
 def test_consume_surfaces_schema_errors(tmp_path):
@@ -328,7 +329,8 @@ def test_consume_generic_seam_for_other_kinds(tmp_path):
     assert any(a.startswith("test-plan-review[decision") for a in advisories)
     # its own categories validated clean (no schema advisory).
     assert not any("schema" in a for a in advisories)
-    assert (tmp_path / "test-plan-review-findings.json").exists()
+    assert (tmp_path / "findings.json").exists()
+    assert not (tmp_path / "test-plan-review-findings.json").exists()
 
 
 # --- MEDIUM-2: a wrong-shape JSON block must degrade, not read as clean --------
@@ -389,12 +391,13 @@ def test_consume_probe_does_not_write(tmp_path):
     assert any("finding(s) recorded" in a for a in advisories)
     # ... but writes nothing on the read-only path.
     assert not (tmp_path / "spec-review-findings.json").exists()
+    assert not (tmp_path / "findings.json").exists()
 
 
 def test_consume_persist_true_writes(tmp_path):
     (tmp_path / "spec-review.md").write_text(_block(_GOOD), encoding="utf-8")
     sr.consume(tmp_path, "M", persist=True)
-    assert (tmp_path / "spec-review-findings.json").exists()
+    assert (tmp_path / "findings.json").exists()
 
 
 # --- KLC-127 AC-9/AC-10: the one Finding shape, the CLI, and D-106 -----------
@@ -409,6 +412,7 @@ def test_cli_writes_no_findings_file_for_ticket_dir_and_delegates_to_handback(tm
     ticket_dir.mkdir()
     sr.main(["--file", str(verdict_file), "--ticket-dir", str(ticket_dir)])
     assert not (ticket_dir / "spec-review-findings.json").exists()
+    assert not (ticket_dir / "findings.json").exists()     # KLC-173: nor the one store
     assert "handback.py take" in capsys.readouterr().err
 
 
@@ -419,7 +423,7 @@ def test_an_old_shape_or_invalid_block_raises_one_schema_advisory_and_leaves_the
     advisory and leaves an existing findings file byte-for-byte untouched
     (D-106), for each of the four independent kinds."""
     sentinel = b'[{"sentinel": true}]'
-    findings_path = tmp_path / f"{kind.name}-review-findings.json"
+    findings_path = tmp_path / "findings.json"
     findings_path.write_bytes(sentinel)
     old_shape_doc = {"findings": [{"id": "F-1", "category": "whatever", "severity": "high",
                                    "detail": "old shape"}], "decisions_to_confirm": []}
@@ -436,7 +440,7 @@ def test_an_invalid_one_shape_block_leaves_the_existing_file_untouched(tmp_path)
     """AC-10: a ONE-shape block that is still invalid (line 0) raises one
     schema advisory and leaves an existing findings file untouched."""
     sentinel = b'[{"sentinel": true}]'
-    findings_path = tmp_path / "spec-review-findings.json"
+    findings_path = tmp_path / "findings.json"
     findings_path.write_bytes(sentinel)
     bad_doc = {"findings": [_finding(line=0)], "decisions_to_confirm": []}
     (tmp_path / "spec-review.md").write_text(_block(bad_doc), encoding="utf-8")
@@ -482,7 +486,11 @@ def test_high_and_critical_both_count_as_high_in_the_ack_advisory(tmp_path, seve
 # --- structural test of the reviewer PROMPT ---------------------------------
 
 def test_reviewer_prompt_exists_and_covers_the_contract():
-    txt = (_FW_ROOT / "core/agents/spec-reviewer.md").read_text(encoding="utf-8")
+    import plugin_gen
+    # the output-class contract lives in the shared include (KLC-172), so
+    # assert against the prompt as the subagent actually receives it
+    txt = plugin_gen.expand_includes(
+        (_FW_ROOT / "core/agents/spec-reviewer.md").read_text(encoding="utf-8"))
     low = txt.lower()
     # raw.md fidelity anchor.
     assert "raw.md" in txt and ("fidelity" in low or "infidelity" in low)

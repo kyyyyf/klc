@@ -8,8 +8,7 @@ Tests:
 - Explicit inline=True wins over KLC_CARD_INLINE=0
 - Compressed card is smaller than inline by at least impl.md size
 - Telemetry source="provider" set from real usage block
-- Telemetry source="estimated" set when plain text output
-- cache_hit is 0 for estimated source
+- A plain-text dispatch (no usage) records no attempt (KLC-174)
 - metrics rollup includes source_counts
 """
 from __future__ import annotations
@@ -213,8 +212,7 @@ def test_telemetry_source_provider() -> None:
         resolved = MagicMock(provider="anthropic", model="claude-haiku-4-5-20251001",
                              extra_args=[], api_key_env="ANTHROPIC_API_KEY",
                              as_env=lambda: {})
-        with patch.object(runner, "_load_budget_limits", return_value=({}, {})), \
-             patch.dict(runner._DISPATCH,
+        with patch.dict(runner._DISPATCH,
                         {"anthropic": lambda *a, **k: (0, fake_output, "")}), \
              patch("models.load_models") as mm:
             mm.return_value.resolve.return_value = resolved
@@ -237,8 +235,8 @@ def test_telemetry_source_provider() -> None:
         print("PASS: telemetry source='provider' from real usage block")
 
 
-def test_telemetry_source_estimated() -> None:
-    """source='estimated' and cache_hit=0 for plain text output."""
+def test_telemetry_plain_text_records_nothing() -> None:
+    """KLC-174 step-5: plain text output (no usage) records no attempt."""
     import runner
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -260,8 +258,7 @@ def test_telemetry_source_estimated() -> None:
         resolved = MagicMock(provider="anthropic", model="claude-haiku-4-5-20251001",
                              extra_args=[], api_key_env="ANTHROPIC_API_KEY",
                              as_env=lambda: {})
-        with patch.object(runner, "_load_budget_limits", return_value=({}, {})), \
-             patch.dict(runner._DISPATCH,
+        with patch.dict(runner._DISPATCH,
                         {"anthropic": lambda *a, **k: (0, "plain text output", "")}), \
              patch("models.load_models") as mm:
             mm.return_value.resolve.return_value = resolved
@@ -276,11 +273,8 @@ def test_telemetry_source_estimated() -> None:
                       if r.get("phase") == "build"]
             os.environ.pop("PROJECT_ROOT", None)
 
-        assert records, "expected at least one journalled build attempt"
-        tok = records[-1]
-        assert tok["source"] == "estimated", f"expected estimated, got {tok['source']}"
-        assert tok["cache_hit"] == 0, f"cache_hit must be 0 for estimated, got {tok['cache_hit']}"
-        print("PASS: telemetry source='estimated', cache_hit=0 for plain text")
+        assert records == [], "no usage in the output -> nothing recorded"
+        print("PASS: plain text output records no attempt")
 
 
 def test_rollup_source_counts() -> None:
@@ -347,5 +341,5 @@ if __name__ == "__main__":
     test_explicit_inline_arg_wins_over_env()
     test_compressed_card_smaller_than_inline()
     test_telemetry_source_provider()
-    test_telemetry_source_estimated()
+    test_telemetry_plain_text_records_nothing()
     print("ALL STEP CARD COMPRESSION TESTS PASSED")

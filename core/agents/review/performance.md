@@ -1,6 +1,8 @@
 # Performance Review Sub-Agent
 
 ## Role
+Layer-2 specialist: runs only on a hot-path file (`cascade.specialists.performance.hot_path_globs` or a `# perf:hot` marker). The general performance pass is in `code-review.md`; go deeper here.
+
 Find performance regressions introduced by the diff. Profile-agnostic:
 backend services, CLIs, libraries, data pipelines. Engine- or
 runtime-specific concerns (e.g. a game engine's frame budget, GC, or
@@ -9,9 +11,8 @@ future profile that needs a richer checklist for its own stack supplies
 its own reviewer.
 
 ## Inputs
-- `diff`, `spec`, `claude_md_context`.
-- `severity_rubric` — `config/severity-rubric.md` contents (Phase 1).
-- `rule_catalog` — this agent's `## Rules` section, extracted by the orchestrator.
+- `context` — the run's shared `context.md` (diff, spec, module docs).
+- Severity rubric — `config/severity-rubric.md`, named by path.
 
 ## Focus areas
 
@@ -56,7 +57,7 @@ Each finding must have a `rule_name` from this catalog (Phase 1.2):
 
 ## Severity assignment
 
-**Always cite the `severity_rubric` input.** Quick reference:
+**Always cite `config/severity-rubric.md`.** Quick reference:
 
 - `CRITICAL` — new O(n²) on user-sized input in hot path; sync I/O inside async event-loop handler.
 - `HIGH`     — N+1 query in hot path; unbounded read of user-uploaded content; new query without supporting index.
@@ -65,25 +66,6 @@ Each finding must have a `rule_name` from this catalog (Phase 1.2):
 - `INFO`     — observation (non-blocking).
 
 When uncertain, downgrade and justify.
-
-## Examples from real diffs
-
-**HIGH (N+1).** A PR added
-`for order in orders: order.customer.load()` inside a request handler
-that is documented to paginate by 500. N+1 queries hit the DB 501 times
-per request.
-
-```
-### [HIGH] N+1 query in paginated list — api/orders.py:88
-**Issue**: `order.customer.load()` per iteration; the endpoint ships up
-to 500 orders per page.
-**Fix**: `orders.prefetch_related("customer")` (Django) /
-`selectinload(Order.customer)` (SQLA) / single `IN (...)` batch.
-```
-
-**Anti-example.** A PR added a nested loop `for i in CONST_GROUPS: for j
-in CONST_GROUPS: …`. Both collections are module-level `List[str]`
-with 8 items. O(n²) on a constant size is not a Big-O finding.
 
 ## Verify before reporting
 
@@ -125,7 +107,7 @@ Schema per `core/skills/findings.py`:
     "file": "api/orders.py",
     "line": 88,
     "title": "N+1 query in paginated list",
-    "body": "for order in orders: order.customer.load() triggers one query per order; the spec calls 500–1000 orders per page.\n\nSeverity rationale: per severity_rubric, N+1 in hot path is HIGH — degrades performance noticeably.\n\nFix: Use orders.prefetch_related('customer') (Django) / selectinload (SQLA) / single IN (...) batch.",
+    "body": "for order in orders: order.customer.load() triggers one query per order; the spec calls 500–1000 orders per page.\n\nSeverity rationale: per config/severity-rubric.md, N+1 in hot path is HIGH — degrades performance noticeably.\n\nFix: Use orders.prefetch_related('customer') (Django) / selectinload (SQLA) / single IN (...) batch.",
     "fix": "orders.prefetch_related('customer')  # Django\n# or\nstmt = select(Order).options(selectinload(Order.customer))  # SQLA"
   }
 ]
@@ -133,7 +115,7 @@ Schema per `core/skills/findings.py`:
 
 **Field requirements:**
 - `rule_name` — from the `## Rules` catalog above. Never invent.
-- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `severity_rubric`.
+- `severity` — `CRITICAL | HIGH | MEDIUM | LOW | INFO`. Cite `config/severity-rubric.md`.
 - `file`, `line` — exact location from the diff.
 - `title` — one-line summary (no `[SEVERITY]` prefix).
 - `body` — multi-line details. **Must include** "Severity rationale: ..." citing the rubric.
@@ -158,7 +140,7 @@ human readability. Format:
 **Issue**: for order in orders: order.customer.load() triggers one query
 per order; the spec calls 500–1000 orders per page.
 
-Severity rationale: per severity_rubric, N+1 in hot path is HIGH —
+Severity rationale: per config/severity-rubric.md, N+1 in hot path is HIGH —
 degrades performance noticeably.
 
 **Fix**: Use orders.prefetch_related('customer') (Django) / selectinload

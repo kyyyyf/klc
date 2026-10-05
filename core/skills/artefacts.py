@@ -270,7 +270,7 @@ def write_prompt_card(ticket: str, phase_id: str, meta: dict,
     write_step_card() which uses the minimal impl-step template.
     """
     if phase_id == "build" and step is not None:
-        return write_step_card(ticket, step, meta)
+        return write_step_card(ticket, step, meta, mode=mode)
 
     ph = _ph.load_phases()
     phase = ph.by_id(phase_id)
@@ -324,12 +324,17 @@ def write_prompt_card(ticket: str, phase_id: str, meta: dict,
 
 
 def write_step_card(ticket: str, step: int, meta: dict,
-                    inline: bool | None = None) -> Path:
+                    inline: bool | None = None,
+                    mode: str = CARD_MODE_PASTE) -> Path:
     """Render `.klc/tickets/<ticket>/build/_prompt_step_N.md`.
 
     By default (compressed mode) the impl.md role prompt is referenced
     by path rather than embedded. Set inline=True (or env
     KLC_CARD_INLINE=1) to embed the full prompt for paste-only workflows.
+
+    KLC-172: `mode=CARD_MODE_DISPATCH` (Task executor) neither embeds nor
+    references the role prompt — the klc-impl subagent definition already
+    carries it, so the card says so in one line. Inline wins over dispatch.
     """
     try:
         from jinja2 import Environment, FileSystemLoader
@@ -340,6 +345,7 @@ def write_step_card(ticket: str, step: int, meta: dict,
     # Resolve inline mode: explicit arg wins over env var.
     if inline is None:
         inline = os.environ.get("KLC_CARD_INLINE", "").strip() == "1"
+    role_carried = (not inline) and _resolve_mode(mode) == CARD_MODE_DISPATCH
 
     tdir = klc_ticket_dir(ticket)
     build_dir, _degraded = _card_dir(ticket, "build")
@@ -365,7 +371,10 @@ def write_step_card(ticket: str, step: int, meta: dict,
 
     # --- impl role prompt: reference (compressed) or embed (inline) ---
     impl_prompt_path = fw / "core" / "agents" / "impl.md"
-    if inline:
+    if role_carried:
+        impl_prompt = None
+        impl_prompt_ref = None
+    elif inline:
         impl_prompt = (impl_prompt_path.read_text(encoding="utf-8")
                        if impl_prompt_path.exists() else
                        "_(impl.md not found)_")
@@ -375,8 +384,18 @@ def write_step_card(ticket: str, step: int, meta: dict,
         impl_prompt_ref = (str(impl_prompt_path)
                            if impl_prompt_path.exists() else None)
 
+    # KLC-172 review F-006: the card lists the step's review findings exactly as
+    # the brief does (lazy import — task_brief imports this module).
+    import task_brief
+    try:
+        findings_lines = [task_brief._finding_line(d)
+                          for d in task_brief.step_findings(ticket, step)]
+    except ValueError:        # no such step in the plan: nothing to list
+        findings_lines = []
+
     rendered = tmpl.render(
         ticket=ticket,
+        findings_lines=findings_lines,
         track=meta.get("track") or "?",
         kind=meta.get("kind") or "?",
         step=step,
@@ -390,6 +409,7 @@ def write_step_card(ticket: str, step: int, meta: dict,
         step_rollback=fields.get("rollback", ""),
         impl_prompt=impl_prompt,
         impl_prompt_ref=impl_prompt_ref,
+        role_carried=role_carried,
     )
     card.write_text(rendered, encoding="utf-8")
     return card
@@ -400,7 +420,6 @@ class CardRender:
     """The measured record of a card render (KLC-118 AC-5/AC-6)."""
     path:       Path
     card_bytes: int
-    est_tokens: int
     degraded:   bool
 
 
@@ -408,9 +427,8 @@ def render_card(ticket: str, phase_id: str, meta: dict,
                 step: int | None = None, mode: str = CARD_MODE_PASTE) -> CardRender:
     """The measuring entry point: render the card (via the existing
     path-returning writers, which keep their nine call sites unchanged) and
-    record its byte size + an estimated token count into
-    `meta.json:metrics.tokens.<phase_id>` (`source="estimated"`, never
-    downgrading a `provider` record — see `budget_guard.write_token_metrics`).
+    report its byte size. KLC-174: it records NO token attempt — an estimate
+    from the card size was replaced by real usage (`core/skills/token_import.py`).
     KLC-119 AC-6 wires every render site through here: `klc next`
     (`core/phases/next.py`), `klc ack` (`ack.py`), `klc jump` (`jump.py`),
     `klc step` (`step.py`), the headless `autorunner.run`, and the
@@ -419,13 +437,12 @@ def render_card(ticket: str, phase_id: str, meta: dict,
     card through `write_prompt_card`/`write_step_card` alone without also
     routing through this measuring wrapper."""
     if phase_id == "build" and step is not None:
-        path = write_step_card(ticket, step, meta)
+        path = write_step_card(ticket, step, meta, mode=mode)
     else:
         path = write_prompt_card(ticket, phase_id, meta, step=step, mode=mode)
     text = path.read_text(encoding="utf-8")
     card_bytes = len(text.encode("utf-8"))
     degraded = not str(path).startswith(str(klc_card_root()))
-    est_tokens = _record_card_metrics(ticket, phase_id, text, card_bytes)
     if not degraded:
         # KLC-118 AC-10 / impl-plan-review F-2 / DECISION D-2: the automatic
         # sweep is scoped to THIS ticket AND THIS phase only — never the
@@ -434,8 +451,7 @@ def render_card(ticket: str, phase_id: str, meta: dict,
         # skips the sweep outright: it just wrote the very file a
         # ticket-wide sweep would otherwise be tempted to remove.
         sweep_legacy_cards(ticket=ticket, phase_id=phase_id)
-    return CardRender(path=path, card_bytes=card_bytes, est_tokens=est_tokens,
-                      degraded=degraded)
+    return CardRender(path=path, card_bytes=card_bytes, degraded=degraded)
 
 
 _LEGACY_CARD_GLOBS = ("_prompt.md", "_prompt_step_*.md")
@@ -479,25 +495,6 @@ def sweep_legacy_cards(ticket: str | None = None,
                 except OSError:
                     pass
     return removed
-
-
-def _record_card_metrics(ticket: str, phase_id: str, text: str,
-                         card_bytes: int) -> int:
-    """Non-fatal telemetry write (mirrors runner.py's own try/except around
-    write_token_metrics) — a metrics failure must never fail a card render.
-
-    KLC-119 D-006: `budget_guard.estimate_tokens` is the ONE size-to-token
-    rule in `core/` (AC-7) — no second floor-division-by-four fallback
-    here."""
-    import budget_guard
-    est_tokens = budget_guard.estimate_tokens(text)
-    try:
-        budget_guard.write_token_metrics(
-            ticket, phase_id, est_tokens, 0, 0,
-            source="estimated", card_bytes=card_bytes)
-    except Exception:
-        pass
-    return est_tokens
 
 
 def _extract_goals_acs(spec_path: Path) -> str:

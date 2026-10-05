@@ -14,11 +14,9 @@ Report **only issues introduced or worsened by this diff**. Pre-existing
 issues are out of scope (review.md:66).
 
 ## Inputs (from the orchestrator)
-- `diff` — unified diff.
-- `spec` — feature spec or bug description.
-- `claude_md_context` — root + affected-module CLAUDE.md.
-- `severity_rubric` — `config/severity-rubric.md` contents.
-- `rule_catalog` — this agent's `## Rules` section, extracted by the orchestrator.
+- `context` — the run's shared `context.md` (diff, spec goals and ACs,
+  test-plan table, decisions, module docs).
+- Severity rubric — `config/severity-rubric.md`, named by path.
 - `.klc/index/modules.json` (optional) — module `depended_by` edges; use for
   dependency-regression checks. Not available on stub graphs (C-003).
 - `adr_context` (optional) — inlined ADRs. If a diff contradicts a recorded ADR
@@ -165,7 +163,7 @@ Each finding must have a `rule_name` from this catalog.
 
 ## Severity assignment
 
-Consult `severity_rubric`. Quick reference:
+Consult `config/severity-rubric.md`. Quick reference:
 
 - `HIGH` — the stale reference will definitely fail at runtime when the code
   path is exercised (missing handler, broken config key, missing env var with

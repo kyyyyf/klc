@@ -60,6 +60,16 @@ def _persist_advisory(tmp_path, monkeypatch, key, *, edit_candidates):
     return recs, meta
 
 
+def _logged(root, ticket):
+    """KLC-176: the record lives only in the derived retrieval-eval.jsonl."""
+    rec = {}
+    for line in (root / ".klc" / "knowledge" / "retrieval-eval.jsonl").read_text("utf-8").splitlines():
+        row = json.loads(line)
+        if row.get("ticket") == ticket:
+            rec = row
+    return rec
+
+
 def test_high_confidence_zero_precision_fixture_flags_calibration_and_advisory(
     tmp_path, monkeypatch
 ):
@@ -70,7 +80,7 @@ def test_high_confidence_zero_precision_fixture_flags_calibration_and_advisory(
     one advisory line at the integrate ack."""
     recs, meta = _persist_advisory(tmp_path, monkeypatch, "KLC-CAL1",
                                    edit_candidates=["z.py"])
-    assert meta["metrics"]["retrieval"]["files_likely_to_edit"]["precision"] == 0.0
+    assert _logged(tmp_path, "KLC-CAL1")["files_likely_to_edit"]["precision"] == 0.0
     assert len(recs) == 1
     assert recs[0]["source"] == "retrieval-eval"
     assert recs[0]["severity"] == "medium"
@@ -88,7 +98,7 @@ def test_matching_fixture_produces_precision_at_5_of_one(tmp_path, monkeypatch):
     `zero_precision_at_5_tickets`, and raises no advisory."""
     recs, meta = _persist_advisory(tmp_path, monkeypatch, "KLC-CAL2",
                                    edit_candidates=["a.py"])
-    assert meta["metrics"]["retrieval"]["files_likely_to_edit"]["precision"] == 1.0
+    assert _logged(tmp_path, "KLC-CAL2")["files_likely_to_edit"]["precision"] == 1.0
     assert recs == []
 
     (tmp_path / ".klc" / "knowledge").mkdir(parents=True, exist_ok=True)

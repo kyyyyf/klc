@@ -139,6 +139,29 @@ def iter_attempts(meta: dict, ticket: str) -> list[tuple[str, dict]]:
     return out
 
 
+def _executed_plan_passes(ticket: str) -> list:
+    """`(plan file name, reviewer, attempt id)` of every `executed` pass in the
+    ticket's review plan files: `review/review-plan-r*.json` and the old root
+    `review-plan.json`. The attempt id is `review_plan._plan_attempt_id`. Unreadable
+    files count nothing."""
+    import review_plan
+    tdir = klc_ticket_dir(ticket)
+    files = sorted((tdir / "review").glob("review-plan-r*.json")) + [tdir / "review-plan.json"]
+    out: list = []
+    for f in files:
+        try:
+            plan = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(plan, dict):
+            continue
+        for p in plan.get("passes") or []:
+            if isinstance(p, dict) and p.get("status") == "executed" and p.get("reviewer"):
+                out.append((f.name, p["reviewer"],
+                            review_plan._plan_attempt_id(ticket, plan, p["reviewer"])))
+    return out
+
+
 def _read_meta(ticket: str) -> dict:
     p = klc_ticket_meta_file(ticket)
     if not p.exists():
@@ -217,6 +240,30 @@ _CONFIDENCE_BUCKETS = ("high", "medium", "low", "unknown")
 _NO_RECORD = "no_record"
 
 
+def _retrieval_record(m: dict) -> dict | None:
+    """A ticket's retrieval record, meta first, jsonl second (KLC-176).
+
+    1. meta.json:metrics.retrieval. A full legacy record (it has `status`) is
+       returned as is. A compact one {score, confidence, at} is merged over the
+       clone-local jsonl row when that exists (richer detail), else expanded into
+       the minimal record the rollup reads (a null score reads as unavailable,
+       never as a zero).
+    2. No meta record: the derived retrieval-eval.jsonl row, or None."""
+    import retrieval_eval as _reval
+    meta_rec = (m.get("metrics") or {}).get("retrieval")
+    if isinstance(meta_rec, dict) and "status" in meta_rec:
+        return meta_rec
+    row = _reval.logged_record(m.get("ticket"))
+    if not isinstance(meta_rec, dict):
+        return row
+    if isinstance(row, dict):
+        return {**row, "confidence": meta_rec.get("confidence", row.get("confidence"))}
+    score = meta_rec.get("score")
+    return {"status": "ok" if score is not None else "unavailable",
+            "confidence": meta_rec.get("confidence"),
+            "files_likely_to_edit": {"precision": score}}
+
+
 def _retrieval_rollup(metas: list[dict]) -> dict:
     """AC-13 / AC-14. Aggregates ONLY status-ok records; an unavailable
     record is counted, never averaged. A null metric (an empty candidate
@@ -225,7 +272,7 @@ def _retrieval_rollup(metas: list[dict]) -> dict:
     samples reports null. `degraded_count` slices the honest question a
     reader asks next: was this a weak retriever, or a degraded index
     (D-217)?"""
-    recs = [(m, (m.get("metrics") or {}).get("retrieval") or {}) for m in metas]
+    recs = [(m, _retrieval_record(m) or {}) for m in metas]
     ok = [(m, r) for m, r in recs if r.get("status") == "ok"]
     out = {
         "tickets_scored": len(ok),
@@ -249,15 +296,15 @@ def _per_confidence(rows: list[dict]) -> dict:
     (Q-211)."""
     buckets: dict[str, list[dict]] = {b: [] for b in (*_CONFIDENCE_BUCKETS, _NO_RECORD)}
     for m in rows:
-        metrics_block = m.get("metrics") or {}
-        if "retrieval" not in metrics_block or not isinstance(metrics_block["retrieval"], dict):
+        rec = _retrieval_record(m)
+        if not isinstance(rec, dict):
             # Never measured: no trace was ever scored for this ticket.
             # Membership is decided by the KEY's presence, not by a confidence
             # lookup, because a missing key and a `confidence: unknown` record
             # both read as None.
             buckets[_NO_RECORD].append(m)
             continue
-        claimed = metrics_block["retrieval"].get("confidence")
+        claimed = rec.get("confidence")
         buckets[claimed if claimed in _CONFIDENCE_BUCKETS else "unknown"].append(m)
     return {b: {"tickets": len(ms), "retrieval": _retrieval_rollup(ms)}
             for b, ms in buckets.items()}
@@ -265,7 +312,7 @@ def _per_confidence(rows: list[dict]) -> dict:
 
 # --- KLC-133 AC-10/AC-11: per-source buckets, no mixed average -------------
 
-_SOURCES = ("provider", "signal", "estimated")
+_SOURCES = ("provider", "transcript", "signal", "estimated")
 
 
 def _num(v):
@@ -293,7 +340,7 @@ def _source_bucket(recs: list[dict], source: str) -> dict:
         "avg_out":       _avg(_num(r.get("out")) for r in ok),
         "avg_cache_hit": _avg(_num(r.get("cache_hit")) for r in ok),
     }
-    if source == "provider":
+    if source in ("provider", "transcript"):
         costs = [c for c in (_num(r.get("cost_usd")) for r in recs) if c is not None]
         bucket.update(
             avg_cache_write=_avg(_num(r.get("cache_write")) for r in ok),
@@ -322,7 +369,7 @@ def _measured_per_ticket(pairs: list[tuple[dict, str]], phase: str,
         if not tagged:
             continue
         sources = {r.get("source") for r in tagged}
-        if sources == {"provider"}:
+        if sources in ({"provider"}, {"transcript"}, {"provider", "transcript"}):
             ok = [r for r in tagged if r.get("failed") is not True]
             if not ok:
                 continue  # F-8: all tagged provider attempts failed
@@ -332,7 +379,7 @@ def _measured_per_ticket(pairs: list[tuple[dict, str]], phase: str,
                 sum(_num(r.get("cost_usd")) or 0 for r in ok),
                 sum(_num(r.get("num_turns")) or 0 for r in ok),
             ))
-        elif "provider" in sources:
+        elif sources & {"provider", "transcript"}:
             partial += 1
         # else: estimated-only — counts in neither.
 
@@ -441,7 +488,7 @@ def cmd_rollup(args: argparse.Namespace) -> int:
         # `signal` bucket alongside `provider`/`estimated` (AC-10).
         token_by_phase: dict[str, dict[str, list]] = {}
         card_bytes_total = 0
-        tagged_per_ticket: dict[str, int] = {}
+        tagged_per_ticket: dict[str, dict] = {}   # ticket -> {attempt id: reviewer}
         for m, tid in pairs:
             for phase, rec in iter_attempts(m, tid):
                 bucket = token_by_phase.setdefault(
@@ -464,7 +511,8 @@ def cmd_rollup(args: argparse.Namespace) -> int:
                 # failed reviewer dispatch never counted as executed.
                 if (phase == "review" and rec.get("reviewer")
                         and rec.get("failed") is not True):
-                    tagged_per_ticket[tid] = tagged_per_ticket.get(tid, 0) + 1
+                    ids = tagged_per_ticket.setdefault(tid, {})
+                    ids[rec.get("id") or ("anon", len(ids))] = rec["reviewer"]
         # KLC-133 AC-10: every averaged figure lives under exactly ONE
         # `by_source` bucket — no more mixed avg_in/avg_out/avg_cache_hit at
         # the phase level (F-011 removed). `samples`/`source_counts` stay.
@@ -473,6 +521,7 @@ def cmd_rollup(args: argparse.Namespace) -> int:
                 "samples":       len(v["in"]),
                 "source_counts": {
                     "provider":  v["source"].count("provider"),
+                    "transcript": v["source"].count("transcript"),
                     "signal":    v["source"].count("signal"),
                     "estimated": v["source"].count("estimated"),
                 },
@@ -533,7 +582,25 @@ def cmd_rollup(args: argparse.Namespace) -> int:
         # least one tagged attempt, never over the whole track — "not
         # measured" must never read as "costs nothing" (the same trap
         # prompt_bytes_per_ticket already avoids).
-        measured_counts = list(tagged_per_ticket.values())
+        # KLC-174 review F-005: hand-back passes write no attempt any more, so the
+        # executed passes of the ticket's review plan files (every round, plus the
+        # legacy root plan) are merged in, de-duplicated by the plan attempt id.
+        # R2-001: a headless provider pass writes an attempt with a random id AND
+        # is flipped to `executed` in the plan, so ids never match. De-duplicate by
+        # (plan round, reviewer): an attempt for a reviewer that has an executed plan
+        # pass is that pass; only attempts with no plan pass count on their own.
+        measured_counts = []
+        for _m, tid in pairs:
+            plan_passes = _executed_plan_passes(tid)
+            attempts = tagged_per_ticket.get(tid, {})
+            plan_keys = {(rnd, rev) for rnd, rev, _a in plan_passes}
+            plan_ids = {a for _r, _v, a in plan_passes}
+            plan_reviewers = {rev for _r, rev, _a in plan_passes}
+            extra = [a for a, rev in attempts.items()
+                     if a not in plan_ids and rev not in plan_reviewers]
+            n = len(plan_keys) + len(extra)
+            if n:
+                measured_counts.append(n)
         review_llm_passes_per_ticket = (
             sum(measured_counts) / len(measured_counts)
         ) if measured_counts else None

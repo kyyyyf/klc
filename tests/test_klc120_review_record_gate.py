@@ -134,7 +134,7 @@ def test_record_of_already_executed_pass_is_a_noop_success(tmp_path, monkeypatch
     assert r1.stdout.strip() == r2.stdout.strip()
 
     tagged = _tagged_attempts(project_root, "KLC-999", "code-review")
-    assert len(tagged) == 1
+    assert tagged == []        # KLC-174 step-5: no token attempt is written
 
 
 if __name__ == "__main__":

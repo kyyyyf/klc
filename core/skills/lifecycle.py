@@ -43,7 +43,7 @@ _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # core/skills -> core -> project root
 sys.path.insert(0, str(_project_root))
 
-from core.shared.paths import klc_ticket_dir, klc_ticket_meta_file  # noqa: E402
+from core.shared.paths import klc_ticket_dir, klc_ticket_meta_file, project_root  # noqa: E402
 import phases as _ph  # noqa: E402
 
 
@@ -543,17 +543,48 @@ def jira_pull(ticket: str, target_phase: str, *,
 
 # --- superseding downstream artefacts ----------------------------------------
 
+def _state_commit_if_clean(klc: Path, paths: list[Path]) -> str | None:
+    """HEAD of the state repository when every path is tracked and unmodified,
+    else None (also None when git is unusable, so the caller keeps the files)."""
+    import state_sync as _ss
+    try:
+        rel = [str(p.relative_to(klc)) for p in paths]
+    except ValueError:
+        return None
+    if _ss._git(["ls-files", "--error-unmatch", "--", *rel], klc).returncode != 0:
+        return None
+    # `ls-files --error-unmatch` on a directory succeeds when anything inside is
+    # tracked, so check for untracked files under the paths as well.
+    other = _ss._git(["ls-files", "--others", "--", *rel], klc)
+    if other.returncode != 0 or other.stdout.strip():
+        return None
+    if _ss._git(["diff", "--quiet", "HEAD", "--", *rel], klc).returncode != 0:
+        return None
+    head = _ss._git(["rev-parse", "HEAD"], klc)
+    return head.stdout.strip() if head.returncode == 0 and head.stdout.strip() else None
+
+
 def supersede_phases(ticket: str, phase_ids: list[str]) -> list[Path]:
-    """Move each phase's artefacts to _superseded/<ts>/<phase>/.
+    """Remove each phase's artefacts from the ticket directory (KLC-176).
+
     Artefacts are resolved from phases.yml outputs[] + the phase-named
-    sub-directory (e.g. design/). Returns the list of moved paths."""
+    sub-directory (e.g. design/). When every artefact of a phase is tracked and
+    unmodified, the files are deleted inside the surrounding state transaction
+    and `{phase, commit}` is recorded in `meta.superseded[]` (commit = the state
+    repository HEAD before the delete, which still holds the old files). Any
+    untracked or locally modified file, or no usable git, keeps the legacy
+    `_superseded/<ts>/<phase>/` move so nothing is lost; a stderr line says so.
+    Returns the paths removed or moved (moved ones as their new location)."""
     if not phase_ids:
         return []
+    from core.shared.paths import klc_dir
     ph = _ph.load_phases()
     tdir = klc_ticket_dir(ticket)
     ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     dest_root = tdir / "_superseded" / ts
     moved: list[Path] = []
+    records: list[dict] = []
+    legacy_phases: list[str] = []
     for pid in phase_ids:
         try:
             p = ph.by_id(pid)
@@ -571,20 +602,32 @@ def supersede_phases(ticket: str, phase_ids: list[str]) -> list[Path]:
             targets.append(phase_subdir)
         if not targets:
             continue
+        commit = _state_commit_if_clean(klc_dir(), targets)
+        if commit:
+            for t in targets:
+                shutil.rmtree(t) if t.is_dir() else t.unlink()
+                moved.append(t)
+            records.append({"phase": pid, "commit": commit})
+            continue
+        sys.stderr.write(f"klc: superseding {pid}: files are untracked or modified "
+                         f"(or git is unavailable); kept under _superseded/{ts}/{pid}/\n")
         bucket = dest_root / pid
         bucket.mkdir(parents=True, exist_ok=True)
         for t in targets:
             dest = bucket / t.name
             shutil.move(str(t), str(dest))
             moved.append(dest)
+        legacy_phases.append(pid)
     if moved:
         meta = read_meta(ticket)
         rec = meta.setdefault("superseded", [])
-        rec.append({
-            "at":     _now(),
-            "phases": phase_ids,
-            "dir":    str(dest_root.relative_to(tdir)),
-        })
+        rec.extend(records)
+        if legacy_phases:
+            rec.append({
+                "at":     _now(),
+                "phases": legacy_phases,
+                "dir":    str(dest_root.relative_to(tdir)),
+            })
         write_meta(ticket, meta)
     return moved
 
@@ -783,7 +826,30 @@ def _record_skipped(ticket: str, phase_id: str, reason: str) -> None:
     write_meta(ticket, meta)
 
 
-def apply_ack(ticket: str, pick_id: int | None) -> str:
+def _project_head(rev: str = "HEAD") -> str | None:
+    """`rev` (default HEAD) of the project repository, None when git cannot tell."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "rev-parse", "--verify", "-q", rev], capture_output=True,
+                           text=True, cwd=str(project_root()), timeout=10)
+    except Exception:
+        return None
+    return (r.stdout.strip() or None) if r.returncode == 0 else None
+
+
+def _record_outcome(meta: dict, pid: str, pick, note: str) -> None:
+    """manual and integrate keep their outcome in meta.json, not in a file."""
+    if pid == "manual":
+        meta["manual"] = {"verdict": pick.label, "note": note or "", "at": _now()}
+    elif pid == "integrate":
+        # branch_head is the project HEAD at the ack (usually the feature-branch
+        # tip, which a squash merge never puts on main); main_head is local main
+        # when it resolves. Neither is claimed to be "the merge commit".
+        meta["integrate"] = {"branch_head": _project_head(),
+                             "main_head": _project_head("main"), "at": _now()}
+
+
+def apply_ack(ticket: str, pick_id: int | None, note: str = "") -> str:
     """From :ack-needed apply the selected pick. Returns new state."""
     meta = read_meta(ticket)
     cur = meta.get("phase", "")
@@ -823,30 +889,31 @@ def apply_ack(ticket: str, pick_id: int | None) -> str:
         if _tgt_state == _ph.STATE_WORK:
             enter_work_guard(ticket, _tgt_id)
 
-    # Record pick if configured.
+    # Record pick if configured (no shipped phase uses it since KLC-176: the
+    # pick lives in phase_history). manual and integrate keep their outcome in
+    # meta.json instead of a file.
     if phase.pick_records_to:
         meta[phase.pick_records_to] = pick.label
-        write_meta(ticket, meta)
+    _record_outcome(meta, pid, pick, note)
+    write_meta(ticket, meta)
 
     # Move to `<pid>:ack` first (so the ack is auditable even if the
     # subsequent goto immediately overwrites it). The pick is recorded as a
     # STRUCTURED field (KLC-077 LOW-3) so condition_holds can detect
     # regression/rollback without substring-scanning the free-text note.
     _pick_extra = {"pick": {"id": pick.id, "label": pick.label}}
-    set_state(ticket, pid, _ph.STATE_ACK,
-              event="ack", note=f"pick={pick.id}:{pick.label}",
-              extra=_pick_extra)
+    set_state(ticket, pid, _ph.STATE_ACK, event="ack", note=note or "", extra=_pick_extra)
 
     # Supersede if requested.
     if pick.supersede:
         supersede_phases(ticket, pick.supersede)
 
     if pick.goto == "next":
-        return advance_to_next(ticket, note=f"ack:{pick.label}")
+        return advance_to_next(ticket)
 
     if pick.goto == _ph.STATE_ARCHIVED:
         set_state(ticket, _ph.STATE_ARCHIVED, _ph.STATE_ARCHIVED,
-                  event="ack", note=f"pick={pick.label}")
+                  event="ack", extra=_pick_extra)
         return _ph.STATE_ARCHIVED
 
     # Explicit <phase>:<state> jump. The dependency guard for a :work target
@@ -867,7 +934,7 @@ def apply_ack(ticket: str, pick_id: int | None) -> str:
         _bump_rework(meta, tgt_id)
     write_meta(ticket, meta)
     set_state(ticket, tgt_id, tgt_state,
-              event="ack-jump", note=f"pick={pick.label}", extra=_pick_extra)
+              event="ack-jump", extra=_pick_extra)
     return pick.goto
 
 
@@ -949,8 +1016,9 @@ def jump(ticket: str, target_phase: str, *, dry_run: bool = False) -> dict:
 
 
 def abort(ticket: str) -> str:
-    """Cancel current :work. Move artefacts of current phase to
-    _superseded/, reset budgets, return to previous phase's :ack
+    """Cancel current :work. Supersede the artefacts of the current phase
+    (deleted and recorded in meta.superseded, or moved to _superseded/ when
+    untracked or modified), reset budgets, return to previous phase's :ack
     (or intake:ack-needed if the current phase is the first)."""
     meta = read_meta(ticket)
     cur = meta.get("phase", "")
@@ -999,7 +1067,7 @@ def cancel(ticket: str, *, reason: str, by: str) -> str:
     Unlike plain `abort` (which only steps a `:work` back to the previous
     `:ack`), cancel closes a ticket that will never be done and is valid from
     `intake:ack-needed`, `<X>:ack` and `<X>:work`. From a `:work` state it first
-    moves the current phase's artefacts to `_superseded/<ts>/` exactly like
+    supersedes the current phase's artefacts exactly like
     abort, then terminates.
 
     Records a `phase_history` {event: cancelled, from_phase, reason, by} entry

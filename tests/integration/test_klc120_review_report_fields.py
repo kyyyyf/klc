@@ -93,10 +93,11 @@ def test_headless_review_report_states_planned_executed_and_skipped_with_reason(
     reports = sorted(reports_dir.glob("review-*.md"))
     assert len(reports) == 1
     text = reports[0].read_text(encoding="utf-8")
-    assert "planned_passes: 5" in text
-    assert "executed_passes: 4" in text
+    # KLC-175: layer 1 = code-review, layer 2 only on signal; external on L.
+    assert "planned_passes: 2" in text
+    assert "executed_passes: 1" in text
     assert "skipped `deep-impact` — no trigger fired" in text
-    assert "skipped `code-review`" in text
+    assert "skipped `security` — no trigger fired" in text
     assert "skipped `drift`" in text
 
 
@@ -115,7 +116,7 @@ def test_runner_failure_partial_is_not_counted_executed(tmp_path, monkeypatch):
     fake_runner.write_text(
         "import sys\nfrom pathlib import Path\n"
         "partial = Path(sys.argv[2])\n"
-        "if 'security' in partial.name:\n"
+        "if 'code-review' in partial.name:\n"
         "    partial.write_text('## Agent run failed — review-internal\\n\\n"
         "TOTAL=1 BLOCKING=1\\n', encoding='utf-8')\n"
         "else:\n"
@@ -130,16 +131,16 @@ def test_runner_failure_partial_is_not_counted_executed(tmp_path, monkeypatch):
     assert rc in (0, 1)
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
-    security = next(p for p in plan["passes"] if p["reviewer"] == "security")
-    assert security["status"] == "planned", \
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
+    failed = next(p for p in plan["passes"] if p["reviewer"] == "code-review")
+    assert failed["status"] == "planned", \
         "a runner-failure partial must not flip the pass to executed"
 
     reports_dir = project_root / ".klc" / "reports"
     reports = sorted(reports_dir.glob("review-*.md"))
     assert len(reports) == 1
     text = reports[0].read_text(encoding="utf-8")
-    assert "executed_passes: 3" in text   # architecture, performance, test-coverage
+    assert "executed_passes: 0" in text   # the one code-review failed, external has no summary
 
 
 if __name__ == "__main__":

@@ -32,8 +32,7 @@ KNOWN_SCHEMAS = {
     "budgets.yml": {
         "version",               # schema version
         "prompt_input_limits",   # legacy: per-track token limits
-        "soft_limits",           # warn only — run proceeds
-        "hard_limits",           # block — dispatch refused
+        "real_spend_warn",       # KLC-174: warn-only real-spend check (window, factor)
         "consecutive_auto_transitions",  # autorunner runaway cap (read by autorunner._cap)
     },
     "models.yml": {
@@ -145,8 +144,8 @@ _SETTINGS_SCHEMA = {
     "index.refresh_budget_seconds": ("posint", None),
     # KLC-117: the ack advisory gate signal's severity threshold.
     "advisory.threshold": ("enum", {"high", "medium", "low", "info"}),
-    # KLC-115: the bounded verification runner's four budget knobs.
-    "verify.entry_budget_seconds": ("posint", None),
+    # KLC-115: the bounded verification runner's budget knobs (KLC-174 dropped the entry budget).
+    "verify.allowed_programs": ("list", str),
     "verify.step_budget_seconds": ("posint", None),
     "verify.node_budget_seconds": ("posint", None),
     "verify.arm_budget_seconds": ("posint", None),
@@ -162,8 +161,7 @@ _SETTINGS_SCHEMA = {
     # means a directory prefix; no trailing slash means an exact repo-relative
     # file. Outside `index.` on purpose (KLC-106/KLC-107 own that namespace).
     "scope.infra_paths": ("list", str),
-    # KLC-114: the post-build step ledger pass's two knobs.
-    "build.verify_steps": ("bool", None),
+    # KLC-114: the per-step reviewer opt-in (KLC-174 dropped build.verify_steps).
     "build.per_step_review_on_verify": ("bool", None),
     # KLC-139: the on-demand `klc skeleton` outline's three limits.
     "skeleton.max_fields": ("posint", None),
@@ -334,7 +332,7 @@ def validate_phase_roles(config_dir: Path) -> list[str]:
     # 2. Every per_track phase reference must exist in phases.yml.
     # Pseudo-phases (indexing, review-external) are intentional and not in
     # phases.yml — skip them.
-    _PSEUDO_PHASES = {"indexing", "review-external", "review-internal", "review-cheap"}
+    _PSEUDO_PHASES = {"indexing", "review-external", "review-internal"}
     phase_ids = {p.id for p in ph.ordered}
     for track, overrides in per_track.items():
         if not isinstance(overrides, dict):

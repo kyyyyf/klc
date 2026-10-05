@@ -59,6 +59,8 @@ def test_raising_producer_degrades_to_single_info_record(tmp_path, monkeypatch):
         "# Implementation plan — KLC-BOOM\n", encoding="utf-8")
 
     monkeypatch.setattr(_pc, "_impl_plan_steps", lambda d: [])
+    import step_state  # KLC-174: step gate is covered in test_klc174_build_ack.py
+    monkeypatch.setattr(step_state, "check_build", lambda *a, **k: (True, ""))
 
     def _boom(*a, **k):
         raise RuntimeError("coverage exploded")

@@ -164,19 +164,9 @@ def index_refresh_budget() -> float:
                          legacy_key="index_refresh_budget_seconds", default=30.0))
 
 
-def verify_entry_budget() -> int:
-    """Wall-clock budget (seconds) for re-running ONE Evidence entry's command
-    at build ack (KLC-115 AC-12)."""
-    try:
-        return int(resolve("verify.entry_budget_seconds", legacy_file="profile.yml",
-                           legacy_key="verify_entry_budget_seconds", default=120))
-    except (TypeError, ValueError):
-        return 120
-
-
 def verify_step_budget() -> int:
-    """Wall-clock budget (seconds) for re-running ONE impl-plan step's `VERIFY:`
-    command at build ack (KLC-115 AC-12)."""
+    """Wall-clock budget (seconds) for running ONE impl-plan step's `VERIFY:`
+    command through `step_state.record_verify` (KLC-115 AC-12, KLC-174)."""
     try:
         return int(resolve("verify.step_budget_seconds", legacy_file="profile.yml",
                            legacy_key="verify_step_budget_seconds", default=120))
@@ -196,18 +186,13 @@ def verify_node_budget() -> int:
 
 def verify_arm_budget() -> int:
     """Wall-clock budget (seconds) for the WHOLE verification arm at one build
-    ack — once spent, remaining entries/nodes surface as
+    ack — once spent, remaining nodes surface as
     `unverified: arm-budget-exhausted` rather than running (KLC-115 AC-12).
 
-    review-fix (HIGH): this is ONE ceiling for the ack as a whole, not one
-    per checker. `phase_completion.can_complete_build` computes a single
-    `time.monotonic()` deadline from this value and threads it through
-    `ac_test_coverage.check`, `evidence_gate.check_evidence` and
-    `step_verify.check_steps` — so a slow ac-coverage arm eats into the
-    budget the Evidence/step-verify arms get, and the total ack ceiling is
-    this ONE value, not three independent ones. Each checker still computes
-    its own fresh deadline when called standalone with no shared deadline
-    (e.g. a unit test)."""
+    `phase_completion.can_complete_build` computes one `time.monotonic()`
+    deadline from this value and threads it through `ac_test_coverage.check`
+    (KLC-174: the only verification arm left at ack). A checker called
+    standalone computes its own fresh deadline."""
     try:
         return int(resolve("verify.arm_budget_seconds", legacy_file="profile.yml",
                            legacy_key="verify_arm_budget_seconds", default=600))
@@ -245,19 +230,20 @@ def index_coverage_language_share_threshold():
     return resolve("index.coverage.language_share_threshold")
 
 
-def build_verify_steps() -> bool:
-    """KLC-114 AC-11: on/off knob for the post-build step ledger pass.
-    Settings-only ladder (no legacy file — this knob is new, KLC-106
-    precedent). Defaults to true: the pass is report-producing, not
-    ack-blocking, so a default-on pass cannot break an existing flow."""
-    return bool(resolve("build.verify_steps", default=True))
-
-
 def build_per_step_review_on_verify() -> bool:
-    """KLC-114 AC-11: dispatches the per-step reviewer when the ledger pass
-    records a step non-green. Settings-only ladder, defaults to false — it
+    """KLC-114 AC-11: dispatches the per-step reviewer when `step_state`
+    reports a step non-green after its dispatch. Settings-only ladder, defaults to false — it
     costs a model call, so it opts in rather than opts out."""
     return bool(resolve("build.per_step_review_on_verify", default=False))
+
+
+def build_max_reviews_per_step() -> int:
+    """KLC-174 review F-004: hard cap on per-step review gates for one step inside one
+    `build-run`; the step is then marked blocked. Settings-only, default 3."""
+    try:
+        return max(1, int(resolve("build.max_reviews_per_step", default=3)))
+    except (TypeError, ValueError):
+        return 3
 
 
 def autorun_cap():

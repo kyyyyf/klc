@@ -242,7 +242,7 @@ def in_test_directory(path, *, table=None) -> bool:
     any declared test directory, because that layout IS the whole test
     artefact by construction (module docstring). A caller that only wants
     "does this path carry a recognised test-directory segment" — e.g.
-    ``step_ledger``'s scope rule, whose AC text is exactly that literal
+    the removed ``step_ledger`` scope rule (KLC-174), whose AC text is exactly that literal
     wording — calls this instead, so a bare ``conftest.py`` dropped OUTSIDE
     any ``tests/`` tree is not silently exempted from scope checking. This
     is a PUBLIC, directory-only predicate that needs no ``exists=`` opt-in

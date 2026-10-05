@@ -13,9 +13,9 @@ model: haiku
 
 1. Writes `raw.md` + `meta.json`, appends to the global ticket index.
 2. Classifies a **provisional** track via `core/skills/route_heuristic.py`
-   (signals: kind, length, EN/RU keywords, module mentions; max-wins,
+   (signals: kind, length, EN/RU keywords, module names; max-wins,
    downgrades forbidden) and records `route_hint`, `route_confidence`,
-   `route_signals`, `route_decision`, and `mentions` in `meta.json`.
+   and `layout: 2` in `meta.json`.
 3. Lands on `intake:ack-needed` and prints a confidence-aware recommendation.
 
 The track here is a **provisional floor, not the final track** — Discovery
@@ -23,8 +23,8 @@ The track here is a **provisional floor, not the final track** — Discovery
 
 ## Routing recommendation (B+A)
 
-`route_decision` (from `route_heuristic.decide_route`) drives the printed
-guidance:
+The route decision (from `route_heuristic.decide_route`, printed, not stored)
+drives the guidance:
 
 - **trust** (high confidence, or hint already ≥ M) → confirm route:
   `klc ack <KEY> --pick 1`.

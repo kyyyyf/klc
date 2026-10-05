@@ -240,7 +240,7 @@ def _resolve_model_id(mc: "_m.Models", keys: list[str]) -> str:
     (``mc.roles.get(resolved.role)`` returns ``None``). The ``except``
     clause only catches a role that fails ``Models.resolve()`` outright
     (e.g. an unknown provider) — review LOW: same fallback either way, but
-    reached through a different branch (code-review-findings.json).
+    reached through a different branch (findings.json, kind code-review).
     """
     candidates: list[tuple[int, str]] = []
     for key in keys:

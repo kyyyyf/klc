@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""KLC-119 step-3 — AC-6: every card/step-brief render site records one
-`estimated` attempt through the one measuring entry point
-(`artefacts.render_card`), covering all six call sites named in
-spec F-005/F-013.
+"""KLC-119 step-3 / KLC-174 step-5 (AC-8): every card render site goes through
+`artefacts.render_card`, and NONE of them writes an `estimated` attempt any
+more (real usage comes from `core/skills/token_import.py` / the provider envelope).
 """
 from __future__ import annotations
 
@@ -78,7 +77,7 @@ def _env(tmp_path: Path) -> dict:
 # klc_next
 # --------------------------------------------------------------------------- #
 
-def test_render_site_records_one_estimated_attempt_klc_next(tmp_path, monkeypatch):
+def test_render_site_writes_no_estimated_attempt_klc_next(tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.delenv("KLC_CARD_ROOT", raising=False)
     _seed(tmp_path, "KLC-RS-NEXT", phase="discovery:ack", track="M")
@@ -86,16 +85,14 @@ def test_render_site_records_one_estimated_attempt_klc_next(tmp_path, monkeypatc
     r = subprocess.run([sys.executable, str(KLC), "next", "KLC-RS-NEXT"],
                        capture_output=True, text=True, env=env)
     assert r.returncode == 0, r.stdout + r.stderr
-    attempts = _all_attempts("KLC-RS-NEXT", "acceptance-test-plan")
-    assert attempts, "klc next must record one estimated attempt"
-    assert attempts[-1]["source"] == "estimated"
+    assert _all_attempts("KLC-RS-NEXT", "acceptance-test-plan") == []
 
 
 # --------------------------------------------------------------------------- #
 # klc_ack
 # --------------------------------------------------------------------------- #
 
-def test_render_site_records_one_estimated_attempt_klc_ack(tmp_path, monkeypatch):
+def test_render_site_writes_no_estimated_attempt_klc_ack(tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.delenv("KLC_CARD_ROOT", raising=False)
     _seed(tmp_path, "KLC-RS-ACK", phase="discovery:ack-needed", track="M")
@@ -104,18 +101,14 @@ def test_render_site_records_one_estimated_attempt_klc_ack(tmp_path, monkeypatch
         [sys.executable, str(KLC), "ack", "KLC-RS-ACK", "--pick", "1"],
         capture_output=True, text=True, env=env)
     assert r.returncode == 0, r.stdout + r.stderr
-    attempts = _all_attempts("KLC-RS-ACK", "acceptance-test-plan")
-    assert attempts, \
-        "klc ack must record one estimated attempt even though its render " \
-        "happens after its own state_tx closed (F-013)"
-    assert attempts[-1]["source"] == "estimated"
+    assert _all_attempts("KLC-RS-ACK", "acceptance-test-plan") == []
 
 
 # --------------------------------------------------------------------------- #
 # klc_jump
 # --------------------------------------------------------------------------- #
 
-def test_render_site_records_one_estimated_attempt_klc_jump(tmp_path, monkeypatch):
+def test_render_site_writes_no_estimated_attempt_klc_jump(tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.delenv("KLC_CARD_ROOT", raising=False)
     _seed(tmp_path, "KLC-RS-JUMP", phase="discovery:ack", track="M")
@@ -124,16 +117,14 @@ def test_render_site_records_one_estimated_attempt_klc_jump(tmp_path, monkeypatc
         [sys.executable, str(KLC), "jump", "design", "KLC-RS-JUMP", "--yes"],
         capture_output=True, text=True, env=env)
     assert r.returncode == 0, r.stdout + r.stderr
-    attempts = _all_attempts("KLC-RS-JUMP", "design")
-    assert attempts, "klc jump must record one estimated attempt"
-    assert attempts[-1]["source"] == "estimated"
+    assert _all_attempts("KLC-RS-JUMP", "design") == []
 
 
 # --------------------------------------------------------------------------- #
 # klc_step
 # --------------------------------------------------------------------------- #
 
-def test_render_site_records_one_estimated_attempt_klc_step(tmp_path, monkeypatch):
+def test_render_site_writes_no_estimated_attempt_klc_step(tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.delenv("KLC_CARD_ROOT", raising=False)
     _seed(tmp_path, "KLC-RS-STEP", phase="build:work", track="M")
@@ -142,18 +133,14 @@ def test_render_site_records_one_estimated_attempt_klc_step(tmp_path, monkeypatc
         [sys.executable, str(KLC), "step", "KLC-RS-STEP", "1"],
         capture_output=True, text=True, env=env)
     assert r.returncode == 0, r.stdout + r.stderr
-    attempts = _all_attempts("KLC-RS-STEP", "build")
-    assert attempts, \
-        "klc step must record one estimated attempt without ever opening " \
-        "a transaction (C-002)"
-    assert attempts[-1]["source"] == "estimated"
+    assert _all_attempts("KLC-RS-STEP", "build") == []
 
 
 # --------------------------------------------------------------------------- #
 # autorunner (D-206)
 # --------------------------------------------------------------------------- #
 
-def test_render_site_records_one_estimated_attempt_autorunner(tmp_path, monkeypatch):
+def test_render_site_writes_no_estimated_attempt_autorunner(tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.delenv("KLC_CARD_ROOT", raising=False)
     _seed(tmp_path, "KLC-RS-AUTO", phase="review-lite:work", track="XS")
@@ -164,32 +151,22 @@ def test_render_site_records_one_estimated_attempt_autorunner(tmp_path, monkeypa
                          dispatch=lambda *a, **k: calls.append(a) or 0,
                          cap=1)
     assert calls, "the fake dispatch must have been invoked"
-    attempts = _all_attempts("KLC-RS-AUTO", "review-lite")
-    assert attempts, f"autorunner.run() must record one estimated attempt: {res}"
-    assert attempts[-1]["source"] == "estimated"
+    assert _all_attempts("KLC-RS-AUTO", "review-lite") == []
 
 
 # --------------------------------------------------------------------------- #
-# run_dispatch (/klc:run) — stays red until step-5 (D-203); deselected here
+# run_dispatch (/klc:run)
 # --------------------------------------------------------------------------- #
 
-def test_render_site_records_one_estimated_attempt_run_dispatch():
-    """No Python entry point exists for the prose orchestrator itself
-    (AC-9 covers the ordering) — this is a source-text assertion that step
-    5a's render call precedes the budget gate which precedes the `Task(`
-    dispatch. Fails against today's SKILL.md (5a estimates a size instead
-    of rendering); fixed in step-5."""
+def test_render_site_writes_no_estimated_attempt_run_dispatch():
+    """The prose orchestrator renders the card before dispatch and names the
+    warn-only real-spend check, not the removed card-size gate."""
     text = (FW_ROOT / "klc-plugin" / "skills" / "run" / "SKILL.md").read_text(
         encoding="utf-8")
-    assert "render_card" in text, \
-        "step 5a must render the dispatch card before gating on its estimate"
-    assert "gate_card_dispatch" in text, \
-        "step 5a must gate on the card's OWN estimate via gate_card_dispatch"
-    render_pos = text.index("render_card")
-    gate_pos = text.index("gate_card_dispatch")
-    task_pos = text.index("Task(subagent_type=")
-    assert render_pos < gate_pos < task_pos, \
-        "the card must render, then the gate consumes it, before Task() dispatches"
+    assert "render_card" in text
+    assert "gate_card_dispatch" not in text
+    assert "real_spend_warning" in text
+    assert text.index("render_card") < text.index("Task(subagent_type=")
 
 
 if __name__ == "__main__":

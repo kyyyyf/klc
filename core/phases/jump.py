@@ -10,7 +10,8 @@ policy is "don't block, warn":
 The plan describes:
   - the target state (always `<phase>:work`)
   - inputs that are missing (the new phase may not have what it needs)
-  - downstream phases whose artefacts will be moved to _superseded/
+  - downstream phases whose artefacts will be superseded (deleted and recorded in
+    meta.superseded, or kept under _superseded/ when untracked or modified)
   - that budget counters will be reset
 
 For recovery: any time the user finds themselves in a :work state they
@@ -55,7 +56,7 @@ def _render_plan(plan: dict) -> str:
         lines.append(f"  missing inputs:  (none — all inputs present)")
     if plan["supersede"]:
         lines.append(f"  supersede:       {', '.join(plan['supersede'])} "
-                     f"→ _superseded/<ts>/")
+                     f"(deleted, recorded in meta.superseded; _superseded/<ts>/ if untracked or modified)")
     else:
         lines.append(f"  supersede:       (none — forward jump, no downstream yet)")
     lines.append(f"  reset budgets:   yes")

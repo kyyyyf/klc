@@ -44,6 +44,7 @@ risk: 1
 manual: 0
 total: 4
 
+## Approaches
 - Option A: fast impl
 - Option B: safer impl
 
@@ -99,8 +100,10 @@ def test_decisions_reach_discovery_ack_with_recommendation(tmp_path, monkeypatch
     # HIGH-1(a): the OBJECTIVE findings are surfaced (collapsed count) at the ack.
     assert any("finding(s) recorded" in m for m in messages)
     # findings recorded for the build phase to assess.
-    recorded = json.loads((d / "spec-review-findings.json").read_text())
+    recorded = json.loads((d / "findings.json").read_text())
     assert {f["id"] for f in recorded} == {"F-1"}
+    assert {f["kind"] for f in recorded} == {"spec-review"}
+    assert not (d / "spec-review-findings.json").exists()
 
 
 def test_probe_surfaces_but_does_not_write(tmp_path, monkeypatch):
@@ -118,6 +121,7 @@ def test_probe_surfaces_but_does_not_write(tmp_path, monkeypatch):
     # a persisting call would (test_klc117_aggregator_single_path.py pins this).
     assert msg  # non-empty: the same records as the persisting path, just unwritten
     assert not (d / "spec-review-findings.json").exists()
+    assert not (d / "findings.json").exists()
     assert _adv.read("KLC-R03", "discovery") is None
 
 

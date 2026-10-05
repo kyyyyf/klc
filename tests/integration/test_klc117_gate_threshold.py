@@ -20,12 +20,14 @@ import advisories  # noqa: E402
 import gate_policy  # noqa: E402
 
 
-def _seed_ticket(tmp_path: Path, ticket: str, phase: str = "build:ack-needed") -> None:
+def _seed_ticket(tmp_path: Path, ticket: str, phase: str = "build:ack-needed",
+                 history: tuple = ()) -> None:
     tdir = tmp_path / ".klc" / "tickets" / ticket
     tdir.mkdir(parents=True)
     meta = {"ticket": ticket, "kind": "feature", "phase": phase, "track": "M",
            "route_confidence": "high", "affected_modules": ["core/skills"],
            "layer": "code",
+           "phase_history": [{"phase": p, "event": "set_state"} for p in history],
            "estimate": {"complexity": 1, "uncertainty": 1, "risk": 1, "manual": 0, "total": 3}}
     (tdir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
@@ -45,22 +47,16 @@ def test_advisory_signal_clean_below_threshold(tmp_path, monkeypatch):
 
 
 def test_advisory_signal_clean_when_zero_records_persisted(tmp_path, monkeypatch):
-    """review-fix (HIGH, AC-9): the single cleanest possible ack outcome —
-    every producer ran and genuinely found nothing to report — must still
-    write the envelope (`records: []`) so this reads as CLEAN, not dirty.
-    Before the fix `finish()` skipped the write whenever `records` was empty,
-    so `gate_policy` read the absent artifact as dirty and `--auto` paused
-    for a human on the cleanest possible ack."""
+    """KLC-173: a genuinely clean ack persists nothing; the gate reads the
+    missing phase key as CLEAN because the ticket history records the phase
+    reaching ack-needed, so `--auto` does not pause on the cleanest ack."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket = "KLC-G01B"
-    _seed_ticket(tmp_path, ticket)
+    _seed_ticket(tmp_path, ticket, history=("build:work", "build:ack-needed"))
     records, summary = advisories.finish(ticket, "build", [("t", [])], persist=True)
     assert records == []
 
-    path = tmp_path / ".klc" / "tickets" / ticket / "build" / "ack-advisories.json"
-    assert path.exists(), "a genuinely clean ack must still write the envelope"
-    envelope = json.loads(path.read_text(encoding="utf-8"))
-    assert envelope["records"] == []
+    assert not (tmp_path / ".klc" / "tickets" / ticket / "advisories.json").exists()
 
     sig = gate_policy.collect_signals(ticket, "build")
     assert gate_policy._CHECK["advisory"](sig["advisory"]) is True

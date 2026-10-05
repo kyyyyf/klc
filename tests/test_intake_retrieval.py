@@ -3,7 +3,7 @@
 Two things are proven here:
 
 1. **Intake → trace wiring.** `klc intake` builds
-   `.klc/tickets/<KEY>/retrieval_trace.json` deterministically from the ticket
+   `.klc/scratch/<KEY>/retrieval_trace.json` deterministically from the ticket
    description; it degrades to `status:"unavailable"` (exit 0) when the planning
    views are absent and NEVER writes `meta.affected_modules` (authority stays
    discovery/operator-owned — planning_indexer.md §Authority).
@@ -101,7 +101,7 @@ def _run_intake(tmp_path: Path, monkeypatch, key: str, desc: str) -> int:
 
 
 def _trace(tmp_path: Path, key: str) -> dict:
-    p = tmp_path / ".klc" / "tickets" / key / "retrieval_trace.json"
+    p = tmp_path / ".klc" / "scratch" / key / "retrieval_trace.json"
     assert p.exists(), "intake did not produce retrieval_trace.json"
     return json.loads(p.read_text(encoding="utf-8"))
 
@@ -124,13 +124,13 @@ def test_intake_produces_trace_when_views_present(tmp_path, monkeypatch):
 def test_intake_trace_is_byte_reproducible(tmp_path, monkeypatch):
     _write_views(tmp_path)
     _run_intake(tmp_path, monkeypatch, "KLC-903", _QUERY)
-    first = (tmp_path / ".klc" / "tickets" / "KLC-903"
+    first = (tmp_path / ".klc" / "scratch" / "KLC-903"
              / "retrieval_trace.json").read_bytes()
     # a second intake --force over the same ticket must reproduce the trace byte-for-byte
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     monkeypatch.setattr(intake.identity, "current", lambda: "t@example.com")
     assert intake.run(["KLC-903", _QUERY, "--force"]) == 0
-    second = (tmp_path / ".klc" / "tickets" / "KLC-903"
+    second = (tmp_path / ".klc" / "scratch" / "KLC-903"
               / "retrieval_trace.json").read_bytes()
     assert first == second
 

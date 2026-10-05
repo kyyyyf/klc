@@ -24,6 +24,7 @@ from core.shared.yaml import parse as _yaml_parse  # noqa: E402
 
 
 KNOWN_PROVIDERS = ("anthropic", "openai", "ollama", "google")
+KNOWN_EFFORTS = ("low", "medium", "high", "xhigh")
 
 
 # --- data classes ------------------------------------------------------------
@@ -44,6 +45,9 @@ class Role:
     # Convention: heavy-reasoning=3, coding=2, local-simple=1.
     # Roles sharing one concrete model must share a rank.
     rank:        int = 0
+    # Optional reasoning-effort level (low|medium|high|xhigh); the anthropic
+    # runner turns it into `--effort <level>`. None = leave the CLI default.
+    effort:      str | None = None
 
 
 @dataclass
@@ -57,6 +61,7 @@ class ResolvedModel:
     api_key_env: str | None
     extra_args:  list[str]
     source:      str = "default"  # "per_track" | "phase_roles" | "default"
+    effort:      str | None = None
 
     def as_env(self) -> dict[str, str]:
         """Env vars the runner passes to its child process. Names are
@@ -109,6 +114,7 @@ class Models:
             model=model,
             api_key_env=api_key_env,
             extra_args=extra_args,
+            effort=role.effort,
         )
 
     def resolve(self, phase_id: str, *, track: str | None = None) -> ResolvedModel:
@@ -169,6 +175,7 @@ class Models:
             api_key_env=api_key_env,
             extra_args=extra_args,
             source=source,
+            effort=role.effort,
         )
 
 
@@ -196,6 +203,13 @@ def _build_role(name: str, raw: dict) -> Role:
     if rank_raw is not None and not isinstance(rank_raw, int):
         raise ValueError(f"models.yml: role {name!r} rank must be an integer")
     rank = int(rank_raw) if rank_raw is not None else 0
+    effort_raw = raw.get("effort")
+    if effort_raw is not None and effort_raw not in KNOWN_EFFORTS:
+        raise ValueError(
+            f"models.yml: role {name!r} effort must be one of "
+            f"{', '.join(KNOWN_EFFORTS)}"
+        )
+    effort = str(effort_raw) if effort_raw is not None else None
     return Role(
         name=name,
         provider=str(provider),
@@ -203,6 +217,7 @@ def _build_role(name: str, raw: dict) -> Role:
         api_key_env=api_key_env,
         extra_args=[str(a) for a in extra_args],
         rank=rank,
+        effort=effort,
     )
 
 

@@ -11,15 +11,14 @@ model: sonnet
 Run code review at the depth required by the ticket track and the cascade
 signals. Launch the selected sub-agents, aggregate their output, render a
 binary verdict. In manual Claude Code / Codex CLI workflows, explicitly
-ask the operator before accepting a cheap/lite path when a full review is
-available.
+follow the three-layer plan and never swap in a cheaper one.
 
 ## Inputs
-- `--diff <path-or-ref>` — unified diff file or a git ref (`HEAD`,
-  `HEAD~1`, `main...feature/x`). Resolved to a patch string.
+- `--diff <path-or-ref>` — unified diff file, git ref, range (`A..B`,
+  `A...B`) or `recorded` (the ticket's pre-merge range). Resolved to a patch string.
 - `--spec <path>` — the validated feature/bug spec.
 - `--ticket <TICK-NNN>` — used to address the scratchpad.
-- `--external` (optional) — force-run the external reviewer (legacy; default-on for S+).
+- `--external` (optional) — force-run the external reviewer (legacy; default-on for L).
 - `--no-external` (optional) — skip the external reviewer even when default-on.
 - `--over-cap` (optional) — dispatch past `review.max_llm_passes` for this track.
 
@@ -27,12 +26,9 @@ The dispatcher already resolved this phase's model from `models.yml` and baked i
 
 ## Scratchpad (overflow and read-back)
 
-Review itself does not usually need scratch; sub-agents do. When a
-sub-agent produces > 10 findings it must dump the overflow to
-`scratch/review-overflow-<reviewer>.md` instead of bloating the main
-report, and reference the file from its partial. The top-10 findings
-per reviewer still go into the partial — the overflow is for the human
-who wants to triage more later.
+A sub-agent with > 10 findings dumps the overflow to
+`scratch/review-overflow-<reviewer>.md` and references it from its
+partial; the top-10 still go into the partial.
 
 If this review is a rework pass (`.klc/reports/review-*.md` already
 exists for the same ticket), run the read-back protocol on
@@ -40,12 +36,10 @@ exists for the same ticket), run the read-back protocol on
 they know which issues the previous pass already resolved.
 
 ## Context passed to every sub-agent
-- `diff`              — the unified diff.
-- `spec`              — file contents from `--spec`.
-- `claude_md_context` — root `CLAUDE.md` plus the `CLAUDE.md` of every
-                        module whose path appears in the diff (resolved
-                        via `.klc/index/modules.json` — honour
-                        `doc_filename` when present).
+- `context` — `.klc/scratch/<KEY>/review/context.md`, written once per run:
+              diff, spec Goals + ACs, test-plan table, decisions, affected
+              module docs, allowlist. Read it by path; never copy it.
+- an addendum of at most 1 KB in the job card (reviewer-specific).
 
 ## Rules every sub-agent must follow
 
@@ -79,39 +73,37 @@ ISSUES_TOTAL=<n> ISSUES_BLOCKING=<n>
 ## Steps
 
 ### 0. Plan first (KLC-120)
-Run `python3 scripts/review.py --diff <ref> --spec <spec> --plan-only`. It
-writes `.klc/tickets/<KEY>/review-plan.json` and refuses past
+Run `python3 scripts/review.py --diff recorded --spec <spec> --plan-only` (no recorded
+range: `--diff main...HEAD`; a recorded range HEAD moved past falls back to the
+live range). It
+writes `<ticket-dir>/review/review-plan-r<N>.json` and refuses past
 `review.max_llm_passes` unless you pass `--over-cap`. Run only the passes
 the plan marks `planned`. After each one returns, run
 `python3 core/skills/review_plan.py record --ticket <KEY> --reviewer <name>`
-so it counts as executed. Put the plan's planned/executed/skipped counts
-and any `cap_override` into the report.
+so it counts as executed. The plan names the signals that fired and any it
+could not evaluate (those plan their specialist).
 
 ### 1. Resolve inputs
 - Load `config/reviewers.yml`:
   - `review.blocking_severity` (default `["CRITICAL", "HIGH"]`).
   - `review.parallel_subagents` (default `true`).
-  - `external_reviewer.enabled` (default `true` for S/M/L), `min_track`, `model_ref`.
+  - `external_reviewer.enabled`, `default_on_tracks` (L), `opt_in_tracks`, `min_track`, `model_ref`.
 - Load the active profile's manifest. It lists:
-  - `reviewers.always` — run unconditionally.
-  - `reviewers.conditional` — run only when the diff matches the
-    sub-agent's own trigger grep (declared in the sub-agent prompt).
-- Resolve the diff; build the `claude_md_context` bundle.
+  - `reviewers.always` — layer 1: the one `code-review` reviewer.
+  - `reviewers.conditional` — layer 2: specialists, planned only on their
+    signal (`core/skills/review_signals.py`); the plan says which.
+- Resolve the diff; write the shared `context.md`.
 
-### 1a. Review-depth confirmation (manual app workflows)
+### 1a. Layers replace cheap/full
 
-Read `track` from `meta.json` when available. This prompt runs only on
-S/M/L (XS uses `review-lite`). Policy:
-
-- **S**: run cascade. If cascade selects the **cheap** path AND this is a
-  manual Claude Code / Codex CLI session, stop and ask:
-  `Cascade selected cheap review: <reason>. Run full multi-agent review instead? [y/N]`
-- **M / L**: full multi-agent review is required. Do not downgrade to the
-  cheap path in manual workflows unless the human explicitly overrides
-  after seeing the cascade reason.
-
-Unattended runner (`RUN_LOCAL_SUBAGENTS=1` + `REVIEW_RUNNER` set): do not
-ask — follow `config/reviewers.yml` and record the cascade decision.
+The cheap pass is gone. Every run is layer 0 (deterministic checks, no pass),
+layer 1 (one `code-review`), layer 2 (specialists, only on signal), plus the
+external reviewer on L. Track only sets the pass cap and thresholds; do not drop
+a planned pass unless the human overrides. A signal that cannot be evaluated
+(scanner or classifier failed) plans its specialist; if the whole evaluation
+fails, ALL specialists are planned (on S/M that may need `--over-cap`).
+Unattended runner (`RUN_LOCAL_SUBAGENTS=1` + `REVIEW_RUNNER`): do not ask.
+Headless cards inline `context.md` and the addendum (the file filter, as an instruction).
 
 ### 1b. Independent drift review (KLC-099 / drift-check D-04)
 
@@ -126,10 +118,6 @@ the other independent reviewers (full M/L, cascade-on-signal S, skip XS) and fai
 it surfaces and records, it never blocks. Spawn it FRESH (a non-fork subagent), exactly as
 the mandatory code reviewer is spawned here.
 
-If the operator chooses full review, force the multi-agent path even when
-cascade would allow cheap. Record `review_depth: cheap|full` and
-`full_review_offered: true|false` in the report frontmatter.
-
 ### 1b. Planning-slice / impact-radius audit (KLC-071)
 
 Cross-check the diff against the planning views before launching
@@ -142,7 +130,7 @@ fail: a missing view gets one `[INFO]` note, never a block:
   and confirm the diff (or tests) covers the direct consumers; a
   `high` `change_risk` symbol changed without touching its consumers or
   their tests is a `MEDIUM` "missing downstream" finding.
-- `.klc/tickets/<KEY>/retrieval_trace.json` (if present) +
+- `.klc/scratch/<KEY>/retrieval_trace.json` (if present) +
   `meta.affected_modules` — the intended **planning slice**. Resolve
   every changed file to its module (via `modules.json`). Flag, as
   `MEDIUM`, any changed file whose module is **outside**
@@ -160,23 +148,24 @@ fail: a missing view gets one `[INFO]` note, never a block:
   `coverage:"none"` is an `INFO`/`LOW` "no direct test" note.
 
 ### 2. Launch sub-agents
-Always-on sub-agents run unconditionally. Conditional sub-agents run
-only when their trigger matches — each conditional prompt begins with a
-`## Trigger` section that lists the grep patterns; if none match the
-diff, log `[INFO] <name> unchanged; reviewer skipped` and skip.
+Run the plan's `planned` passes: `code-review` (layer 1) and only the
+layer-2 specialists marked `planned`. Never launch a skipped one. Layer 0
+(the deterministic checks) is never a pass.
 
 If `review.parallel_subagents: true` run all matching sub-agents
 concurrently. Each writes its output to
 `.klc/reports/<reviewer>-<timestamp>.partial.md`.
 
 ### 3. Parse partials
-`findings.json` (the one shape) is validated/pooled per reviewer; a
-schema error skips the WHOLE file, one note, never partial. An issue is
-**blocking** iff `severity` is in `blocking_severity`. `[SEVERITY]`
-markdown is a fallback only, read when no `findings.json` exists.
+Each reviewer's partial `findings.json` (not the ticket-level one) is
+validated; a schema error skips the WHOLE partial.
+An issue is **blocking** iff `severity` is in `blocking_severity`. `[SEVERITY]`
+markdown is a fallback only, read when no partial `findings.json` exists.
 
-### 4. External reviewer (default-on for S/M/L)
-The external reviewer runs for S/M/L tickets unless one of these applies:
+### 4. External reviewer (default-on for L only)
+The external reviewer is planned by default only on track L; S and M run it
+only when `reviewers.yml` opts them in (`external_reviewer.opt_in_tracks`).
+When planned it runs unless one of these applies:
 1. `--no-external` flag was passed.
 2. `meta.review.skip_external: true` in the ticket meta.
 3. The resolved provider (`model_ref`, default `review-external`) is
@@ -184,8 +173,7 @@ The external reviewer runs for S/M/L tickets unless one of these applies:
    and the `claude` CLI is not on PATH — either way, log and continue
    without it (graceful degradation).
 
-It runs on **both** the cheap and full cascade paths for S/M/L.
-To force-run on XS, pass `--external`.
+To force-run on any other track, pass `--external`.
 
 Invoke `klc-plugin/agents/external-review.md` with the same context.
 
@@ -194,14 +182,13 @@ the external answer with `--kind external-review`; render the table from
 `review/findings-pool.json` after `findings.py pool`.
 
 ### 5. Aggregate
-Render `core/templates/review-report.md.j2` with:
-
-- Per-reviewer issue / blocking counts.
-- Consolidated blocking-issue list (sorted by severity then file).
-- Non-blocking issue list.
-- Optional external block.
-
-Save to `.klc/reports/review-<YYYY-MM-DD-HH-MM>.md`.
+Do not hand-write the report. After every planned pass is taken in, run
+`python3 scripts/review.py --report --spec <spec> [--assessments <json>] [--verdict V]`.
+It writes `<ticket-dir>/review-report.md` from `findings.json` (latest rounds), the plan
+and the diff: counts, `## Where to look`, passes, `cap_override`, duplicate rate,
+inlined bytes, blocking lists. `--assessments` is a JSON list of
+`{id, kind?, disposition}`; `fixed` / `wont-fix` stop a finding blocking. The
+verdict defaults to CHANGES_REQUESTED while a blocking finding is open.
 
 ### 6. Verdict
 
@@ -216,7 +203,7 @@ Save to `.klc/reports/review-<YYYY-MM-DD-HH-MM>.md`.
 - **Blocking issues found, unfixable here** → `CHANGES REQUESTED`.
 
 ### 7. Output
-Final two lines:
+Final two lines (`--report` prints them):
 
 ```
 REPORT <abs path>

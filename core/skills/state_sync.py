@@ -157,6 +157,10 @@ _DERIVED_IGNORES = (
     "scratch/",                       # per-session local agent memory
     "telemetry.jsonl",                # KLC-119: derived token-telemetry journal
     "knowledge/retrieval-eval.jsonl",  # KLC-110: derived retrieval-score evidence log
+    "full_suite_run*.log",            # KLC-172: ad-hoc full-suite logs an agent drops in a ticket dir
+    "codex_*.md",                     # KLC-172: ad-hoc external-reviewer (codex) transcripts
+    "measure/",                       # KLC-172: local measurement scratch output
+    "advisories.corrupt-*.json",      # KLC-173: moved-aside unreadable advisories (local evidence)
 )
 
 

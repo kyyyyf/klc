@@ -44,7 +44,7 @@ def make_ticket(tmp_path: Path, ticket: str, track: str, plan_text: str,
     """Write a throwaway ticket under tmp_path/.klc/tickets/<ticket>.
 
     The caller must `monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))`
-    before any `step_ledger` call that resolves `_paths.klc_ticket_dir`.
+    before any `step_state` call that resolves `_paths.klc_ticket_dir`.
     """
     ticket_dir = tmp_path / ".klc" / "tickets" / ticket
     ticket_dir.mkdir(parents=True, exist_ok=True)
@@ -86,3 +86,74 @@ def commit(repo: Path, files: dict[str, str], subject: str) -> str:
         _run(["git", "add", relpath], repo)
     _run(["git", "commit", "-m", subject], repo)
     return _run(["git", "rev-parse", "HEAD"], repo)
+
+
+def seed_steps(ticket_dir: Path, repo: Path | None = None, *, exit_code: int = 0,
+               skip: tuple[int, ...] = ()) -> None:
+    """KLC-174: write build/steps.json with a valid recorded verify for every
+    impl-plan step (command == the plan VERIFY, `ran_at` a minute ahead so it is
+    never earlier than a green commit). The ack READS this file, so ack-driven
+    fixtures seed it instead of building an Evidence section. Pass *repo* (after the
+    step commits exist): the verify is then tied to its HEAD and a clean tree, as
+    `step_state.record_verify` does (KLC-174 review F-003)."""
+    import sys
+    from datetime import datetime, timedelta, timezone
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core" / "skills"))
+    import impl_plan_check
+    import step_state
+
+    text = (ticket_dir / "impl-plan.md").read_text(encoding="utf-8")
+    ran = (datetime.now(timezone.utc) + timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    head = _run(["git", "rev-parse", "HEAD"], repo) if repo else None
+    steps = {}
+    for s in impl_plan_check.parse_impl_plan_steps(text):
+        n = int(s["id"].split("-")[1])
+        if n in skip:
+            continue
+        steps[str(n)] = {"step": n, "verify": {
+            "command": step_state._plan_command(s), "exit_code": exit_code,
+            "summary_line": "ok", "ran_at": ran, "runner": "agent",
+            "head": head or None, "dirty": False}}
+    (ticket_dir / "build").mkdir(exist_ok=True)
+    (ticket_dir / "build" / "steps.json").write_text(json.dumps({"steps": steps}), encoding="utf-8")
+
+
+class FakeStepState:
+    """KLC-174: a stateful stand-in for `step_state.derive` / `record_verify`, for
+    suites that exercise the orchestrator's DISPATCH LOOP with fake dispatches that
+    never commit. `record_verify` marks a step green unless it is in *fail*."""
+
+    def __init__(self, steps, green=(), fail=()):
+        self.steps = list(steps)
+        self.green = set(green)
+        self.fail = set(fail)
+        self.recorded: list[int] = []
+        self.reviews: list[tuple[int, str]] = []
+
+    def derive(self, ticket, repo=None):
+        return [{"step": n, "state": "green" if n in self.green else "pending",
+                 "reason": "" if n in self.green else "no recorded verify",
+                 "verify": None, "green_commit": None, "red_commit": None,
+                 "addresses": []} for n in self.steps]
+
+    def record_verify(self, ticket, step, *, runner="agent", repo=None):
+        self.recorded.append(step)
+        if step not in self.fail:
+            self.green.add(step)
+        return {"command": "x", "exit_code": 1 if step in self.fail else 0,
+                "summary_line": "", "ran_at": "", "runner": runner}
+
+    def mark_review(self, ticket, step, state, *, round=1, repo=None):
+        self.reviews.append((step, state))
+        return {"state": state, "round": round}
+
+
+def pin_step_state(monkeypatch, steps, *, green=(), fail=()) -> FakeStepState:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core" / "skills"))
+    import step_state
+    fake = FakeStepState(steps, green=green, fail=fail)
+    monkeypatch.setattr(step_state, "derive", fake.derive)
+    monkeypatch.setattr(step_state, "record_verify", fake.record_verify)
+    monkeypatch.setattr(step_state, "mark_review", fake.mark_review)
+    return fake

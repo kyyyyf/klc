@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Integration tests for token telemetry and budget guard in runner.py.
+"""Integration tests for token telemetry in runner.py.
 
 Tests:
-- Budget guard fires when prompt exceeds track limit
-- Token metrics written to meta.json after successful run
+- A dispatch without usage records nothing (KLC-174 step-5: no `estimated`)
 - _parse_usage_from_output extracts tokens from claude JSON output
-- _estimate_tokens approximation
 """
 from __future__ import annotations
 
@@ -37,42 +35,6 @@ def _make_ticket_dir(scratch: Path, ticket: str) -> Path:
     return tdir
 
 
-def test_budget_guard_blocks_oversized_prompt() -> None:
-    """run_agent returns 2 and writes [!QUESTION] when prompt > XS limit."""
-    import runner
-
-    with tempfile.TemporaryDirectory() as tmp:
-        scratch = Path(tmp)
-        tdir = _make_ticket_dir(scratch, "T-BG-001")
-        os.environ["PROJECT_ROOT"] = tmp
-
-        prompt_file = scratch / "prompt.md"
-        # XS limit = 8000 tokens ≈ 32000 chars; write 40000 chars
-        prompt_file.write_text("x" * 40_000, encoding="utf-8")
-        out_file = scratch / "out.md"
-
-        with patch.object(runner, "_load_budget_limits",
-                          return_value=({}, {"XS": 8000})), \
-             patch("models.load_models") as mock_models:
-            from unittest.mock import MagicMock
-            mock_models.return_value.resolve.return_value = MagicMock(
-                provider="anthropic", model="claude-haiku-4-5-20251001",
-                extra_args=[], api_key_env="ANTHROPIC_API_KEY",
-                as_env=lambda: {},
-            )
-            rc = runner.run_agent(
-                "build", prompt_file, out_file,
-                track="XS", ticket="T-BG-001"
-            )
-
-        assert rc == 2, f"expected rc=2 from budget guard, got {rc}"
-        content = out_file.read_text(encoding="utf-8")
-        assert "[!QUESTION]" in content, f"expected [!QUESTION] in output:\n{content}"
-        assert "context too large" in content
-        print("PASS: budget guard blocks oversized XS prompt")
-
-    os.environ.pop("PROJECT_ROOT", None)
-
 
 def test_token_metrics_written_to_meta() -> None:
     """Successful run records tokens_in/out/cache_hit (KLC-119: journalled,
@@ -96,8 +58,7 @@ def test_token_metrics_written_to_meta() -> None:
             extra_args=[], api_key_env="ANTHROPIC_API_KEY",
             as_env=lambda: {},
         )
-        with patch.object(runner, "_load_budget_limits", return_value=({}, {})), \
-             patch.dict(runner._DISPATCH,
+        with patch.dict(runner._DISPATCH,
                         {"anthropic": lambda *a, **k: (0, fake_output, "")}), \
              patch("models.load_models") as mock_models:
             mock_models.return_value.resolve.return_value = resolved
@@ -114,50 +75,11 @@ def test_token_metrics_written_to_meta() -> None:
         import token_journal
         records = [r for r in token_journal.read("T-TOK-001")
                   if r.get("phase") == "build"]
-        assert records, "expected at least one journalled build attempt"
-        assert records[-1]["in"] > 0
-        assert records[-1]["out"] > 0
-        print("PASS: token metrics recorded after a successful headless run")
+        assert records == [], "no usage in the output -> nothing recorded"
+        print("PASS: a dispatch without usage records no attempt")
 
     os.environ.pop("PROJECT_ROOT", None)
 
-
-def test_soft_limit_warns_but_proceeds() -> None:
-    """Soft limit: run proceeds, warning on stderr."""
-    import runner
-
-    with tempfile.TemporaryDirectory() as tmp:
-        scratch = Path(tmp)
-        _make_ticket_dir(scratch, "T-SOFT-001")
-        os.environ["PROJECT_ROOT"] = tmp
-
-        prompt_file = scratch / "prompt.md"
-        prompt_file.write_text("x" * 28_000, encoding="utf-8")  # ~7000 tokens > soft=6000
-        out_file = scratch / "out.md"
-        fake_output = "agent response"
-
-        from unittest.mock import MagicMock
-        resolved = MagicMock(
-            provider="anthropic", model="claude-haiku-4-5-20251001",
-            extra_args=[], api_key_env="ANTHROPIC_API_KEY",
-            as_env=lambda: {},
-        )
-        with patch.object(runner, "_load_budget_limits",
-                          return_value=({"XS": 6000}, {"XS": 12000})), \
-             patch.dict(runner._DISPATCH,
-                        {"anthropic": lambda *a, **k: (0, fake_output, "")}), \
-             patch("models.load_models") as mock_models:
-            mock_models.return_value.resolve.return_value = resolved
-            rc = runner.run_agent(
-                "build", prompt_file, out_file,
-                track="XS", ticket="T-SOFT-001"
-            )
-
-        assert rc == 0, f"expected rc=0 for soft limit, got {rc}"
-        assert out_file.read_text() == fake_output
-        print("PASS: soft limit warns but run proceeds")
-
-    os.environ.pop("PROJECT_ROOT", None)
 
 
 def test_parse_usage_from_json_output() -> None:
@@ -187,19 +109,9 @@ def test_parse_usage_plain_text_returns_empty() -> None:
     print("PASS: _parse_usage_from_output returns {} for plain text")
 
 
-def test_estimate_tokens() -> None:
-    """_estimate_tokens: 4000 chars ≈ 1000 tokens."""
-    import runner
-    assert runner._estimate_tokens("a" * 4000) == 1000
-    assert runner._estimate_tokens("") == 1
-    print("PASS: _estimate_tokens approximation correct")
-
 
 if __name__ == "__main__":
-    test_budget_guard_blocks_oversized_prompt()
-    test_soft_limit_warns_but_proceeds()
     test_token_metrics_written_to_meta()
     test_parse_usage_from_json_output()
     test_parse_usage_plain_text_returns_empty()
-    test_estimate_tokens()
     print("ALL TOKEN TELEMETRY TESTS PASSED")

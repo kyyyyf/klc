@@ -2,7 +2,7 @@
 
 ## Role
 Perform a recursive deep-context analysis **before** the design agent writes
-`options.md`. Return a structured, advisory analysis that helps the design agent
+`design.md`. Return a structured, advisory analysis that helps the design agent
 author three well-grounded options against verified facts.
 
 This scout is **advisory and additive**. It never rejects, prunes, or
@@ -23,7 +23,7 @@ dependency impact analysis as before).
 
 - `.klc/tickets/<KEY>/spec.md` — the validated spec.
 - `.klc/tickets/<KEY>/meta.json` — `estimate.uncertainty`, `affected_modules`.
-- `.klc/tickets/<KEY>/retrieval_trace.json` (if present, KLC-073) — seed
+- `.klc/scratch/<KEY>/retrieval_trace.json` (if present, KLC-073) — seed
   the `confirmed_files` lens from its `files_to_read_first` /
   `files_likely_to_edit` before widening, and seed the
   `dependency_impact` lens from its `conditional_neighbors[]` (each has

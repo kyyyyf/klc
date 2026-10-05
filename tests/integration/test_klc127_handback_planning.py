@@ -91,17 +91,19 @@ def test_take_runs_the_planner_when_no_review_plan_exists(project, tmp_path, mon
         return handback.PlannerResult(True)
 
     monkeypatch.setattr(handback, "_run_planner", _stub_planner)
-    assert not (tdir / "review-plan.json").exists()
+    assert not (tdir / "review" / "review-plan-r1.json").exists()
 
     vfile = tmp_path / "verdict.json"
     vfile.write_text(json.dumps(_verdict(findings=[_finding()])), encoding="utf-8")
     rc = handback.take("code-review", TICKET, vfile)
     assert rc == 0
 
-    stored_plan = json.loads((tdir / "review-plan.json").read_text(encoding="utf-8"))
+    stored_plan = json.loads((tdir / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     entry = next(p for p in stored_plan["passes"] if p["reviewer"] == "code-review")
     assert entry["status"] == "executed"
-    assert len(_tagged_attempts(tdir)) == 1
+    # KLC-174 step-5: the hand-back marks the plan pass executed but writes no
+    # `estimated` token attempt any more.
+    assert _tagged_attempts(tdir) == []
 
 
 @pytest.mark.parametrize("failure", ["returns-false", "raises-timeout"])
@@ -123,7 +125,7 @@ def test_take_degrades_to_one_note_and_exit_0_when_planning_fails(
     vfile.write_text(json.dumps(_verdict(findings=[_finding()])), encoding="utf-8")
     rc = handback.take("code-review", TICKET, vfile)
     assert rc == 0
-    assert not (tdir / "review-plan.json").exists()
+    assert not (tdir / "review" / "review-plan-r1.json").exists()
     assert _tagged_attempts(tdir) == []
     out = capsys.readouterr().out
     assert "note" in out
@@ -148,7 +150,7 @@ def test_take_degrades_to_one_note_and_exit_0_when_the_plan_marks_the_pass_skipp
     rc = handback.take("code-review", TICKET, vfile)
     assert rc == 0
     assert _tagged_attempts(tdir) == []
-    stored_plan = json.loads((tdir / "review-plan.json").read_text(encoding="utf-8"))
+    stored_plan = json.loads((tdir / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     entry = next(p for p in stored_plan["passes"] if p["reviewer"] == "code-review")
     assert entry["status"] == "skipped"
     out = capsys.readouterr().out

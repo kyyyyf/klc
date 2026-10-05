@@ -47,7 +47,15 @@ def load_tiers_config() -> dict:
     if not path.exists():
         sys.stderr.write(f"classify_tier: {path} not found\n")
         sys.exit(1)
-    return load_yaml(path)
+    # The parser takes text, not a Path; tiers.yml uses folded `>` scalars the
+    # minimal in-tree parser cannot read, so PyYAML is used when it is there
+    # (KLC-175: before this the classifier crashed and every tier was unknown).
+    text = path.read_text(encoding="utf-8")
+    try:
+        import yaml
+        return yaml.safe_load(text) or {}
+    except ImportError:
+        return load_yaml(text)
 
 
 def load_modules() -> list[dict]:

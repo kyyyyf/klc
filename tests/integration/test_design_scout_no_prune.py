@@ -3,7 +3,7 @@
 
 Tests:
 - AC-3: after a scout run, the three-option discipline is preserved in design.md
-- AC-4: options.md / adr.md / impl-plan.md format unchanged
+- AC-4: design.md / impl-plan.md format unchanged
 """
 from __future__ import annotations
 
@@ -40,10 +40,10 @@ def test_three_options_preserved():
 
 
 def test_design_artifacts_format_unchanged():
-    """The declared outputs (options.md, impl-plan.md) are unchanged by the scout."""
+    """The declared outputs (design.md, impl-plan.md) are unchanged by the scout."""
     text = _read_design()
-    # options.md must still be mentioned as an output
-    assert "options.md" in text, "options.md must remain a design output"
+    # design.md must still be mentioned as an output
+    assert "design.md" in text, "design.md must remain a design output"
     assert "impl-plan.md" in text, "impl-plan.md must remain a design output"
     # scout.md must NOT be in the declared outputs (it's an intermediate)
     # Specifically: scout.md should not appear in the ack "Outputs the ack step will verify"

@@ -26,6 +26,8 @@ SEEDS = list(range(1, 31))
 
 _CALLERS = ("review", "build", "ticket_run_agent")
 _REPLIES = ("multiturn", "is_error", "plain", "rc1_envelope", "rc1_stderr")
+# KLC-174 step-5: replies without a parseable usage envelope record nothing.
+_NO_USAGE_REPLIES = ("plain", "rc1_stderr")
 
 
 def _load_review_runner():
@@ -165,10 +167,10 @@ def _run_sequence(rng, project, ticket, tmp_path, state_tx, dispatches):
 
         new_ids = _attempt_ids(project, ticket) - before
         assert len(new_ids) <= 1, f"dispatch {n}: >1 new attempt"
-        if reply_spec == "rc1_stderr":
+        if reply_spec in _NO_USAGE_REPLIES:
             assert len(new_ids) == 0, \
-                f"dispatch {n}: a failed dispatch with no envelope must " \
-                f"record nothing"
+                f"dispatch {n}: a dispatch with no usable envelope must " \
+                f"record nothing (KLC-174: no `estimated` attempt)"
         else:
             assert len(new_ids) == 1, \
                 f"dispatch {n}: expected exactly one new attempt"
@@ -183,7 +185,7 @@ def _run_sequence(rng, project, ticket, tmp_path, state_tx, dispatches):
                     recorded[rid]["card_bytes"] = inherited
             if rec.get("card_bytes") is not None:
                 last_card_bytes[rec_phase] = rec["card_bytes"]
-            if caller == "review" and reply_spec in ("multiturn", "plain"):
+            if caller == "review" and reply_spec == "multiturn":
                 successes += 1
 
     return recorded, successes
@@ -258,7 +260,7 @@ def _verify_against(project: Path, ticket: str, recorded: dict,
     #    of that source.
     counts: dict[str, dict[str, int]] = {}
     for phase, rec in all_recs:
-        source = rec.get("source", "estimated")
+        source = rec.get("source", "estimated")  # old records may lack it
         counts.setdefault(phase, {}).setdefault(source, 0)
         counts[phase][source] += 1
 
@@ -287,7 +289,7 @@ def _verify_against(project: Path, ticket: str, recorded: dict,
 def test_property_checker_rejects_a_corrupted_record(klc133_hermetic, tmp_path,
                                                       monkeypatch):
     """impl-plan-review F-5: the checker itself must actually bite — inject
-    a cost_usd into one estimated attempt, and separately delete one
+    a cost_usd into one non-provider attempt, and separately delete one
     attempt, and assert the checker raises for each."""
     import state_feature
     import state_tx
@@ -303,9 +305,9 @@ def test_property_checker_rejects_a_corrupted_record(klc133_hermetic, tmp_path,
         (rng.choice(_CALLERS), rng.choice(_REPLIES), rng.choice([True, False]))
         for _ in range(10)
     ]
-    # Guarantee at least one estimated attempt exists for corruption 1 to
+    # Guarantee at least one provider attempt exists for the corruptions to
     # target, regardless of what the random draws above happened to produce.
-    dispatches.append(("ticket_run_agent", "plain", False))
+    dispatches.append(("ticket_run_agent", "multiturn", False))
     recorded, successes = _run_sequence(rng, project, ticket, tmp_path,
                                         state_tx, dispatches)
 
@@ -315,22 +317,22 @@ def test_property_checker_rejects_a_corrupted_record(klc133_hermetic, tmp_path,
     # Sanity: the clean state passes.
     _verify_against(project, ticket, recorded, successes)
 
-    # --- corruption 1: inject a cost_usd into one estimated attempt -------
+    # --- corruption 1: add a non-provider attempt carrying a measured key ---
     meta = _read_meta(project, ticket)
-    corrupted = False
-    for phase_id, entry in meta.get("metrics", {}).get("tokens", {}).items():
-        for rec in entry.get("attempts", []):
-            if rec.get("source") == "estimated":
-                rec["cost_usd"] = 999
-                corrupted = True
-                break
-        if corrupted:
-            break
-    assert corrupted, "the seeded sequence must have produced an estimated attempt"
+    entry = meta["metrics"]["tokens"].setdefault("design", {"attempts": []})
+    entry["attempts"].append({"id": "corrupt1", "ts": "2026-01-01T00:00:00Z",
+                              "in": 1, "out": 1, "cache_hit": 0,
+                              "source": "signal", "cost_usd": 999})
     _write_meta(project, ticket, meta)
 
     with pytest.raises(AssertionError):
         _verify_against(project, ticket, recorded, successes)
+
+    meta = _read_meta(project, ticket)
+    meta["metrics"]["tokens"]["design"]["attempts"] = [
+        a for a in meta["metrics"]["tokens"]["design"]["attempts"]
+        if a.get("id") != "corrupt1"]
+    _write_meta(project, ticket, meta)
 
     # --- corruption 2: delete one attempt entirely -------------------------
     meta = _read_meta(project, ticket)

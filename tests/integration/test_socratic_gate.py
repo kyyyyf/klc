@@ -234,7 +234,7 @@ def test_m_gate_blocks_missing_approaches_or_pick(tmp_path, monkeypatch):
     d2 = _make_m_ticket(tmp_path, "KLC-M02")
     spec_with_pick = (
         _VALID_M_SPEC.format(ticket="KLC-M02")
-        + "\n- Option A: fast impl\n- Option B: safer impl\n\nPicked: Option A — lower risk\n"
+        + "\n## Approaches\n- Option A: fast impl\n- Option B: safer impl\n\nPicked: Option A — lower risk\n"
     )
     (d2 / "spec.md").write_text(spec_with_pick, encoding="utf-8")
     ok2, msg2 = can_complete_discovery("KLC-M02")

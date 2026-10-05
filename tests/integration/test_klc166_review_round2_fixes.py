@@ -95,7 +95,7 @@ def test_branch_mismatch_plus_a_non_ancestral_recorded_range_reports_the_ancestr
 # --- F-2: an unreadable plan written in THIS call is moved aside so `take` re-plans --
 
 def _plan_path(clone: Path, ticket: str) -> Path:
-    return clone / ".klc" / "tickets" / ticket / "review-plan.json"
+    return clone / ".klc" / "tickets" / ticket / "review" / "review-plan-r1.json"
 
 
 def _review_dir(clone: Path, ticket: str) -> Path:
@@ -156,7 +156,8 @@ def test_an_unreadable_plan_from_this_call_is_moved_aside_and_the_next_take_re_p
         "import sys\n"
         "from pathlib import Path\n"
         "spec_path = Path(sys.argv[sys.argv.index('--spec') + 1])\n"
-        "plan_path = spec_path.parent / 'review-plan.json'\n"
+        "plan_path = spec_path.parent / 'review' / 'review-plan-r1.json'\n"
+        "plan_path.parent.mkdir(parents=True, exist_ok=True)\n"
         "plan_path.write_text('{not valid json', encoding='utf-8')\n"
         "sys.exit(0)\n",
         encoding="utf-8")

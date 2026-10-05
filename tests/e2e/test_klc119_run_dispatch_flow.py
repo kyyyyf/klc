@@ -42,7 +42,7 @@ def _set_phase(tdir: Path, phase: str) -> None:
                                     encoding="utf-8")
 
 
-def test_fixture_ticket_through_next_ack_step_records_three_estimated_attempts_and_rollup_shows_source_counts_estimated_3(
+def test_fixture_ticket_through_next_ack_step_writes_no_estimated_attempt_and_rollup_counts_the_three_provider_attempts(
         tmp_path):
     env = {**os.environ, "PROJECT_ROOT": str(tmp_path)}
     env.pop("KLC_CARD_ROOT", None)
@@ -63,6 +63,20 @@ def test_fixture_ticket_through_next_ack_step_records_three_estimated_attempts_a
                        capture_output=True, text=True, env=env)
     assert r3.returncode == 0, r3.stdout + r3.stderr
 
+    # KLC-174: nothing writes an `estimated` attempt any more, so the flow
+    # alone leaves no attempt. REAL usage is what the rollup counts: seed one
+    # provider attempt per phase the flow walked through, as a dispatch with
+    # a usage block would.
+    meta = json.loads((tdir / "meta.json").read_text())
+    tokens = meta.setdefault("metrics", {}).setdefault("tokens", {})
+    for n, phase in enumerate(("discovery", "acceptance-test-plan", "design")):
+        tokens[phase] = {"attempts": [{
+            "id": f"att-{n}", "source": "provider", "in": 100, "out": 10,
+            "cache_hit": 0, "cost_usd": 0.01,
+        }]}
+    (tdir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n",
+                                    encoding="utf-8")
+
     r4 = subprocess.run([sys.executable, str(KLC), "metrics", "--rollup"],
                        capture_output=True, text=True, env=env)
     assert r4.returncode == 0, r4.stdout + r4.stderr
@@ -70,11 +84,12 @@ def test_fixture_ticket_through_next_ack_step_records_three_estimated_attempts_a
     payload = json.loads(
         (tmp_path / ".klc" / "knowledge" / "process-metrics.json").read_text())
     m_track = payload["per_track"]["M"]
-    total_estimated = sum(
-        bucket["source_counts"]["estimated"]
-        for bucket in m_track["tokens_by_phase"].values()
-    )
-    assert total_estimated == 3, m_track["tokens_by_phase"]
+    counts = {
+        src: sum(b["source_counts"][src]
+                 for b in m_track["tokens_by_phase"].values())
+        for src in ("provider", "estimated")
+    }
+    assert counts == {"provider": 3, "estimated": 0}, m_track["tokens_by_phase"]
 
 
 if __name__ == "__main__":

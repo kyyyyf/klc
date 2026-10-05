@@ -17,9 +17,9 @@ import lifecycle as _lc  # noqa: E402
 import retrieval_eval as _reval  # noqa: E402
 
 
-def test_persisting_ack_writes_metrics_retrieval_into_meta_json(tmp_path, monkeypatch):
-    """AC-8: the evaluator writes the complete record into
-    meta.json:metrics.retrieval on the persisting integrate-ack path only."""
+def test_persisting_ack_logs_retrieval_row_and_compact_meta_record(tmp_path, monkeypatch):
+    """AC-8: the evaluator logs the complete record into the
+    derived retrieval-eval.jsonl (not meta.json, KLC-176) on the persisting integrate-ack path only."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     d = tmp_path / ".klc" / "tickets" / "KLC-Z"
     d.mkdir(parents=True)
@@ -35,8 +35,11 @@ def test_persisting_ack_writes_metrics_retrieval_into_meta_json(tmp_path, monkey
     _lc.set_state("KLC-Z", "integrate", "ack-needed")
 
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    assert meta["metrics"]["retrieval"]["status"] == "ok"
-    assert meta["metrics"]["retrieval"] == rec
+    # KLC-176: the record is no longer copied into meta.json; the derived row has it
+    # KLC-176 (review F-002): a COMPACT record stays in meta so every clone sees
+    # it; the full record lives in the jsonl log.
+    assert set(meta["metrics"]["retrieval"]) == {"score", "confidence", "at"}
+    assert _reval.logged_record("KLC-Z")["status"] == rec["status"] == "ok"
 
 
 def test_degraded_inputs_copied_through_when_present_omitted_otherwise():

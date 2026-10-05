@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -24,12 +25,6 @@ _TRACK_ORDER = {"XS": 0, "S": 1, "M": 2, "L": 3}
 # KLC-120 AC-1: the five sources a pass entry can carry.
 SOURCES = ("manifest-always", "manifest-conditional", "cascade-cheap",
           "external", "independent")
-
-# D-005: the operator ruling on spec-review decision D-1 — the manifest's
-# four `reviewers.always` entries are always LISTED, never omitted, with
-# this reason whenever the in-client path doesn't dispatch them.
-PROFILE_SKIP = ("manual workflow does not dispatch profile reviewers "
-               "(see KLC-127 Group B)")
 
 # The reason a headless-path pass entry carries for the two passes that
 # exist only on the in-client path (code-review, drift).
@@ -100,6 +95,15 @@ def external_gate(*, no_external: bool, ext_cfg: dict, meta: dict,
     min_track = ext_cfg.get("min_track", "S")
     if _TRACK_ORDER.get(track, 0) < _TRACK_ORDER.get(min_track, 1):
         return False, f"track {track} below min_track {min_track}"
+    # KLC-175 AC-5: default-on only for the tracks in `default_on_tracks`
+    # (L); S/M run it only when `opt_in_tracks` lists them. A config with
+    # neither key keeps the old rule (every track at or above min_track).
+    if "default_on_tracks" in ext_cfg or "opt_in_tracks" in ext_cfg:
+        on = set(ext_cfg.get("default_on_tracks") or []) | set(ext_cfg.get("opt_in_tracks") or [])
+        if track not in on:
+            return False, (f"track {track} not default-on for external "
+                           f"(default_on_tracks: {sorted(ext_cfg.get('default_on_tracks') or [])}; "
+                           "opt in via opt_in_tracks in reviewers.yml)")
     route = route or external_route(ext_cfg, track)
     provider = route.get("provider")
     if provider in KEYED_PROVIDERS:
@@ -116,7 +120,8 @@ def external_gate(*, no_external: bool, ext_cfg: dict, meta: dict,
 
 def pass_entry(reviewer: str, source: str, selected_by: str,
               provider: str | None, model: str | None, status: str,
-              skip_reason: str | None = None) -> dict:
+              skip_reason: str | None = None,
+              planned_reason: str | None = None) -> dict:
     """One `passes[]` entry of `review-plan.json`. `skip_reason` is added
     only when `status == "skipped"` (never a null placeholder on a
     planned/executed entry)."""
@@ -124,6 +129,8 @@ def pass_entry(reviewer: str, source: str, selected_by: str,
              "provider": provider, "model": model, "status": status}
     if status == "skipped":
         entry["skip_reason"] = skip_reason or "unspecified"
+    elif planned_reason:
+        entry["planned_reason"] = planned_reason       # e.g. "signal unevaluable"
     return entry
 
 
@@ -214,13 +221,85 @@ def carry_forward(new_plan: dict, old_plan: dict | None) -> dict:
     return new_plan
 
 
-def write_plan(ticket: str, plan: dict) -> Path | None:
-    """Atomic write of `.klc/tickets/<KEY>/review-plan.json` — the latest
-    run wins. A write failure degrades to one stderr note, never a failed
-    review (C-007)."""
+def diff_sha_for_ticket(ticket: str) -> str | None:
+    """KLC-173 F-006: sha256 of the ticket's own `git diff <base> <head>` (the
+    merge-base..HEAD range of `phase_completion.ticket_diff_range`, or the
+    recorded pre-merge range). The ONE digest a plan records as `diff_sha256`
+    and `handback take` compares against, so a plan made by `review.py` and a
+    take never disagree about what "the current diff" is. None when the range or
+    the diff cannot be had. Never raises."""
     try:
-        from _paths import klc_ticket_dir
-        out = klc_ticket_dir(ticket) / "review-plan.json"
+        import hashlib
+        import subprocess
+        import phase_completion                      # lazy: heavy, as in handback
+        from _paths import project_root
+        rng, _why = phase_completion.ticket_diff_range(ticket)
+        if rng is None:
+            return None
+        g = subprocess.run(["git", "diff", rng["base"], rng["head"]],
+                           cwd=str(project_root()), capture_output=True, timeout=60)
+        return hashlib.sha256(g.stdout).hexdigest() if g.returncode == 0 else None
+    except Exception:  # noqa: BLE001 — degrade: no sha means "next round"
+        return None
+
+
+_ROUND_RE = re.compile(r"review-plan-r(\d+)\.json$")
+
+
+def _plan_doc(path: Path) -> dict | None:
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def latest_plan_path(ticket: str) -> Path | None:
+    """KLC-173 AC-7: the newest `review/review-plan-r<N>.json` of *ticket*, or,
+    for an archived ticket, the old root `review-plan.json` (read as round 1);
+    None when the ticket has no plan at all."""
+    from _paths import klc_ticket_dir
+    tdir = klc_ticket_dir(ticket)
+    rounds = sorted(((int(m.group(1)), p) for p in (tdir / "review").glob("review-plan-r*.json")
+                     if (m := _ROUND_RE.search(p.name))), key=lambda t: t[0])
+    if rounds:
+        return rounds[-1][1]
+    legacy = tdir / "review-plan.json"
+    return legacy if legacy.is_file() else None
+
+
+def round_of(path: Path | None) -> int:
+    """The round a plan file stands for: `<N>` of `review-plan-r<N>.json`, 1
+    for the old root file. The one source of the review round number."""
+    m = _ROUND_RE.search(Path(path).name) if path is not None else None
+    return int(m.group(1)) if m else 1
+
+
+def next_round_path(ticket: str, plan: dict) -> Path:
+    """Where *plan* goes: the latest plan's round when it was made for the
+    same diff, else the next round."""
+    from _paths import klc_ticket_dir
+    latest = latest_plan_path(ticket)
+    old = _plan_doc(latest) if latest is not None else None
+    if latest is not None and old is not None and old.get("diff_sha256") == plan.get("diff_sha256"):
+        n = round_of(latest)
+    else:
+        n = round_of(latest) + 1 if latest is not None else 1
+    return klc_ticket_dir(ticket) / "review" / f"review-plan-r{n}.json"
+
+
+def write_plan(ticket: str, plan: dict) -> Path | None:
+    """Atomic write of `.klc/tickets/<KEY>/review/review-plan-r<N>.json`
+    (KLC-173 AC-7): a plan for the same diff as the latest one keeps that
+    round and carries its `executed` passes forward, a plan for a different
+    diff becomes round N+1 and never touches the earlier file. A write
+    failure degrades to one stderr note, never a failed review (C-007)."""
+    try:
+        out = next_round_path(ticket, plan)
+        latest = latest_plan_path(ticket)
+        plan = carry_forward(plan, _plan_doc(latest) if latest is not None else None)
+        plan["round"] = round_of(out)
+        out.parent.mkdir(parents=True, exist_ok=True)
         tmp = out.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         tmp.replace(out)
@@ -241,6 +320,13 @@ def plan_lines(plan: dict) -> list[str]:
         lines.append("skipped: " + "; ".join(
             f"{p['reviewer']} ({p.get('skip_reason', 'unspecified')})"
             for p in skipped))
+    sigs = plan.get("signals") or {}
+    if sigs.get("fired"):
+        lines.append("signals fired: " + ", ".join(sigs["fired"]))
+    if sigs.get("unevaluable"):
+        lines.append("signals UNEVALUABLE (their specialists are planned, fail closed): "
+                     + ", ".join(sigs["unevaluable"]))
+    lines += [f"note: {n}" for n in plan.get("notes") or []]
     lines.append(f"per-step build review: {plan['per_step_build_review']}")
     return lines
 
@@ -281,26 +367,24 @@ def record_pass(ticket: str, reviewer: str, *, phase: str = "review",
     The attempt id is derived from the plan's `generated_at`,
     `diff_sha256` and *reviewer*, so a repeated call for the same run
     collapses to one attempt in `metrics.iter_attempts`."""
-    import budget_guard
-    from _paths import klc_ticket_dir
-    plan_file = klc_ticket_dir(ticket) / "review-plan.json"
-    if not plan_file.is_file():
+    plan_file = latest_plan_path(ticket)
+    if plan_file is None:
         raise RecordRefused(
-            f"no review-plan.json for {ticket} — run the planner "
+            f"no review plan for {ticket} — run the planner "
             "(--plan-only) before recording a pass")
     try:
         plan = json.loads(plan_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RecordRefused(f"review-plan.json for {ticket} is unreadable: {exc}")
+        raise RecordRefused(f"{plan_file.name} for {ticket} is unreadable: {exc}")
 
     entry = next((p for p in (plan.get("passes") or [])
                  if p.get("reviewer") == reviewer), None)
     if entry is None:
         raise RecordRefused(
-            f"{reviewer!r} is not a pass in {ticket}'s review-plan.json")
+            f"{reviewer!r} is not a pass in {ticket}'s review plan ({plan_file.name})")
     if entry.get("status") == "skipped":
         raise RecordRefused(
-            f"{reviewer!r} is skipped in {ticket}'s review-plan.json "
+            f"{reviewer!r} is skipped in {ticket}'s review plan ({plan_file.name}) "
             f"({entry.get('skip_reason', 'unspecified')}) — it was never "
             "planned to run")
 
@@ -310,15 +394,6 @@ def record_pass(ticket: str, reviewer: str, *, phase: str = "review",
         # the same id without a second write or plan rewrite.
         return attempt_id
 
-    out_tokens = 0
-    if output is not None:
-        out_path = Path(output)
-        if out_path.is_file():
-            out_tokens = budget_guard.estimate_tokens(
-                out_path.read_text(encoding="utf-8", errors="ignore"))
-    budget_guard.write_token_metrics(
-        ticket, phase, 0, out_tokens, 0, source="estimated",
-        attempt_id=attempt_id, reviewer=reviewer)
     mark_executed(plan, [reviewer])
     write_plan(ticket, plan)
     return attempt_id

@@ -151,7 +151,7 @@ def run(argv: list[str]) -> int:
         for r in adv["high"] + adv["medium"]:
             print(f"  [{r.get('severity', '?')}] {r.get('message', '')}")
         if adv["other_count"]:
-            print(f"  ...and {adv['other_count']} more (see the phase's ack-advisories.json)")
+            print(f"  ...and {adv['other_count']} more (see the ticket's advisories.json)")
 
     # Next-action hint.
     print()

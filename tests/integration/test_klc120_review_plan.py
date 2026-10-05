@@ -253,7 +253,7 @@ def test_review_plan_written_at_documented_path_with_required_fields(
     rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
     assert rc == 0
 
-    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review-plan.json"
+    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review" / "review-plan-r1.json"
     assert plan_path.is_file()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     for key in ("ticket", "track", "diff_sha256", "cap", "override", "passes"):
@@ -267,11 +267,12 @@ def test_review_plan_written_at_documented_path_with_required_fields(
             assert field in p, f"pass entry missing {field!r}: {p}"
 
 
-def test_review_plan_lists_manifest_always_reviewers_as_skipped_with_reason(
+def test_review_plan_lists_layer1_planned_and_specialists_skipped_without_signal(
         tmp_path, monkeypatch):
-    """AC-1/D-005: the four profiles/generic/manifest.yml `reviewers.always`
-    entries appear with status skipped and the documented reason on the
-    client path — never omitted."""
+    """AC-1 / KLC-175 AC-3: the manifest's one `always` reviewer
+    (`code-review`) is planned on the client path too; each layer-2
+    specialist is LISTED, skipped with the reason its signal did not fire —
+    never omitted, and `test-coverage` no longer exists as a pass."""
     project_root, spec_path = _seed_project(tmp_path, track="M")
     monkeypatch.setenv("PROJECT_ROOT", str(project_root))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -284,13 +285,14 @@ def test_review_plan_lists_manifest_always_reviewers_as_skipped_with_reason(
     assert rc == 0
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
-    always_names = {"security", "architecture", "performance", "test-coverage"}
-    seen = {p["reviewer"]: p for p in plan["passes"] if p["reviewer"] in always_names}
-    assert set(seen) == always_names
-    for name, p in seen.items():
-        assert p["status"] == "skipped", f"{name} should be skipped on the client path"
-        assert p["skip_reason"] == review_plan.PROFILE_SKIP
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
+    by_name = {p["reviewer"]: p for p in plan["passes"]}
+    assert by_name["code-review"]["status"] == "planned"
+    assert by_name["code-review"]["source"] == "manifest-always"
+    assert "test-coverage" not in by_name
+    for name in ("security", "architecture", "performance", "deep-impact"):
+        assert by_name[name]["status"] == "skipped", name
+        assert by_name[name]["skip_reason"] == "no trigger fired"
 
 
 def test_review_plan_carries_per_step_build_review_not_counted_field(
@@ -309,7 +311,7 @@ def test_review_plan_carries_per_step_build_review_not_counted_field(
     assert rc == 0
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     assert plan["per_step_build_review"] == "not counted"
 
 
@@ -340,7 +342,7 @@ def test_planner_never_dispatches_a_model_call(tmp_path, monkeypatch):
     assert rc == 0
     assert not marker.exists(), "the planner must never dispatch a model call"
 
-    plan_file = project_root / ".klc" / "tickets" / "KLC-990" / "review-plan.json"
+    plan_file = project_root / ".klc" / "tickets" / "KLC-990" / "review" / "review-plan-r1.json"
     assert plan_file.is_file()
     job_cards = list((project_root / ".klc" / "reports").glob("pending-*/job-*.md"))
     assert job_cards == [], "no job card must be written under --plan-only"
@@ -351,7 +353,7 @@ def test_external_plan_entry_and_job_card_name_resolved_model_with_no_api_key_en
     """AC-9: with neither ANTHROPIC_API_KEY nor OPENAI_API_KEY set, the
     external entry of review-plan.json and job-external.md both name the
     resolved provider and model."""
-    project_root, spec_path = _seed_project(tmp_path, track="S")
+    project_root, spec_path = _seed_project(tmp_path, track="L")
     monkeypatch.setenv("PROJECT_ROOT", str(project_root))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -375,7 +377,7 @@ def test_external_plan_entry_and_job_card_name_resolved_model_with_no_api_key_en
     assert rc == 0
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     ext_entry = next(p for p in plan["passes"] if p["reviewer"] == "external")
     assert ext_entry["provider"] == "anthropic"
     assert ext_entry["model"]
@@ -390,7 +392,8 @@ def test_external_plan_entry_and_job_card_name_resolved_model_with_no_api_key_en
 def test_unevaluable_conditional_trigger_is_planned_with_reason(tmp_path, monkeypatch):
     """C-004: fail-closed stays — a conditional trigger the planner cannot
     evaluate is planned anyway, with a reason naming the failure, rather
-    than treated as "no risk"."""
+    than treated as "no risk". Failing closed fans every specialist out
+    (six passes), so the run needs --over-cap to get past the M cap."""
     project_root, spec_path = _seed_project(tmp_path, track="M")
     monkeypatch.setenv("PROJECT_ROOT", str(project_root))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -404,11 +407,11 @@ def test_unevaluable_conditional_trigger_is_planned_with_reason(tmp_path, monkey
     monkeypatch.setattr(rv, "_evaluate_conditional_trigger", _boom)
     diff_path = _write_diff(tmp_path, "diff.patch", _HARMLESS_DIFF)
 
-    rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
+    rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only", "--over-cap"])
     assert rc == 0
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     deep_impact = next(p for p in plan["passes"] if p["reviewer"] == "deep-impact")
     assert deep_impact["status"] == "planned"
     assert "could not be evaluated" in deep_impact["selected_by"]
@@ -429,7 +432,7 @@ def test_plan_diff_sha256_matches_partials_diff_sha256(tmp_path, monkeypatch):
     assert rc == 0
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     partials_dirs = sorted((project_root / ".klc" / "reports").glob("partials-*"))
     assert partials_dirs
     sha_file = partials_dirs[-1] / "diff.sha256"
@@ -440,11 +443,11 @@ def test_plan_diff_sha256_matches_partials_diff_sha256(tmp_path, monkeypatch):
 def test_headless_plan_plans_manifest_reviewers_and_skips_in_client_passes(
         tmp_path, monkeypatch):
     """Edge case: a headless run (no --plan-only) plans the manifest
-    reviewers.always entries (full path) and marks the two in-client-only
-    passes (code-review, drift) as skipped with the CLIENT_ONLY reason.
-    Track L (cap 6, step-4 D-012): this diff plans exactly 6 passes (four
-    manifest-always, deep-impact and external), which sits AT the cap, not
-    over it — this test is about pass categorization, not the cap."""
+    reviewers.always entry (`code-review`, layer 1) and marks the one
+    in-client-only pass (drift) as skipped with the CLIENT_ONLY reason.
+    Track L: `+def bar()` fires architecture and deep-impact (layer 2), so
+    code-review, architecture, deep-impact and external are planned — four
+    passes, under the cap of 6."""
     project_root, spec_path = _seed_project(tmp_path, track="L")
     monkeypatch.setenv("PROJECT_ROOT", str(project_root))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -462,15 +465,15 @@ def test_headless_plan_plans_manifest_reviewers_and_skips_in_client_passes(
     assert rc == 0
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     assert plan["path"] == "headless"
-    always_names = {"security", "architecture", "performance", "test-coverage"}
-    for p in plan["passes"]:
-        if p["reviewer"] in always_names:
-            assert p["status"] == "planned", p
-        if p["reviewer"] in ("code-review", "drift"):
-            assert p["status"] == "skipped"
-            assert p["skip_reason"] == review_plan.CLIENT_ONLY
+    by_name = {p["reviewer"]: p for p in plan["passes"]}
+    for name in ("code-review", "architecture", "deep-impact"):
+        assert by_name[name]["status"] == "planned", by_name[name]
+    for name in ("security", "performance"):
+        assert by_name[name]["status"] == "skipped", by_name[name]
+    assert by_name["drift"]["status"] == "skipped"
+    assert by_name["drift"]["skip_reason"] == review_plan.CLIENT_ONLY
 
 
 def test_conditional_pass_skipped_by_track_gate_labels_the_reason(tmp_path, monkeypatch):
@@ -492,7 +495,7 @@ def test_conditional_pass_skipped_by_track_gate_labels_the_reason(tmp_path, monk
     assert rc == 0
 
     plan = json.loads((project_root / ".klc" / "tickets" / "KLC-990"
-                       / "review-plan.json").read_text(encoding="utf-8"))
+                       / "review" / "review-plan-r1.json").read_text(encoding="utf-8"))
     deep_impact = next(p for p in plan["passes"] if p["reviewer"] == "deep-impact")
     assert deep_impact["status"] == "skipped"
     assert deep_impact["skip_reason"] == "track XS not in enabled_for_tracks"
@@ -516,7 +519,7 @@ def test_replan_for_the_same_diff_sha256_keeps_every_already_executed_pass_execu
 
     rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
     assert rc == 0
-    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review-plan.json"
+    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review" / "review-plan-r1.json"
     first_plan = json.loads(plan_path.read_text(encoding="utf-8"))
     entry = next(p for p in first_plan["passes"] if p["reviewer"] == "code-review")
     assert entry["status"] == "planned"
@@ -555,10 +558,13 @@ def test_replan_for_a_different_diff_resets_executed_to_planned(tmp_path, monkey
     rc = rv.main(["--diff", str(other_diff), "--spec", str(spec_path), "--plan-only"])
     assert rc == 0
 
-    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review-plan.json"
-    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    review_dir = project_root / ".klc" / "tickets" / "KLC-990" / "review"
+    # KLC-173 AC-7: a different diff is a NEW round file; round 1 stays as it was.
+    plan = json.loads((review_dir / "review-plan-r2.json").read_text(encoding="utf-8"))
     entry = next(p for p in plan["passes"] if p["reviewer"] == "code-review")
-    assert entry["status"] == "planned"
+    assert entry["status"] == "planned" and plan["round"] == 2
+    first = json.loads((review_dir / "review-plan-r1.json").read_text(encoding="utf-8"))
+    assert next(p for p in first["passes"] if p["reviewer"] == "code-review")["status"] == "executed"
 
 
 def test_replan_never_revives_a_pass_that_is_now_skipped(tmp_path, monkeypatch):
@@ -584,7 +590,7 @@ def test_replan_never_revives_a_pass_that_is_now_skipped(tmp_path, monkeypatch):
 
     rc = rv.main(["--diff", str(diff_path), "--spec", str(spec_path), "--plan-only"])
     assert rc == 0
-    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review-plan.json"
+    plan_path = project_root / ".klc" / "tickets" / "KLC-990" / "review" / "review-plan-r1.json"
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     entry = next(p for p in plan["passes"] if p["reviewer"] == "drift")
     assert entry["status"] == "skipped"

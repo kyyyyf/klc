@@ -168,8 +168,10 @@ def _read_verdict(ticket: str) -> str:
     except OSError:
         return "NO_REPORT"
 
-    # Find ## Verdict section
-    m = re.search(r"##\s+Verdict\s*\n(.*?)(?=\n##|\Z)", text, re.DOTALL | re.IGNORECASE)
+    # Find the ## Verdict section. Two forms are valid: the heading with the
+    # verdict on the following lines, and the inline `## Verdict: <WORD>` line
+    # that review.py --report and the review-report template write.
+    m = re.search(r"##[ \t]+Verdict[ \t]*:?[ \t]*\n?(.*?)(?=\n##|\Z)", text, re.DOTALL | re.IGNORECASE)
     if not m:
         return "NO_VERDICT_SECTION"
     verdict_block = m.group(1)
@@ -221,6 +223,10 @@ def collect_signals(ticket: str, phase_id: str) -> dict:
     # changed since without going back through `:work`.
     try:
         envelope = _adv.read(ticket, phase_id)
+        if _adv.store_corrupt(ticket):
+            envelope = None              # F-007: a lost store makes every phase dirty
+        elif envelope is None and _adv.missing_key_is_clean(ticket, phase_id):
+            envelope = {"records": []}   # KLC-173: key absent but ack recorded = clean
         advisory = ({"records": envelope.get("records", []),
                     "threshold": _settings.advisory_threshold()}
                    if envelope else None)

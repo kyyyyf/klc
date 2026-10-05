@@ -58,7 +58,7 @@ def test_rollup_reports_tokens_per_phase_per_track_with_source_counts_for_provid
 
     payload = _rollup(tmp_path)
     bucket = payload["per_track"]["M"]["tokens_by_phase"]["build"]
-    assert bucket["source_counts"] == {"provider": 1, "signal": 1, "estimated": 1}
+    assert bucket["source_counts"] == {"provider": 1, "transcript": 0, "signal": 1, "estimated": 1}
     assert bucket["samples"] == 3
 
 
@@ -160,7 +160,7 @@ def test_rollup_reports_by_source_with_provider_signal_estimated_buckets(
 
     payload = _rollup(tmp_path)
     by_source = payload["per_track"]["M"]["tokens_by_phase"]["build"]["by_source"]
-    assert set(by_source) == {"provider", "signal", "estimated"}
+    assert set(by_source) == {"provider", "transcript", "signal", "estimated"}
     for source in ("provider", "signal", "estimated"):
         bucket = by_source[source]
         assert "samples" in bucket and "avg_in" in bucket

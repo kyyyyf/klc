@@ -327,10 +327,10 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 # --- KLC-115: the FACT-source rule (AC-13) and its graduated enforcement -----
 
-# The three artefacts the rule applies to, matched by EXACT ticket-relative
+# The artefacts the rule applies to (design.md, or design/options.md on an archived ticket), matched by EXACT ticket-relative
 # path (A-005) — a `_superseded/<ts>/spec.md` snapshot never matches, since
 # its relative path is `_superseded/<ts>/spec.md`, not `spec.md`.
-FACT_SOURCE_ARTIFACTS = ("spec.md", "design/options.md", "impl-plan.md")
+FACT_SOURCE_ARTIFACTS = ("spec.md", "design.md", "design/options.md", "impl-plan.md")
 
 # D-203/A-004: the day AFTER this rule lands. The step-6 tests build their
 # fixture dates relative to this constant, never from today, so a bump here

@@ -111,7 +111,7 @@ def _render(info: dict) -> str:
         for r in adv["high"] + adv["medium"]:
             lines.append(f"  [{r.get('severity', '?')}] {r.get('message', '')}")
         if adv["other_count"]:
-            lines.append(f"  ...and {adv['other_count']} more (see the phase's ack-advisories.json)")
+            lines.append(f"  ...and {adv['other_count']} more (see the ticket's advisories.json)")
     return "\n".join(lines)
 
 

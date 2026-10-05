@@ -34,6 +34,6 @@ def test_ledger_substep_5f_sits_after_5e_and_before_advance():
     and strictly before step 6 (Advance)."""
     text = _SKILL.read_text(encoding="utf-8")
     pos_5e = text.index(_SUBSTEP_MARKERS["5e"])
-    pos_5f = text.index("Post-build step ledger pass")
+    pos_5f = text.index("Record step verifies")
     pos_6 = text.index("**Advance.**")
     assert pos_5e < pos_5f < pos_6

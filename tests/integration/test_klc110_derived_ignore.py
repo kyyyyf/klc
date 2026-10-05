@@ -34,8 +34,9 @@ def test_retrieval_eval_jsonl_registered_derived_never_tracked_worktree_clean_af
 def test_existing_derived_ignore_entries_unaffected_by_new_entry():
     """Regression: the new entry does not alter the pathspec semantics of
     any entry that existed before this ticket — every one of the SEVEN
-    pre-existing entries is still present, and the tuple grows by exactly
-    one member."""
+    pre-existing entries is still present and the KLC-110 entry comes
+    right after them (KLC-172 later appended three ad-hoc-log patterns,
+    so the tuple is no longer exactly SEVEN + 1)."""
     for entry in _PRE_EXISTING:
         assert entry in _ss._DERIVED_IGNORES
-    assert len(_ss._DERIVED_IGNORES) == len(_PRE_EXISTING) + 1
+    assert _ss._DERIVED_IGNORES[len(_PRE_EXISTING)] == "knowledge/retrieval-eval.jsonl"

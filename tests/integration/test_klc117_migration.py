@@ -49,7 +49,7 @@ def test_migration_truncates_overlong_notes_with_pointer_and_audit_entry(tmp_pat
     meta = json.loads(mp.read_text())
     entry = meta["phase_history"][0]
     assert len(entry["note"]) <= 200
-    assert "build/ack-advisories.json" in entry["note"]
+    assert "see build/ack-advisories.json" in entry["note"]
     # exactly one audit entry appended
     audit = [e for e in meta["phase_history"] if e.get("event") == "note-migration"]
     assert len(audit) == 1

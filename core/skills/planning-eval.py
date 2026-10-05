@@ -511,12 +511,20 @@ def _mean(values: list[float]) -> float:
 # description against the CURRENT index, so BEFORE and AFTER cover the
 # same corpus instead of comparing stored traces from different vintages.
 # --------------------------------------------------------------------------- #
+def _stored_trace_path(ticket_dir: Path) -> Path:
+    """KLC-176: the trace is written under the card root (`.klc/scratch/<KEY>/`);
+    old tickets keep it in the ticket directory. Scratch first, then legacy."""
+    from core.shared.paths import transient_dir
+    new = transient_dir(ticket_dir.name) / "retrieval_trace.json"
+    return new if new.exists() else ticket_dir / "retrieval_trace.json"
+
+
 def _ticket_query(ticket_dir: Path) -> str | None:
     """A-104: the ticket's own description is the `query` already recorded
     in `retrieval_trace.json` (this is also what KLC-110's AC-17 calls a
     'replayed' trace), falling back to `raw.md`'s body. None when neither
     source is available."""
-    trace_path = ticket_dir / "retrieval_trace.json"
+    trace_path = _stored_trace_path(ticket_dir)
     if trace_path.exists():
         try:
             stored = json.loads(trace_path.read_text(encoding="utf-8"))
@@ -578,7 +586,7 @@ def _load_trace(ticket_dir: Path) -> dict | None:
     """The `stored` population's trace — the trace written at intake, read
     verbatim off disk. `None` when absent or unreadable (the same degrade
     shape `rescore_trace` uses for the `replayed` population, A-104)."""
-    trace_path = ticket_dir / "retrieval_trace.json"
+    trace_path = _stored_trace_path(ticket_dir)
     if not trace_path.exists():
         return None
     try:
@@ -845,7 +853,7 @@ def build_report(tickets_root: Path, modules_data, repo: Path,
                                           "(no retrieval_trace.json query and no raw.md)"})
                 trace = None
         else:
-            trace_path = d / "retrieval_trace.json"
+            trace_path = _stored_trace_path(d)
             trace = None
             if trace_path.exists():
                 try:

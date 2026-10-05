@@ -64,8 +64,8 @@ def test_large_output_command_is_bounded():
 def test_read_only_probe_spawns_zero_subprocesses(tmp_path, monkeypatch):
     """AC-5's fail-closed twin: the read-only probe path
     (`can_complete_build(ticket, persist=False)`, the same seam `gate_policy`
-    calls on every prompt) must execute NOTHING — not one Evidence entry's
-    command. `verify_runner.spawn` is monkeypatched to record every call and
+    calls on every prompt) must execute NOTHING — KLC-174: no stored
+    command, and no AC-coverage pytest. `verify_runner.spawn` is monkeypatched to record every call and
     then raise, so any accidental invocation fails the test loudly."""
     import json
 
@@ -87,11 +87,6 @@ def test_read_only_probe_spawns_zero_subprocesses(tmp_path, monkeypatch):
         "---\nticket: {t}\nkind: feature\n---\n\n## Acceptance Criteria\n"
         "- [ ] AC-1: subject · acts · object · when a thing happens\n"
         .format(t=ticket), encoding="utf-8")
-    (ticket_dir / "build-log.md").write_text(
-        "---\nticket: {t}\nkind: build-log\n---\n\n# Build log — {t}\n\n"
-        "## Evidence\n\n### AC-1 — proof\n\n```\n$ echo ok\nok\n```\n"
-        .format(t=ticket), encoding="utf-8")
-
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     calls = []
 
@@ -116,64 +111,35 @@ def _make_degrade_ticket(tmp_path, ticket):
         "affected_modules": ["core/skills"], "layer": "code",
     }
     (ticket_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-    (ticket_dir / "build-log.md").write_text(
-        "---\nticket: {t}\nkind: build-log\n---\n\n# Build log — {t}\n\n"
-        "## Evidence\n\n```\n$ echo ok\nok\n```\n".format(t=ticket), encoding="utf-8")
     return ticket_dir
 
 
-def test_runner_launch_failure_degrades_to_surfaced_advisory_never_silent_pass(
+def test_coverage_arm_failure_degrades_to_surfaced_advisory_never_silent_pass(
         tmp_path, monkeypatch):
-    """AC-16: with the Evidence arm's runner made unavailable (raises), the
-    ack must succeed while carrying a non-empty advisory naming the reason —
-    mirrors the existing 'ac-coverage: check did not run' degrade pattern."""
+    """AC-16 (KLC-174: the only verification arm left at ack is AC coverage): with
+    that arm made unavailable (raises), the ack must succeed while carrying a
+    non-empty advisory naming the reason. The step-state check is pinned green so
+    the test isolates the degrade path."""
     FW_ROOT = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(FW_ROOT))
     from core.skills.phase_completion import can_complete_build
     import advisories as _adv
-    import evidence_gate as _evg
+    import ac_test_coverage as _acov
+    import step_state
 
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket = "KLC-RP03"
     _make_degrade_ticket(tmp_path, ticket)
+    monkeypatch.setattr(step_state, "check_build", lambda t, repo=None, **k: (True, ""))
 
     def boom(*a, **kw):
         raise RuntimeError("runner unavailable")
 
-    monkeypatch.setattr(_evg, "check_evidence", boom)
+    monkeypatch.setattr(_acov, "check", boom)
     ok, msg = can_complete_build(ticket)
     assert ok, f"a degraded verification arm must never block the ack, got {msg!r}"
     assert msg, "the ack message must be non-empty when an arm degraded"
     envelope = _adv.read(ticket, "build")
     assert envelope is not None
-    assert any("unverified" in r["message"].lower() for r in envelope["records"]), (
-        envelope["records"])
-
-
-def test_gate_exception_never_silently_passes_with_no_advisory(tmp_path, monkeypatch):
-    """AC-16's fail-closed twin, over the OTHER new arm: a raising
-    step-verify gate must likewise leave a non-empty advisory naming the
-    reason — an ack that swallowed the exception with zero advisory text
-    fails this test."""
-    FW_ROOT = Path(__file__).resolve().parents[2]
-    sys.path.insert(0, str(FW_ROOT))
-    from core.skills.phase_completion import can_complete_build
-    import advisories as _adv
-    import step_verify as _sv
-
-    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
-    ticket = "KLC-RP04"
-    _make_degrade_ticket(tmp_path, ticket)
-
-    def boom(*a, **kw):
-        raise RuntimeError("gate exploded")
-
-    monkeypatch.setattr(_sv, "check_steps", boom)
-    ok, msg = can_complete_build(ticket)
-    assert ok
-    assert msg
-    envelope = _adv.read(ticket, "build")
-    assert envelope is not None
-    assert any(r["message"].strip() for r in envelope["records"]), envelope["records"]
     assert any("unverified" in r["message"].lower() for r in envelope["records"]), (
         envelope["records"])

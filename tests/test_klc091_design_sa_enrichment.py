@@ -114,8 +114,8 @@ def test_design_records_spine_invariants():
     assert "## Design invariants (spine)" in text, (
         "design.md must instruct a `## Design invariants (spine)` section"
     )
-    # the section is recorded in the existing options.md artifact (C-005: no new artifact)
-    assert "options.md" in text, "spine invariants go into the existing options.md"
+    # the section is recorded in the existing design.md artifact (C-005: no new artifact)
+    assert "design.md" in text, "spine invariants go into the existing design.md"
     # all three invariant fields
     for field in ("Binds", "Prevents", "Rule"):
         assert field in text, f"spine invariant block must carry the {field} field"

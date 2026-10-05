@@ -11,9 +11,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _klc128_fixtures import (  # noqa: E402
+    _retrieval_rec,
     _bare_and_clone,
     _branch_with_commits,
     _merge,
+    _last_drift_report,
     _run_ack,
     _seed_ticket,
     _set_phase,
@@ -53,11 +55,11 @@ def test_klc128_integrate_ack_after_real_ff_merge_reports_real_drift_and_retriev
 
     assert _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1) == 0
 
-    report = json.loads((tdir / "drift-report.json").read_text(encoding="utf-8"))
+    report = _last_drift_report()
     assert report["scope_drift"]["skipped"] is None, \
         "KLC-110's retro regression: this must be a REAL result, not skipped"
 
     meta = json.loads((tdir / "meta.json").read_text(encoding="utf-8"))
-    rec = meta["metrics"]["retrieval"]
+    rec = _retrieval_rec(tdir.parents[2], tdir.name)
     assert rec["status"] == "ok"
     assert rec["ground_truth_files"] == 2

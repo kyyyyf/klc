@@ -51,8 +51,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from models import load_models, ResolvedModel  # noqa: E402
 from model_guard import check_subagent_dispatch, require_subagent_model  # noqa: E402
 from budget_guard import (  # noqa: E402
-    load_budget_limits as _load_budget_limits,
-    estimate_tokens as _estimate_tokens,
     write_token_metrics as _write_token_metrics,
 )
 import phase_resolver as _phase_resolver  # noqa: E402
@@ -286,6 +284,13 @@ def _parse_usage_from_output(text: str) -> dict[str, int]:
 
 # --- prompt composition ------------------------------------------------------
 
+def _fence_ticks(content: str) -> str:
+    """A backtick fence longer than any backtick run inside *content* (minimum
+    three), so a nested code sketch can never close the wrapping fence."""
+    longest = max((len(m.group(0)) for m in re.finditer(r"`+", content)), default=0)
+    return "`" * max(3, longest + 1)
+
+
 def _compose_prompt(prompt_path: Path,
                     inputs: dict[str, Path | str] | None) -> str:
     """Join the role prompt with labelled input blocks.
@@ -313,10 +318,12 @@ def _compose_prompt(prompt_path: Path,
                 except OSError:
                     body.append(f"_(missing: {value})_\n")
                     continue
-                fence = "```" + ("diff" if label == "diff" else "")
-                body.append(f"{fence}\n{text}\n```\n")
+                ticks = _fence_ticks(text)
+                fence = ticks + ("diff" if label == "diff" else "")
+                body.append(f"{fence}\n{text}\n{ticks}\n")
             else:
-                body.append(f"```\n{value}\n```\n")
+                ticks = _fence_ticks(str(value))
+                body.append(f"{ticks}\n{value}\n{ticks}\n")
         body.append(
             "\n---\n\nProduce the output specified by the role prompt above. "
             "Do not emit anything else.\n"
@@ -340,6 +347,8 @@ def _dispatch_anthropic(resolved: ResolvedModel, prompt: str,
     args_raw = os.environ.get("CLAUDE_ARGS", "--print --output-format json")
     argv = [bin_name, *args_raw.split(), "--model", resolved.model,
             *resolved.extra_args]
+    if getattr(resolved, "effort", None):
+        argv += ["--effort", resolved.effort]
     env = {**os.environ, **extra_env}
     try:
         r = subprocess.run(argv, input=prompt, capture_output=True,
@@ -479,14 +488,13 @@ def run_agent(phase_id: str,
     record nothing, or a caller like the review runner pass only the
     telemetry tags (never triggering the park guard, which keys on `ticket`)
     on top of its own dispatch. `reviewer`/`step`/`run_pass` are copied onto
-    the attempt verbatim; `card_bytes` is the caller's rendered artefact size
-    for the `estimated` fallback (AC-3/AC-4, `_record_run` below). Exactly
-    one attempt is written per dispatch whenever a telemetry ticket ends up
-    known — a provider attempt when the envelope parses (AC-1's
-    `input_tokens`/`output_tokens` both present, D-104), else `estimated`; a
-    failed dispatch (non-zero rc, or `is_error: true` inside a parseable
-    envelope) that still has usage is recorded with `failed: true`; a failed
-    dispatch with no usable envelope records nothing (AC-4).
+    the attempt verbatim; `card_bytes` is kept for call-site compatibility
+    (unused since KLC-174). At most one attempt is written per dispatch — a
+    provider attempt when the envelope parses (AC-1's
+    `input_tokens`/`output_tokens` both present, D-104); a dispatch with no
+    usage records NOTHING (KLC-174: no `estimated` fallback); a failed
+    dispatch (non-zero rc, or `is_error: true` inside a parseable envelope)
+    that still has usage is recorded with `failed: true`.
     """
     if ticket:
         try:
@@ -519,31 +527,6 @@ def run_agent(phase_id: str,
         return 2
 
     prompt = _compose_prompt(prompt_path, inputs)
-
-    # --- budget guard --------------------------------------------------------
-    soft_limits, hard_limits = _load_budget_limits()
-    if track:
-        estimated = _estimate_tokens(prompt)
-        hard = hard_limits.get(track)
-        soft = soft_limits.get(track)
-        if hard and estimated > hard:
-            msg = (
-                f"[!QUESTION] context too large: estimated ~{estimated} tokens "
-                f"exceeds {track} hard limit of {hard}. "
-                f"Reduce inputs or upgrade track."
-            )
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(msg + "\n", encoding="utf-8")
-            sys.stderr.write(
-                f"runner: hard limit exceeded for {phase_id} "
-                f"(~{estimated} > {hard} tokens for {track}) — aborted\n"
-            )
-            return 2
-        elif soft and estimated > soft:
-            sys.stderr.write(
-                f"runner: soft limit warning for {phase_id} "
-                f"(~{estimated} > {soft} soft tokens for {track}) — proceeding\n"
-            )
 
     extra_env = resolved.as_env()
 
@@ -589,22 +572,8 @@ def _record_run(ticket, phase, prompt, stdout, *, failed, card_bytes, tags) -> N
     output. A provider attempt requires BOTH `input_tokens` and
     `output_tokens` to parse (D-104); it is recorded with `failed: true`
     when the dispatch itself failed OR the envelope's own `is_error` is
-    `true`. An `estimated` attempt is recorded only on an otherwise
-    successful dispatch — a failed dispatch with no usable envelope records
-    nothing at all.
-
-    KLC-133 step-10 review-fix (AC-4, code-review LOW + external LOW): the
-    `is_error` flag is now folded into the RECORDED `failed` value for
-    BOTH branches, computed once — not only inside the provider branch's
-    own `failed=` value as before. The branch GATE below (whether to write
-    an `estimated` attempt at all) still keys on the caller's own `failed`
-    (did the dispatch itself return non-zero?), unchanged — a genuinely
-    failed dispatch with no usable envelope still records nothing. But
-    when the dispatch itself succeeded (rc==0) and the envelope reports
-    `is_error: true` with no usable input_tokens/output_tokens, the
-    `estimated` attempt that DOES get written is now marked `failed: true`
-    too, so it never wrongly counts toward `review_llm_passes_per_ticket`
-    as an executed, successful pass."""
+    `true`. KLC-174: a dispatch whose envelope carries no usable usage
+    records NOTHING (the old `estimated` branch is gone)."""
     if not ticket:
         return
     try:
@@ -619,11 +588,6 @@ def _record_run(ticket, phase, prompt, stdout, *, failed, card_bytes, tags) -> N
                 cost_basis=env.get("cost_basis"),
                 num_turns=env.get("num_turns"), duration_ms=env.get("duration_ms"),
                 failed=combined_failed, **tags)
-        elif not failed:
-            _write_token_metrics(
-                ticket, phase, _estimate_tokens(prompt), _estimate_tokens(stdout), 0,
-                source="estimated", card_bytes=card_bytes,
-                failed=True if combined_failed else None, **tags)
     except Exception:
         pass
 

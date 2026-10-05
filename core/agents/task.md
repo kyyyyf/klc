@@ -66,7 +66,7 @@ For **large projects**: when you need to confirm a signature or trace
 a call site beyond what the loader returns, use the LSP tool
 (`goToDefinition`, `findReferences`, `hover`) directly.
 
-Every DECISION or FACT in `options.md` / `adr.md` that references a
+Every DECISION or FACT in `design.md` that references a
 concrete symbol must be verified via LSP before citing it.
 
 ### 2. Generate three options
@@ -158,11 +158,11 @@ TASK_OK
 ## Post-selection flow
 After the user picks an option:
 
-1. If `ADR_NEEDED=yes` → hand off to `adr --phase propose`.
+1. If `ADR_NEEDED=yes` → record the decision in design.md `## Consequences` (M/L) or in the spec's `## Approaches` (S). Project-wide ADRs go to docs/adr via docgen.
 2. Hand off to the **test agent** — tests first, approved before code.
 3. Write implementation code.
 4. Hand off to the **review agent** (multi-agent review).
 5. Fix blocking issues if CHANGES REQUESTED.
-6. If ADR was proposed → `adr --phase accept`.
+6. If a decision was recorded in step 1 → confirm it still matches what was built; project-wide ADRs go to docs/adr via docgen.
 
 {{include:completion-signal}}

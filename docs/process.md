@@ -106,9 +106,9 @@ cheap `intake-triage` agent.
 
 **Purpose.** Transform raw input into a formal spec with ACs, an estimate, and a
 track assignment. On S/XS this is `discovery-lite`, which also writes
-`options-lite.md` and `impl-plan.md` in the same call.
+`impl-plan.md` in the same call, with the approaches in the `## Approaches` section of `spec.md`.
 
-- **Inputs:** `raw.md`, the root `CLAUDE.md`, `.klc/tickets/<KEY>/retrieval_trace.json`
+- **Inputs:** `raw.md`, the root `CLAUDE.md`, `.klc/scratch/<KEY>/retrieval_trace.json`
   and `.klc/index/modules.json` (below).
 - **Outputs:** `spec.md` (Goals, Problem/Context, ACs, Non-goals, Constraints,
   Affected modules, Open questions, Estimate); `meta.json` updated with track,
@@ -161,16 +161,15 @@ see [Independent spec/test-plan/impl-plan review](#independent-spectest-planimpl
 ## Design
 
 **Purpose (M/L).** Generate design options, choose one, and author `impl-plan.md`
-(and an ADR when the option warrants it).
+(the decision record is part of `design.md`).
 
 - **Inputs:** `spec.md`, `test-plan.md`.
-- **Outputs:** `design/options.md` (2–4 approaches with trade-offs, one
-  `recommended: true`, ending `ADR_NEEDED=yes|no`); `design/adr.md` when
-  `ADR_NEEDED=yes` and the human picked the option; `impl-plan.md` authored to the
+- **Outputs:** one `design.md` (`## Options` with 2–4 labelled approaches and a
+  `Picked:` line, then `## Consequences`); `impl-plan.md` authored to the
   executable step contract.
-- **Completion criteria:** options.md lists 2–4 distinct feasible approaches (no
-  hallucinated APIs); the ADR (when written) names the chosen option + rationale +
-  rejected alternatives; `impl-plan.md` passes the plan-completeness gate.
+- **Completion criteria:** `design.md` lists 2–4 distinct feasible approaches (no
+  hallucinated APIs) and names the pick with its rationale; `impl-plan.md` passes
+  the plan-completeness gate.
 - **Ack options:** `--pick 1/2/3` option-A/B/C · `--pick 4` needs-rework · `--pick
   5` revise-impl-plan. Approving seals the design and advances to detailed-test-plan
   (L) or build (M).
@@ -187,7 +186,7 @@ An **independent impl-plan review** (KLC-094) runs at the ack that finalizes
 keyed to impl-plan steps, extending `test-plan.md`.
 
 - **Inputs:** existing `test-plan.md` (acceptance section), `impl-plan.md`,
-  `design/adr.md`.
+  `design.md`.
 - **Outputs:** `test-plan.md` with a `## Detailed coverage` table (step → unit/
   integration/characterisation test → location → target symbol(s)).
 - **Completion criteria:** every impl-plan step has a row or a `covered-by: AC-N`
@@ -217,24 +216,28 @@ step at a time. `build:work` is driven by `impl-plan.md` (S works from `spec.md`
 directly; M/L follow the plan steps).
 
 - **Inputs:** `spec.md`, `test-plan.md`, `impl-plan.md` (M/L).
-- **Outputs:** code changes; `build-log.md` (iteration journal); `build/progress.md`
-  (durable step ledger); git commits (one per step when practical).
-- **Completion criteria:** all tests green; every AC has a passing test;
-  `build-log.md` records all iterations AND carries a `## Evidence` section with ONE
-  entry per acceptance criterion in `spec.md` (KLC-115) — a heading or line naming
-  the AC id(s), an optional `verdict:` line (absent means pass; `deferred(<reason>)`
-  needs a non-empty reason), and a fenced block with the command (a `$ ` line) and
-  its real pasted output. On M/L `klc ack` BLOCKS an AC with no well-formed entry
-  and RE-EXECUTES every pass-claiming entry's command in the project root under
-  `verify.entry_budget_seconds`; a non-zero exit BLOCKS, while a budget overrun or a
-  launch error is reported `unverified` with the reason named and SURFACES on every
-  track rather than blocking — it is neither a pass nor a claim your tests failed
-  (`core/skills/evidence_gate.py`). `klc ack` also RE-EXECUTES each impl-plan step's
-  `VERIFY:` command and compares only the isolated outcome token in `Expected:`
-  (`core/skills/step_verify.py`); impl-plan fully ticked (M/L); git history shows a
+- **Outputs:** code changes; `build/steps.json` (the recorded VERIFY result per plan
+  step, KLC-174); git commits (one RED and one GREEN commit per step);
+  `build-log.md` is optional free notes.
+  A rebase or amend of a step's commits invalidates its recorded verify (the green commit must be an ancestor of the recorded HEAD), so re-run `klc step verify` after rewriting history.
+- **Completion criteria:** all tests green; every AC has a passing test; impl-plan
+  fully ticked (M/L). For each plan step the agent commits RED, commits GREEN, then
+  runs `klc step verify <KEY> N`, which executes the step's allowlisted `VERIFY:`
+  once and records the result in `build/steps.json`. `klc ack` only READS that file
+  and re-executes nothing: it blocks a step whose recorded verify is missing, failed,
+  differs from the plan's `VERIFY:` or predates the latest commit on the step. The file
+  is untrusted input — commits, TDD order and state are recomputed from git
+  (`core/skills/step_state.py`). A recorded verify also carries the `head` it ran at and
+  a `dirty` flag, and counts only when the tree was clean, the step's green commit is at
+  or below that `head`, and `ran_at` is not in the future. A hand-written steps.json
+  claiming green is therefore trusted only up to those derived checks (commit ancestry,
+  head, dirty flag, `ran_at` bounds): it proves a verify was recorded, not that it ran,
+  which is a deliberate trust shift from the removed replay. The VERIFY allowlist is not
+  a sandbox, because the test code itself still runs (a committed `conftest.py` can
+  execute anything); git history must show a
   failing-test commit before the implementation commit for each behaviour step
   (verified mechanically by `klc ack` via `core/skills/tdd_order.py`; steps marked
-  `RED: not applicable` are exempt). A FACT item in `spec.md`, `design/options.md`
+  `RED: not applicable` are exempt). A FACT item in `spec.md`, `design.md`
   or `impl-plan.md` must cite a real project code or config file as `src=<path>:<line>`;
   for a ticket created on or after `items_verify.FACT_SOURCE_RULE_EPOCH`, or any item
   carrying `evidence=read`, a bad source fails consistency — for an older ticket it
@@ -314,63 +317,35 @@ directly; M/L follow the plan steps).
    `klc build-run` orchestrator (`core/skills/per_step_review.py`).
 4. Repeat until all steps are green, then `klc ack <key> --pick 1`.
 
-**`build-log.md`** is an append-only journal maintained by the impl agent (one
-entry per iteration, outcome `green | red | blocked` + notes). Before `klc ack` the
-impl agent appends the `## Evidence` section — `build:ack` is mechanically blocked
-without a non-empty fenced block under it. The reviewer reads the full log; the
-retrospective agent uses it for metrics.
+**`build-log.md`** is optional free notes from the impl agent (decisions, deviations,
+finding assessments). Nothing gates on it; `klc ack` does not read it. The reviewer and
+the retrospective agent may use it as context.
 
 **Review signal rule.** `APPROVED` / `REVIEW_LITE_PASS` means "this iteration found
 zero issues". If the reviewer finds and fixes something during a pass, it emits
 `CHANGES REQUESTED` / `REVIEW_LITE_CRITICAL` so the operator can schedule another
 pass to confirm the fix introduced no new problems.
 
-**Build orchestrator.** `klc build-run <KEY>` dispatches each impl-plan step to a
-fresh Claude subprocess with a dependency-resolved brief. It loads `build/progress.md`
-if present (else derives it from `impl-plan.md`), dispatches each non-green step,
-marks it green or blocked, exits 0 when all green (non-zero on the first blocked
-step; resume by re-running). `progress.md` is YAML frontmatter (source of truth) +
-a regenerated table; a `running` step reverts to `pending` on reload (crash
-recovery). Implemented in `build_orchestrator.py` + `build_ledger.py`. The inline
-TDD loop stays the primary interactive workflow; `build-run` is the hands-off path.
+**Build orchestrator.** `klc build-run <KEY>` dispatches each impl-plan step that
+`step_state.derive` reports as not green to a fresh Claude subprocess with a
+dependency-resolved brief, then runs `record_verify` for it and reads the state back.
+It exits 0 when all steps are green and non-zero on the first step that is not; resume
+by re-running. There is no separate ledger: progress is derived from git plus
+`build/steps.json`, so it cannot drift from the truth. Two cases avoid a full re-dispatch:
 
-**Post-build step ledger pass (KLC-114).** A mechanical second opinion the
-orchestrator computes from git and from re-executed commands, instead of
-trusting the builder's own report — because the build-log entry, the
-Evidence section and the implicit claim "every step was done TDD-style, in
-scope and verified" were previously all written by the same party that did
-the work. One function, `core.skills.step_ledger.verify_build_steps`,
-backs all three call sites: `klc build-run`'s own loop (after it finishes),
-`/klc:run`'s post-build sub-step 5f (`python3 core/skills/step_ledger.py
---ticket <KEY>`), and `can_complete_build`'s persisting build-ack path. For
-each impl-plan step it re-executes the step's own `VERIFY:` command and
-requires the `Expected:` outcome token in the captured output, derives the
-step's touched files from that step's own commits (`tdd_order.step_commits`)
-compared against its declared `Affected:` surface, and records one of four
-verdicts: `green` (the re-run passed and the token matched), `red` (the
-re-run failed, or a red-before-green ordering violation), `unverified` (no
-verdict could be reached — a budget overrun, a launch error, a placeholder
-`VERIFY:`/`Expected:`, or no commit carrying the step's key — never
-promoted to `red`: absence of evidence is not evidence of failure), and
-`scope-violation` (a commit touched a path outside the declared surface,
-with a `tests` segment and, when the step already declares a `core/agents`
-edit, `klc-plugin/` both waived by policy). It writes `build/progress.md`
-(one verdict + reason per step) and appends machine-made `## Evidence` rows
-into `build-log.md`'s first `## Evidence` section, replacing only its own
-delimited block on re-run and never touching the builder's own entries.
-Report-only for now (Q-004): a `red`/`scope-violation` verdict surfaces as
-a `high`-severity advisory, it does not block the ack. Disable entirely
-with `build.verify_steps: false`; `build.per_step_review_on_verify: true`
-additionally dispatches the per-step reviewer (`core/agents/review/per-step.md`,
-under the `per-step-review` role) whenever a step's verdict is non-green.
-Within one `can_complete_build` call, the step-verify arm and this pass
-share ONE per-ack Verdict cache keyed by `(ticket, step_id, command)`, so
-a step's VERIFY executes at most once per ack, not once per arm (KLC-114
-review round 1, HIGH). `/klc:run`'s sub-step 5f is a SEPARATE process
-invocation and does not share that cache with the `ack` call that follows
-it — each step's VERIFY therefore still runs once in 5f and once more
-inside `ack`, by design (Q-001: the operator sees the verdicts before
-deciding whether to ack at all).
+- A step that is non-green ONLY because its recorded verify is older than a later
+  commit gets `record_verify` again, not a new step agent.
+- After the per-step review (`core/skills/per_step_review.py`) the orchestrator writes
+  `review: {state: "blocked"|"passed", at, round, commit}` into the step's `steps.json` record.
+  A `blocked` marker keeps the step non-green until a NEW commit lands on it; the marker
+  is then stale and is cleared on read. A `passed` marker whose `commit` is the step's
+  current green commit means that commit is never reviewed again, and
+  `build.max_reviews_per_step` (default 3) caps the review gates per step in one run.
+
+The inline TDD loop stays the primary interactive workflow; `build-run` is the
+hands-off path. `build.per_step_review_on_verify: true` additionally dispatches the
+per-step reviewer (`core/agents/review/per-step.md`) whenever a step is non-green after
+its verify.
 
 **Budget counters** in `meta.json:budgets` (limits in `config/budgets.yml`):
 
@@ -390,7 +365,7 @@ Hitting a limit writes `meta.json:blocked_reason` and halts; the agent emits
 **Purpose (S/M/L).** Audit the implementation against spec/ADR — correctness,
 completeness, quality, security, and scope.
 
-- **Inputs:** the build diff, `spec.md`, `test-plan.md`, `design/adr.md` (M/L),
+- **Inputs:** the build diff, `spec.md`, `test-plan.md`, `design.md` (M/L),
   `impl-plan.md` (M/L), `build-log.md`.
 - **Outputs:** `review-report.md` (findings + verdict).
 - **Completion criteria:** `review-report.md` exists with a verdict; all critical
@@ -399,41 +374,82 @@ completeness, quality, security, and scope.
   request-changes → build:work.
 - **Pitfalls:** scope creep not caught; a missing AC test; a security issue missed.
 
-Findings are ranked using the four levels in [`severity-rubric.md`](severity-rubric.md)
+Findings are ranked using the four levels in [`severity-rubric.md`](../config/severity-rubric.md)
 (the single source every review agent cites — not repeated here). A mandatory
 external code-reviewer subagent runs before `review-report.md` is written, to catch
 cross-file gaps internal review misses.
 
-**Review cascade.** Before the full multi-agent review, `review_cascade.py` runs
-`scope_delta → scan_sentinels → classify_tier → CascadeDecision` to pick the review
-depth:
+**Review cascade (KLC-175).** A review is three layers, so a typical S/M change
+costs about one model pass instead of five. The cheap/full split is gone.
 
-| Signal | Result |
-|--------|--------|
-| Scope expansion (unplanned modules) or unknown files | Full review |
-| Scope comparison unavailable (`skipped`) | Full review (fail-closed) |
-| Classifier returns no file tiers | Full review (fail-closed) |
-| Any sentinel hit | Full review |
-| Any `critical` or `core` tier file | Full review |
-| Peripheral files > `peripheral_max_files` | Full review |
-| Changed lines > `peripheral_max_lines` | Full review |
-| All `peripheral` + no drift + no sentinels + within limits | **Cheap review** |
+```text
+layer 0  deterministic checks (AC test coverage, TDD order, drift, scope, sentinels)
+         -> findings with kind "layer0"; never a model pass
+layer 1  exactly one structured code-review reviewer
+layer 2  specialists, each only on its signal:
+         security      sentinel hit or a critical-tier file
+         architecture  an added top-level public def/class (no leading `_`, not in tests or prose), or an added dependency edge
+         performance   hot-path file (hot_path_globs or a trailing `# perf:hot` comment on a code line)
+         deep-impact   as before
+external reviewer: default-on for track L only; S/M opt in via reviewers.yml
+```
 
-**Fail-closed:** the cascade defaults to full review when it cannot prove
-peripheral — "unavailable" ≠ "no risk". Cheap review dispatches
-`core/agents/review/cheap.md` (correctness, coverage, spec alignment only),
-controlled by `config/reviewers.yml` (`cascade.enabled`, `peripheral_max_files`,
-`peripheral_max_lines`). The report frontmatter carries `review_depth`,
-`full_review_offered`, `full_review_declined` for the retro and the
-`cheap_escape_rate` rollup.
+Why: one reviewer reading one shared context finds most defects; specialists add
+cost only when the diff gives a reason. Signals live in `core/skills/review_signals.py`.
+
+**Fail-closed:** every signal is True, False or None (unevaluable: the sentinel
+scanner or the classifier failed). A None signal plans its specialist (security for
+`sentinel_hit`/`critical_tier`, architecture, performance, deep-impact) with
+`planned_reason: "signal unevaluable"`, and the plan and the `review.py` output name
+the signals concerned. If the whole signal evaluation raises, ALL specialists are
+planned, because "unavailable" is not "no risk". On S/M that can exceed the pass cap
+and need `--over-cap`. An unreadable manifest is not fail-closed: the plan carries the
+note `manifest unreadable: ...; specialists not planned`. The report frontmatter
+`review_depth` records the layers that EXECUTED (`L1` or `L1+L2`); older reports say
+`cheap`/`lite`/`full`. Layer 1 covers correctness and baseline security itself; the
+security specialist is the deep pass.
+
+`scripts/review.py --diff` takes a patch file, `A..B`, `A...B` or `recorded` (the
+ticket's pre-merge range, checked for ancestry and used only while HEAD is still its
+head, else the live merge-base..HEAD); an unresolvable or empty range end exits 2.
+For the in-client path `scripts/review.py --report --spec <spec>` renders the
+ticket's `review-report.md` without a model (see the review agent, step 5).
+
+**Shared context.** Each run writes `.klc/scratch/<KEY>/review/context.md` once
+(diff, spec goals and ACs, test-plan table, decisions, module docs). Job cards
+carry only its path plus an addendum of at most 1 KB; root CLAUDE.md and the
+rule catalog are never inlined, and the severity rubric is named by path. Unusual
+but deliberate: a headless dispatch cannot follow a path, so the runner inlines
+`context.md` into every card, and the card's addendum (file filter and focus, at most
+1 KB) as a text block: a headless specialist gets its filter as an instruction, not
+as a filtered diff. The saving is therefore large in a client and in fewer passes,
+and smaller headless. The report records both figures
+(`inlined_bytes_in_client`, `inlined_bytes_headless`, both counting `adr_context`)
+next to `planned_passes`, `executed_passes` and `review_duplicate_rate` (this run's
+raw findings against their deduped pool; `n/a` when fewer than two reviewers
+contributed).
+
+**Where to look.** `review-report.md` ends its summary with a `## Where to look`
+list built without a model (`core/skills/review_map.py`), and the GitHub summary
+comment copies it. Each file appears once, under the first rule that fires:
+
+| Tier | Rules |
+|------|-------|
+| critical | files named (as whole paths) by a `[!DECISION]` item or an ADR; plan steps addressing an AC when the spec has `risk_tags`; migrations and schemas; added public API; the critical tier of `config/tiers.yml` |
+| important | MEDIUM findings assessed won't-fix (only when `--report --assessments` is given); plan steps carrying a DECISION; `core/agents/**`; git hotspots of the diff's own files (`where_to_look.hotspot_min_commits` commits in 90 days) |
+| optional | generated files (`klc-plugin/**`, goldens, fixtures: never critical); service artefacts; files a layer-0 finding named |
+
+A missing input only empties a tier; it never fails the report.
+
+`cheap_escape_rate` (below) still reads older tickets that were cheap-reviewed.
 
 **Review plan (KLC-120).** Before any job card or dispatch, `scripts/review.py`
 (both the headless path and the in-client path via `--plan-only`) writes
-`.klc/tickets/<KEY>/review-plan.json`: every pass it would run, with its source,
+`.klc/tickets/<KEY>/review/review-plan-r<N>.json` (one plan per review round; a
+new diff starts round N+1 and carries the executed passes over): every pass it would run, with its source,
 selecting rule, provider, model and status (`planned` / `executed` / `skipped`,
-always with a reason when skipped). The manifest's four `reviewers.always`
-entries are always listed, even on the in-client path that doesn't dispatch them
-(`skipped`, reason names KLC-127 Group B). A fixed `per_step_build_review: "not
+always with a reason when skipped). The manifest's layer-1 and layer-2 reviewers are listed, with `skipped` and a reason
+when no signal fired. A fixed `per_step_build_review: "not
 counted"` field states that the automatic per-step build review is outside this
 inventory.
 
@@ -446,8 +462,8 @@ rendered report frontmatter carries `cap_override: true` and the cap value,
 alongside `planned_passes`, `executed_passes` and every skipped pass with its
 reason.
 
-**External reviewer** (default-on for S/M/L, `external_reviewer.enabled: true`):
-runs on both cheap and full paths, on the model `config/models.yml`'s
+**External reviewer** (default-on for track L; S/M opt in, `external_reviewer.enabled: true`):
+runs on the model `config/models.yml`'s
 `review-external` pseudo-phase resolves (anthropic by default; `model_ref` in
 `config/reviewers.yml` names the phase, an explicit `provider`/`model` there
 overrides it). Skip conditions (first match wins): `--no-external`,
@@ -473,8 +489,8 @@ only on CRITICAL (security, API break, data corruption).
 integration.
 
 - **Inputs:** the build+review diff, the `test-plan.md` manual checklist, `spec.md`.
-- **Outputs:** `manual-checklist.md` completion + notes. Checkboxes match AC
-  phrasing verbatim (no paraphrase); the outcome is recorded at the ack gate.
+- **Outputs:** none as a file. `klc ack --note` records the verdict, note and time
+  in `meta.json` under `manual`.
 - **Ack options:** `--pick 1` passed → integrate · `--pick 2` failed → build:work.
 - **Pitfalls:** skipping validation; a vague checklist; no rollback plan.
 
@@ -484,8 +500,11 @@ integration.
 Integrate is the only merge/push phase — merge is always human (see the runner
 guardrails).
 
-- **Process:** rebase on the latest upstream main, resolve conflicts, push, write
-  `integrate.md` with the merge details.
+- **Process:** rebase on the latest upstream main, resolve conflicts, push; the ack
+  records two heads in `meta.json` under `integrate`: `branch_head` (project HEAD at
+  the ack, usually the feature-branch tip) and `main_head` (local `main`, null when it
+  does not resolve). A squash merge puts neither of them on main, so neither is called
+  "the merge commit".
 - **Ack options:** `--pick 1` merged (XS → learn, S/M/L → observe) · `--pick 2`
   conflict (human resolves, retry).
 - **What the integrate ack scores.** The drift check, the retrieval evaluator and
@@ -521,10 +540,13 @@ catch regressions early.
 learned, recommendations, action items — and archive.
 
 - **Inputs:** all ticket artefacts + `phase_history`. **Outputs:**
-  `retrospective.md` (citation-heavy: every observation is a `[!FACT F-R…]` with
-  `src=` or a cross-reference to meta/metrics).
+  `retrospective.md`, at most 40 lines, with three fixed headings:
+  `## What the gates missed`, `## Token cost by phase` (measured attempts only,
+  `n/a` when none) and `## One process change`. A longer file or a missing heading
+  raises a surface-only advisory at the learn ack. Discovery reads the same
+  headings when it looks at related tickets.
 - **Ack options:** `--pick 1` archive · `--pick 2` extract-to-CLAUDE.md.
-- **Pitfalls:** a generic retro ("everything was good"); no action items; blaming
+- **Pitfalls:** a generic retro ("everything was good"); no process change; blaming
   instead of learning. If one lesson shows up in five retros in a row, promote it
   from a retro note to a rule in this doc.
 
@@ -586,10 +608,11 @@ the next phase's `:work` (the pick's `goto` is `next`), so the happy path is
 ```text
 klc intake <KEY> "one-line description"   # → intake:ack-needed
 klc ack    <KEY> --pick 1                 # confirm-route → discovery-lite:work
-   # agent writes spec.md, options-lite.md (>=2 approaches + a recorded "Picked:"), impl-plan.md
+   # agent writes spec.md (## Approaches: >=2 approaches + a recorded "Picked:"), impl-plan.md
 klc ack    <KEY> --pick 1                 # approve → build:work
-   # on a feature branch: write code + build-log.md (## Evidence). Commit the failing
-   # test BEFORE the fix for each step — build ack enforces red-before-green from git history.
+   # on a feature branch: write code. Commit the failing test BEFORE the fix for each step,
+   # then run `klc step verify <KEY> N` — build ack enforces red-before-green from git history
+   # and reads the recorded verify from build/steps.json.
 klc ack    <KEY> --pick 1                 # approve → review:work   (agent writes review-report.md)
 klc ack    <KEY> --pick 1                 # approve → integrate:work ; merge the feature branch
 klc ack    <KEY>                          # merged → archived (observe + learn condition-skipped for a clean S)
@@ -670,11 +693,11 @@ before `next` proceeds.
 
 Mechanical pre-conditions block `ack` before the human pick is offered:
 - **discovery-lite ack (S)**: spec self-review clean; ≥2 approaches + pick in
-  `options-lite.md`; `impl-plan.md` required and must pass `impl_plan_violations()`.
-- **design ack (M/L)**: `design/options.md` and `impl-plan.md` must exist, be
+  the `## Approaches` section of `spec.md`; `impl-plan.md` required and must pass `impl_plan_violations()`.
+- **design ack (M/L)**: `design.md` (with `## Options` and a `Picked:` line) and `impl-plan.md` must exist, be
   non-empty, and pass the plan-completeness gate.
-- **build ack (S/M/L)**: `build-log.md` must exist, be non-empty, and contain a
-  `## Evidence` section with at least one non-empty fenced block.
+- **build ack (S/M/L)**: every plan step must be green in `step_state` — RED then
+  GREEN commits, and a valid `klc step verify` result in `build/steps.json`.
 
 The design agent and test-planner (M detailed mode) self-review `impl-plan.md`
 before emitting their completion signal — scanning every `## step-N` for missing
@@ -699,8 +722,12 @@ A record with an unknown or missing severity normalises to `info` and raises a
 companion flag naming the offender — severity is always declared by the producer
 that knows the condition, never inferred downstream. On the **persisting** ack
 path the collected records are written to
-`<ticket-dir>/<phase-id>/ack-advisories.json` (schema version, ticket, phase,
-generation timestamp, the record list); a **read-only probe**
+`<ticket-dir>/advisories.json`, one file per ticket keyed by phase id (per phase
+the generation timestamp and the record list; a clean ack writes no key). A
+missing key reads as clean only when the ticket history records the phase
+reaching `ack-needed` and that entry does not say `advisories: write-failed`; an
+unreadable `advisories.json` is moved aside to `advisories.corrupt-<ts>.json`
+and, while that file exists, every phase of the ticket reads dirty; the sibling is local evidence (never committed to klc-state), and the operator deletes it after inspection, which returns the gate to normal. A **read-only probe**
 (`persist=False` — `klc remind`, gate-policy signal collection) writes nothing.
 The gate's return value is a one-line **summary** in place of the old joined
 prose — `2 high · 3 medium · 11 info — see <path>`, or the empty string when no
@@ -820,7 +847,7 @@ low-noise:
 findings[]              OBJECTIVE, the reviewer decides -> to be fixed:
                         infidelity to raw.md · code-contradiction · constitution
                         violation · untestable/ambiguous AC · internal contradiction.
-                        Recorded to spec-review-findings.json AND surfaced at the
+                        Recorded to findings.json (kind spec-review) AND surfaced at the
                         ack as a collapsed count ("N finding(s) recorded (M high)
                         — assess before build"). The BUILD agent (core/agents/
                         impl.md) reads that file and assesses each (fix/won't-fix)
@@ -847,7 +874,7 @@ non-contradiction. Only correctness of intent has no anchor → it becomes a
 XS. At the spec phase the only escalation signal available is a **risk tag** — there
 is no diff yet, so the sentinel / scope-expansion signals do not fire here.
 **Read-only safety**: the advisory probe (`persist=False`) surfaces the same lines
-WITHOUT writing `spec-review-findings.json`; only the persisting ack path records.
+WITHOUT writing the spec-review records to `findings.json`; only the persisting ack path records.
 **Degrade-not-fail**: absent constitution / self-check / reviewer output — or a
 valid-JSON-but-wrong-shape verdict — degrades to a surfaced note; the phase still
 completes.
@@ -861,19 +888,19 @@ plumbing with its OWN classes (uncovered-ac, weak-assertion, missing-edge-case) 
 a `test-plan-review[…]` label — no second copy, no validator fork.
 
 **Build-time assessment of test-plan-review findings (KLC-093)**: the test-plan
-reviewer's OBJECTIVE `findings[]` are recorded to `test-plan-review-findings.json`
+reviewer's OBJECTIVE `findings[]` are recorded to `findings.json` (kind `test-plan-review`)
 via the same seam. The BUILD agent (`core/agents/impl.md`) reads that file too —
-right beside `spec-review-findings.json` — and assesses each finding (fix/won't-fix)
+right beside the spec-review records — and assesses each finding (fix/won't-fix)
 in `build-log.md` before writing code, with the same high-severity-unaddressed →
 stop-and-ask rule and the same degrade-when-absent behaviour. The schema is
-identical — `findings.Finding` (`rule_name · severity · file · line · title · body ·
-fix`) — so it is the same assess logic for both files, symmetric with how
+identical — `findings.Finding` (`kind · round · rule_name · severity · file · line · title ·
+body · fix`) — so it is the same assess logic for both kinds, symmetric with how
 `review-report` assesses the code reviewer's findings.
 
 **Independent impl-plan review (KLC-094 · V-01)**: the trilogy's third reviewer, one
 artifact further LEFT again — onto `impl-plan.md`. A fresh, adversarial reviewer
 (`klc-plugin/agents/impl-plan-reviewer.md`) reads the plan against the spec's SAOC ACs
-**and** the recorded `spec-review-findings.json`, and emits the same two output
+**and** the recorded `kind: spec-review` records in `findings.json`, and emits the same two output
 classes through the SAME generic seam bound to a new descriptor
 (`implplan_review.IMPL_PLAN_REVIEW`) — OBJECTIVE `findings[]` (`missing-step` ·
 `wrong-sequencing` · `untestable-step` · `unaddressed-ac` · `infeasible-red-green`)
@@ -884,8 +911,8 @@ thin `consume` wrapper (the impl-plan already has a DETERMINISTIC gate —
 this adds only the independent JUDGMENT above it). The seam is wired at the ack that
 FINALIZES `impl-plan.md` — `can_complete_discovery_lite` on S, the design phase on
 M/L — and threads `persist` so a read-only probe surfaces the advisories without
-writing. The BUILD agent (`core/agents/impl.md`) reads `impl-plan-review-findings.json`
-right beside the spec-review and test-plan-review files and assesses each finding
+writing. The BUILD agent (`core/agents/impl.md`) reads the `kind: impl-plan-review` records of `findings.json`
+right beside the spec-review and test-plan-review records and assesses each finding
 (fix/won't-fix) in `build-log.md`, with the same high-severity-unaddressed →
 stop-and-ask rule and the same degrade-when-absent behaviour — one symmetric
 discipline for THREE reviewers.
@@ -894,9 +921,9 @@ discipline for THREE reviewers.
 the three above, the code reviewer and the external reviewer — returns ONE
 Finding shape. `python3 core/skills/handback.py take --kind <kind> --ticket
 <KEY> --file <verdict>` is the single intake: it validates the shape, refuses
-anything else with the error list, stores a `code-review`/`external-review`
-verdict at `review/<kind>-findings.json`, and counts the pass. `python3
-core/skills/findings.py pool --ticket <KEY>` merges every stored finding into
+anything else with the error list, appends the verdict's records, tagged with `kind` and `round`, to the ticket's one
+`findings.json`, and counts the pass. `python3
+core/skills/findings.py pool --ticket <KEY>` merges every record of `findings.json` into
 `review/findings-pool.json` (`raw_count`/`pooled_count`/`duplicate_rate`),
 which the report renders its table from. The one-off migration of the
 pre-KLC-127 findings files and verdict blocks is KLC-154.
@@ -989,7 +1016,7 @@ questions run `klc ack --auto` + `klc next`.
 **Completion signal.** Every `klc-<phase>` subagent ends with one fenced JSON block:
 
 ```json
-{"phase":"design","signal":"done","artifacts":["design/options.md","impl-plan.md"],"blocking_questions":[],"next_action":"ack"}
+{"phase":"design","signal":"done","artifacts":["design.md","impl-plan.md"],"blocking_questions":[],"next_action":"ack"}
 ```
 
 `core/skills/run_signal.py` parses it (`parse_signal`) and applies the retry policy
@@ -1017,29 +1044,23 @@ the clarify pass (one `AskUserQuestion`, style from `config/clarify.yml`, fail-c
 
 ## Token telemetry & budget guard
 
-Before dispatching any agent call, the budget guard estimates the prompt size
-and applies two tiers from `config/budgets.yml`:
+**Warn-only real-spend check (KLC-174).** The old card-size gate (an estimate of
+the prompt, bytes / 4, against fixed soft and hard limits) is gone: an estimate
+of the card says little about what a ticket really costs, and a hard limit could
+stop a dispatch for no real reason. In its place `budget_guard.real_spend_warning
+(track, ticket)` looks at REAL spend. It sums the measured input of the current
+ticket (`provider` and `transcript` attempts) and compares it with 1.5 times the
+median per-ticket total of the last 10 archived tickets on the same track. If the
+ticket is above that line, the `/klc:run` orchestrator shows one warning line and
+carries on. With no measured data the check says nothing. It never blocks. The
+window and the factor live in `config/budgets.yml` under `real_spend_warn`.
 
-| Track | Soft (warn) | Hard (block) |
-|-------|-------------|--------------|
-| XS    | 6 000       | 12 000       |
-| S     | 15 000      | 30 000       |
-| M     | 45 000      | 90 000       |
-| L     | 150 000     | 300 000      |
-
-A **soft** breach warns on stderr and proceeds; a **hard** breach refuses dispatch
-and writes `[!QUESTION] context too large` — no model call is made. The `/klc:run`
-orchestrator's own advisory check (`budget_guard.gate_card_dispatch`) treats a
-missing estimate (a card that failed to render) as a hard breach too — never
-as zero, fail-closed.
-
-**One estimator, one shape (KLC-119).** `budget_guard.estimate_tokens` is the
-ONE size-to-token rule in the whole framework: `max(1, len(text.encode("utf-8"))
-// 4)`, over UTF-8 bytes (not characters — the two differ by under 1.1% on this
-project's own cards, but non-ASCII text, e.g. this project's Russian
-documentation, makes the choice matter). Every call site — the card renderer,
-the step-brief renderer, the headless runner and the budget check — calls this
-one function.
+No writer produces an `estimated` attempt any more (card renders, the headless
+runner without usage, the signal fallback and review-pass records all record
+nothing without real usage). Archived metas keep their old `estimated` records,
+and the rollup still reads them into the `estimated` bucket, so the rows below
+describe both the historical corpus and what is written today: only `provider`,
+`transcript` and `signal` are written now.
 
 `meta.json:metrics.tokens.<phase_id>` is an append-only **attempts list**
 (`{"attempts": [...], "legacy": <pre-KLC-119 record, if one existed>}`), not a
@@ -1215,21 +1236,6 @@ when no ticket of the track has a tagged attempt — "not measured" must not
 read as "costs nothing". This is the real per-ticket count of executed LLM
 review passes the review plan (above) enumerates and the cap bounds.
 
-**The BEFORE baseline is machine-local, by construction.** A backfill pass
-(`core/skills/token_backfill.py`) records one `estimated` attempt per stored
-prompt card for a ticket, reproducing a "how much have we been sending"
-baseline without inventing a number. Because it runs with no transaction
-open, its attempts land in each ticket's untracked journal rather than a
-committed `meta.json`, so a teammate does not see this baseline by pulling
-`klc-state` — they reproduce it by re-running the backfill over whatever
-cards are on their own disk. Measured at build time on host `CY1-WL-1184`
-(`KLC_CARD_ROOT` unset, `.klc/scratch/`): 99 archived tickets, 94 with at
-least one card on disk, 4 748 230 bytes / ≈1 186 848 estimated tokens in
-total (within 3% of the ticket's sealed spec-time baseline); the eight
-archived M tickets from the epic (KLC-103 onward) average 89 623 bytes /
-≈22 403 estimated tokens per ticket. See
-`.klc/tickets/KLC-119/build-log.md` for the full re-measurement and delta.
-
 ---
 
 ## Prompt cards
@@ -1383,7 +1389,7 @@ file a phase produces (spec.md, test-plan.md, impl-plan.md, review-report.md, �
 
 **Authority** — who owns an artefact: `human` (never regenerated —
 `spec.md` after ack, `retrospective.md` after learn), `generated` (overwritten every
-run — index files, `options.md`, ticket `README.md`), or `hybrid` (agent regenerates
+run — index files, `design.md`), or `hybrid` (agent regenerates
 the body, but `<!-- BEGIN: manual --> … <!-- END: manual -->` blocks are preserved
 verbatim). **Layer** — architectural layer affected (`meta.json:layer`).
 **Budget** — iteration-count limits preventing infinite loops. **Phase history** —
@@ -1415,40 +1421,45 @@ are stable — skills and agents look for them by name.
 
 ```
 .klc/tickets/<KEY>/
-  meta.json                  # source of truth for phase, track, metrics
+  meta.json                  # source of truth for phase, track, metrics, manual/integrate outcomes
   raw.md                     # user's original description (immutable)
-  spec.md                    # discovery output (authority: human after ack)
-  options-lite.md            # S-track: >=2 approach options + Picked line (gate reads this)
+  spec.md                    # discovery output, incl. ## Approaches (authority: human after ack)
   test-plan.md               # test-planner output
-  design/options.md          # three options + recommendation
-  design/adr.md              # only when ADR_NEEDED=yes
+  design.md                  # M/L: ## Options (+ Picked) and ## Consequences
   impl-plan.md               # step list; bumped during build
-  build-log.md               # running journal of build iterations (S/M/L)
-  build/progress.md          # durable step ledger (klc build-run)
-  build/step-N-brief.md      # dependency-resolved context for step N
-  build/step-N-impl-report.md# impl agent's outcome + evidence for step N
-  build/step-N-review.md     # per-step review findings + verdict
-  manual-checklist.md        # only when estimate.manual >= 2
-  retrospective.md           # final, human-authority after learn
-  README.md                  # auto-generated ticket summary
+  build/steps.json           # recorded VERIFY result (+ review marker) per step
+  findings.json              # every reviewer's findings, one file (KLC-173)
+  advisories.json            # surface-only advisories keyed by phase (KLC-173)
+  review/review-plan-r<N>.json  # review plan of round N (KLC-175)
+  review-report.md           # findings + verdict
+  retrospective.md           # final, human-authority after learn, at most 40 lines
   .index.json                # inline-item graph, regenerated by items.py
 ```
+
+Derived files (retrieval trace, per-step briefs and reports) live in
+`.klc/scratch/<KEY>/` and are not tracked. A superseded phase is deleted in place
+and the commit it was deleted from is recorded in `meta.json` under `superseded`.
+The budget is ten tracked files per ticket, not counting `findings.json`,
+`advisories.json` and `review/`; `tests/integration/test_klc176_layout_budget.py`
+holds it. Archived tickets keep their old layout and every reader still accepts it. New tickets
+carry `meta.layout: 2`; only a ticket without that marker may still be judged on
+the legacy approaches and design option files. `build-log.md` (optional implementer notes)
+is outside the budget; `design/scout.md` counts toward it.
 
 **`meta.json`** is the machine-readable single source of truth: `ticket`, `kind`,
 `phase`, `phase_history[]`, `track`, `estimate {complexity, uncertainty, risk,
 manual, total}`, `layer`, `affected_modules[]`, `related_tickets[]`,
-`manual_outcome`, `merge_sha`, `alerts[]`, `rework_count {phase: n}`, `metrics{}`.
+`manual {verdict, note, at}`, `integrate {branch_head, main_head, at}`, `alerts[]`, `rework_count {phase: n}`, `metrics{}`.
 
 **`spec.md`** — rendered full or short (XS); the `Affected` section requires every
 entry to be LSP-verified (`src=path:line`) or an explicit
 `[!ASSUMPTION if-false=scope-may-expand]`. Full form caps ~80 lines (hard cap 120);
-short form max 15 lines. **`options-lite.md`** (S-track only; XS exempt) carries ≥2
-labelled options and a `Picked:` line the `can_complete_discovery_lite` gate blocks
-on. **`test-plan.md`** — S written by discovery-lite in the same call; M/L written by
+short form max 15 lines. The **`## Approaches`** section (S, M and L; XS exempt)
+carries ≥2 labelled options and a `Picked:` line the discovery gates block on. **`test-plan.md`** — S written by discovery-lite in the same call; M/L written by
 `test-planner` in two passes (acceptance mode fills `## Acceptance coverage`, detailed
 mode replaces the `TBD` with `## Detailed coverage`); authority `hybrid`.
-**`design/options.md`** — three options A/B/C with one `recommended: true`, ending
-`ADR_NEEDED=yes|no`. **`impl-plan.md`** — authored by the design agent (S: by
+**`design.md`** (M/L) — `## Options` with 2–4 labelled approaches and a `Picked:`
+line, then `## Consequences`. **`impl-plan.md`** — authored by the design agent (S: by
 discovery-lite); the enforced contract is `core/skills/impl_plan_check.py`.
 
 **Executable step contract** — every `## step-N` includes: `Goal` (✓), `RED` (or
@@ -1459,9 +1470,7 @@ non-empty `Code sketch` (✓). **✓** = mechanically checked by `impl_plan_viol
 review discipline. `RED: not applicable` is the only sanctioned way to omit a code
 sketch (prompt/doc/config-only steps) and relies on author discipline.
 
-**`build-log.md`** — append-only; each iteration is `## Step N` (Attempt / Outcome
-`green|red|blocked` / Notes), plus the mandatory `## Evidence` fenced block before
-build ack. Authority `generated`; persists through review rework. **Authority model:**
+**`build-log.md`** — optional free notes (nothing gates on it). Authority `generated`; persists through review rework. **Authority model:**
 `human` never regenerated; `generated` overwritten every run; `hybrid` regenerates the
 body but preserves `<!-- BEGIN: manual -->` blocks.
 
@@ -1492,7 +1501,7 @@ well-defined set; the learn phase reads them all and computes derived values.
 | build | `build_ms`, `iterations`, `red_fixes`, `mutation_score`, `build_head_sha` | |
 | review | `review_ms`, `blocking`, `non_blocking`, `sub_agents_ran`, `review_depth`, `full_review_offered`, `full_review_declined` | last three from report frontmatter |
 | manual | `manual_minutes`, `manual_outcome` | |
-| integrate | `merge_wait_ms`, `merge_sha`, `pre_post_snapshot_match` | |
+| integrate | `merge_wait_ms`, `branch_head`, `main_head`, `pre_post_snapshot_match` | |
 | observe | `observe_hours`, `alerts_seen` | |
 | learn | `cycle_time`, `estimate_accuracy`, `rework_count`, `token_spend`, `cost_breakdown` | computed at learn |
 

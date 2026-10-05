@@ -415,7 +415,7 @@ def consume(ticket_dir, track, signals=None, persist: bool = True):
     finding categories / decision topics off `TEST_PLAN_REVIEW`. Returns
     `(advisories, findings)`; degrade-not-fail lives inside `spec_review.consume`.
     `persist=False` (a read-only probe: `klc remind` / gate-policy) surfaces the
-    advisories WITHOUT writing `test-plan-review-findings.json`.
+    advisories WITHOUT writing test-plan-review records to `findings.json`.
     """
     return _spec_review.consume(
         ticket_dir, track, signals, kind=TEST_PLAN_REVIEW, persist=persist

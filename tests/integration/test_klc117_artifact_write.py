@@ -20,7 +20,7 @@ def _ticket_dir(tmp_path: Path, ticket: str) -> Path:
     return d
 
 
-def test_persisting_ack_writes_ack_advisories_json(tmp_path, monkeypatch):
+def test_persisting_ack_writes_advisories_json(tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     _ticket_dir(tmp_path, "KLC-A1")
 
@@ -28,12 +28,9 @@ def test_persisting_ack_writes_ack_advisories_json(tmp_path, monkeypatch):
                                    "code": "t.c", "message": "m", "ref": ""}])]
     records, summary = advisories.finish("KLC-A1", "discovery", sources, persist=True)
 
-    path = tmp_path / ".klc" / "tickets" / "KLC-A1" / "discovery" / "ack-advisories.json"
+    path = tmp_path / ".klc" / "tickets" / "KLC-A1" / "advisories.json"
     assert path.exists()
-    envelope = json.loads(path.read_text(encoding="utf-8"))
-    assert envelope["schema_version"] == advisories.SCHEMA_VERSION
-    assert envelope["ticket"] == "KLC-A1"
-    assert envelope["phase"] == "discovery"
+    envelope = json.loads(path.read_text(encoding="utf-8"))["discovery"]
     assert "generated_at" in envelope
     assert envelope["records"] == records
     assert summary  # non-empty since there is a high record
@@ -51,7 +48,7 @@ def test_probe_persist_false_writes_no_file(tmp_path, monkeypatch):
                                    "code": "t.c", "message": "m", "ref": ""}])]
     records, summary = advisories.finish("KLC-A2", "discovery", sources, persist=False)
 
-    path = tmp_path / ".klc" / "tickets" / "KLC-A2" / "discovery" / "ack-advisories.json"
+    path = tmp_path / ".klc" / "tickets" / "KLC-A2" / "advisories.json"
     assert not path.exists()
     assert records  # the decision/summary is unaffected by persistence
     assert summary

@@ -1,4 +1,7 @@
-"""KLC-114 step-12 (review round 1, HIGH; AC-1/AC-11/C-005): `can_complete_build`
+"""KLC-174 note: the ack no longer executes any VERIFY, so the once-per-ack
+cache is moot and this test now pins zero executions. Original intent below.
+
+KLC-114 step-12 (review round 1, HIGH; AC-1/AC-11/C-005): `can_complete_build`
 runs `step_verify.check_steps` then `step_ledger.verify_build_steps`, and
 each independently called `verify_runner.run` on the SAME command for the
 SAME step — doubling every step's VERIFY execution (and its wall-clock
@@ -30,12 +33,12 @@ for _p in (str(_FW_ROOT), str(_FW_ROOT / "core" / "skills"), str(_FW_ROOT / "tes
 import klc114_helpers as h  # noqa: E402
 
 
-def test_two_real_passing_steps_execute_verify_exactly_twice_not_four_times(tmp_path, monkeypatch):
+def test_two_real_passing_steps_execute_verify_zero_times_at_ack(tmp_path, monkeypatch):
     """AC-1/AC-11/C-005: a 2-step M-track fixture, each step with real
     commits satisfying TDD order and scope, driven through
     `can_complete_build(ticket, repo, persist=True)` — `verify_runner.run`
-    executes exactly ONCE per step (2 total), never once per (step, arm)
-    (4 total)."""
+    executes ZERO times (KLC-174: the ack reads steps.json; it was once per
+    step before)."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     ticket = "KLC-VC01"
     ticket_dir = tmp_path / ".klc" / "tickets" / ticket
@@ -52,8 +55,6 @@ def test_two_real_passing_steps_execute_verify_exactly_twice_not_four_times(tmp_
     (ticket_dir / "test-plan.md").write_text(
         f"---\nticket: {ticket}\nkind: test-plan\n---\n\n"
         "## Acceptance coverage\n\n## Edge cases\n- n/a\n", encoding="utf-8")
-    (ticket_dir / "build-log.md").write_text(
-        "# Build log\n\n## Evidence\n\n```\n$ true\nok\n```\n", encoding="utf-8")
     plan = "# Implementation plan\n\n" + "".join(
         h.step_plan(f"step-{n}", verify="`sh -c \"echo 1 passed\"`",
                    expected="`1 passed`", affected=f"`core/skills/f{n}.py`")
@@ -64,6 +65,7 @@ def test_two_real_passing_steps_execute_verify_exactly_twice_not_four_times(tmp_
     for n in (1, 2):
         h.commit(repo, {f"tests/test_f{n}.py": "# test"}, f"{ticket} step-{n}: add test")
         h.commit(repo, {f"core/skills/f{n}.py": "# impl"}, f"{ticket} step-{n}: implement")
+    h.seed_steps(ticket_dir, repo)   # KLC-174: the recorded verifies the ack reads
 
     import verify_runner
     calls = []
@@ -79,4 +81,4 @@ def test_two_real_passing_steps_execute_verify_exactly_twice_not_four_times(tmp_
     ok, msg = can_complete_build(ticket, repo, persist=True)
 
     assert ok, msg
-    assert len(calls) == 2, f"expected exactly 2 VERIFY executions, saw {len(calls)}: {calls}"
+    assert calls == [], f"KLC-174: the ack executes no VERIFY, saw: {calls}"

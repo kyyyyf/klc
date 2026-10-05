@@ -13,7 +13,8 @@ SKILL = FW_ROOT / "klc-plugin" / "skills" / "run" / "SKILL.md"
 def test_run_skill_no_longer_documents_string_based_advisory_reading():
     text = SKILL.read_text(encoding="utf-8")
     normalised = " ".join(text.split())  # collapse markdown line-wrap whitespace
-    assert "ack-advisories.json" in normalised
+    assert "advisories.json" in normalised
+    assert "ack-advisories.json" not in normalised
     assert "phase-history note for advisory detail" in normalised
     # The orchestrator must not be told to parse the note/summary string for
     # advisory content — it reads the artifact instead.

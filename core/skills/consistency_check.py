@@ -109,7 +109,7 @@ def check_ticket(ticket: str, warnings: list[str] | None = None) -> list[str]:
     except Exception:                                  # noqa: BLE001
         pass
 
-    # KLC-115 (AC-13, D-203): a FACT in spec.md, design/options.md or
+    # KLC-115 (AC-13, D-203): a FACT in spec.md, design.md (design/options.md on an archived ticket) or
     # impl-plan.md whose src does not name an existing project code or config
     # file. Graduated: blocks only for an evidence=read opt-in or a ticket
     # created on/after FACT_SOURCE_RULE_EPOCH; everything else WARNS — a
