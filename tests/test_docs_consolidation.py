@@ -30,7 +30,7 @@ DOCS = REPO / "docs"
 # (#tracks #roles #glossary #artifacts #metrics #epics).
 PROCESS_ANCHORS = [
     "intake", "discovery", "design", "acceptance-test-plan",
-    "detailed-test-plan", "xs-build", "build", "review", "review-lite",
+    "build", "review",
     "manual", "integrate", "observe", "learn",
     "tracks", "roles", "glossary", "artifacts", "metrics", "epics",
 ]
@@ -142,8 +142,8 @@ def test_readme_has_install_and_links():
     assert "## install" in low, "README must carry a single Install section"
     assert "docs/process.md" in t, "README must link docs/process.md"
     assert "docs/architecture.md" in t, "README must link docs/architecture.md"
-    # A concrete end-to-end scenario: the intake→ack walk.
-    assert "klc intake" in t and "klc ack" in t, (
+    # A concrete end-to-end scenario: the intake→go walk.
+    assert "klc intake" in t and "klc go" in t, (
         "README must show an end-to-end usage scenario"
     )
 
@@ -164,8 +164,7 @@ def test_readme_no_deleted_links():
 # #acceptance-test-plan). Each must resolve to a real heading slug in process.md.
 _REWIRED_ANCHORS = [
     "discovery", "artifacts", "design", "build", "intake", "learn", "metrics",
-    "review", "review-lite", "acceptance-test-plan", "detailed-test-plan",
-    "xs-build",
+    "review", "acceptance-test-plan",
 ]
 
 

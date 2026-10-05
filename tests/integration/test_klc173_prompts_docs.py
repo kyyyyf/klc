@@ -22,7 +22,7 @@ def _files():
     return [
         *ROOT.glob("core/agents/**/*.md"),
         *ROOT.glob("klc-plugin/agents/*.md"),
-        ROOT / "klc-plugin/skills/run/SKILL.md",
+        ROOT / "klc-plugin/skills/go/SKILL.md",
         ROOT / "docs/process.md",
     ]
 
@@ -39,7 +39,7 @@ def test_prompts_docs_plugin_name_new_layout():
     assert "advisories.json" in process
     assert "review-plan-r<N>.json" in process
     assert "review-plan-r<N>.json" in (ROOT / "core/agents/review.md").read_text(encoding="utf-8")
-    assert "advisories.json" in (ROOT / "klc-plugin/skills/run/SKILL.md").read_text(encoding="utf-8")
+    assert "advisories.json" in (ROOT / "klc-plugin/skills/go/SKILL.md").read_text(encoding="utf-8")
 
 
 def test_architecture_doc_and_review_prompt_are_unambiguous():

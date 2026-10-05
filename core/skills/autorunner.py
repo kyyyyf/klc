@@ -60,6 +60,8 @@ import runner                    # noqa: E402
 import artefacts as _artefacts   # noqa: E402  renders the per-ticket prompt card
 import phase_resolver as _phase_resolver  # noqa: E402  KLC-118: the mode is READ, never chosen here
 import ack as _ack_cmd           # noqa: E402  core/phases/ack.py — reuse, do not reimplement
+import phase_completion as _pcomp  # noqa: E402  KLC-177: can_complete probe for no_dispatch
+import next_move as _next_move   # noqa: E402  KLC-177: card path for the no_dispatch pause
 from _paths import klc_ticket_dir, klc_ticket_meta_file, framework_root  # noqa: E402
 
 
@@ -264,7 +266,16 @@ def _pause(ticket: str, trace: list[str], phase_id: str, reason: str) -> RunResu
 # the bounded run loop (AC-1, AC-2, AC-3, AC-5, AC-7)
 # ---------------------------------------------------------------------------
 
-def run(ticket: str, *, dispatch=None, cap: int | None = None) -> RunResult:
+def run(ticket: str, *, dispatch=None, cap: int | None = None,
+        until: str | None = None, no_dispatch: bool = False) -> RunResult:
+    """Drive `ticket` forward through clean gates.
+
+    KLC-177 (`klc go --until`): `until` stops cleanly (terminal `until:<phase>`)
+    at `<phase>:work`, checked BEFORE the guardrail so `--until integrate` can
+    arrive at integrate without ever acting there. `no_dispatch` never calls an
+    agent: an incomplete `:work` pauses naming the card, a complete one goes
+    straight to `ack --auto`.
+    """
     # P2: validate the ticket exists BEFORE any _log/state mutation, so
     # `klc run <BADKEY>` gives a friendly error and never creates a bogus dir.
     if not klc_ticket_meta_file(ticket).exists():
@@ -300,13 +311,30 @@ def run(ticket: str, *, dispatch=None, cap: int | None = None) -> RunResult:
                 _log(ticket, f"done: {state}")
                 return RunResult(list(trace), None, None, terminal=state)
 
+            if until and pid == until and state == _ph.STATE_WORK:
+                _log(ticket, f"until {until} reached")
+                return RunResult(list(trace), None, None, terminal=f"until:{until}")
+
             # Guardrails BEFORE any dispatch or auto-ack (fail-closed).
             stop = guardrail(ticket, pid, n_auto, cap)
             if stop:
                 return _pause(ticket, trace, pid, stop)
 
             if state in (_ph.STATE_WORK, _ph.STATE_ACK_NEEDED):
-                if state == _ph.STATE_WORK:
+                if no_dispatch and _next_move.compute(ticket).action == "clarify":
+                    # KLC-177: the intake clarify pass belongs to the main agent; stop
+                    # before `ack --auto` can touch the ticket.
+                    return _pause(ticket, trace, pid, "clarify needed")
+                if state == _ph.STATE_WORK and no_dispatch:
+                    done, why = _pcomp.can_complete(ticket, pid, persist=False)
+                    if not done:
+                        what = ("build is not green" if pid == "build"
+                                else f"{pid}:work needs the agent")
+                        card = _next_move.compute(ticket).card
+                        return _pause(ticket, trace, pid,
+                                      f"{what} ({' '.join((why or '').split())}); "
+                                      f"card: {card}")
+                elif state == _ph.STATE_WORK:
                     rc = _dispatch(ticket, pid, dispatch)
                     if rc != 0:
                         return _pause(ticket, trace, pid,

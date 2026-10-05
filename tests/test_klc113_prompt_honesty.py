@@ -28,7 +28,6 @@ GONE = {
     "core/agents/discovery.md":            ["validator.md", ".klc/config/discovery.yml"],
     "core/agents/impl.md":                 ["verifier", "symbols_by_module.json"],
     "core/agents/design.md":               ["verifier"],
-    "core/agents/decompose.md":            ["symbols_by_module.json"],
     "core/agents/docgen.md":               ["symbols_by_module.json"],
 }
 
@@ -95,7 +94,8 @@ def test_klc_verb_mentions_resolve_against_dispatcher() -> None:
     # and served by an explicit `scripts/klc` handler — reading only the two
     # tuples would wrongly report `klc reindex` as unknown.
     assert "reindex" in verbs
-    assert "ack" in verbs and "step" in verbs and "task-brief" in verbs
+    assert "go" in verbs and "back" in verbs and "step" in verbs and "internal" in verbs
+    assert not {"ack", "next", "ship", "jump", "abort"} & verbs  # KLC-177: deprecated
     misses = ph.scan()
     verb_misses = [m for m in misses if "unknown klc verb" in m]
     assert verb_misses == [], verb_misses

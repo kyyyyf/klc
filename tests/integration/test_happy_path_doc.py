@@ -22,10 +22,10 @@ def test_old_standalone_happy_path_doc_is_gone():
 
 
 def test_readme_carries_the_quickstart_walk():
-    """The intake→ack quickstart walk lives in the README."""
+    """The intake→go quickstart walk lives in the README."""
     text = _README.read_text(encoding="utf-8")
-    assert "klc intake" in text and "klc ack" in text, (
-        "README must carry the intake→ack quickstart walk"
+    assert "klc intake" in text and "klc go" in text, (
+        "README must carry the intake→go quickstart walk"
     )
     assert "docs/process.md" in text, "README must link the full contract in process.md"
 

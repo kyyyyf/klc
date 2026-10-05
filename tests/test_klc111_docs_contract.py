@@ -13,11 +13,11 @@ REPO = Path(__file__).resolve().parent.parent
 
 def test_docs_record_klc_init_scan_only_and_klc_state_commit_step_verbatim():
     """AC-17: `docs/` records the operator index-rebuild step with the
-    literal command `klc init --scan-only` and describes the klc-state
+    literal command `klc doctor --index` and describes the klc-state
     commit that replaces the 29-name file — reproducible from the docs
     alone."""
     process_text = (REPO / "docs" / "process.md").read_text(encoding="utf-8")
-    assert "klc init --scan-only" in process_text, (
+    assert "klc doctor --index" in process_text, (
         "docs/process.md must record the literal rebuild command")
     assert "29-name" in process_text, (
         "docs/process.md must describe the klc-state commit that replaces "

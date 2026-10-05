@@ -7,33 +7,32 @@ from __future__ import annotations
 from pathlib import Path
 
 _FW_ROOT = Path(__file__).resolve().parents[2]
-_SKILL = _FW_ROOT / "klc-plugin" / "skills" / "run" / "SKILL.md"
+_SKILL = _FW_ROOT / "klc-plugin" / "skills" / "go" / "SKILL.md"
 
-# Distinctive substrings from each existing sub-step, captured before this
-# ticket's edit — proves 5a-5e are untouched, not merely present in spirit.
+# KLC-177 step-5: the loop was rewritten around `klc go --until integrate`; the
+# dispatch/parse/stop contract now lives in step 3 (a-h). These markers pin it.
 _SUBSTEP_MARKERS = {
-    "5a": "re-render the card in",
-    "5b": "do the phase's work",
-    "5c": "Take the subagent's returned text as `result`",
-    "5d": "Parse: `core.skills.run_signal.parse_signal(result, expected_phase",
-    "5e": "Blocking questions — STOP.",
+    "render": "re-render the card with",
+    "inline": "do the work yourself",
+    "task": "Task(subagent_type=<agent>, model=<model>, prompt=<card text>)",
+    "dispatch_line": "`dispatch: agent=<klc-…> model=<alias> card=<path>`",
+    "parse": "core.skills.run_signal.parse_signal(result, expected_phase=",
+    "blocking": "Non-empty `blocking_questions`: STOP",
 }
 
 
-def test_run_skill_keeps_substeps_5b_5d_5e_verbatim():
-    """AC-12/D-204: sub-steps 5a through 5e survive byte-for-byte — the new
-    5f is an ADDITION, not a rewrite of the existing dispatch/parse/stop
-    contract."""
+def test_run_skill_keeps_dispatch_parse_stop_contract():
+    """The dispatch/parse/stop contract survives the KLC-177 rewrite."""
     text = _SKILL.read_text(encoding="utf-8")
     for label, marker in _SUBSTEP_MARKERS.items():
-        assert marker in text, f"sub-step {label} text changed or missing"
+        assert marker in " ".join(text.split()), f"{label} text changed or missing"
 
 
-def test_ledger_substep_5f_sits_after_5e_and_before_advance():
-    """AC-12/D-204: the new ledger sub-step 5f is placed strictly after 5e
-    and strictly before step 6 (Advance)."""
-    text = _SKILL.read_text(encoding="utf-8")
-    pos_5e = text.index(_SUBSTEP_MARKERS["5e"])
-    pos_5f = text.index("Record step verifies")
-    pos_6 = text.index("**Advance.**")
-    assert pos_5e < pos_5f < pos_6
+def test_step_verify_sits_after_blocking_questions_and_before_the_next_go():
+    """The build step-verify sub-step comes after the blocking-question stop and
+    before the loop returns to `klc go`."""
+    text = " ".join(_SKILL.read_text(encoding="utf-8").split())
+    pos_block = text.index(_SUBSTEP_MARKERS["blocking"])
+    pos_verify = text.index("klc step verify <KEY> N")
+    pos_loop = text.index("Go to step 1")
+    assert pos_block < pos_verify < pos_loop

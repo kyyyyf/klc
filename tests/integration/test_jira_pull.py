@@ -175,7 +175,7 @@ def test_forward_pull_skips_conditional_phases() -> None:
         # so observe is skipped.
         # For this test we want observe to be crossed; since learn is after observe
         # on S track, set target to learn.
-        td = _make_ticket(Path(tmp), "T-FP-002", "build:ack", "S",
+        td = _make_ticket(Path(tmp), "T-FP-002", "build:ack", "M",
                           extra={"risk_tags": [], "rework_count": {"build": 1}})
         # Put required inputs on disk so review/integrate don't block
         (td / "review-report.md").write_text("# review\n")

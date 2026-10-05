@@ -164,7 +164,7 @@ This is the only step that writes anything. Do it in this exact order:
    renders the computed epic state, each member's phase / blocked-by / holder,
    and the **ready set** — members whose next phase has no unmet dependency and
    is not held by someone else. Point the user at the ready tickets; they drive
-   those with `klc run` / `next` / `ack`, and edges unblock downstream as points
+   those with `klc go`, and edges unblock downstream as points
    are reached.
 
 ## Discipline (do not cross these lines)

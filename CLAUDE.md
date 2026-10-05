@@ -53,10 +53,24 @@ Wait for the result before writing `review-report.md`. Assess each finding
 After implementation, push the feature branch to all configured remotes.
 Before pushing, rebase onto the latest upstream main to avoid conflicts.
 
+## Lifecycle verbs (after KLC-177)
+
+The public CLI is `intake`, `status`, `go`, `back` and `step verify`:
+`klc go <KEY> [--pick N] [--dry-run] [--until <phase>]` makes the next move from
+any state (it acks a finished phase and opens the next one; `--until` walks clean
+conditional gates and stops at the first human decision, never dispatching an
+agent); `klc back <KEY> <phase> --reason "<why>"` returns a ticket to an earlier
+phase and puts the reason into the target card. `next`, `ack`, `ship`, `run`,
+`jump`, `abort` are deprecated aliases (one stderr line, removed after wave 3);
+`work` is gone. Maintainer and hook verbs live under `klc internal <name>`.
+The plugin drift-guard now also reports stale command stubs (`STALE:`): when a
+verb leaves `VERB_SPECS`, delete its `klc-plugin/commands/<verb>.md` and skill dir
+by hand (stubs are skip-if-exists), then regenerate.
+
 ## Other reminders
 
 - Always use `PROJECT_ROOT=/home/ek/projects/klc`.
-- Scope expansion at `ack`: update `meta.json:affected_modules` rather than fighting it.
+- Scope expansion at the review/integrate ack (`klc go`): update `meta.json:affected_modules` rather than fighting it (KLC-178 adds `klc fix <KEY> modules --add …`).
 
 ## Regenerating the plugin (mandatory after a source edit)
 

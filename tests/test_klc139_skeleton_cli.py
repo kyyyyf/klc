@@ -59,11 +59,13 @@ def test_skeleton_function_returns_outline_or_refusal(tmp_path, monkeypatch):
     assert result_dir.refused
 
 
-def test_klc_help_lists_skeleton_verb():
-    """AC-1: `klc --help` lists the `skeleton` verb."""
+def test_klc_help_hides_skeleton_but_internal_runs_it(tmp_path):
+    """KLC-177 AC-9: `skeleton` left the public help; `klc internal skeleton` runs it."""
     proc = subprocess.run([sys.executable, str(KLC), "--help"],
                            capture_output=True, text=True, timeout=30)
-    assert "skeleton" in proc.stdout
+    assert "skeleton" not in proc.stdout
+    rc, out, err = _run_klc(["internal", "skeleton"], tmp_path)
+    assert rc == 2 and err.strip() == "usage: klc skeleton <file>"
 
 
 def test_skeleton_in_no_drain_cmds():

@@ -71,7 +71,7 @@ class TestInitIntegration(unittest.TestCase):
         # Verify output contains setup hint
         output = result.stdout + result.stderr
         self.assertIn("Next steps:", output)
-        self.assertIn("klc setup", output)
+        self.assertNotIn("klc setup", output)
         self.assertIn("klc doctor", output)
 
     def test_init_finalize_prints_setup_hint(self):
@@ -101,7 +101,7 @@ class TestInitIntegration(unittest.TestCase):
         # Verify output contains setup hint
         output = result.stdout + result.stderr
         self.assertIn("Next steps:", output)
-        self.assertIn("klc setup", output)
+        self.assertNotIn("klc setup", output)
 
 
 if __name__ == "__main__":

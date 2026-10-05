@@ -65,13 +65,9 @@ Each dimension scores 0-3, so the total ranges 0-12:
 <!-- END GENERATED:tracks-thresholds -->
 
 <!-- BEGIN GENERATED:tracks-phase-sequences -->
-**XS**: intake → discovery-lite → xs-build → review-lite → integrate → learn
+**light** (XS, S): intake → discovery-lite → build → review → integrate → learn
 
-**S**: intake → discovery-lite → build → review → integrate → observe → learn
-
-**M**: intake → discovery → acceptance-test-plan → design → build → review → manual → integrate → observe → learn
-
-**L**: intake → discovery → acceptance-test-plan → design → detailed-test-plan → build → review → manual → integrate → observe → learn
+**full** (M, L): intake → discovery → acceptance-test-plan → design → build → review → manual → integrate → observe → learn
 <!-- END GENERATED:tracks-phase-sequences -->
 
 ## Artifact size proportional to track

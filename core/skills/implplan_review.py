@@ -76,7 +76,7 @@ def consume(ticket_dir, track, signals=None, persist: bool = True):
     that the spec and test-plan reviews use — the schema-generic seam carries the
     impl-plan finding categories / decision topics off `IMPL_PLAN_REVIEW`. Returns
     `(advisories, findings)`; degrade-not-fail lives inside `spec_review.consume`.
-    `persist=False` (a read-only probe: `klc remind` / gate-policy) surfaces the
+    `persist=False` (a read-only probe: the klc hook's pending line / gate-policy) surfaces the
     advisories WITHOUT writing impl-plan-review records to `findings.json`.
     """
     return _spec_review.consume(

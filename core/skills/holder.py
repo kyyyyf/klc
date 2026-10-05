@@ -68,11 +68,11 @@ class HolderActiveError(HolderConflictError):
 # it lives as a module constant; the CLI exposes --ttl-minutes to override.
 HOLDER_TTL_SECONDS = 30 * 60
 
-# How often `klc heartbeat` (KLC-064) actually PROPAGATES a fresh heartbeat_at to
+# How often the klc hook (KLC-064, `klc_hook.refresh_heartbeat`) actually PROPAGATES a fresh heartbeat_at to
 # origin via a state_tx CAS-push. Deliberately a fraction of HOLDER_TTL_SECONDS so
 # an actively-held ticket's origin heartbeat_at stays well within the steal TTL
 # (3× safety margin) while bounding push traffic to <=3 per TTL per held ticket.
-# Within this window `klc heartbeat` is a pure read-only no-op — no meta write, no
+# Within this window the klc hook is a pure read-only no-op — no meta write, no
 # push — so per-prompt UserPromptSubmit calls never dirty the klc-state tree
 # (the KLC-062 no-churn constraint). MUST stay strictly below HOLDER_TTL_SECONDS.
 HEARTBEAT_PUSH_INTERVAL_SECONDS = HOLDER_TTL_SECONDS // 3
@@ -173,13 +173,13 @@ def heartbeat_holder(ticket: str) -> dict:
 
     Sets `holder.heartbeat_at` to the current UTC timestamp and leaves every
     other field (id, machine, since, ...) untouched. Returns the updated
-    holder dict. The real production caller is `klc heartbeat` (KLC-064): the
+    holder dict. The real production caller is the klc hook (KLC-064, `klc_hook.refresh_heartbeat`): the
     throttled UserPromptSubmit hook that fires this for an actively-held ticket
     so the `steal_holder` TTL gate measures from a live heartbeat, not `since`.
 
     NOTE: this refreshes WHOEVER currently holds the ticket — it does not check
     the caller's identity. Callers that must only refresh their OWN holder (e.g.
-    `klc heartbeat`, run inside `state_tx` after a pull) verify `holder.id`
+    the klc hook, run inside `state_tx` after a pull) verify `holder.id`
     themselves before calling, so a concurrently-stolen ticket is not refreshed
     on the wrong owner's behalf.
 

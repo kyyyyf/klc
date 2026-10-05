@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 FW_ROOT = Path(__file__).resolve().parents[2]
-SKILL = FW_ROOT / "klc-plugin" / "skills" / "run" / "SKILL.md"
+SKILL = FW_ROOT / "klc-plugin" / "skills" / "go" / "SKILL.md"
 
 
 def test_run_skill_renders_card_then_warns_only_before_dispatch():
@@ -27,8 +27,8 @@ def test_run_skill_renders_card_then_warns_only_before_dispatch():
 
 def test_runs_inline_branch_survives_and_never_reaches_task_dispatch():
     text = SKILL.read_text(encoding="utf-8")
-    assert re.search(r"b\. If `resolved\.runs_inline`", text)
-    assert text.index("If `resolved.runs_inline` (XS fast-track)") < text.index(
+    assert re.search(r"d\. If `resolved\.runs_inline`", text)
+    assert text.index("If `resolved.runs_inline` (XS)") < text.index(
         "Task(subagent_type=")
 
 

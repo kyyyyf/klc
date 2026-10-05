@@ -46,9 +46,9 @@ def test_sync_fails_on_verb_dict_drift(tmp_path, monkeypatch) -> None:
     """AC-7: a VERB_SPECS change not regenerated into skills is reported as
     drift (the committed skill is now stale relative to the verb-dictionary)."""
     committed = _copy_committed(tmp_path / "klc-plugin")
-    monkeypatch.setitem(pg.VERB_SPECS["ack"], "short", "CHANGED short description")
+    monkeypatch.setitem(pg.VERB_SPECS["go"], "short", "CHANGED short description")
     findings = pg.check_sync(committed_root=committed)
-    assert any("DRIFT: skills/ack/SKILL.md" in f for f in findings), findings
+    assert any("DRIFT: skills/go/SKILL.md" in f for f in findings), findings
 
 
 def test_plugin_sources_staged_true_for_agents_and_plugin_gen() -> None:
@@ -97,16 +97,16 @@ def test_sync_fails_on_command_desc_drift(tmp_path) -> None:
     description no longer matches ``VERB_SPECS[verb]["short"]`` is reported as
     ``CMD-DESC-DRIFT`` by check_sync (the commit-time gate now catches it)."""
     committed = _copy_committed(tmp_path / "klc-plugin")
-    ack_cmd = committed / "commands" / "ack.md"
-    text = ack_cmd.read_text(encoding="utf-8")
+    go_cmd = committed / "commands" / "go.md"
+    text = go_cmd.read_text(encoding="utf-8")
     mutated = text.replace(
-        f"description: {pg.VERB_SPECS['ack']['short']}",
+        f"description: {pg.VERB_SPECS['go']['short']}",
         "description: totally different — stale hand edit",
     )
     assert mutated != text, "fixture must actually mutate the description line"
-    ack_cmd.write_text(mutated, encoding="utf-8")
+    go_cmd.write_text(mutated, encoding="utf-8")
     findings = pg.check_sync(committed_root=committed)
-    assert any("CMD-DESC-DRIFT: commands/ack.md" in f for f in findings), findings
+    assert any("CMD-DESC-DRIFT: commands/go.md" in f for f in findings), findings
 
 
 # ---------------------------------------------------------------------------
@@ -139,3 +139,16 @@ def test_check_if_staged_fails_on_injected_drift(monkeypatch) -> None:
     monkeypatch.setattr(pg, "_staged_paths", lambda: ["core/skills/plugin_gen.py"])
     monkeypatch.setattr(pg, "check_sync", lambda *a, **k: ["DRIFT: agents/review.md"])
     assert pg.main(["--check-if-staged"]) == 1
+
+
+def test_sync_fails_on_command_tools_drift(tmp_path) -> None:
+    """F-008: a stub whose allowed-tools line differs from VERB_SPECS is CMD-TOOLS-DRIFT."""
+    committed = _copy_committed(tmp_path / "klc-plugin")
+    assert not any(f.startswith("CMD-TOOLS-DRIFT") for f in pg.check_sync(committed_root=committed))
+    go_cmd = committed / "commands" / "go.md"
+    text = go_cmd.read_text(encoding="utf-8")
+    mutated = text.replace("allowed-tools: [Bash, Task, AskUserQuestion]", "allowed-tools: [Bash]")
+    assert mutated != text
+    go_cmd.write_text(mutated, encoding="utf-8")
+    findings = pg.check_sync(committed_root=committed)
+    assert any("CMD-TOOLS-DRIFT: commands/go.md" in f for f in findings), findings

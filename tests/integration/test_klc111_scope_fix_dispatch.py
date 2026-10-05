@@ -84,23 +84,25 @@ def test_three_existing_modes_keep_their_exit_codes_and_messages(monkeypatch, tm
         sf.run(["--modules", "a"])
     assert exc.value.code == 2
 
-    # 2. unknown ticket -> 1.
-    rc = sf.run(["KLC-DOES-NOT-EXIST", "--modules", "a"])
-    assert rc == 1
+    # 2. unknown ticket -> 2 (KLC-178: the alias delegates to `klc fix`, which
+    #    rejects bad input with exit 2).
+    rc = sf.run(["KLC-DOES-NOT-EXIST", "--modules", "a", "--reason", "r"])
+    assert rc == 2
     assert "unknown ticket" in capsys.readouterr().err
 
-    # 3. malformed comma list on a REAL ticket -> 1.
+    # 3. malformed comma list on a REAL ticket -> argparse-style exit 2.
     _write_ticket(tmp_path, "KLC-2", phase="archived", affected=["a"])
-    rc = sf.run(["KLC-2", "--modules", "a,,b"])
-    assert rc == 1
+    with pytest.raises(SystemExit) as exc:
+        sf.run(["KLC-2", "--modules", "a,,b", "--reason", "r"])
+    assert exc.value.code == 2
     assert "malformed module list" in capsys.readouterr().err
 
-    # 4. non-archived ticket, well-formed list -> 1 (refused).
-    _write_ticket(tmp_path, "KLC-3", phase="build:work", affected=["a"])
-    rc = sf.run(["KLC-3", "--modules", "b"])
-    assert rc == 1
-    err = capsys.readouterr().err
-    assert "post-archive" in err and "ack" in err
+    # 4. non-archived ticket, well-formed list -> applied (KLC-178 dropped the
+    #    archived-only gate: `klc fix` edits modules in any state).
+    meta3 = _write_ticket(tmp_path, "KLC-3", phase="build:work", affected=["a"])
+    rc = sf.run(["KLC-3", "--modules", "b", "--reason", "r"])
+    assert rc == 0
+    assert json.loads(meta3.read_text())["affected_modules"] == ["b"]
 
     # 5. archived ticket, applied edit -> 0.
     meta_p = _write_ticket(tmp_path, "KLC-4", phase="archived", affected=["a"])

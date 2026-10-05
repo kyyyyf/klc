@@ -349,31 +349,33 @@ def validate_phase_roles(config_dir: Path) -> list[str]:
     return warnings
 
 
+_RETIRED_PHASE_KEYS = ("tracks", "goto", "supersede", "condition", "auto_to_ack")
+
+
 def validate_condition_syntax(config_dir: Path) -> list[str]:
-    """Check that all condition: expressions in phases.yml are recognised syntax."""
+    """Warn about keys phases.yml no longer takes (KLC-179).
+
+    Tracks, gotos, supersede lists and conditions moved into core/skills/rules.py; a
+    leftover key in a project override would be silently ignored, so say so. (The name
+    is kept: it used to check condition expressions.)"""
     warnings: list[str] = []
     try:
         fw = _p.framework_root()
         sys.path.insert(0, str(fw / "core" / "skills"))
         import phases as _ph
-        ph = _ph.load_phases()
+        _ph.load_phases()
+        from core.shared.yaml import parse as _parse
+        raw = _parse((fw / "config" / "phases.yml").read_text(encoding="utf-8"))
     except Exception as exc:
-        warnings.append(f"condition syntax validation failed: {exc}")
+        warnings.append(f"phases.yml validation failed: {exc}")
         return warnings
 
-    for phase in ph.ordered:
-        if phase.condition is None:
-            continue
-        try:
-            import phases as _ph2
-            if not _ph2._is_known_condition(phase.condition):
-                warnings.append(
-                    f"phases.yml: phase {phase.id!r} has unrecognised "
-                    f"condition syntax: {phase.condition!r}"
-                )
-        except Exception as exc:
+    for entry in raw.get("phases") or []:
+        stale = [k for k in _RETIRED_PHASE_KEYS if isinstance(entry, dict) and k in entry]
+        if stale:
             warnings.append(
-                f"phases.yml: phase {phase.id!r} condition check failed: {exc}"
+                f"phases.yml: phase {entry.get('id')!r} has keys the rule table replaced: "
+                f"{stale} (see core/skills/rules.py)"
             )
     return warnings
 

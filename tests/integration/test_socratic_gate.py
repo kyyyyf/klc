@@ -302,7 +302,7 @@ def test_upgrade_m_signal_recognized(tmp_path, monkeypatch):
     assert msg
     envelope = _adv.read("KLC-U01", "discovery-lite")
     assert envelope is not None
-    assert any("DISCOVERY_LITE_UPGRADE_M" in r["message"] and "retrack" in r["message"]
+    assert any("DISCOVERY_LITE_UPGRADE_M" in r["message"] and "track" in r["message"]
               for r in envelope["records"])
 
 

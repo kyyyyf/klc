@@ -203,7 +203,8 @@ Rules:
 - 1–3 steps only; each step = one logical commit with its own RED/GREEN cycle.
 - If the work cannot be planned without design trade-offs, do NOT invent
   a plan — emit `[!QUESTION blocks=discovery-lite]` recommending an upgrade to M.
-- Do not produce `impl-plan.md` for XS (XS uses `xs-fasttrack.md`).
+- XS runs on the light lane too (the XS fast-track is retired): write a one-step
+  `impl-plan.md` as for S, because the build gate reads it.
 
 ## Socratic sub-protocol (S and up)
 

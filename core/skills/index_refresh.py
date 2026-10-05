@@ -113,7 +113,7 @@ def refresh_if_stale(root, *, suppressed: bool = False, budget_s: float | None =
             return {**result, "status": "suppressed"}
 
         if not last_file.exists():
-            out.write("[index] no baseline — run `klc init --scan-only`\n")
+            out.write("[index] no baseline — run `klc doctor --index`\n")
             return {**result, "status": "uninitialised"}
 
         last = last_file.read_text(encoding="utf-8").strip()

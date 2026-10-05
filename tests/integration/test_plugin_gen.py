@@ -33,9 +33,12 @@ def test_cc_alias_new_and_backcompat_ids() -> None:
 
 
 def test_subagents_generated() -> None:
-    """Generator produces one agent file per core/agents/*.md source."""
-    sources = _agent_sources()
-    assert sources, "core/agents/ has no .md files — check FW_ROOT"
+    """Generator produces one agent file per shipped source: phase-owned prompts
+    plus DISPATCHED_AGENTS (KLC-180)."""
+    import phases as _ph
+    wanted = _pg.plugin_agent_names([p.prompt for p in _ph.load_phases().ordered])
+    sources = [p for p in _agent_sources() if p.stem in wanted]
+    assert len(sources) == len(wanted), "a shipped agent has no core/agents source"
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "agents"

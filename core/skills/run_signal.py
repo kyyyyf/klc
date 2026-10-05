@@ -1,7 +1,7 @@
-"""run_signal.py — parse + retry-decision helpers for the `/klc:run`
+"""run_signal.py — parse + retry-decision helpers for the `klc go --until integrate`
 orchestrator (KLC-052).
 
-The orchestration loop itself lives in `klc-plugin/skills/run/SKILL.md`
+The orchestration loop itself lives in `klc-plugin/skills/go/SKILL.md`
 as main-loop/Task-tool instructions (C-001: no Python loop driver —
 decisions come from `phase_resolver` + `phases.yml` + this module, not
 from a hidden imperative driver the plugin can't see). This module is

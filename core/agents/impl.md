@@ -12,7 +12,7 @@ a red bar; your output is code changes plus an accurate updated plan.
 
 ## Inputs
 
-For each build step, use `klc task-brief <KEY> N` to generate a
+For each build step, use `klc internal task-brief <KEY> N` to generate a
 dependency-resolved brief at `.klc/scratch/<KEY>/build/step-N-brief.md`.
 The brief carries Goals + ACs for step 1 only (later steps point at
 `spec.md` instead), the full step body, and only the `Interfaces` + `COMMIT`
@@ -21,7 +21,7 @@ Use this as your primary step context. A skeleton `step-N-impl-report.md`
 is also scaffolded alongside it for you to fill.
 
 A minimal card (`_prompt_step_N.md`, Goals + ACs + step only, no dependency
-surfaces) is available via `klc step <KEY> N` for interactive/paste workflows.
+surfaces) is available via `klc internal step-card <KEY> N` for interactive/paste workflows.
 
 In the step card / brief:
 - Goals + Acceptance Criteria (step 1 only; later steps carry a pointer to spec.md)
@@ -50,10 +50,10 @@ For every plan step, in this order:
 1. RED commit — the failing test, using the step subject.
 2. GREEN commit — the smallest change that passes it.
 3. `klc step verify <KEY> N` — runs the step's allowlisted VERIFY once and
-   records the result in `build/steps.json`. `klc ack` only READS that file.
+   records the result in `build/steps.json`. `klc go` only READS that file.
 
 A later fix commit on the step makes the recorded verify stale: re-run
-`klc step verify <KEY> N` after it. `klc build-run` does the same loop
+`klc step verify <KEY> N` after it. `klc internal build-run` does the same loop
 hands-off. `build-log.md` is optional free notes (decisions, deviations);
 nothing reads it as evidence.
 
@@ -116,7 +116,7 @@ For every step whose impl-plan marks `RED:` with a real test (not `not applicabl
 2. **Then commit the implementation.** Only after the test passes, commit the
    source changes with the step subject.
 
-The `klc ack` gate verifies this ordering mechanically (`core/skills/tdd_order.py`):
+The `klc go` gate verifies this ordering mechanically (`core/skills/tdd_order.py`):
 an implementation commit that precedes a test commit — or a step with no test
 commit at all — sanctions the step and blocks ack. Squashing or amending commits
 to collapse the red state also triggers the sanction.
@@ -217,7 +217,7 @@ After the last step (all green, impl-plan fully ticked):
 IMPL_ALL_GREEN <ticket-key>
 ```
 
-At which point the operator runs `klc ack <KEY> --pick 1` to close
+At which point the operator runs `klc go <KEY> --pick 1` to close
 the Build phase and advance to Review.
 
 {{include:completion-signal}}

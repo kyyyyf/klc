@@ -139,7 +139,7 @@ so the red-before-green ordering gate can attribute the commit:
 KLC-NNN step-N: add failing test for <feature>
 ```
 
-This commit subject convention is required. The `klc ack` gate (`core/skills/tdd_order.py`)
+This commit subject convention is required. The `klc go` gate (`core/skills/tdd_order.py`)
 searches git history for commits matching `TICKET step-N` and sanctions the step if no
 test-touching commit precedes the implementation commit.
 

@@ -22,8 +22,7 @@ _MODULES = [{"name": "widgets", "path": "widgets/"}]
 
 def test_remind_probe_at_build_leaves_meta_byte_identical(tmp_path, monkeypatch):
     """AC-5: the real read-only probe path (`persist=False`, the exact call
-    shape `klc remind` / gate-policy advisory collection use,
-    `core/phases/remind.py:124`) at the build phase leaves `meta.json` bytes
+    shape the hook's read-only advisory probe uses) at the build phase leaves `meta.json` bytes
     unchanged and stages no `pre_merge_range` — then, as a positive control,
     the real persisting `ack.run` DOES record one."""
     _bare_and_clone(tmp_path)

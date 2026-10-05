@@ -455,7 +455,7 @@ def consume(ticket_dir: Path, track: str | None, signals: dict | None = None,
         schema-validation note.
       * findings   -> recorded to `findings.json` for the build
         phase to assess — but ONLY when `persist` is True. A read-only probe
-        (`persist=False`, used by `klc remind` / gate-policy signal collection)
+        (`persist=False`, used by the klc hook's pending line / gate-policy signal collection)
         surfaces the same advisories WITHOUT writing (read-only verbs don't write).
 
     Degrade-not-fail: absent output on a review-expected track surfaces ONE note;

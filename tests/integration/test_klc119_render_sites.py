@@ -161,7 +161,7 @@ def test_render_site_writes_no_estimated_attempt_autorunner(tmp_path, monkeypatc
 def test_render_site_writes_no_estimated_attempt_run_dispatch():
     """The prose orchestrator renders the card before dispatch and names the
     warn-only real-spend check, not the removed card-size gate."""
-    text = (FW_ROOT / "klc-plugin" / "skills" / "run" / "SKILL.md").read_text(
+    text = (FW_ROOT / "klc-plugin" / "skills" / "go" / "SKILL.md").read_text(
         encoding="utf-8")
     assert "render_card" in text
     assert "gate_card_dispatch" not in text

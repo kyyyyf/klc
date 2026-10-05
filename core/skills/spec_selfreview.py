@@ -15,6 +15,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import test_conventions  # noqa: E402  (KLC-109: the one home of test-path patterns)
+
 PLACEHOLDER_TOKENS = ("TODO", "TBD", "write tests", "<...>", "...")
 
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
@@ -70,14 +73,13 @@ def _section_body(stripped: str, title: str) -> str | None:
 
 _REGRESSION_TEST_RE = re.compile(
     r"\bregression\b.*\btests?\b|\btests?\b.*\bregression\b")
-_TEST_REF_RE = re.compile(r"\btests/\S+|\b\w+_test\.py\b|::test_\w+")
 
 
 def _names_regression_test(ac: str) -> bool:
     """AC line (lower-cased) mentions a regression test, or names a concrete test
     path or node (`tests/x.py`, `x_test.py`, `::test_y`); a bare `test_name` does not count. Word boundaries, so
     'latest' never stands in for 'test'."""
-    return bool(_REGRESSION_TEST_RE.search(ac) or _TEST_REF_RE.search(ac))
+    return bool(_REGRESSION_TEST_RE.search(ac) or test_conventions.looks_like_test_ref(ac))
 
 
 def spec_kind(text: str) -> str:

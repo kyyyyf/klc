@@ -414,7 +414,7 @@ def consume(ticket_dir, track, signals=None, persist: bool = True):
     that the spec review uses — the schema-generic seam carries the test-plan
     finding categories / decision topics off `TEST_PLAN_REVIEW`. Returns
     `(advisories, findings)`; degrade-not-fail lives inside `spec_review.consume`.
-    `persist=False` (a read-only probe: `klc remind` / gate-policy) surfaces the
+    `persist=False` (a read-only probe: the klc hook's pending line / gate-policy) surfaces the
     advisories WITHOUT writing test-plan-review records to `findings.json`.
     """
     return _spec_review.consume(
@@ -442,7 +442,7 @@ def _ticket_dir(ticket: str) -> Path:
 def _read_track(ticket: str) -> str:
     # READ-ONLY: this only looks up the track, so it must use the non-migrating
     # reader. `read_meta`'s default write-back would let a persist=False probe
-    # (`klc remind` / gate-policy, which reaches here via `run` → the coverage
+    # (the klc hook's pending line / gate-policy, which reaches here via `run` → the coverage
     # gate) silently migrate a legacy phase string and dirty meta.json (KLC-062).
     try:
         import lifecycle as _lc

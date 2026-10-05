@@ -227,8 +227,8 @@ def _run_ack(clone: Path, ticket: str, phase: str, *, monkeypatch, pick=1,
     ``phase_completion.can_complete(ticket, pid)`` with its own default
     ``persist=True`` and then recurses into the pick-based ack.
     ``persist=False`` instead calls ``phase_completion.can_complete(ticket,
-    phase, persist=False)`` directly — the exact shape ``klc remind`` / the
-    gate-policy advisory probe use (``core/phases/remind.py:124``) — and
+    phase, persist=False)`` directly — the exact shape the
+    hook's read-only advisory probe uses — and
     never touches ``ack.run`` at all, so it can never write anything.
     """
     monkeypatch.setenv("PROJECT_ROOT", str(clone))

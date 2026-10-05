@@ -328,7 +328,7 @@ def main(argv: list[str]) -> int:
 
     last_file = index_dir / ".last-run"
     if not last_file.exists():
-        return err(".klc/index/.last-run missing; run `klc init` first")
+        return err(".klc/index/.last-run missing; run `klc doctor --index` first")
     last = last_file.read_text(encoding="utf-8").strip()
 
     head = _git_head(root)
@@ -434,7 +434,7 @@ def main(argv: list[str]) -> int:
 
                 if n_stale:
                     print(f"UPDATE_OK {n_stale} module(s) stale"
-                          + ("" if args.regen else " — run `klc update --regen` to refresh docs"))
+                          + ("" if args.regen else " — run `klc internal update --regen` to refresh docs"))
                 else:
                     print("UPDATE_OK no stale modules")
                 return 0

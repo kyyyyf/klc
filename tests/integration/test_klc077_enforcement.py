@@ -174,7 +174,7 @@ def test_blocked_explicit_jump_pick_leaves_ticket_byte_unchanged(tmp_path):
     _bootstrap(root, "UP", phase="build:ack", track="S")   # short of integrated
     # DOWN at observe:ack-needed; pick 2 (regression) → build:work + supersedes
     # the review artifact. The build edge must block BEFORE the ack/supersede.
-    meta_p = _bootstrap(root, "DOWN", phase="observe:ack-needed", track="S",
+    meta_p = _bootstrap(root, "DOWN", phase="observe:ack-needed", track="M",   # observe: full lane (KLC-179)
                         blocked_by=[_EDGE])
     report = root / ".klc" / "tickets" / "DOWN" / "review-report.md"
     report.write_text("verdict: approve\n", encoding="utf-8")

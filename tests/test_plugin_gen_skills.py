@@ -29,11 +29,11 @@ PLUGIN_DIR = FW / "klc-plugin"
 # step-1 — VERB_SPECS + generate_skills (byte-exact passthrough skills)
 # --------------------------------------------------------------------------
 
-def test_skill_verbs_are_the_eight_passthrough() -> None:
-    """AC-1: SKILL_VERBS is exactly the eight passthrough verbs — no more, no
-    less (publish is command-only, run/discuss-feature are bespoke)."""
+def test_skill_verbs_are_the_six_passthrough() -> None:
+    """AC-1: SKILL_VERBS is exactly the six passthrough verbs — no more, no
+    less (step/publish are CLI-only, discuss-feature is bespoke; KLC-180)."""
     assert pg.SKILL_VERBS == {
-        "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
+        "intake", "status", "go", "back", "fix", "doctor",
     }
 
 
@@ -120,19 +120,15 @@ def _read_desc(md: Path) -> str:
     raise AssertionError(f"no description: line in {md}")
 
 
-def test_ack_command_desc_reconciled(tmp_path) -> None:
+def test_go_command_desc_reconciled(tmp_path) -> None:
     """AC-4: the shared verb description is single-sourced from
-    ``VERB_SPECS[verb]["short"]``, so regenerating ``commands/ack.md`` yields the
-    reconciled text (the stale ``--pick N`` is fixed to ``--pick N or --auto for
-    gate-policy``); the command-only ``publish`` keeps its own description."""
+    ``VERB_SPECS[verb]["short"]``, so regenerating ``commands/go.md`` yields the
+    VERB_SPECS text (``publish`` has no stub since KLC-180)."""
     pg._generate_commands(output_dir=tmp_path)
 
-    ack_desc = _read_desc(tmp_path / "ack.md")
-    assert ack_desc == pg.VERB_SPECS["ack"]["short"]
-    assert "--pick N or --auto for gate-policy" in ack_desc
-
-    publish_desc = _read_desc(tmp_path / "publish.md")
-    assert publish_desc == "Publish the review verdict to the ticket's GitHub PR"
+    go_desc = _read_desc(tmp_path / "go.md")
+    assert go_desc == pg.VERB_SPECS["go"]["short"]
+    assert not (tmp_path / "publish.md").exists()
 
 
 # --------------------------------------------------------------------------

@@ -79,6 +79,7 @@ could otherwise widen a glob into a substring match.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
@@ -521,3 +522,13 @@ def _reset_active_table_cache_for_tests() -> None:
     profile/manifest without cross-test leakage."""
     global _ACTIVE
     _ACTIVE = None
+
+
+_TEST_REF_RE = re.compile(r"\btests/\S+|\b\w+_test\.py\b|::test_\w+")
+
+
+def looks_like_test_ref(text: str) -> bool:
+    """True when *text* names a concrete test path or node (`tests/x.py`,
+    `x_test.py`, `::test_y`); a bare `test_name` does not count. The one home of
+    this pattern so spec checks do not carry their own test-path regex (KLC-109)."""
+    return bool(_TEST_REF_RE.search(text))

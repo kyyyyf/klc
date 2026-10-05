@@ -20,6 +20,7 @@ sys.path.insert(0, str(_project_root))
 from core.shared.paths import klc_ticket_meta_file  # noqa: E402
 import re  # noqa: E402
 import lifecycle as _lc  # noqa: E402
+import rules as _rules  # noqa: E402  (KLC-179: gate -> fact mapping)
 import phases as _ph  # noqa: E402
 import track_classifier as _tc  # noqa: E402
 import spec_selfreview as _spec_selfreview  # noqa: E402
@@ -91,7 +92,7 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
     Args:
         persist: when True (default, the ack path), completion side effects are
             persisted to meta.json — the floor-guard downgrade audit and the
-            risk_tags sync. Read-only callers (`klc remind`, gate-policy advisory)
+            risk_tags sync. Read-only callers (the klc hook's pending line, gate-policy advisory)
             pass persist=False so the completability *decision* is unchanged but
             NOTHING is written (KLC-062 AC-1/AC-3).
 
@@ -214,7 +215,7 @@ def can_complete_discovery(ticket: str, *, persist: bool = True) -> tuple[bool, 
                     False,
                     f"{ticket}: track {track!r} is below intake floor {route_hint!r} "
                     f"but blast-radius is not low ({reason}); "
-                    f"raise the track or use `klc retrack`",
+                    f"raise the track or use `klc fix <KEY> track M --reason ...`",
                 )
             # AC-3: persist the audit trail so retrospective can verify the evidence.
             # KLC-062: only on the persisting (ack) path — a read-only probe must
@@ -279,7 +280,7 @@ def can_complete_acceptance_test_plan(ticket: str, *, persist: bool = True) -> t
     Args:
         persist: when True (default, the ack path) the independent-reviewer seam
             records its findings to `findings.json` (kind test-plan-review). Read-only
-            callers (`klc remind`, gate-policy advisory) pass False so the check
+            callers (the klc hook's pending line, gate-policy advisory) pass False so the check
             surfaces the same advisories but writes NOTHING (KLC-062 discipline).
             The deterministic coverage gate never writes, so it is unaffected.
 
@@ -379,7 +380,7 @@ def _spec_review_advisories(ticket: str, persist: bool) -> list[str]:
     OBJECTIVE `findings[]` so that primary output is not silent. No new gate is
     introduced. Findings are recorded to disk for the build phase to assess, but
     ONLY on the persisting ack path: `persist` is threaded into `consume` so a
-    read-only probe (`klc remind` / gate-policy signal collection) surfaces without
+    read-only probe (the klc hook's pending line / gate-policy signal collection) surfaces without
     writing. Track-scaled and degrade-safe: absent reviewer output on a
     review-expected track surfaces one note; on a skip/no-signal track it is
     silent; nothing here ever fails the ack.
@@ -446,7 +447,7 @@ def _testplan_review_advisories(ticket: str, persist: bool) -> list[str]:
     gate — and to surface a collapsed count of the OBJECTIVE `findings[]`. No new
     gate is introduced. Findings are recorded to disk for the build phase to assess
     ONLY on the persisting ack path: `persist` is threaded into `consume`, so a
-    read-only probe (`klc remind` / gate-policy) surfaces WITHOUT writing
+    read-only probe (the klc hook's pending line / gate-policy) surfaces WITHOUT writing
     `findings.json` (kind test-plan-review) (KLC-062 discipline). Track-scaled and
     degrade-safe inside the seam; nothing here ever fails the ack.
 
@@ -495,7 +496,7 @@ def _implplan_review_advisories(ticket: str, persist: bool) -> list[str]:
     the OBJECTIVE `findings[]`. No new gate is introduced. Findings are recorded to
     `findings.json` (kind impl-plan-review) for the build agent (`core/agents/impl.md`) to
     assess ONLY on the persisting ack path: `persist` is threaded into `consume`, so
-    a read-only probe (`klc remind` / gate-policy) surfaces WITHOUT writing (KLC-062
+    a read-only probe (the klc hook's pending line / gate-policy) surfaces WITHOUT writing (KLC-062
     discipline). Track-scaled (M/L full, S cascade-on-signal, XS skip — and XS
     produces no impl-plan.md) and degrade-safe inside the seam; nothing here ever
     fails the ack.
@@ -732,7 +733,7 @@ def can_complete_discovery_lite(ticket: str, *, persist: bool = True) -> tuple[b
     if _spec_structure.has_upgrade_m_signal(text):
         _signal_records.append({
             "source": "discovery", "severity": "medium", "code": "discovery.upgrade-m",
-            "message": "DISCOVERY_LITE_UPGRADE_M: scope exceeds S — re-route via 'klc retrack <KEY> M'",
+            "message": "DISCOVERY_LITE_UPGRADE_M: scope exceeds S — re-route via 'klc fix <KEY> track M --reason ...'",
             "ref": ""})
     # Independent impl-plan reviewer (KLC-094): discovery-lite is the ack that
     # FINALIZES impl-plan.md for the S track, so surface the reviewer's outputs here,
@@ -798,7 +799,7 @@ def can_complete_build(ticket: str, repo: Path | None = None, *,
     (defaults to the current working directory).
 
     ``persist`` distinguishes the real ack path (True) from a read-only probe
-    (False: ``klc remind`` / gate-policy advisory collection on every prompt). On
+    (False: `the klc hook's pending line` / gate-policy advisory collection on every prompt). On
     the probe path the AC-coverage arm runs only the STATIC classification and
     spawns NO pytest (KLC-095 FIX-2). Unusual on purpose: the coverage arm keeps
     running the framework's own scoped pytest on the real ack (operator decision);
@@ -943,6 +944,15 @@ def can_complete(ticket: str, phase_id: str, *, persist: bool = True) -> tuple[b
     manual. Recording never changes the verdict: any failure inside it is
     swallowed, and a read-only probe (`persist=False`) never reaches it."""
     ok, msg = _can_complete_dispatch(ticket, phase_id, persist=persist)
+    if ok and persist:
+        try:
+            # KLC-179: the gate passed, so stage the fact it establishes; it rides the
+            # same meta write as the transition. A failing gate stages nothing.
+            facts = _rules.gate_facts(phase_id, klc_ticket_meta_file(ticket).parent)
+            if facts:
+                _lc.stage_meta_patch(ticket, {"facts": facts})
+        except Exception:
+            pass                          # recording never changes a verdict
     if ok and persist and phase_id in _RECORDING_PHASES:
         try:
             patch = _pre_merge_range_patch(ticket, phase_id)
@@ -962,7 +972,7 @@ def _can_complete_dispatch(ticket: str, phase_id: str, *, persist: bool = True) 
         persist: when True (default, ack path) discovery completion may persist
             side effects (risk_tags sync, floor-guard audit) and the
             acceptance-test-plan reviewer seam records its findings. Read-only
-            callers (`klc remind`, gate-policy advisory) pass False so the check
+            callers (the klc hook's pending line, gate-policy advisory) pass False so the check
             never writes (KLC-062 AC-1). For build, persist=False additionally
             keeps the AC-coverage arm from spawning pytest (KLC-095 FIX-2); the
             generic phases treat the flag as a no-op.
@@ -1150,6 +1160,34 @@ def _is_ancestor(base: str, head: str, repo) -> bool:
     D-128-3 — see the two review-fix test updates in build-log.md)."""
     mb = _git(["merge-base", base, head], repo)
     return bool(mb) and mb == base
+
+
+def integrate_merge_verified(ticket: str) -> tuple[bool, str]:
+    """KLC-179 F-003: is the ticket's work on `main`? True only when the recorded
+    pre-merge range head (`meta.pre_merge_range.head`, written at build/review/manual)
+    is an ancestor of `main` (or `origin/main`). Never raises. A squash merge never
+    puts the branch tip on main, and a ticket with no recorded range has nothing to
+    check, so both answer False with a reason that names the way out: a human
+    confirms with `--pick 1` and the confirmation is recorded in `meta.integrate`."""
+    try:
+        rng, _why = _read_pre_merge_range(ticket)
+        if rng is None:
+            return False, ("not merged into main: no recorded pre-merge range to check; "
+                           "confirm the merge with --pick 1")
+        import subprocess
+        repo = _project_repo()
+        # `git merge-base --is-ancestor` answers with its exit code, which the stdout-based
+        # `_git` seam cannot carry; it is also a different question from the KLC-128 ground
+        # truth, so it stays outside that seam and its per-ack git-call bounds.
+        for ref in ("main", "origin/main"):
+            r = subprocess.run(["git", "merge-base", "--is-ancestor", rng["head"], ref],
+                               capture_output=True, text=True, cwd=str(repo), timeout=15)
+            if r.returncode == 0:
+                return True, ""
+        return False, (f"not merged into main: {rng['head'][:12]} is not an ancestor of "
+                       f"main; merge it, or confirm with --pick 1")
+    except Exception as exc:  # noqa: BLE001
+        return False, f"not merged into main: the check failed ({type(exc).__name__}); confirm with --pick 1"
 
 
 def _validated_recorded_range(ticket: str, repo) -> tuple[dict | None, str, bool]:
@@ -1394,7 +1432,7 @@ def _drift_advisories(ticket: str, persist: bool, *, committed: dict | None = No
     if not integrate_evaluators_run(ticket):
         return []  # XS skip / S without an escalation signal
 
-    # A read-only probe (persist=False, e.g. `klc remind` / gate-policy) must persist
+    # A read-only probe (persist=False, e.g. the klc hook's pending line / gate-policy) must persist
     # NOTHING — but drift_check.compare → scope_delta.compare → _lc.read_meta can migrate
     # a legacy-phase meta as a side effect. Snapshot meta and restore it after the probe
     # so the read-only guarantee holds regardless of a downstream brick's side effects.

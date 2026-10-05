@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""lifecycle.py — ticket state machine over config/phases.yml.
+"""lifecycle.py — ticket state machine; the next move comes from core/skills/rules.py.
 
 Each ticket's `meta.json:phase` holds `"<phase-id>:<state>"`, where
 state ∈ {work, ack-needed, ack}, plus the terminal sentinel `archived`.
@@ -10,12 +10,16 @@ Transitions happen via five operations:
     Low-level: write meta.json and append a phase_history entry.
 
   advance_to_next(ticket)
-    From `:ack` (or `intake:ack-needed` at ticket creation) → next
-    track-applicable phase's `:work` state.
+    From `:ack` (or `intake:ack-needed` at ticket creation) → the phase of the
+    first missing fact (`rules.next_move`), its `:work` state.
 
   apply_ack(ticket, pick_id)
-    From `:ack-needed` → goto target (either `next` or `<phase>:work`).
-    Honours supersede lists and pick_records_to.
+    From `:ack-needed` → an approving pick advances; a rework or route pick
+    clears facts (`rules.pick_plan`) and enters the first missing fact's phase.
+
+  switch_track(ticket, lane)
+    Moves a ticket between the `light` and `full` lanes; keeps its facts and
+    never archives it.
 
   jump(ticket, target_phase, pick_id=None, dry_run=False)
     Cross-cut: from any `:ack` state to any other phase's `:work`.
@@ -45,6 +49,7 @@ sys.path.insert(0, str(_project_root))
 
 from core.shared.paths import klc_ticket_dir, klc_ticket_meta_file, project_root  # noqa: E402
 import phases as _ph  # noqa: E402
+import rules as _rules  # noqa: E402  (KLC-179: facts model + ordered rule table)
 
 
 # --- legacy migration --------------------------------------------------------
@@ -73,13 +78,28 @@ _LEGACY_MAP = {
 }
 
 
+# KLC-179: the XS-only phases and `detailed-test-plan` left phases.yml. A ticket in
+# flight at one of them is read as the phase that replaced it; the facts derived from
+# its phase_history (`xs-build` -> steps_green, `review-lite` -> review_verdict) do the rest.
+_RETIRED_PHASES = {"xs-build": "build", "review-lite": "review", "detailed-test-plan": "design"}
+
+
 def _migrate_legacy_phase(meta: dict) -> bool:
     """If meta has an old-format phase string, rewrite it in place.
     Returns True iff migration happened (caller should persist)."""
     cur = meta.get("phase")
     if not isinstance(cur, str):
         return False
-    if ":" in cur or _ph.is_terminal(cur):
+    if _ph.is_terminal(cur):
+        return False
+    if ":" in cur:
+        pid, st = cur.split(":", 1)
+        if pid in _RETIRED_PHASES:
+            # detailed-test-plan was after design: its work or ack-needed means design is
+            # done, so the ticket stands at `design:ack` and the next move is build.
+            meta["phase"] = (f"design:{_ph.STATE_ACK}" if pid == "detailed-test-plan"
+                             else f"{_RETIRED_PHASES[pid]}:{st}")
+            return True
         return False
     new = _LEGACY_MAP.get(cur)
     if new:
@@ -99,7 +119,7 @@ def read_meta(ticket: str, *, persist_migration: bool = True) -> dict:
 
     By default (`persist_migration=True`) a legacy-format phase is also written
     back to disk — this is the historic behaviour every write-path caller
-    relies on. Read-only callers (`klc status`, `klc remind`) must pass
+    relies on. Read-only callers (`klc status`, the klc hook's pending line) must pass
     `persist_migration=False` (or use `read_meta_ro`) so that merely displaying
     a ticket never dirties the tree (KLC-062 AC-2). The migration is still
     applied to the returned dict either way, so callers always see the modern
@@ -487,10 +507,58 @@ def _apply_meta_patch(ticket: str, meta: dict) -> None:
             meta[key] = value
 
 
+def _ensure_facts(ticket: str, meta: dict) -> None:
+    """KLC-179: an in-flight ticket with no `meta.facts` is derived from its history
+    ONCE here, then written with the next transition (derive-then-write)."""
+    if not isinstance(meta.get("facts"), dict):
+        try:
+            tdir = klc_ticket_dir(ticket)
+        except Exception:
+            tdir = None
+        meta["facts"] = _rules.derive_facts(meta, tdir)
+
+
+def _apply_facts(meta: dict, phase_id: str, state: str, event: str = "set_state") -> None:
+    """Keep `meta.facts` in step with the transition being written (KLC-179).
+
+    Gates stage their fact in `meta.facts` (see `phase_completion.can_complete`,
+    `apply_ack`); this adds what every write owes: the lane mirror of `meta.track`,
+    the retro flag, the terminal marker, and the clearing of a phase's fact (and
+    every later one) when its `:work` is entered again (rework, `klc back`, jump).
+
+    Unusual on purpose: `meta.phase` is still written from the caller's
+    `<phase>:<state>`, not from `rules.phase_for` (D-004): `phase_for` cannot express
+    `intake:ack-needed` (abort), a jump to a phase the table would skip, or a Jira pull,
+    so it stays a check (the tests assert both agree where it can speak), not the writer.
+    Two more duties: a gate that rewrites `steps_green` (build at ack-needed) drops the
+    old `review_verdict` and everything after it, because new code needs a new review
+    (F-001); a forward advance never clears facts (D-005)."""
+    facts = meta.get("facts")
+    if not isinstance(facts, dict):
+        facts = meta["facts"] = {}
+    if meta.get("track") is not None:
+        facts["track"] = _rules.legacy_track(meta.get("track"))
+    if (state == _ph.STATE_WORK and phase_id in _rules.PHASE_FACT
+            and event not in ("advance", "track-switch")):
+        _rules.clear_from(facts, _rules.PHASE_FACT[phase_id])
+    if (state == _ph.STATE_ACK_NEEDED and phase_id in ("build", "xs-build")
+            and facts.get("steps_green") is True and "review_verdict" in facts):
+        _rules.clear_from(facts, "review_verdict")        # F-001: new code, new review
+    if _rules.retro_required(meta):
+        facts["retro_required"] = True
+    if phase_id == _ph.STATE_ARCHIVED:
+        facts["terminal"] = "archived"
+        facts["merged"] = True
+    elif phase_id == _ph.STATE_CANCELLED:
+        facts["terminal"] = "cancelled"
+        facts.pop("merged", None)
+
+
 def set_state(ticket: str, phase_id: str, state: str, *,
               event: str = "set_state", note: str = "",
               extra: dict | None = None) -> None:
     meta = read_meta(ticket)
+    _ensure_facts(ticket, meta)          # before the patch: a legacy meta derives from its history
     _apply_meta_patch(ticket, meta)      # rides this SAME write (D-219)
     new = _ph.format_state(phase_id, state)
     history = meta.setdefault("phase_history", [])
@@ -502,6 +570,7 @@ def set_state(ticket: str, phase_id: str, state: str, *,
     if extra:
         entry.update(extra)
     history.append(entry)
+    _apply_facts(meta, phase_id, state, event)
     meta["phase"] = new
     write_meta(ticket, meta)
     if _jira_deferral is not None:
@@ -723,29 +792,34 @@ def enter_work_guard(ticket: str, target_phase_id: str,
 
 # --- operations ---------------------------------------------------------------
 
+def _risk_tags(meta: dict):
+    return meta.get("risk_tags") if isinstance(meta, dict) else None
+
+
 def resolve_next_work_phase(meta: dict) -> tuple[str | None, list[str]]:
     """Pure, read-only resolution of where `advance_to_next` would go from an
     `:ack` state: return `(entered_phase_id, skipped_phase_ids)`.
 
-    Walks forward from the current phase, SKIPPING each track-applicable phase
-    whose `condition` evaluates False — using the very same `Phase.should_run`
-    the live advance uses, so the two can never diverge on which phase is
-    entered. `entered_phase_id` is None when there is no further applicable phase
-    (advance would archive). Assumes `meta` is at an `:ack` state (callers that
-    must reject other states check that themselves)."""
-    pid, _st = _ph.parse_state(meta.get("phase", ""))
-    track = meta.get("track") or "M"
-    ph = _ph.load_phases()
+    The phase is the one of the first missing fact (`rules.next_move` over the
+    ticket's facts, derived in memory for an older meta). `entered_phase_id` is None
+    when every required fact holds (advance would archive). `skipped_phase_ids` are
+    the lane phases the ticket passes over on the way (manual and observe without
+    risk tags, learn without an overrun); they are only recorded in phase_history.
+    Assumes `meta` is at an `:ack` state (callers that must reject other states
+    check that themselves)."""
+    pid, st = _ph.parse_state(meta.get("phase", ""))
+    facts = _rules.derive_facts(meta)
+    if st == _ph.STATE_ACK_NEEDED:        # the approving pick will write a decision fact
+        facts = _rules.if_approved(facts, pid, _rules.lane_of(meta))
+    move = _rules.next_move(facts, _rules.lane_of(meta), risk_tags=_risk_tags(meta))
+    entered = None if move.action in ("archive", "done") else move.phase
+    order = _rules.lane_phase_ids(_rules.lane_of(meta))
     skipped: list[str] = []
-    candidate_pid = pid
-    while True:
-        nxt = ph.next_phase(track, candidate_pid)
-        if nxt is None:
-            return (None, skipped)
-        if nxt.should_run(meta):
-            return (nxt.id, skipped)
-        skipped.append(nxt.id)   # condition false -> this phase is skipped
-        candidate_pid = nxt.id
+    if pid in order:
+        end = order.index(entered) if entered in order else len(order)
+        skipped = [x for x in order[order.index(pid) + 1:end]
+                   if not _rules.phase_applies(x, meta)]
+    return (entered, skipped)
 
 
 def next_work_phase(meta: dict) -> str | None:
@@ -777,8 +851,8 @@ def next_work_phase(meta: dict) -> str | None:
 
 
 def advance_to_next(ticket: str, *, note: str = "") -> str:
-    """Move from `<X>:ack` to the next track-applicable phase's `:work`.
-    Phases whose `condition` evaluates to False are skipped automatically
+    """Move from `<X>:ack` to the `:work` of the first missing fact's phase
+    (`rules.next_move`). Lane phases the ticket does not need are passed over
     (recorded in phase_history as event=skipped).
     Returns the new state string. Raises if not in an `:ack` state."""
     meta = read_meta(ticket)
@@ -793,9 +867,8 @@ def advance_to_next(ticket: str, *, note: str = "") -> str:
 
     # Same resolution the epic view uses — one source of truth for skips.
     entered, skipped = resolve_next_work_phase(meta)
-    ph = _ph.load_phases()
     for sk in skipped:
-        _record_skipped(ticket, sk, ph.by_id(sk).condition or "")
+        _record_skipped(ticket, sk, "not required for this ticket")
 
     if entered is None:
         set_state(ticket, _ph.STATE_ARCHIVED, _ph.STATE_ARCHIVED,
@@ -837,7 +910,7 @@ def _project_head(rev: str = "HEAD") -> str | None:
     return (r.stdout.strip() or None) if r.returncode == 0 else None
 
 
-def _record_outcome(meta: dict, pid: str, pick, note: str) -> None:
+def _record_outcome(meta: dict, pid: str, pick, note: str, ticket: str | None = None) -> None:
     """manual and integrate keep their outcome in meta.json, not in a file."""
     if pid == "manual":
         meta["manual"] = {"verdict": pick.label, "note": note or "", "at": _now()}
@@ -845,12 +918,77 @@ def _record_outcome(meta: dict, pid: str, pick, note: str) -> None:
         # branch_head is the project HEAD at the ack (usually the feature-branch
         # tip, which a squash merge never puts on main); main_head is local main
         # when it resolves. Neither is claimed to be "the merge commit".
+        verified = False
+        try:
+            import phase_completion as _pc          # inside: phase_completion imports lifecycle
+            verified = bool(ticket) and _pc.integrate_merge_verified(ticket)[0]
+        except Exception:
+            verified = False
+        # merge_verified: the recorded range head is on main. Otherwise a human confirmed
+        # the merge with the pick (F-003), and that confirmation is what this records.
         meta["integrate"] = {"branch_head": _project_head(),
-                             "main_head": _project_head("main"), "at": _now()}
+                             "main_head": _project_head("main"), "at": _now(),
+                             "merge_verified": verified, "confirmed_by_pick": not verified}
+
+
+# Phases whose outcome is only known at the ack (no gate fact beforehand).
+_ACK_TIME_FACTS = _rules.ACK_TIME_FACTS
+
+
+def _actor() -> str:
+    try:
+        import identity as _id
+        return str(_id.current())
+    except Exception:
+        return ""
+
+
+def _record_ack_facts(ticket: str, meta: dict, pid: str, pick, note: str = "") -> None:
+    """KLC-179: the ack of a phase establishes its fact unless the pick is a rework.
+
+    Gate phases (spec, test plan, design, build, review) normally have their fact
+    from `can_complete`; this fills it for an in-flight ticket whose gate ran before
+    facts existed. manual / integrate / observe / learn are known only here."""
+    label = getattr(pick, "label", "") or ""
+    if label in _rules.REWORK_LABELS:
+        return
+    _ensure_facts(ticket, meta)
+    facts = meta["facts"]
+    fact = _ACK_TIME_FACTS.get(pid)
+    if fact:
+        facts[fact] = True
+        return
+    if pid in ("build", "xs-build") and "review_verdict" in facts:
+        _rules.clear_from(facts, "review_verdict")        # F-001: new code, new review
+    try:
+        tdir = klc_ticket_dir(ticket)
+    except Exception:
+        tdir = None
+    for name, value in _rules.gate_facts(pid, tdir).items():
+        facts.setdefault(name, value)
+    verdict_was = facts.get("review_verdict")      # R2-001: read after the gate filled it
+    # An approving pick IS the approval: when the gate left no fact (a ticket that
+    # bypassed `can_complete`, e.g. a review with no readable verdict) the pick sets it,
+    # so the rule table can move on instead of asking for the same phase again. A
+    # verdict that was read and is not an approval stays: it sends the ticket to build.
+    fact = _rules.PHASE_FACT.get(pid)
+    if fact == "review_verdict" and "review_verdict" in facts and _rules.pick_is_forward(label) \
+            and not _rules.holds(facts, "review_verdict"):
+        # F-001: the human approves over a report that asked for changes. That is an explicit
+        # override, recorded; without it the ticket would loop back to build for ever.
+        facts["review_verdict"] = "APPROVED"
+        meta["review_override"] = {"at": _now(), "by": _actor(), "note": note or "",
+                                   "report_verdict": verdict_was}
+    elif fact and fact not in facts and _rules.pick_is_forward(label):
+        facts[fact] = "APPROVED" if fact == "review_verdict" else True
 
 
 def apply_ack(ticket: str, pick_id: int | None, note: str = "") -> str:
-    """From :ack-needed apply the selected pick. Returns new state."""
+    """From :ack-needed apply the selected pick. Returns new state.
+
+    An approving pick records the phase's fact and advances to the first missing
+    fact. A rework or route pick (`rules.pick_plan`) clears the facts it undoes,
+    removes the files of the phases involved, and enters the first missing fact's phase."""
     meta = read_meta(ticket)
     cur = meta.get("phase", "")
     pid, st = _ph.parse_state(cur)
@@ -876,25 +1014,29 @@ def apply_ack(ticket: str, pick_id: int | None, note: str = "") -> str:
             opts = ", ".join(f"{pk.id}={pk.label}" for pk in phase.picks)
             raise ValueError(f"unknown pick {pick_id} for {pid}; options: {opts}")
 
+    # What a rework / route pick does is decided up front, from the facts as they are
+    # now, so the dependency guard below can run before any side effect.
+    plan = None
+    if not pick.forward:
+        _ensure_facts(ticket, meta)
+        plan = _rules.pick_plan(meta["facts"], pick.label, pid, _rules.lane_of(meta),
+                                risk_tags=_risk_tags(meta))
+
     # KLC-077 P1-B: for an EXPLICIT jump-pick INTO a :work phase (e.g. review
     # "request-changes" → build:work, observe "regression" → build:work), the
-    # dependency guard must run BEFORE any side effect — the pick_records_to
-    # write, the `<pid>:ack`, and especially `pick.supersede` (which moves
-    # artifacts). Feature-ON state_tx would roll those back, but feature-OFF has
-    # no rollback, so a blocked jump-pick must raise while the ticket is still
-    # byte-unchanged. (goto "next" is guarded inside advance_to_next; that path
-    # has no supersede and rests at `<pid>:ack`, a valid re-runnable state.)
-    if pick.goto not in ("next", _ph.STATE_ARCHIVED):
-        _tgt_id, _tgt_state = _ph.parse_state(pick.goto)
-        if _tgt_state == _ph.STATE_WORK:
-            enter_work_guard(ticket, _tgt_id)
+    # dependency guard must run BEFORE any side effect — the `<pid>:ack`, and
+    # especially the supersede (which moves artifacts). Feature-ON state_tx would
+    # roll those back, but feature-OFF has no rollback, so a blocked jump-pick must
+    # raise while the ticket is still byte-unchanged. (An approving pick is guarded
+    # inside advance_to_next; that path has no supersede and rests at `<pid>:ack`,
+    # a valid re-runnable state.)
+    if plan is not None:
+        enter_work_guard(ticket, plan.target)
 
-    # Record pick if configured (no shipped phase uses it since KLC-176: the
-    # pick lives in phase_history). manual and integrate keep their outcome in
-    # meta.json instead of a file.
-    if phase.pick_records_to:
-        meta[phase.pick_records_to] = pick.label
-    _record_outcome(meta, pid, pick, note)
+    # manual and integrate keep their outcome in meta.json instead of a file; the
+    # pick itself lives in phase_history.
+    _record_outcome(meta, pid, pick, note, ticket)
+    _record_ack_facts(ticket, meta, pid, pick, note)
     write_meta(ticket, meta)
 
     # Move to `<pid>:ack` first (so the ack is auditable even if the
@@ -904,58 +1046,106 @@ def apply_ack(ticket: str, pick_id: int | None, note: str = "") -> str:
     _pick_extra = {"pick": {"id": pick.id, "label": pick.label}}
     set_state(ticket, pid, _ph.STATE_ACK, event="ack", note=note or "", extra=_pick_extra)
 
-    # Supersede if requested.
-    if pick.supersede:
-        supersede_phases(ticket, pick.supersede)
-
-    if pick.goto == "next":
+    if plan is None:
         return advance_to_next(ticket)
 
-    if pick.goto == _ph.STATE_ARCHIVED:
-        set_state(ticket, _ph.STATE_ARCHIVED, _ph.STATE_ARCHIVED,
-                  event="ack", extra=_pick_extra)
-        return _ph.STATE_ARCHIVED
+    if plan.supersede:
+        supersede_phases(ticket, plan.supersede)
 
-    # Explicit <phase>:<state> jump. The dependency guard for a :work target
-    # already ran ABOVE (P1-B), before the ack/supersede side effects.
-    tgt_id, tgt_state = _ph.parse_state(pick.goto)
     meta = read_meta(ticket)
     _reset_budgets(meta)
+    _ensure_facts(ticket, meta)
+    if plan.lane != _rules.lane_of(meta):
+        meta["track"] = _rules.lane_letter(plan.lane)     # the legacy letter mirrors the lane
+    meta["facts"] = dict(plan.facts)
     # KLC-081: a REWORK pick — one that re-does a phase's work (needs-rework,
     # request-changes, regression, failed, revise-impl-plan) — bumps the
     # re-entered phase's count. Gated on the pick's rework SEMANTICS, not raw
     # direction: a same-phase `needs-rework` (design → design:work) and the
-    # legitimate `learn` `extract-to-claudemd` self-loop are both same-phase
-    # goto:work, so only the label set distinguishes the bounce from the second
-    # pass. Route/forward picks (force-full-discovery, upgrade-to-S, rollback)
-    # are not in the set, so the happy path stays {}. Counted in this SAME
-    # meta.json write so it rides the caller's state_tx alongside the transition.
-    if tgt_state == _ph.STATE_WORK and pick.label in _REWORK_PICK_LABELS:
-        _bump_rework(meta, tgt_id)
+    # legitimate `learn` `extract-to-claudemd` self-loop are both same-phase, so only
+    # the label set distinguishes the bounce from the second pass. Route picks
+    # (force-full-discovery, upgrade-to-full, rollback) are not in the set, so the
+    # happy path stays {}. Counted in this SAME meta.json write so it rides the
+    # caller's state_tx alongside the transition.
+    if pick.label in _REWORK_PICK_LABELS:
+        _bump_rework(meta, plan.target)
     write_meta(ticket, meta)
-    set_state(ticket, tgt_id, tgt_state,
+    set_state(ticket, plan.target, _ph.STATE_WORK,
               event="ack-jump", extra=_pick_extra)
-    return pick.goto
+    return _ph.format_state(plan.target, _ph.STATE_WORK)
 
 
-def jump(ticket: str, target_phase: str, *, dry_run: bool = False) -> dict:
-    """Cross-cut jump to `<target_phase>:work`. Always from some `:ack`.
+def switch_track(ticket: str, lane: str, *, letter: str | None = None) -> str:
+    """Move a ticket to the `light` or `full` lane without ever archiving it (KLC-179).
+
+    Facts the ticket already has stay. `facts.track` and the legacy `meta.track` letter
+    (`letter`, else S for light and M for full) are rewritten, and the ticket moves to
+    `<phase>:work` of the first fact the NEW lane still misses (the test plan and the
+    design after a light -> full switch, the review after a full -> light switch). The
+    KLC-163 bug walked a retracked ticket straight to `archived`; with facts, `archive`
+    needs every required fact, so it cannot. A switch inside the same lane, or one at
+    `intake`, only rewrites the letter and the lane and leaves the phase alone (the intake
+    ack still comes first). A light -> full switch before the design exists clears
+    `steps_green` and everything after it (the design will change the plan). The epic
+    guard runs before anything is written. Returns the new `meta.phase`."""
+    if lane not in (_rules.LIGHT, _rules.FULL):
+        raise ValueError(f"unknown lane {lane!r}; expected light or full")
+    meta = read_meta(ticket)
+    if _ph.is_terminal(meta.get("phase", "")):
+        raise ValueError(f"cannot switch the track of a {meta.get('phase')} ticket")
+    _ensure_facts(ticket, meta)
+    before = _rules.lane_of(meta)
+    facts = dict(meta["facts"])               # work on a copy: nothing is written before the guard
+    facts["track"] = lane
+    if lane == _rules.FULL and before == _rules.LIGHT and not _rules.holds(facts, "design_approved"):
+        # F-012: the design that is still to come will change the plan, so the build and the
+        # verdict made against the old plan are stale.
+        _rules.clear_from(facts, "steps_green")
+    new_letter = letter or _rules.lane_letter(lane)
+    cur_pid = _ph.parse_state(meta.get("phase", ""))[0]
+    move = None
+    if lane != before and cur_pid != "intake":
+        move = _rules.next_move(facts, lane, risk_tags=_risk_tags(meta))
+        if move.action in ("archive", "done") or not move.phase:
+            move = None   # unreachable by construction; stay put rather than archive on a doubt
+    if move is not None:
+        enter_work_guard(ticket, move.phase)  # F-008: before ANY write (feature-OFF has no rollback)
+    meta["facts"] = facts
+    meta["track"] = new_letter
+    write_meta(ticket, meta)
+    if move is None:
+        # same lane, or still at intake (the intake ack comes first): only the lane is rewritten
+        return meta.get("phase", "")
+    set_state(ticket, move.phase, _ph.STATE_WORK, event="track-switch",
+              note=f"lane {before} -> {lane}")
+    return _ph.format_state(move.phase, _ph.STATE_WORK)
+
+
+def jump(ticket: str, target_phase: str, *, dry_run: bool = False,
+         from_any: bool = False, rework_entry=None) -> dict:
+    """Cross-cut jump to `<target_phase>:work`. From some `:ack` by default.
     Returns a plan dict regardless of dry_run; when dry_run=False the
-    plan has been applied."""
+    plan has been applied.
+
+    KLC-177 (`klc back`): `from_any=True` also accepts `:work` and `:ack-needed`
+    and only moves backward (or to the current phase) on the ticket's track —
+    a forward target is refused. `rework_entry` (a reason string, or a dict with
+    `reason` and optionally `by`) appends `{from, to, reason, at, by}` to
+    `meta.rework[]` in the same meta write that bumps `rework_count` (once)."""
     meta = read_meta(ticket)
     cur = meta.get("phase", "")
     if _ph.is_terminal(cur):
         raise ValueError(f"cannot jump from {cur}")
     cur_pid, cur_state = _ph.parse_state(cur)
-    if cur_state != _ph.STATE_ACK:
+    if cur_state != _ph.STATE_ACK and not from_any:
         raise ValueError(
             f"jump requires current state to be :ack; got {cur!r}. "
-            f"Use `klc abort` to leave :work or `klc ack` to leave :ack-needed."
+            f"Use `klc back <KEY> <phase> --reason TEXT` to leave :work or `klc go` to leave :ack-needed."
         )
 
     ph = _ph.load_phases()
-    track = meta.get("track") or "M"
-    track_ids = [p.id for p in ph.track_phases(track)]
+    track = _rules.lane_of(meta)
+    track_ids = _rules.lane_phase_ids(track)     # lifecycle order of the ticket's lane
 
     # Target must exist.
     try:
@@ -971,6 +1161,12 @@ def jump(ticket: str, target_phase: str, *, dry_run: bool = False) -> dict:
     # artefact yet, so nothing to move).
     cur_idx = track_ids.index(cur_pid) if cur_pid in track_ids else -1
     tgt_idx = track_ids.index(target_phase) if target_phase in track_ids else -1
+    if from_any and (cur_idx < 0 or tgt_idx < 0):
+        raise ValueError(
+            f"back: {target_phase} and {cur_pid} must both be on track {meta.get('track') or 'M'}")
+    if from_any and tgt_idx > cur_idx:
+        raise ValueError(
+            f"back: {target_phase} is after {cur_pid}; use `klc go` to move forward")
     to_supersede: list[str] = []
     if cur_idx >= 0 and tgt_idx >= 0 and tgt_idx <= cur_idx:
         # Backward (or same) jump: supersede phases from tgt..cur (inclusive).
@@ -1008,6 +1204,11 @@ def jump(ticket: str, target_phase: str, *, dry_run: bool = False) -> dict:
     # re-entered target phase, in this same meta.json write (rides state_tx).
     if to_supersede:
         _bump_rework(meta, target_phase)
+    if rework_entry:
+        spec = rework_entry if isinstance(rework_entry, dict) else {"reason": rework_entry}
+        meta.setdefault("rework", []).append({
+            "from": cur, "to": target_phase, "reason": spec.get("reason", ""),
+            "at": _now(), "by": spec.get("by", "")})
     write_meta(ticket, meta)
     set_state(ticket, target_phase, _ph.STATE_WORK,
               event="jump", note=f"from={cur}")
@@ -1030,9 +1231,17 @@ def abort(ticket: str) -> str:
     if cur_state != _ph.STATE_WORK:
         raise ValueError(f"abort: current state is {cur!r}; expected :work")
 
-    ph = _ph.load_phases()
-    track = meta.get("track") or "M"
-    prev = ph.prev_phase(track, cur_pid)
+    order = _rules.lane_phase_ids(_rules.lane_of(meta))
+    # F-010: land on the nearest earlier phase the ticket really went through. The lane list
+    # is a superset (manual/observe/learn may be skipped), so a phase counts when the rule
+    # table would enter it for this ticket and phase_history does not record it as skipped.
+    skipped = {_ph.parse_state(e["phase"])[0] for e in (meta.get("phase_history") or [])
+               if isinstance(e, dict) and e.get("event") == "skipped"
+               and isinstance(e.get("phase"), str) and ":" in e["phase"]}
+    prev = None
+    if cur_pid in order and order.index(cur_pid) > 0:
+        prev = next((c for c in reversed(order[:order.index(cur_pid)])
+                     if c not in skipped and _rules.phase_applies(c, meta)), "intake")
 
     # Supersede current phase's artefacts.
     supersede_phases(ticket, [cur_pid])
@@ -1055,9 +1264,9 @@ def abort(ticket: str) -> str:
                   event="abort", note=f"from={cur}")
         return _ph.format_state("intake", _ph.STATE_ACK_NEEDED)
 
-    set_state(ticket, prev.id, _ph.STATE_ACK,
+    set_state(ticket, prev, _ph.STATE_ACK,
               event="abort", note=f"from={cur}")
-    return _ph.format_state(prev.id, _ph.STATE_ACK)
+    return _ph.format_state(prev, _ph.STATE_ACK)
 
 
 def cancel(ticket: str, *, reason: str, by: str) -> str:
@@ -1125,46 +1334,10 @@ def is_work(ticket: str) -> bool:
     return st == _ph.STATE_WORK
 
 
-# --- CLI ---------------------------------------------------------------------
-
-def _main(argv: list[str]) -> int:
-    import argparse
-    ap = argparse.ArgumentParser(description=__doc__)
-    sub = ap.add_subparsers(dest="cmd", required=True)
-
-    p = sub.add_parser("show", help="print current state")
-    p.add_argument("--ticket", required=True)
-
-    p = sub.add_parser("ack", help="apply pick")
-    p.add_argument("--ticket", required=True)
-    p.add_argument("--pick", type=int, default=None)
-
-    p = sub.add_parser("advance", help="ack → next phase :work")
-    p.add_argument("--ticket", required=True)
-
-    p = sub.add_parser("jump", help="jump to any phase :work")
-    p.add_argument("--ticket", required=True)
-    p.add_argument("--target", required=True)
-    p.add_argument("--dry-run", action="store_true")
-
-    p = sub.add_parser("abort", help="cancel :work, return to prev :ack")
-    p.add_argument("--ticket", required=True)
-
-    args = ap.parse_args(argv)
-
-    if args.cmd == "show":
-        print(current_state(args.ticket)); return 0
-    if args.cmd == "ack":
-        print(apply_ack(args.ticket, args.pick)); return 0
-    if args.cmd == "advance":
-        print(advance_to_next(args.ticket)); return 0
-    if args.cmd == "jump":
-        plan = jump(args.ticket, args.target, dry_run=args.dry_run)
-        print(json.dumps(plan, indent=2)); return 0
-    if args.cmd == "abort":
-        print(abort(args.ticket)); return 0
-    return 2
-
+# --- no CLI ------------------------------------------------------------------
+# lifecycle.py is a library. Its old show/ack/advance/jump/abort script entry
+# bypassed the audited `klc go/back/fix` paths, so running it is a usage error.
 
 if __name__ == "__main__":
-    sys.exit(_main(sys.argv[1:]))
+    sys.stderr.write("lifecycle.py has no CLI; use klc go/back/fix\n")
+    sys.exit(2)

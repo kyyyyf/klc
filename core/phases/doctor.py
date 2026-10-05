@@ -323,40 +323,43 @@ def _index_hook() -> tuple[list[str], str]:
 
 
 @check("project-tools")
-def _project_tools() -> list[str]:
-    """Check project-specific language tools (read from project-deps.json).
-
-    Returns errors (missing required tools). This check's behavior is modified
-    by the --strict flag in run(): by default it returns warnings (doesn't fail),
-    but with --strict it fails doctor.
+def _project_tools() -> tuple[list[str], str]:
+    """INFORMATIONAL (KLC-178 AC-9): print the detected languages and the
+    tool requirements `klc setup` recorded in project-deps.json. Never a
+    warning or failure, not even under --strict. Language servers are a
+    convenience for the agent; they are not part of the framework's health.
+    (ast-grep is a real check of its own, `ast-grep`, because the indexer needs it.)
     """
-    errs: list[str] = []
+    info: list[str] = []
     try:
-        from _paths import klc_index_dir  # noqa: F401
+        import detect_languages
 
-        deps_file = klc_index_dir() / "project-deps.json"
+        langs = sorted(detect_languages.detect())
+        info.append("languages: " + (", ".join(langs) if langs else "none detected"))
+
+        deps_file = _index_dir() / "project-deps.json"
         if not deps_file.exists():
-            # KLC-107 AC-4: a project that never ran `klc setup` could never learn
-            # that a required tool was missing. Say so instead of returning an
-            # empty list — "project-tools" is already in _WARN_ONLY, so this
-            # prints as WARN by default and --strict promotes it to a failure.
-            return ["project-deps.json absent — language tool requirements were "
-                    "never detected. Run `klc setup`."]
-
-        import json
+            info.append("project-deps.json absent — language tool requirements "
+                        "were never detected (informational)")
+            return (info, "pass")
         deps = json.loads(deps_file.read_text(encoding="utf-8"))
-
-        # Check only required tools (optional tools ignored)
-        for lang, tools in deps.get("required", {}).items():
+        for lang, tools in (deps.get("required") or {}).items():
             for tool in tools:
-                detected = deps.get("detected", {}).get(tool)
-                if detected is None:
-                    errs.append(f"{tool} (required for {lang}) — not found. Run `klc setup` for install instructions.")
-
+                if (deps.get("detected") or {}).get(tool) is None:
+                    info.append(f"{tool} (for {lang}) — not found (informational)")
     except Exception as exc:
-        errs.append(f"project-tools check failed: {exc}")
+        info.append(f"project-tools info unavailable: {exc}")
+    return (info, "pass")
 
-    return errs
+
+@check("ast-grep")
+def _ast_grep() -> tuple[list[str], str]:
+    """The indexer shells out to ast-grep (binary `ast-grep` or its alias `sg`).
+    Missing is a WARN: plain `klc doctor` stays green, `--strict` turns it into a failure."""
+    if shutil.which("ast-grep") or shutil.which("sg"):
+        return ([], "pass")
+    return (["ast-grep not found on PATH (the indexer needs it; binary `ast-grep` or `sg`)"],
+            "warn")
 
 
 @check("jira-sync-conflicts")
@@ -393,7 +396,7 @@ def _jira_sync_conflicts() -> list[str]:
 
 
 # Warn-only checks: don't fail doctor without --strict.
-_WARN_ONLY = {"project-tools", "jira-sync-conflicts", "external-reviewer-key"}
+_WARN_ONLY = {"jira-sync-conflicts", "external-reviewer-key"}
 
 
 def _normalize(result):
@@ -415,17 +418,140 @@ def _run_tests(path: str = _FW_TESTS) -> int:
                             "-q", f"--ignore={_FW_FIXTURES}"])
 
 
+# ---- KLC-178: bootstrap verbs folded into doctor ---------------------------
+
+FW = Path(__file__).resolve().parent.parent.parent
+_PHASES = str(Path(__file__).resolve().parent)
+
+
+def _has_jinja2() -> bool:
+    return importlib.util.find_spec("jinja2") is not None
+
+
+def _bootstrap_check() -> int:
+    """`install_deps.py --bootstrap` (Python, git, jinja2) as a subprocess."""
+    return subprocess.call([sys.executable, str(FW / "scripts" / "install_deps.py"),
+                            "--bootstrap"])
+
+
+def install_project(root: Path, force: bool = False) -> int:
+    """`doctor --install <root>`: bootstrap check (only when jinja2 is missing),
+    install, a first scan when the index is absent, `setup` (records project-deps.json), then `state init` when <root>
+    is a git repo. Safe to run twice:
+    an installed root is reported and left untouched unless `force` re-runs
+    install with --force (regenerates configs and re-records the hook mode)."""
+    if not root.is_dir():
+        sys.stderr.write(f"klc doctor: {root} is not a directory\n")
+        return 2
+    if not _has_jinja2():
+        rc = _bootstrap_check()
+        if rc != 0:
+            sys.stderr.write("klc doctor: bootstrap dependency check failed; "
+                             "nothing was installed\n")
+            return 1
+    if _PHASES not in sys.path:
+        sys.path.insert(0, _PHASES)
+    import install as _install
+    import state as _state
+
+    klc = root / ".klc"
+    installed = (klc / "bin" / "klc").exists() and (klc / "config" / "profile.yml").exists()
+    if force:
+        rc = _install.run([str(root), "--force"])
+        if rc != 0:
+            return rc
+    elif installed:
+        print(f"klc doctor: already installed at {root}; nothing to change")
+    else:
+        rc = _install.run([str(root)])
+        if rc != 0:
+            return rc
+    # setup reads structural.json, so a fresh root is scanned first (scan-only).
+    if not (root / ".klc" / "index" / "structural.json").exists():
+        refresh_index(root)
+    old = os.environ.get("PROJECT_ROOT")
+    os.environ["PROJECT_ROOT"] = str(root)
+    try:
+        # Record the language-tool requirements (project-deps.json). The detection
+        # output is informational; a failure here never blocks the bootstrap.
+        import setup as _setup
+        _setup.run([])
+        if (root / ".git").exists():
+            return _state.run(["init"])
+        print("klc doctor: not a git repository; `state init` skipped")
+        return 0
+    finally:
+        if old is None:
+            os.environ.pop("PROJECT_ROOT", None)
+        else:
+            os.environ["PROJECT_ROOT"] = old
+
+
+def refresh_index(root: Path, scan: bool = True) -> int:
+    """`doctor --index` (scan=False: only the verdict): `init --scan-only` when `.last-run` is absent, else
+    `update`; then print the freshness verdict. A stale index is a failure."""
+    import index_health
+
+    idx = root / ".klc" / "index"
+    script = "init.py" if not (idx / ".last-run").exists() else "update.py"
+    args = ["--scan-only"] if script == "init.py" else []
+    env = {**os.environ, "PROJECT_ROOT": str(root)}
+    rc = 0
+    if scan:
+        rc = subprocess.call([sys.executable, str(FW / "scripts" / script), *args], env=env)
+    errs, sev = index_health.freshness(idx, root)
+    if sev == "pass":
+        print("index: fresh")
+    else:
+        last = ""
+        lr = idx / ".last-run"
+        if lr.exists():
+            last = lr.read_text(encoding="utf-8").strip()[:8]
+        print(f"index: stale: HEAD moved since {last}" if last else "index: stale")
+        for e in errs:
+            print(f"  FAIL index-freshness - {e}")
+    return rc if rc else (1 if sev != "pass" else 0)
+
+
 def run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="klc doctor")
     ap.add_argument("--json", action="store_true",
                     help="machine-readable JSON output")
     ap.add_argument("--strict", action="store_true",
-                    help="Fail on missing project-specific tools (default: warn only)")
+                    help="Promote warnings to failures (language tools stay informational)")
+    ap.add_argument("--install", metavar="ROOT", default=None,
+                    help="Bootstrap ROOT: install the shims/config, then `state init` "
+                         "when ROOT is a git repo. Idempotent.")
+    ap.add_argument("--force", action="store_true",
+                    help="With --install: re-run install even when ROOT is already "
+                         "installed (regenerates configs, re-records the hook decision)")
+    ap.add_argument("--index", action="store_true",
+                    help="Refresh the index (full scan when never built, else update) "
+                         "and report its freshness")
     ap.add_argument("--tests", action="store_true",
                     help="Run the test suite as a gate; exit 0 only if all tests pass")
     ap.add_argument("--tests-path", default=_FW_TESTS,
                     help="Path to pass to pytest (default: framework tests/); useful in tests")
     args = ap.parse_args(argv)
+
+    if args.force and args.install is None:
+        ap.error("--force only applies together with --install <root>")
+    if args.json and (args.install is not None or args.index):
+        ap.error("--json is only for the health checks; --install/--index print text")
+
+    # --install / --index are actions with their own verdict; they do not fall
+    # through to the health checks (run plain `klc doctor` for those).
+    if args.install is not None or args.index:
+        rc = 0
+        target = Path(args.install).resolve() if args.install is not None else None
+        # install_project scans a fresh root itself (setup needs the scan), so
+        # --index then only reports the verdict instead of scanning twice.
+        scanned = target is not None and not (target / ".klc" / "index" / "structural.json").exists()
+        if target is not None:
+            rc = install_project(target, force=args.force)
+        if rc == 0 and args.index:
+            rc = refresh_index(target if target is not None else project_root(), scan=not scanned)
+        return rc
 
     if args.tests:
         rc = _run_tests(args.tests_path)

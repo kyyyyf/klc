@@ -15,7 +15,7 @@ def _files():
         *ROOT.glob("core/agents/**/*.md"),
         *ROOT.glob("core/templates/**/*"),
         *ROOT.glob("klc-plugin/agents/*.md"),
-        ROOT / "klc-plugin/skills/run/SKILL.md",
+        ROOT / "klc-plugin/skills/go/SKILL.md",
         ROOT / "docs/process.md",
     ]
 
@@ -32,8 +32,8 @@ def test_removed_evidence_and_ledger_names_do_not_survive():
 
 def test_templates_and_docs_point_at_klc_step_verify():
     for rel in ("core/templates/impl-step.md.j2", "core/agents/impl.md",
-                "core/agents/xs-fasttrack.md", "docs/process.md",
-                "klc-plugin/skills/run/SKILL.md"):
+                "docs/process.md",
+                "klc-plugin/skills/go/SKILL.md"):
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "klc step verify" in text or "klc step <KEY> verify" in text, rel
     assert "steps.json" in (ROOT / "docs/process.md").read_text(encoding="utf-8")

@@ -19,7 +19,7 @@
 #                   Omit it to keep the CLI default.
 #   phase_roles   — which role runs at each phase in config/phases.yml.
 #                   Keys are phase ids; values are role names. Every
-#                   phase with `work.prompt` declared in phases.yml
+#                   phase with a `prompt` declared in phases.yml
 #                   must be covered here.
 #   per_track     — optional overrides keyed by track (XS, S, M, L).
 #                   Format: `per_track.<track>.<phase> = <role>`. XS
@@ -116,10 +116,7 @@ phase_roles:
   discovery:            heavy-reasoning
   acceptance-test-plan: coding
   design:               heavy-reasoning
-  detailed-test-plan:   coding
-  xs-build:             coding
   build:                coding
-  review-lite:          coding
   review:               coding
   review-internal:      coding         # alias of `review` for sub-agents
   review-external:      external
@@ -144,7 +141,5 @@ phase_roles:
 per_track:
   XS:
     discovery-lite: local-simple
-    xs-build:       local-simple
-    review-lite:    local-simple
   L:
     review-external: heavy-reasoning

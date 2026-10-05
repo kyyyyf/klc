@@ -18,7 +18,7 @@ def _files():
     return [
         *ROOT.glob("core/agents/**/*.md"),
         *ROOT.glob("klc-plugin/agents/*.md"),
-        ROOT / "klc-plugin/skills/run/SKILL.md",
+        ROOT / "klc-plugin/skills/go/SKILL.md",
         ROOT / "docs/process.md",
     ]
 

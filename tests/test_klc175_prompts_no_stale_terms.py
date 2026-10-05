@@ -11,7 +11,7 @@ STALE = ("rule_catalog", "claude_md_context", "cascade-cheap", "test-coverage.md
 
 def _files() -> list[Path]:
     out = sorted((REPO / "core" / "agents").rglob("*.md"))
-    return out + [REPO / "klc-plugin" / "skills" / "run" / "SKILL.md",
+    return out + [REPO / "klc-plugin" / "skills" / "go" / "SKILL.md",
                   REPO / "docs" / "process.md"]
 
 
@@ -29,5 +29,5 @@ def test_review_docs_name_layers_fail_closed_and_headless_cost():
         assert "context.md" in text, rel
     review = (REPO / "core/agents/review.md").read_text(encoding="utf-8")
     assert "Run full multi-agent review instead?" not in review   # cheap pass is gone
-    run = (REPO / "klc-plugin/skills/run/SKILL.md").read_text(encoding="utf-8")
+    run = (REPO / "klc-plugin/skills/go/SKILL.md").read_text(encoding="utf-8")
     assert "--diff recorded" in run and "layer" in run.lower()

@@ -71,7 +71,7 @@ Then a recommendation line:
 
 ## Interactive clarify (main-loop only)
 
-Runs only inside the main-loop / Task-tool context (`/klc:run`, KLC-052)
+Runs only inside the main-loop / Task-tool context (`klc go --until integrate`, KLC-052)
 when `meta.json:clarify_required == true`. Headless runners (`runner.py`)
 never reach this path — they park on the interactive phase instead
 (C-005). Do not attempt this section outside an interactive session.

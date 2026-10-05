@@ -107,11 +107,8 @@ def test_log_docstrings_state_the_current_truth():
 def test_prompts_do_not_touch_dropped_meta_keys(root):
     assert "blast_radius" not in _read(f"{root}/discovery.md")
     triage = _read(f"{root}/intake-triage.md")
-    intake = _read(f"{root}/intake.md")
     for key in ("route_signals", "mentions"):
         assert key not in triage, key
-    for key in ("route_signals", "route_decision", "mentions"):
-        assert key not in intake, key
 
 
 def test_architecture_reviewer_does_not_name_the_retired_adr_agent():
@@ -139,7 +136,8 @@ def test_integrate_records_branch_and_main_heads(tmp_path, monkeypatch):
     meta: dict = {}
     lifecycle._record_outcome(meta, "integrate", None, "")
     integ = meta["integrate"]
-    assert set(integ) == {"branch_head", "main_head", "at"}
+    # KLC-179 adds merge_verified (and confirmed_by_pick on an override); the three KLC-176 keys stay.
+    assert {"branch_head", "main_head", "at"} <= set(integ)
     assert integ["branch_head"] == _git(tmp_path, "rev-parse", "HEAD") != main_sha
     assert integ["main_head"] == main_sha
 

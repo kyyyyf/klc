@@ -37,7 +37,7 @@ def _uninitialised(index_dir: Path):
     if (index_dir / ".last-run").exists():
         return None
     return (["`.klc/index/.last-run` absent — the index was never built; "
-             "run `klc init --scan-only`"], "warn")
+             "run `klc doctor --index`"], "warn")
 
 
 def _git_head(repo: Path) -> str:
@@ -75,7 +75,7 @@ def freshness(index_dir: Path, repo: Path) -> tuple[list[str], str]:
         return ([], "pass")
     n = _commit_distance(repo, last, head)   # symmetric: counts either direction
     return ([f"index baseline {last[:8]} != HEAD {head[:8]} "
-             f"({n} commit(s) apart) — run `klc update`"], "fail")
+             f"({n} commit(s) apart) — run `klc doctor --index`"], "fail")
 
 
 def _check_view(index_dir: Path, name: str, absent_reason: str = "missing") -> str | None:
@@ -103,9 +103,9 @@ def views(index_dir: Path) -> tuple[list[str], str]:
     warn = [r for r in (_check_view(index_dir, name, absent_reason="absent (optional)")
                        for name in _OPTIONAL_VIEWS) if r]
     if bad:
-        return (bad + warn + ["run `klc update --force` to rebuild the planning views"], "fail")
+        return (bad + warn + ["run `klc internal update --force` to rebuild the planning views"], "fail")
     if warn:
-        return (warn + ["run `klc update --force` to add the optional planning views"], "warn")
+        return (warn + ["run `klc internal update --force` to add the optional planning views"], "warn")
     return ([], "pass")
 
 
@@ -126,7 +126,7 @@ def degraded(index_dir: Path) -> tuple[list[str], str]:
         return (bad, "warn")
     if not verdicts:
         return (["degradation metadata is not present — no builder artifact records a "
-                 "coverage verdict yet; run `klc init`/`klc update`"], "pass")
+                 "coverage verdict yet; run `klc doctor --index`"], "pass")
     return ([], "pass")
 
 
@@ -135,7 +135,7 @@ def hook(project_root: Path, mode: str | None, location: str | None) -> tuple[li
     the ONLY source of truth this check reads — AC-17's spy assertion)."""
     repo = Path(project_root)
     import hook_install
-    repair = f"run `klc install {repo} --force` to re-record the hook decision"
+    repair = f"run `klc doctor --install {repo} --force` to re-record the hook decision"
     if mode is None:
         return ([f"no hook mode recorded in settings — {repair}"], "warn")
     if mode == "disabled":

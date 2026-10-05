@@ -105,4 +105,4 @@ LSP is insufficient.
 
 After tests are green, commit, run `klc step verify {{ ticket }} {{ step }}`, then emit `IMPL_STEP_OK {{ ticket }} step-{{ step }}` and
 run `klc step {{ ticket }} {{ step + 1 }}` to get the next step's card,
-or `klc ack {{ ticket }} --pick 1` if this was the last step.
+or `klc go {{ ticket }} --pick 1` if this was the last step.

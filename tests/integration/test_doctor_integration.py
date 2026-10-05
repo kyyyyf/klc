@@ -18,7 +18,6 @@ FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent.parent
 _skills_executable = require_skills_executable()
 
 
-@_skills_executable
 class TestDoctorIntegration(unittest.TestCase):
     """Integration tests for klc doctor project-tools validation."""
 
@@ -60,6 +59,7 @@ class TestDoctorIntegration(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
+    @_skills_executable
     def test_doctor_without_project_deps(self):
         """Test klc doctor when project-deps.json doesn't exist (graceful skip)."""
         # No project-deps.json created
@@ -101,13 +101,12 @@ class TestDoctorIntegration(unittest.TestCase):
             text=True
         )
 
-        # Should exit 0 (warnings don't fail doctor)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("WARN", result.stdout)
-        self.assertIn("project-tools", result.stdout)
+        # KLC-178 AC-9: missing tools are informational, never WARN/FAIL.
+        # Text-only on purpose (review round 1, F-009): runs in every checkout;
+        # the exit-code half lives in the +x-guarded tests.
+        self.assertIn("PASS project-tools", result.stdout)
         self.assertIn("uv", result.stdout)
         self.assertIn("pylsp", result.stdout)
-        self.assertIn("DOCTOR_OK", result.stdout)
 
     def test_doctor_strict_mode_missing_tools(self):
         """Test klc doctor --strict mode (FAIL) with missing tools."""
@@ -135,12 +134,13 @@ class TestDoctorIntegration(unittest.TestCase):
             text=True
         )
 
-        # Should exit 1 (strict mode fails on missing tools)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("FAIL", result.stdout)
-        self.assertIn("project-tools", result.stdout)
-        self.assertIn("DOCTOR_FAIL", result.stdout)
+        # KLC-178 AC-9: even --strict reports missing tools as information only
+        self.assertIn("PASS project-tools", result.stdout)
+        self.assertNotIn("FAIL project-tools", result.stdout)
+        self.assertNotIn("WARN project-tools", result.stdout)
+        self.assertIn("pylsp", result.stdout)
 
+    @_skills_executable
     def test_doctor_all_tools_present(self):
         """Test klc doctor when all required tools are present."""
         # Create project-deps.json with all tools present
@@ -213,12 +213,9 @@ class TestDoctorIntegration(unittest.TestCase):
             text=True
         )
 
-        # Should exit 0 but report error in project-tools check
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("project-tools", result.stdout)
-        # Error message should contain exception info
-        output = result.stdout + result.stderr
-        self.assertTrue("project-tools check failed" in output or "WARN" in output)
+        # Informational: the unreadable file is reported, never a failure
+        self.assertIn("PASS project-tools", result.stdout)
+        self.assertIn("project-tools info unavailable", result.stdout)
 
     def test_doctor_malformed_project_deps_json_strict(self):
         """Test klc doctor --strict with malformed project-deps.json (TEST-2)."""
@@ -235,10 +232,10 @@ class TestDoctorIntegration(unittest.TestCase):
             text=True
         )
 
-        # Should exit 1 in strict mode
-        self.assertEqual(result.returncode, 1)
+        # KLC-178 AC-9: informational even in strict mode
         output = result.stdout + result.stderr
-        self.assertIn("project-tools", output)
+        self.assertIn("PASS project-tools", output)
+        self.assertNotIn("FAIL project-tools", output)
 
 
 if __name__ == "__main__":

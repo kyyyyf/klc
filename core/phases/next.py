@@ -70,8 +70,8 @@ def run(argv: list[str]) -> int:
             if state == _ph.STATE_WORK:
                 sys.stderr.write(
                     f"klc next: ticket is in `{cur}`. Finish the work and run "
-                    f"`klc ack {args.ticket}` (see required pick, if any), "
-                    f"or `klc abort {args.ticket}` to cancel.\n"
+                    f"`klc go {args.ticket}` (see required pick, if any), "
+                    f"or `klc back {args.ticket} <phase> --reason <why>` to rework.\n"
                 )
                 return 1
             if state == _ph.STATE_ACK_NEEDED:
@@ -80,12 +80,12 @@ def run(argv: list[str]) -> int:
                     opts = ", ".join(f"{pk.id}={pk.label}" for pk in ph.picks)
                     sys.stderr.write(
                         f"klc next: ticket is in `{cur}`; run "
-                        f"`klc ack {args.ticket} --pick N` (options: {opts}).\n"
+                        f"`klc go {args.ticket} --pick N` (options: {opts}).\n"
                     )
                 else:
                     sys.stderr.write(
                         f"klc next: ticket is in `{cur}`; run "
-                        f"`klc ack {args.ticket}` to confirm.\n"
+                        f"`klc go {args.ticket}` to confirm.\n"
                     )
                 return 1
 
@@ -136,7 +136,7 @@ def run(argv: list[str]) -> int:
             except state_sync.StaleStateError:
                 sys.stderr.write(
                     "klc next: remote state advanced since you started — "
-                    f"re-run `klc next {args.ticket}`.\n"
+                    f"re-run `klc go {args.ticket}`.\n"
                 )
                 return 1
             except state_sync.StashConflictError:
@@ -213,7 +213,7 @@ def run(argv: list[str]) -> int:
             if new_pid == "build":
                 print(f"    # paste into your agent; use `klc step {args.ticket} N` for subsequent steps")
             else:
-                print(f"    # paste into your agent, then run `klc ack {args.ticket}`")
+                print(f"    # paste into your agent, then run `klc go {args.ticket}`")
             return 0
 
     except LockedError as e:

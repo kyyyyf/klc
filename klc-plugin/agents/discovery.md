@@ -227,7 +227,7 @@ Every open question becomes a `[!QUESTION Q-NNN]` item in `spec.md`. If any Q ha
   is known AND no dependent lies outside the affected set. Then record
   `track_source: "discovery"` and name the evidence in the spec. Otherwise hold the
   floor (`track >= route_hint`). `can_complete_discovery` blocks an unjustified
-  downgrade (escape hatch: `klc retrack`).
+  downgrade (escape hatch: `klc fix <KEY> track <XS|S|M|L> --reason "<why>"`).
 - `affected_modules` must be a subset of `modules.json` names;
   anything else goes into `unknown_module_refs` with a QUESTION.
 

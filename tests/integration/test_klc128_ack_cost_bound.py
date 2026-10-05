@@ -117,7 +117,9 @@ def test_xs_ticket_and_escalation_free_s_ticket_issue_zero_ground_truth_git_call
 
     assert _run_ack(clone, ticket, "integrate", monkeypatch=monkeypatch, pick=1) == 0
 
-    assert git_log == [], git_log
+    # KLC-179 AC-7: the live scope_delta.compare branch guard adds exactly ONE
+    # `rev-parse --abbrev-ref HEAD` here (was zero); no ground-truth git call.
+    assert git_log == [["rev-parse", "--abbrev-ref", "HEAD"]], git_log
     assert seen == [], "integrate_ground_truth must never be invoked on a track-skipped ticket"
 
 

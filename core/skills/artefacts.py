@@ -117,7 +117,7 @@ _PREAMBLE_TMPL = """\
 
 You are working in phase **{phase_id}**. Read the role prompt below,
 then produce the outputs listed at the bottom. When you claim the
-work is done, the human runs `klc ack {ticket}` (with `--pick N` if
+work is done, the human runs `klc go {ticket}` (with `--pick N` if
 required) to confirm.
 
 """
@@ -163,11 +163,11 @@ def _format_outputs(phase: _ph.Phase) -> str:
 
 def _format_ack_instruction(ticket: str, phase: _ph.Phase) -> str:
     if not phase.picks:
-        return f"`klc ack {ticket}`"
+        return f"`klc go {ticket}`"
     if len(phase.picks) == 1 and not phase.pick_required:
-        return f"`klc ack {ticket}`"
+        return f"`klc go {ticket}`"
     opts = "\n".join(f"  - `{pk.id}` = {pk.label}" for pk in phase.picks)
-    return f"`klc ack {ticket} --pick <N>`, where N is:\n\n{opts}"
+    return f"`klc go {ticket} --pick <N>`, where N is:\n\n{opts}"
 
 
 # --- card render modes (KLC-118) -----------------------------------------------
@@ -188,7 +188,7 @@ _PREAMBLE_DISPATCH_TMPL = """\
 
 You are working in phase **{phase_id}**. Your subagent definition already
 carries this phase's role prompt; this card adds the ticket context only.
-When you claim the work is done, the human runs `klc ack {ticket}` (with
+When you claim the work is done, the human runs `klc go {ticket}` (with
 `--pick N` if required) to confirm.
 
 """
@@ -302,7 +302,7 @@ def write_prompt_card(ticket: str, phase_id: str, meta: dict,
         elif phase_id == "intake":
             body = ("## Manual step\n\nThis phase was created by "
                     "`klc intake`. Review raw.md and run "
-                    f"`klc ack {ticket}` when you're ready to proceed.\n")
+                    f"`klc go {ticket} --pick 1` when you're ready to proceed.\n")
         else:
             body = f"## Manual step\n\n(no agent prompt for `{phase_id}`)\n"
 
@@ -313,6 +313,7 @@ def write_prompt_card(ticket: str, phase_id: str, meta: dict,
     text = (
         preamble
         + body.rstrip() + "\n"
+        + _rework_section(phase_id, meta)
         + _INPUTS_TMPL.format(inputs_block=inputs_block)
         + _OUTPUTS_TMPL.format(
             outputs_block=outputs_block,
@@ -321,6 +322,28 @@ def write_prompt_card(ticket: str, phase_id: str, meta: dict,
     )
     card.write_text(text, encoding="utf-8")
     return card
+
+
+def _rework_section(phase_id: str, meta: dict) -> str:
+    """KLC-177: `klc back` sends a ticket to `<phase>:work` with a reason. While
+    the ticket sits in that phase's :work, the card quotes the reason of the
+    latest rework entry aimed at it, so the agent answers it point by point."""
+    if meta.get("phase") != f"{phase_id}:work":
+        return ""
+    entries = [e for e in (meta.get("rework") or [])
+               if isinstance(e, dict) and e.get("to") == phase_id]
+    if not entries:
+        return ""
+    reason = str(entries[-1].get("reason", "")).strip()
+    if not reason:
+        return ""
+    quoted = "\n".join(f"> {ln}" if ln else ">" for ln in reason.splitlines())
+    return (
+        "\n## Rework request\n\n"
+        "This phase was reopened by `klc back`. Answer the reason below point "
+        "by point and say in the output how each point was resolved.\n\n"
+        f"{quoted}\n"
+    )
 
 
 def write_step_card(ticket: str, step: int, meta: dict,
@@ -411,6 +434,9 @@ def write_step_card(ticket: str, step: int, meta: dict,
         impl_prompt_ref=impl_prompt_ref,
         role_carried=role_carried,
     )
+    # KLC-177: `klc back <KEY> build` quotes its reason in this card too — it is the
+    # card `klc go` and `klc status` point at while the ticket sits in build:work.
+    rendered = rendered.rstrip("\n") + "\n" + _rework_section("build", meta)
     card.write_text(rendered, encoding="utf-8")
     return card
 
@@ -432,7 +458,7 @@ def render_card(ticket: str, phase_id: str, meta: dict,
     KLC-119 AC-6 wires every render site through here: `klc next`
     (`core/phases/next.py`), `klc ack` (`ack.py`), `klc jump` (`jump.py`),
     `klc step` (`step.py`), the headless `autorunner.run`, and the
-    `/klc:run` dispatch (`klc-plugin/skills/run/SKILL.md`'s prose calls this
+    `klc go --until integrate` dispatch (`klc-plugin/skills/go/SKILL.md`'s prose calls this
     same function before its budget gate). No render site still writes a
     card through `write_prompt_card`/`write_step_card` alone without also
     routing through this measuring wrapper."""
@@ -521,7 +547,7 @@ def _observe_checklist(ticket: str, meta: dict) -> str:
         "## Observation checklist",
         "",
         "No agent runs in this phase. The task is to monitor the "
-        "merged change for regressions and close the loop with `klc ack`.",
+        "merged change for regressions and close the loop with `klc go`.",
         "",
         "Suggested watchlist (customise per ticket):",
         "",
@@ -531,7 +557,7 @@ def _observe_checklist(ticket: str, meta: dict) -> str:
         "- [ ] Feature flag rollout percentage (if applicable)",
         "- [ ] User-report channels (support, feedback) for regressions",
         "",
-        f"When the observation window closes, run `klc ack {ticket} "
+        f"When the observation window closes, run `klc go {ticket} "
         f"--pick 1` (clean), `--pick 2` (regression, auto-reopens "
         f"build), or `--pick 3` (rollback).",
     ]
@@ -554,7 +580,7 @@ def _integrate_checklist(ticket: str, meta: dict) -> str:
         "- [ ] Verify CI is green on main.",
         "- [ ] Close the Jira / tracker ticket.",
         "",
-        f"When both ticks are done, run `klc ack {ticket}`.",
+        f"When both ticks are done, run `klc go {ticket}`.",
     ]
     return "\n".join(lines)
 

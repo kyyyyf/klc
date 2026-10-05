@@ -175,7 +175,7 @@ def test_board_buckets_cancelled_separately(tmp_path):
 
 def test_work_reports_nothing_to_do(tmp_path):
     _bootstrap(tmp_path, "T76-W", phase="cancelled")
-    r = _run(["work", "T76-W"], tmp_path)
+    r = _run(["go", "T76-W", "--dry-run"], tmp_path)
     assert r.returncode == 0, r.stderr
     assert "cancelled" in r.stdout.lower() and "nothing to do" in r.stdout.lower()
 

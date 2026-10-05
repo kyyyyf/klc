@@ -84,8 +84,9 @@ def test_design_outputs_are_design_md_and_impl_plan():
     phases = project_yaml.load(_FW / "config" / "phases.yml")
     by_id = {p["id"]: p for p in phases["phases"]}
     assert by_id["design"]["outputs"] == ["design.md", "impl-plan.md"]
-    assert "design.md" in by_id["detailed-test-plan"]["inputs"]
-    assert "design/options.md" not in by_id["detailed-test-plan"]["inputs"]
+    # KLC-179: detailed-test-plan was dropped; build reads the design's impl-plan.
+    assert "detailed-test-plan" not in by_id
+    assert "design/options.md" not in by_id["build"]["inputs"]
     jira = project_yaml.load(_FW / "config" / "jira.yml")
     assert jira["artifacts"]["paths"]["design"] == "design.md"
 

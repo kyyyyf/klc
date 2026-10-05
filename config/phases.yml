@@ -1,374 +1,98 @@
-# phases.yml — source of truth for the klc state machine.
+# phases.yml — the prompt table of the klc state machine (KLC-179).
+#
+# The order of phases, the lanes, the human decision points and the rework targets
+# live in core/skills/rules.py (the facts model and its ordered rule table). This
+# file only holds what the rule table cannot know about a phase.
 #
 # Consumed by:
-#   - core/skills/phases.py (loads phase definitions)
-#   - core/skills/lifecycle.py (state machine transitions)
-#   - core/skills/artefacts.py (phase prompts and outputs)
-#
-# The klc CLI (next / ack / jump / abort / status) is data-driven:
-# this file describes every phase, every pick, every transition.
-# No phase names are hardcoded in Python — change this file to reshape
-# the process.
-#
-# Semantics:
-#
-#   Each phase has three states:
-#     <id>:work         — work to be done (agent / human action)
-#     <id>:ack-needed   — work claims to be done, awaiting confirmation
-#     <id>:ack          — confirmed; `next` moves on to the next phase
-#
-#   Plus one terminal pseudo-state: `archived`.
-#
-#   A ticket's `meta.json:phase` always holds `<phase-id>:<state>`.
+#   - core/skills/phases.py    (loads this table: prompts, inputs, outputs, pick labels)
+#   - core/skills/artefacts.py (renders the per-phase prompt card)
+#   - core/skills/plugin_gen.py (which agent prompt belongs to which phase)
 #
 # Fields per phase:
 #
-#   id           — string. Must be unique.
-#   tracks       — list of [XS, S, M, L]. Phase is skipped for tracks
-#                  not listed.
-#   work.prompt  — path (relative to framework_root) to the agent prompt
-#                  rendered into <card root>/<key>/<id>/_prompt.md (KLC-118;
-#                  card root defaults to .klc/scratch/, overridable with
-#                  KLC_CARD_ROOT — see core/shared/paths.py:klc_card_root()).
-#                  Empty string = no agent (e.g. intake, observe:work).
-#   work.auto_to_ack — optional. When true, :work state is a no-op and
-#                  the state machine moves directly to :ack-needed on
-#                  entry (used for XS stubs).
-#   ack.pick_required — bool. If true, `klc ack <t>` without --pick errors.
-#   ack.picks    — list. Each pick:
-#                    id:       1..9
-#                    label:    short string shown in errors
-#                    goto:     "next" | "<phase>:work"
-#                    supersede: optional list of phase ids whose
-#                               artefacts should be moved to
-#                               _superseded/<ts>/ on this pick.
-#   ack.pick_records_to — optional. Dotted path inside meta.json where
-#                  the chosen pick label is recorded (no shipped phase sets it since KLC-176).
-#   inputs       — list of artefact paths (relative to ticket dir) that
-#                  must exist to enter :work. Used by `jump` to warn.
-#   outputs      — list of artefact paths produced by :work. Used by
-#                  `ack` to verify before allowing :ack-needed → :ack.
-#   auto_ack_after — optional duration ("3d", "1w"). Currently
-#                  informational; future: cron bumps :work → :ack-needed.
+#   id            — unique phase id; the rule table names phases by it.
+#   prompt        — agent prompt (relative to the framework root). Empty = no agent
+#                   (intake, integrate, observe are checklists the card renders).
+#   inputs        — artefacts (relative to the ticket dir) the phase reads; `klc back`
+#                   warns when one is missing.
+#   outputs       — artefacts the phase writes; superseding the phase deletes them.
+#   picks         — the labels `klc go --pick N` accepts; N is the 1-based position.
+#                   What a label does is decided by rules.py, not here: an approving
+#                   label moves to the next missing fact, a rework label clears facts
+#                   and returns to the first missing one. Only the approvals of the
+#                   spec and the design are human decision points; every other
+#                   approval auto-passes when gate_policy finds its signals clean.
+#   pick_required — optional, default true when there are picks. `integrate` sets it
+#                   to false (its single pick is implied).
+#
+# A ticket's `meta.json:phase` holds `<phase-id>:<state>` with state work,
+# ack-needed or ack, or one of the terminals `archived` / `cancelled`.
 
 phases:
-
-  # -------------------------------------------------------------------
   - id: intake
-    tracks: [XS, S, M, L]
-    work:
-      # intake:work is the act of running `klc intake <key>`; there is
-      # no separate agent step. Creating the ticket lands you on
-      # intake:ack-needed directly.
-      prompt: ""
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "confirm-route"
-          goto: "next"
-          gate: conditional
-        - id: 2
-          label: "force-full-discovery"
-          goto: "discovery:work"
-          gate: decision
-        - id: 3
-          label: "force-xs-skip"
-          goto: "xs-build:work"
-          gate: decision
+    prompt: ""
+    picks: [confirm-route, force-full-discovery]
     inputs: []
     outputs: ["raw.md", "meta.json"]
 
-  # -------------------------------------------------------------------
   - id: discovery-lite
-    tracks: [XS, S]
-    work:
-      prompt: "core/agents/discovery-lite.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "approve"
-          goto: "next"
-          gate: decision
-        - id: 2
-          label: "needs-rework"
-          goto: "discovery-lite:work"
-          gate: decision
-        - id: 3
-          label: "upgrade-to-full"
-          goto: "discovery:work"
-          supersede: ["discovery-lite"]
-          gate: decision
+    prompt: "core/agents/discovery-lite.md"
+    picks: [approve, needs-rework, upgrade-to-full]
     inputs: ["raw.md"]
-    # S adds test-plan.md and impl-plan.md; XS outputs spec.md only.
     outputs: ["spec.md", "test-plan.md", "impl-plan.md"]
 
-  # -------------------------------------------------------------------
   - id: discovery
-    tracks: [M, L]
-    work:
-      prompt: "core/agents/discovery.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "approve"
-          goto: "next"
-          gate: decision
-        - id: 2
-          label: "needs-rework"
-          goto: "discovery:work"
-          gate: decision
+    prompt: "core/agents/discovery.md"
+    picks: [approve, needs-rework]
     inputs: ["raw.md"]
     outputs: ["spec.md"]
 
-  # -------------------------------------------------------------------
   - id: acceptance-test-plan
-    # S-track: test-plan.md + impl-plan.md are produced by discovery-lite (no separate phase).
-    tracks: [M, L]
-    work:
-      prompt: "core/agents/test-planner.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "approve"
-          goto: "next"
-          gate: conditional
-        - id: 2
-          label: "needs-rework"
-          goto: "acceptance-test-plan:work"
-          gate: decision
+    prompt: "core/agents/test-planner.md"
+    picks: [approve, needs-rework]
     inputs: ["spec.md"]
     outputs: ["test-plan.md"]
 
-  # -------------------------------------------------------------------
   - id: design
-    tracks: [M, L]
-    work:
-      prompt: "core/agents/design.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "option-A-minimal"
-          goto: "next"
-          gate: decision
-        - id: 2
-          label: "option-B-clean"
-          goto: "next"
-          gate: decision
-        - id: 3
-          label: "option-C-scalable"
-          goto: "next"
-          gate: decision
-        - id: 4
-          label: "needs-rework"
-          goto: "design:work"
-          gate: decision
-        - id: 5
-          label: "revise-impl-plan"
-          # Human reviewed the impl-plan draft and wants changes before
-          # committing. Agent re-enters design:work with the feedback
-          # appended to design.md's manual block.
-          goto: "design:work"
-          supersede: ["design"]
-          gate: decision
+    prompt: "core/agents/design.md"
+    picks: [option-A-minimal, option-B-clean, option-C-scalable, needs-rework, revise-impl-plan]
     inputs: ["spec.md", "test-plan.md"]
     outputs: ["design.md", "impl-plan.md"]
 
-  # -------------------------------------------------------------------
-  - id: detailed-test-plan
-    # M-track: test-planner enriches impl-plan.md steps directly (no separate phase).
-    tracks: [L]
-    work:
-      prompt: "core/agents/test-planner.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "approve"
-          goto: "next"
-          gate: conditional
-        - id: 2
-          label: "needs-rework"
-          goto: "detailed-test-plan:work"
-          gate: decision
-    inputs: ["spec.md", "test-plan.md", "design.md", "impl-plan.md"]
-    outputs: ["test-plan.md"]
-
-  # -------------------------------------------------------------------
-  - id: xs-build
-    tracks: [XS]
-    work:
-      # Single-agent fast-track for XS tickets. No spec, no plan.
-      prompt: "core/agents/xs-fasttrack.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "approve"
-          goto: "next"
-          gate: conditional
-        - id: 2
-          label: "upgrade-to-S"
-          goto: "acceptance-test-plan:work"
-          supersede: ["xs-build"]
-          gate: decision
-    inputs: ["raw.md", "spec.md"]
-    outputs: []
-
-  # -------------------------------------------------------------------
   - id: build
-    tracks: [S, M, L]
-    work:
-      # build:work is a multi-step impl loop. The state machine treats
-      # it as atomic from outside — ack is only valid when impl_done
-      # flag is set in meta by the impl agent.
-      prompt: "core/agents/impl.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "approve"
-          goto: "next"
-          gate: conditional
+    prompt: "core/agents/impl.md"
+    picks: [approve]
     inputs: ["spec.md", "impl-plan.md"]
     outputs: ["build/steps.json"]
 
-  # -------------------------------------------------------------------
-  - id: review-lite
-    tracks: [XS]
-    work:
-      prompt: "core/agents/review-lite.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "approve"
-          goto: "next"
-          gate: conditional
-        - id: 2
-          label: "request-changes"
-          goto: "xs-build:work"
-          supersede: ["review-lite"]
-          gate: decision
-        - id: 3
-          label: "override"
-          goto: "next"
-          gate: decision
-    inputs: ["raw.md"]
-    outputs: ["review-lite-report.md"]
-
-  # -------------------------------------------------------------------
   - id: review
-    tracks: [S, M, L]
-    work:
-      prompt: "core/agents/review.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "approve"
-          goto: "next"
-          gate: conditional
-        - id: 2
-          label: "request-changes"
-          goto: "build:work"
-          supersede: ["review"]
-          gate: decision
+    prompt: "core/agents/review.md"
+    picks: [approve, request-changes]
     inputs: ["spec.md"]
     outputs: ["review-report.md"]
 
-  # -------------------------------------------------------------------
   - id: manual
-    tracks: [M, L]
-    work:
-      prompt: "core/agents/manual-check.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "passed"
-          goto: "next"
-          gate: decision
-        - id: 2
-          label: "failed"
-          goto: "build:work"
-          supersede: ["review", "manual"]
-          gate: decision
+    prompt: "core/agents/manual-check.md"
+    picks: [passed, failed]
     inputs: ["spec.md"]
     outputs: []
 
-  # -------------------------------------------------------------------
   - id: integrate
-    tracks: [XS, S, M, L]
-    work:
-      # integrate is a two-tick phase: pre-merge snapshot + post-merge
-      # bookkeeping. Both ticks happen inside :work (the tick is
-      # internal state in meta); :ack-needed fires after post-merge.
-      # No agent prompt — artefacts.py renders a built-in checklist
-      # when prompt is empty.
-      prompt: ""
-    ack:
-      pick_required: false
-      picks:
-        - id: 1
-          label: "merged"
-          goto: "next"
-          gate: decision
+    prompt: ""
+    pick_required: false
+    picks: [merged]
     inputs: []
     outputs: []
 
-  # -------------------------------------------------------------------
   - id: observe
-    tracks: [S, M, L]
-    work:
-      # No agent prompt — observe:work is a wait state. The _prompt.md
-      # generator instead writes a monitoring checklist from the ticket.
-      prompt: ""
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "clean"
-          goto: "next"
-          gate: conditional
-        - id: 2
-          label: "regression"
-          goto: "build:work"
-          supersede: ["review", "manual", "integrate", "observe"]
-          gate: decision
-        - id: 3
-          label: "rollback"
-          goto: "learn:work"
-          supersede: ["integrate", "observe"]
-          gate: decision
+    prompt: ""
+    picks: [clean, regression, rollback]
     inputs: []
     outputs: []
-    auto_ack_after: null   # null = manual; overridable per track in the future
-    # Skip observe for low-risk changes with no user-facing / data / security impact.
-    condition: "meta.risk_tags in ['user-facing', 'data', 'security', 'migration']"
 
-  # -------------------------------------------------------------------
   - id: learn
-    tracks: [XS, S, M, L]
-    work:
-      prompt: "core/agents/retrospective.md"
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: "archive"
-          goto: "archived"
-          gate: conditional
-        - id: 2
-          label: "extract-to-claudemd"
-          goto: "learn:work"
-          gate: decision
+    prompt: "core/agents/retrospective.md"
+    picks: [archive, extract-to-claudemd]
     inputs: []
     outputs: ["retrospective.md"]
-    # M/L always run learn (design-heavy work produces learnings worth capturing).
-    # XS/S: run only when failure signals are present.
-    condition: "meta.track in ['M','L'] OR meta.rework_count any_overrun OR meta.regression_observed == 1 OR meta.budgets any_overrun"

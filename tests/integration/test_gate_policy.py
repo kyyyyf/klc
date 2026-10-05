@@ -23,52 +23,24 @@ import pytest
 # step-1: Pick.gate field + phases.yml annotations
 # ---------------------------------------------------------------------------
 
-def test_pick_gate_field_parsed():
-    """Pick dataclass has a 'gate' field; _build_pick reads it from YAML."""
+def test_pick_gate_is_derived_from_the_label():
+    """KLC-179: phases.yml lists labels only; the loader derives each gate. An approval is
+    conditional except at the spec and design decision points; any other pick is a decision."""
     from core.skills import phases as ph
 
-    # Use the real loader on a minimal in-memory YAML snippet via a temp file.
-    yml = """
-phases:
-  - id: test-phase
-    tracks: [M]
-    work:
-      prompt: ""
-    ack:
-      pick_required: true
-      picks:
-        - id: 1
-          label: approve
-          goto: "next"
-          gate: conditional
-        - id: 2
-          label: needs-rework
-          goto: "test-phase:work"
-          gate: decision
-    inputs: []
-    outputs: []
-"""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False, encoding="utf-8") as f:
-        f.write(yml)
-        tmp = Path(f.name)
-
-    try:
-        raw = ph._load_raw(tmp)
-        phase_data = raw["phases"][0]
-        picks = [ph._build_pick(p, "test-phase") for p in phase_data["ack"]["picks"]]
-        assert picks[0].gate == "conditional"
-        assert picks[1].gate == "decision"
-    finally:
-        tmp.unlink(missing_ok=True)
+    phase = ph._build_phase({"id": "build", "prompt": "", "picks": ["approve", "needs-rework"]})
+    assert [p.gate for p in phase.picks] == ["conditional", "decision"]
+    assert [p.goto for p in phase.picks] == ["next", "rework"]
+    spec = ph._build_phase({"id": "discovery", "picks": ["approve", "needs-rework"]})
+    assert [p.gate for p in spec.picks] == ["decision", "decision"]
 
 
-def test_pick_gate_unknown_raises():
-    """_build_pick raises ValueError for an unknown gate value (fail-closed)."""
+def test_pick_labels_must_be_a_list_of_strings():
+    """A malformed picks entry fails loudly instead of loading half a table."""
     from core.skills import phases as ph
 
-    bad = {"id": 1, "label": "x", "goto": "next", "gate": "maybe"}
-    with pytest.raises(ValueError, match="bad gate"):
-        ph._build_pick(bad, "test-phase")
+    with pytest.raises(ValueError, match="picks must be a list"):
+        ph._build_phase({"id": "x", "picks": [{"id": 1, "label": "x"}]})
 
 
 def test_every_pick_has_gate():

@@ -2,7 +2,7 @@
 
 You are working in phase **design**. Read the role prompt below,
 then produce the outputs listed at the bottom. When you claim the
-work is done, the human runs `klc ack KLC-118-GOLD` (with `--pick N` if
+work is done, the human runs `klc go KLC-118-GOLD` (with `--pick N` if
 required) to confirm.
 
 ## Role prompt
@@ -271,7 +271,7 @@ DESIGN_DONE <ticket-key>
 
 ## When done
 
-`klc ack KLC-118-GOLD --pick <N>`, where N is:
+`klc go KLC-118-GOLD --pick <N>`, where N is:
 
   - `1` = option-A-minimal
   - `2` = option-B-clean

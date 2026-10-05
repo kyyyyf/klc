@@ -100,6 +100,19 @@ def evaluate(gate: str, signals: dict) -> GateDecision:
     return GateDecision(not bad, [f"{k} not clean" for k in bad])
 
 
+def merge_gate(ticket: str, phase_id: str) -> list[str]:
+    """KLC-179 F-003: reasons that keep an `integrate` ack from passing on its own.
+
+    Integrate is a conditional gate, but "merged" must be a fact, not a default: the
+    ticket's recorded range head has to be on `main`. Any other phase has no reason.
+    Kept apart from `collect_signals` so it cannot be skipped by a stubbed signal set."""
+    if phase_id != "integrate":
+        return []
+    import phase_completion as _pc
+    ok, why = _pc.integrate_merge_verified(ticket)
+    return [] if ok else [why]
+
+
 # ---------------------------------------------------------------------------
 # collect_signals() — assembles the signals dict from real skill APIs
 # ---------------------------------------------------------------------------

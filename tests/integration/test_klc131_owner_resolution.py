@@ -130,9 +130,10 @@ def test_generate_agents_reads_fixture_phases_via_framework_root_monkeypatch(
 
 def test_unowned_prompt_keeps_stem_or_default_resolution(tmp_path, monkeypatch):
     """AC-2 (regression pin): a prompt no phase owns keeps stem-then-defaults
-    resolution. `intake`'s work.prompt is empty, so it owns nothing and the
-    stem `intake` applies; `intake-triage` and `inventory` are not phase ids
-    at all, so they always resolved by stem, owner or no owner."""
+    resolution. `intake`'s work.prompt is empty, so it owns nothing;
+    `intake-triage` is a dispatched agent (not a phase id), so it resolves by
+    stem. `inventory` is neither phase-owned nor dispatched, so since KLC-180
+    it is not generated at all."""
     fw = _make_fw(
         tmp_path,
         "phases:\n"
@@ -144,7 +145,7 @@ def test_unowned_prompt_keeps_stem_or_default_resolution(tmp_path, monkeypatch):
         "    tracks: [M]\n"
         "    work:\n"
         "      prompt: \"core/agents/retrospective.md\"\n",
-        ["intake.md", "intake-triage.md", "inventory.md", "retrospective.md"],
+        ["intake-triage.md", "inventory.md", "retrospective.md"],
     )
     _point_at(fw, monkeypatch)
     models_yml = _write_models(
@@ -175,8 +176,7 @@ def test_unowned_prompt_keeps_stem_or_default_resolution(tmp_path, monkeypatch):
     _pg.generate_agents(output_dir=out, models_yml=models_yml)
 
     assert "model: haiku" in (out / "intake-triage.md").read_text(encoding="utf-8")
-    assert "model: opus" in (out / "intake.md").read_text(encoding="utf-8")
-    assert "model: sonnet" in (out / "inventory.md").read_text(encoding="utf-8")
+    assert not (out / "inventory.md").exists()
     # learn owns retrospective.md but has no phase_roles entry -> defaults.
     assert "model: sonnet" in (out / "retrospective.md").read_text(encoding="utf-8")
 

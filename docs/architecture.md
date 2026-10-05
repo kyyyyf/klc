@@ -120,7 +120,7 @@ posture; a new feature is expected to preserve all of them.
   cascade and gate-policy signals are fail-closed: "unavailable" is treated as
   dirty, and only proven-clean signals let a conditional gate auto-proceed.
 - **surface-only / read-only probes.** A read-only probe (`persist=False`, used by
-  `klc remind` and gate-policy signal collection) surfaces the same advisories
+  the klc hook's pending line and gate-policy signal collection) surfaces the same advisories
   WITHOUT writing to the ticket's `findings.json`; only the persisting ack path
   records. Read verbs (`klc work`, `klc publish`, `klc status`) take no holder and
   write nothing.

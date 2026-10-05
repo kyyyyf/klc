@@ -6,9 +6,9 @@
 # Completes subcommands and ticket keys (live tickets in .klc/tickets/).
 
 $script:KlcSubcmds = @(
-    'intake', 'status', 'next', 'ack', 'ship', 'jump', 'abort', 'step',
-    'board', 'doctor', 'metrics', 'reindex', 'install',
-    'init', 'update'
+    'intake', 'status', 'go', 'back', 'step',
+    'board', 'doctor', 'jira', 'publish',
+    'fix'
 )
 
 Register-ArgumentCompleter -Native -CommandName klc, klc.ps1, klc.cmd -ScriptBlock {

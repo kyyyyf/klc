@@ -2,7 +2,7 @@
 
 You are working in phase **integrate**. Read the role prompt below,
 then produce the outputs listed at the bottom. When you claim the
-work is done, the human runs `klc ack KLC-118-GOLD` (with `--pick N` if
+work is done, the human runs `klc go KLC-118-GOLD` (with `--pick N` if
 required) to confirm.
 
 ## Integration checklist
@@ -19,7 +19,7 @@ This phase has two ticks. During `:work`:
 - [ ] Verify CI is green on main.
 - [ ] Close the Jira / tracker ticket.
 
-When both ticks are done, run `klc ack KLC-118-GOLD`.
+When both ticks are done, run `klc go KLC-118-GOLD`.
 
 ---
 
@@ -35,4 +35,4 @@ _(no fixed artefacts; update whatever the role prompt specifies)_
 
 ## When done
 
-`klc ack KLC-118-GOLD`
+`klc go KLC-118-GOLD`

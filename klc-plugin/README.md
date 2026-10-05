@@ -24,13 +24,12 @@ verb:
 |---|---|
 | `/klc:intake <KEY> <description>` | Create a ticket |
 | `/klc:status <KEY>` | Show current phase and track |
-| `/klc:next <KEY>` | Advance to the next phase |
-| `/klc:ack <KEY> [--pick N]` | Confirm phase work is done |
-| `/klc:ship <KEY>` | ack + next in one step |
-| `/klc:jump <KEY> <phase>` | Jump to a specific phase |
-| `/klc:abort <KEY>` | Cancel and return to previous ack |
-| `/klc:step <KEY> N` | Show / advance the build step |
-| `/klc:run <KEY>` | Run the ticket through its lifecycle: resolve each phase, dispatch inline (XS) or to a subagent (S/M/L), throttle `ack --auto` + `next`, stop at every human-interaction point (KLC-052) |
+| `/klc:go <KEY> [--until <phase>] [--pick N]` | Move the ticket one step forward, or loop until a phase; dispatches the phase agent at an agent card and stops at every human-interaction point (KLC-052, KLC-180) |
+| `/klc:back <KEY> <phase> <reason>` | Return the ticket to an earlier phase |
+| `/klc:fix <KEY> ...` | Correct a meta field with an audited record (operator only) |
+| `/klc:doctor [--install <root>] [--index]` | Check install health, bootstrap a project, refresh the index (operator only) |
+
+`klc step verify` and `klc publish` stay CLI-only: the plugin has no command for them.
 
 ## Execution surface
 
@@ -38,7 +37,7 @@ verb:
 |---|---|---|
 | Heavy interactive (discovery, design, …) | CC main-loop | Set by user `/model`; guarded by MODEL_MISMATCH warning |
 | Mechanical fan-out (reviewers, triage, indexing) | Subagent | Pinned in `agents/*.md` frontmatter, resolved from `models.yml` |
-| `/klc:run` orchestrator loop | CC main-loop (Task-tool dispatch only — no Python driver, C-001) | `phase_resolver.resolve_phase` derives prompt/model/agent per step; parks at any interactive phase instead of guessing |
+| `/klc:go --until` orchestrator loop | CC main-loop (Task-tool dispatch only — no Python driver, C-001) | `phase_resolver.resolve_phase` derives prompt/model/agent per step; parks at any interactive phase instead of guessing |
 
 ## MODEL_MISMATCH guard
 

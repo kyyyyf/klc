@@ -184,9 +184,9 @@ def test_scope_fix_add_and_replace_modes(tmp_path, monkeypatch):
 
 
 def test_scope_fix_refuses_non_archived(tmp_path, monkeypatch, capsys):
-    """FIX-4: scope-fix is archived-only. A genuinely non-archived SYNCED ticket
-    is refused (return 1); the decision writes nothing, so nothing is pushed —
-    correct scope at ack instead."""
+    """KLC-178: the archived-only gate is gone (scope-fix is an alias of
+    `klc fix`). A live SYNCED ticket is corrected and the edit reaches the bound
+    remote (formerly FIX-4 refused it)."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     klc, _bound, origin = _build_bound_state_repo(
         tmp_path, "KLC-979", phase="review:ack-needed", track="M",
@@ -194,19 +194,14 @@ def test_scope_fix_refuses_non_archived(tmp_path, monkeypatch, capsys):
     assert state_feature.enabled() is True
 
     import scope_fix as sf
-    rc = sf.run(["KLC-979", "--remove", "a"])
-    assert rc == 1, "scope-fix must refuse a non-archived ticket"
-    err = capsys.readouterr().err
-    assert "post-archive" in err and "ack" in err
-    # The decision (taken inside the envelope) writes nothing → nothing is pushed.
-    assert _remote_affected(klc, "sm", "KLC-979") == ["a"], \
-        "a refused scope-fix must not push"
-    assert _remote_affected(klc, "origin", "KLC-979") == ["a"]
+    rc = sf.run(["KLC-979", "--remove", "a", "--reason", "r"])
+    assert rc == 0, "a live ticket is no longer refused"
+    assert _remote_affected(klc, "sm", "KLC-979") == []
 
 
 def test_scope_fix_refuses_non_archived_feature_off(tmp_path, monkeypatch, capsys):
-    """P2-A parity: feature-OFF also refuses a non-archived ticket (return 1),
-    no write, no git."""
+    """KLC-178: feature-OFF also edits a live ticket (no archived gate), local
+    write only, no git."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     klc = tmp_path / ".klc"
     tdir = klc / "tickets" / "KLC-987"
@@ -218,11 +213,9 @@ def test_scope_fix_refuses_non_archived_feature_off(tmp_path, monkeypatch, capsy
     assert state_feature.enabled() is False
 
     import scope_fix as sf
-    rc = sf.run(["KLC-987", "--remove", "a"])
-    assert rc == 1, "feature-off must refuse a non-archived ticket too"
-    assert "post-archive" in capsys.readouterr().err
-    assert json.loads(meta_p.read_text())["affected_modules"] == ["a"], \
-        "a refused scope-fix must not write"
+    rc = sf.run(["KLC-987", "--remove", "a", "--reason", "r"])
+    assert rc == 0, "feature-off no longer refuses a non-archived ticket"
+    assert json.loads(meta_p.read_text())["affected_modules"] == []
     assert not (klc / ".git").exists()
 
 
@@ -272,16 +265,16 @@ def test_scope_fix_json_success_and_error_paths(tmp_path, monkeypatch, capsys):
 
     assert sf.run(["KLC-986", "--remove", "b", "--json"]) == 0
     obj = json.loads(capsys.readouterr().out)
-    assert obj["status"] == "applied" and obj["affected_modules"] == ["a"]
-    assert obj["ticket"] == "KLC-986"
+    # KLC-178: --json is `klc fix`'s audit record
+    assert obj["field"] == "modules" and obj["after"] == ["a"]
 
     assert sf.run(["KLC-986", "--modules", "a", "--json"]) == 0  # already [a]
     obj = json.loads(capsys.readouterr().out)
-    assert obj["status"] == "noop" and obj["affected_modules"] == ["a"]
+    assert obj["status"] == "noop" and obj["ticket"] == "KLC-986"
 
-    assert sf.run(["KLC-986", "--modules", "x,,y", "--json"]) == 1
-    obj = json.loads(capsys.readouterr().out)
-    assert obj["status"] == "error" and obj["reason"] == "malformed-modules"
+    with pytest.raises(SystemExit) as exc:  # bad input is an argparse-style exit 2
+        sf.run(["KLC-986", "--modules", "x,,y", "--json"])
+    assert exc.value.code == 2
 
 
 def test_scope_fix_refuse_does_not_push_preexisting(tmp_path, monkeypatch, capsys):
@@ -297,12 +290,11 @@ def test_scope_fix_refuse_does_not_push_preexisting(tmp_path, monkeypatch, capsy
     _seed_tracked_extra(klc, "KLC-989")
 
     import scope_fix as sf
-    rc = sf.run(["KLC-989", "--remove", "a"])
-    assert rc == 1, "scope-fix must refuse a non-archived ticket"
-    assert _remote_file(klc, "sm", "KLC-989", "notes.txt") == "baseline\n", \
-        "a refusal must not push the pre-existing subtree change"
-    # And the slice itself is untouched on the remote.
-    assert _remote_affected(klc, "sm", "KLC-989") == ["a"]
+    # KLC-178: no archived gate any more, so this edit applies (it is no longer a
+    # refusal); the no-push-of-unrelated-changes rule is pinned by the no-op test.
+    rc = sf.run(["KLC-989", "--remove", "a", "--reason", "r"])
+    assert rc == 0, "a live ticket is corrected"
+    assert _remote_affected(klc, "sm", "KLC-989") == []
 
 
 def test_scope_fix_noop_does_not_push(tmp_path, monkeypatch, capsys):
@@ -322,19 +314,6 @@ def test_scope_fix_noop_does_not_push(tmp_path, monkeypatch, capsys):
     assert _remote_file(klc, "sm", "KLC-990", "notes.txt") == "baseline\n", \
         "a no-op must not push the pre-existing subtree change"
     assert _remote_affected(klc, "sm", "KLC-990") == ["a"]
-
-
-def test_scope_fix_json_refused(tmp_path, monkeypatch, capsys):
-    """P2-B: --json on the not-archived refusal emits valid JSON, status refused."""
-    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
-    _build_bound_state_repo(
-        tmp_path, "KLC-988", phase="review:ack-needed", track="M",
-        affected=["a"])
-    assert state_feature.enabled() is True
-    import scope_fix as sf
-    assert sf.run(["KLC-988", "--remove", "a", "--json"]) == 1
-    obj = json.loads(capsys.readouterr().out)
-    assert obj["status"] == "refused" and obj["reason"] == "not-archived"
 
 
 def test_scope_fix_stale_local_noop_still_corrects(tmp_path, monkeypatch):
@@ -444,8 +423,9 @@ def test_scope_fix_rejects_malformed_module_list(tmp_path, monkeypatch):
                          affected=["a"])), encoding="utf-8")
 
     import scope_fix as sf
-    rc = sf.run(["KLC-978", "--modules", "a,,b"])
-    assert rc != 0, "a malformed module list must be rejected"
+    with pytest.raises(SystemExit) as exc:
+        sf.run(["KLC-978", "--modules", "a,,b", "--reason", "r"])
+    assert exc.value.code == 2, "a malformed module list must be rejected"
     assert json.loads(meta_p.read_text())["affected_modules"] == ["a"], \
         "the slice must be unchanged when the input is rejected"
 

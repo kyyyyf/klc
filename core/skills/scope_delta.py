@@ -148,6 +148,16 @@ def compare(ticket: str, *, changed_files: list[str] | None = None) -> dict:
     meta = _lc.read_meta(ticket)
     planned: list[str] = meta.get("affected_modules") or []
 
+    if changed_files is None:
+        # KLC-179 AC-7 (KLC-140): a live scan reads whatever HEAD points at, so refuse
+        # when HEAD is on another ticket's branch; the gate reads `skipped` as dirty.
+        # An injected list never reaches git, so it pays no extra call.
+        import phase_completion as _pc          # inside: avoids an import cycle
+        why = _pc._head_branch_mismatch(ticket, project_root())   # the repo the scan reads
+        if why:
+            return {"planned": planned, "actual": [], "drift": [], "expansion": [],
+                    "shared_touched": [], "skipped": why}
+
     modules_path = klc_index_dir() / "modules.json"
     if not modules_path.exists():
         return {

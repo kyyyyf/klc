@@ -54,10 +54,7 @@ status_mapping:
     discovery:            "Discovery"
     acceptance-test-plan: "Analysis"
     design:               "Design"
-    detailed-test-plan:   "Analysis"
-    xs-build:             "In Progress"
     build:                "In Progress"
-    review-lite:          "In Review"
     review:               "In Review"
     manual:               "Testing"
     integrate:            "Ready to Merge"
@@ -71,10 +68,10 @@ status_mapping:
   jira_to_klc:
     "Backlog":        [intake]
     "Discovery":      [discovery-lite, discovery]
-    "Analysis":       [acceptance-test-plan, detailed-test-plan]
+    "Analysis":       [acceptance-test-plan]
     "Design":         [design]
-    "In Progress":    [xs-build, build]
-    "In Review":      [review-lite, review]
+    "In Progress":    [build]
+    "In Review":      [review]
     "Testing":        [manual]
     "Ready to Merge": [integrate]
     "Monitoring":     [observe]
@@ -95,7 +92,6 @@ artifacts:
     impl_plan:    "impl-plan.md"
     build_log:    "build-log.md"
     review:       "review-report.md"
-    review_lite:  "review-lite-report.md"
     manual:       "review-report.md"
     integrate:    "review-report.md"
     observe:      "observe.md"
@@ -137,10 +133,7 @@ sync:
     discovery:            "Discovery"
     acceptance-test-plan: "Planning"
     design:               "Planning"
-    detailed-test-plan:   "Planning"
-    xs-build:             "In Progress"
     build:                "In Progress"
-    review-lite:          "In Review"
     review:               "In Review"
     manual:               "Manual QA"
     integrate:            "Merging"

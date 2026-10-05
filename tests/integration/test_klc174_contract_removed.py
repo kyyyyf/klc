@@ -67,8 +67,6 @@ def test_impl_prompt_describes_steps_json_contract():
     assert "klc step verify" in impl and "build/steps.json" in impl
     assert "## Evidence" not in impl
     assert "entry_budget_seconds" not in impl and "RE-EXECUTES" not in impl
-    xs = (FW / "core/agents/xs-fasttrack.md").read_text(encoding="utf-8")
-    assert "## Evidence" not in xs
 
 
 def test_phases_yml_build_output_is_steps_json():

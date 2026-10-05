@@ -900,8 +900,7 @@ def _forward_pull(ticket: str, target_phase: str,
         # Conditional skip — record structured event in phase_history (AC-3)
         if not phase.should_run(meta):
             skipped.append(phase_id)
-            _lc._record_skipped(ticket, phase_id,
-                                phase.condition or "condition not met")
+            _lc._record_skipped(ticket, phase_id, "not required for this ticket")
             continue
 
         # Check required inputs

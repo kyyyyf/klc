@@ -36,12 +36,15 @@ def render_thresholds_table() -> str:
 
 
 def render_phase_sequences() -> str:
-    """For each track in (XS,S,M,L): '**<track>**: a → b → c'."""
-    phases = load_phases()
+    """KLC-179: one line per LANE (light, full) from the rule table, not per XS/S/M/L
+    size. The size letters only pick a lane (XS/S -> light, M/L -> full); the phases
+    a ticket can visit come from `rules.lane_phase_ids`, a superset (manual/observe/
+    learn are entered only when risk tags or an overrun demand them)."""
+    from core.skills import rules as _rules
     lines = []
-    for track, _ in TRACK_THRESHOLDS:
-        seq = [p.id for p in phases.track_phases(track)]
-        lines.append(f"**{track}**: {' → '.join(seq)}")
+    for lane, sizes in (("light", "XS, S"), ("full", "M, L")):
+        seq = _rules.lane_phase_ids(lane)
+        lines.append(f"**{lane}** ({sizes}): {' → '.join(seq)}")
     return "\n\n".join(lines)
 
 

@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""`klc status <ticket>` — vertical path view of the ticket's progress.
+"""`klc status <ticket>` — the ticket's facts and its next move (KLC-179).
 
-Shows only the phases that apply to this track. Each row carries a
-checkbox and, for the current phase, the exact sub-state:
+One line per fact the ticket's lane requires (✓ done, · pending), the position
+(`← now`, with the exact sub-state and holder), the `blocked_on` decision when a
+human pick is needed, and the next move from the rule table:
 
-  [✓] intake
-  [✓] discovery
-  [●] design            ← now · ack-needed (pick required: 1=A, 2=B, 3=C)
-  [ ] detailed-test-plan
-  [ ] build
-  ...
+  KLC-123  track=S  lane=light  kind=tech
 
-The final line points the user at the next action.
+    ✓ spec_approved
+    ✓ plan_reviewed
+    · steps_green
+    · review_verdict
+    · merged
+    ● build  ← now · work (step 2/4)
+    next move: build (missing fact: steps_green)
+
+The last line is the same next-action line `klc go --dry-run` prints.
+Facts come from `meta.facts`; an older meta without them is derived in memory
+by `rules.derive_facts` (status never writes).
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 SKILLS = Path(__file__).resolve().parent.parent / "skills"
@@ -26,10 +33,14 @@ from _paths import klc_ticket_meta_file  # noqa: E402
 import lifecycle as _lc  # noqa: E402
 import phases as _ph  # noqa: E402
 import holder_display  # noqa: E402
+import rules as _rules  # noqa: E402  KLC-179: facts + rule table
+import next_move as _next_move  # noqa: E402  KLC-177: shared next-action line
 import artefacts as _artefacts  # noqa: E402  KLC-118: one card-path resolver
 import advisories as _advisories  # noqa: E402  KLC-117: read-only artifact display
 
 
+FACT_DONE     = "✓"
+FACT_PENDING  = "·"
 BOX_DONE      = "[✓]"  # ✓
 BOX_CURRENT   = "[●]"  # ●
 BOX_EMPTY     = "[ ]"
@@ -66,14 +77,24 @@ def run(argv: list[str]) -> int:
     track = meta.get("track") or "M"
     kind = meta.get("kind") or "?"
     phase_value = meta.get("phase") or ""
+    lane = _rules.lane_of(meta)
+    tags = meta.get("risk_tags")
+    facts = _rules.derive_facts(meta, _ticket_dir(args.ticket))
+    move = _rules.next_move(facts, lane, risk_tags=tags)
+    required = _rules.required_facts(facts, lane, risk_tags=tags)
 
     if args.json:
+        view = {"facts": facts, "lane": lane, "blocked_on": move.blocked_on,
+                "next_move": asdict(move)}
+        for key in ("review_override", "integrate"):          # R2-003: overrides stay visible
+            if meta.get(key):
+                view[key] = meta[key]
         # Terminal pseudo-states (archived/cancelled) own no phase — special-case
         # BEFORE parse_state, which would otherwise treat them as active (KLC-076).
         if _ph.is_terminal(phase_value):
             print(json.dumps({"ticket": args.ticket, "phase": phase_value,
                               "track": track, "kind": kind,
-                              "phase_id": phase_value, "state": phase_value}))
+                              "phase_id": phase_value, "state": phase_value, **view}))
             return 0
         try:
             cur_pid, cur_state = _ph.parse_state(phase_value)
@@ -84,24 +105,23 @@ def run(argv: list[str]) -> int:
             return 1
         out = {"ticket": args.ticket, "phase": phase_value,
               "track": track, "kind": kind,
-              "phase_id": cur_pid, "state": cur_state}
+              "phase_id": cur_pid, "state": cur_state, **view}
         adv = _advisories.for_display(args.ticket, cur_pid)
         if adv is not None:
             out["advisories"] = adv
         print(json.dumps(out))
         return 0
 
-    print(f"{args.ticket}  track={track}  kind={kind}")
+    print(f"{args.ticket}  track={track}  lane={lane}  kind={kind}")
     print()
 
     if phase_value == _ph.STATE_ARCHIVED:
-        ph = _ph.load_phases()
-        for p in ph.track_phases(track):
-            print(f"  {BOX_DONE} {p.id}")
+        for name in required:
+            print(f"  {FACT_DONE} {name}")
         print(f"  {BOX_DONE} archived")
         return 0
 
-    # Cancelled is terminal but NOT done: don't paint the track green. Show a
+    # Cancelled is terminal but NOT done: don't paint the facts green. Show a
     # single cancelled row (with the reason / originating phase, if recorded) so
     # it renders without error and never reads as active/complete (KLC-076).
     if phase_value == _ph.STATE_CANCELLED:
@@ -122,27 +142,20 @@ def run(argv: list[str]) -> int:
         )
         return 1
 
-    ph = _ph.load_phases()
-    track_phases = ph.track_phases(track)
-    phase_ids = [p.id for p in track_phases]
-    try:
-        cur_idx = phase_ids.index(cur_pid)
-    except ValueError:
-        sys.stderr.write(
-            f"klc status: current phase {cur_pid!r} is not in track {track!r}. "
-            f"Ticket may have been jumped off-track.\n"
-        )
-        cur_idx = -1
-
-    # Render rows.
-    for i, p in enumerate(track_phases):
-        if i < cur_idx:
-            print(f"  {BOX_DONE} {p.id}")
-        elif i == cur_idx:
-            annotation = _annotate_current(p, cur_state, meta)
-            print(f"  {BOX_CURRENT} {p.id:<22} ← now · {annotation}")
-        else:
-            print(f"  {BOX_EMPTY} {p.id}")
+    for name in required:
+        print(f"  {FACT_DONE if _rules.holds(facts, name) else FACT_PENDING} {name}")
+    phase = _ph.load_phases().by_id(cur_pid)
+    print(f"  {BOX_CURRENT} {cur_pid:<22} ← now · {_annotate_current(phase, cur_state, meta)}")
+    if move.blocked_on:
+        print(f"  blocked_on: {move.blocked_on}  (a human decision: --pick N)")
+    print(f"  next move: {move.action}" + (f" ({move.reason})" if move.reason else ""))
+    # R2-003: a human override is recorded in meta; show it so it is not invisible.
+    override = meta.get("review_override")
+    if override:
+        print(f"  review: approved by override over {override.get('report_verdict') or '?'}"
+              f" at {override.get('at') or '?'}")
+    if (meta.get("integrate") or {}).get("confirmed_by_pick"):
+        print("  integrate: merge confirmed by pick (not verified against main)")
 
     # Advisory records (KLC-117 AC-13): high/medium in full, the rest as a count.
     adv = _advisories.for_display(args.ticket, cur_pid)
@@ -158,6 +171,10 @@ def run(argv: list[str]) -> int:
     hint = _next_hint(args.ticket, cur_pid, cur_state, meta)
     print(hint)
     return 0
+
+
+def _ticket_dir(ticket: str):
+    return klc_ticket_meta_file(ticket).parent
 
 
 def _cancelled_from_phase(meta: dict) -> str | None:
@@ -200,57 +217,14 @@ def _annotate_state(phase: _ph.Phase, state: str, meta: dict) -> str:
     return state
 
 
-def _work_card(ticket: str, cur_pid: str, meta: dict) -> Path:
-    """Path to the prompt card for a `<phase>:work` state.
-
-    build:work is a multi-step loop whose card is the per-step card written by
-    `klc step` (`build/_prompt_step_<N>.md`, default step 1), not a flat
-    `build/_prompt.md` (KLC-072). Every other phase uses the flat
-    `<phase>/_prompt.md`. The location itself (card root vs. a degraded
-    ticket-dir fallback) is resolved by `artefacts.card_path` — the one
-    resolver every reader shares (KLC-118 AC-8).
-    """
-    if cur_pid == "build":
-        step = meta.get("impl_step") or 1
-        return _artefacts.card_path(ticket, "build", step)
-    return _artefacts.card_path(ticket, cur_pid)
-
-
-def _ack_command(ticket: str, pid: str) -> str:
-    """The exact `klc ack` command for a phase, naming a required single pick.
-
-    build's ack (and any single-required-pick phase) requires `--pick <id>`;
-    naming it removes the guesswork from the status hint (KLC-072). Phases with
-    multiple required picks keep the `--pick N` placeholder; unrequired picks
-    get a bare `klc ack`.
-    """
-    try:
-        ph = _ph.load_phases().by_id(pid)
-    except Exception:
-        return f"klc ack {ticket}"
-    if ph.pick_required and len(ph.picks) == 1:
-        return f"klc ack {ticket} --pick {ph.picks[0].id}"
-    if ph.pick_required:
-        return f"klc ack {ticket} --pick N"
-    return f"klc ack {ticket}"
-
-
 def _next_hint(ticket: str, cur_pid: str, cur_state: str, meta: dict) -> str:
-    if cur_state == _ph.STATE_WORK:
-        card = _work_card(ticket, cur_pid, meta)
-        ack = _ack_command(ticket, cur_pid)
-        if card.exists():
-            return (f"→ work in progress. Agent prompt: "
-                    f"`cat {card}`\n"
-                    f"  When done: `{ack}`, "
-                    f"or `klc abort {ticket}` to cancel.")
-        return (f"→ {cur_pid}:work. Run `{ack}` when done, "
-                f"or `klc abort {ticket}` to cancel.")
-    if cur_state == _ph.STATE_ACK_NEEDED:
-        return f"→ run `{_ack_command(ticket, cur_pid)}`"
-    if cur_state == _ph.STATE_ACK:
-        return f"→ run `klc next {ticket}` to advance"
-    return ""
+    """The last line of `klc status`: the same line `klc go --dry-run` prints.
+
+    Both come from `next_move.render`, so the two can never disagree."""
+    try:
+        return _next_move.render(_next_move.compute(ticket))
+    except Exception:
+        return ""
 
 
 if __name__ == "__main__":

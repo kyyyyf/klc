@@ -6,8 +6,11 @@ and dual-remote workflows. For key decisions and cross-cutting invariants see
 [`architecture.md`](architecture.md); for install and end-to-end scenarios see the
 root [`README.md`](../README.md).
 
-The authoritative source for phases and transitions is
-[`config/phases.yml`](../config/phases.yml); this doc explains it.
+The route a ticket takes comes from its **facts** and the short rule table in
+[`core/skills/rules.py`](../core/skills/rules.py) (KLC-179).
+[`config/phases.yml`](../config/phases.yml) is only the **prompt table**: for each
+phase it names the agent prompt, inputs, outputs and pick labels. It holds no
+tracks, no transitions and no conditions. This doc explains both.
 
 ---
 
@@ -17,21 +20,25 @@ The authoritative source for phases and transitions is
 2. **Agents draft, humans gate.** LLMs produce every artefact; humans confirm at
    obligatory picks. Spec is sealed after discovery ack.
 3. **Multi-dimensional estimate → track.** Four axes (complexity / uncertainty /
-   risk / manual), each 0–3. Total → XS / S / M / L. Downgrades forbidden;
-   upgrades always allowed.
+   risk / manual), each 0–3. Total → XS / S / M / L, and the letter picks a lane
+   (light or full). Downgrades forbidden; upgrades always allowed. A lane switch
+   never archives a ticket.
 4. **Facts tagged in every artefact.** `[!FACT src=…]`, `[!ASSUMPTION if-false=…]`,
    `[!DECISION D-NNN]`. Enables retrospective verification and cuts hallucination.
-5. **Short XS path.** XS skips acceptance-test-plan, design, and observe. Uses
-   discovery-lite instead of full discovery. One build agent call + review-lite.
-6. **Conditional phases.** `observe` runs only when `risk_tags` contains
-   `user-facing`, `data`, `security`, or `migration`. `learn` always runs for M/L;
-   for XS/S it runs only when rework occurred or budgets were overrun. Discovery
-   agents set `risk_tags` in meta.json; skipped phases are recorded in
-   `phase_history` with `event=skipped`.
+5. **Two lanes, few human stops.** The light lane (XS and S) stops for a human
+   at the spec only. The full lane (M and L) stops at the spec and at the design,
+   and at the manual check when risk tags make it run. A decision fact is written
+   only by the human's approving pick, never by a gate. Every other gate passes by
+   itself when it is clean; `integrate` also checks that the work is on `main`
+   (see Facts).
+6. **Conditional facts.** `manual_passed` and `observed` are required only when
+   `risk_tags` is set (observe: `user-facing`, `data`, `security` or `migration`),
+   and only on the full lane. `retro_written` is required on full, and on light only
+   after rework or a budget overrun. Discovery agents set `risk_tags` in meta.json.
 
 ---
 
-## Tracks
+## Tracks and lanes
 
 The multi-dimensional estimate maps a ticket to a track that decides which phases
 it visits. The full XS/S/M/L decision rubric is its own single source in
@@ -46,39 +53,119 @@ it visits. The full XS/S/M/L decision rubric is its own single source in
 
 Guard invariants: any axis = 3 floors at M; uncertainty = 3 + total ≥ 7 forces L.
 
-**XS path**: intake → discovery-lite → xs-build → review-lite → integrate → learn
+Tracks are the estimate's letters. What a ticket actually walks is a **lane**:
 
-**S path**: intake → discovery-lite (spec+test-plan+impl-plan) → build → review →
-integrate → observe → learn
+| Lane    | Tracks | Human stops                         |
+|---------|--------|-------------------------------------|
+| `light` | XS, S  | `spec_approved`                     |
+| `full`  | M, L   | `spec_approved`, `design_approved`  |
 
-**M path**: intake → discovery → acceptance-test-plan → design (impl-plan w/ tests)
-→ build → review → manual → integrate → observe → learn
+An unknown track runs as `full` (more gates, never fewer). New tickets store the lane
+in `facts.track`; `meta.track` keeps the letter (light → S, full → M) so old readers
+keep working. XS folds into the light lane, so an XS ticket now needs an
+`impl-plan.md` like an S ticket. This is the intended outcome of KLC-179: the separate
+XS fast path is gone, and one build-and-review path serves every light ticket.
 
-**L path**: as M, plus a `detailed-test-plan` gate after design.
+```text
+light: spec_approved -> plan_reviewed -> steps_green -> review_verdict
+       -> merged -> retro_written (only after an overrun or a regression)
+
+full : spec_approved -> test_plan_approved -> design_approved -> plan_reviewed
+       -> steps_green -> review_verdict -> manual_passed (risk tags) -> merged
+       -> observed (risk tags) -> retro_written
+
+human decision points (the only `--pick` stops): spec_approved (both lanes),
+design_approved (full only), manual_passed (full, when risk tags make it run)
+```
+
+`klc fix track` (`klc fix <key> track <XS|S|M|L>`) switches the lane through `lifecycle.switch_track`.
+It keeps every fact the ticket already has and lands on the first missing fact of the
+new lane, so a switch never archives a ticket and never re-asks an approved spec. Two
+edge cases: a switch at `intake` only rewrites the lane (the intake ack still comes
+first), and a light to full switch before the design exists also clears `steps_green`
+and every later fact, because the design will change the plan. The epic dependency
+guard runs before anything is written.
+
+---
+
+## Facts
+
+`meta.facts` is the source of truth; `meta.phase` is derived from it and still written
+for `status`, `board` and `metrics`. A fact holds only when it is exactly `true`
+(`review_verdict`: an `APPROVED...` string). Anything else counts as missing, so a
+malformed value can never skip a gate.
+
+| Fact                 | Set by                                              |
+|----------------------|-----------------------------------------------------|
+| `spec_approved`      | the human's approving pick at the spec (decision point) |
+| `test_plan_approved` | acceptance-test-plan gate (full)                    |
+| `design_approved`    | the human's approving pick at the design (full, decision point) |
+| `plan_reviewed`      | impl-plan review, never a human stop                |
+| `steps_green`        | build gate: every plan step green                   |
+| `review_verdict`     | `review-report.md` verdict                          |
+| `manual_passed`      | pick `passed` at the manual check (full, risk tags; decision point) |
+| `merged`             | integrate ack, after the merge check (below)        |
+| `observed`           | observe ack (full; user-facing, data, security, migration) |
+| `retro_written`      | learn ack                                           |
+
+Why decision facts come from the pick and not from the gate: if the gate wrote
+`spec_approved` when the work finished, `klc fix track` at `discovery-lite:ack-needed`
+would jump past the human decision, and `klc status` would show no `blocked_on` while a
+pick is still pending. The gate writes `plan_reviewed`, `test_plan_approved`,
+`steps_green` and `review_verdict`; the pick writes the rest.
+
+**Review override and rework.** At `review:ack-needed` over a `CHANGES_REQUESTED` report,
+`--pick 1` (approve) is an explicit human override: `review_verdict` becomes `APPROVED` and
+`meta.review_override` records when, by whom and the note. `--pick 2` (request-changes) is
+the rework: it clears `steps_green` and `review_verdict` and returns to `build:work`. When
+the build gate writes `steps_green` again, an older `review_verdict` is dropped, because new
+code needs a new review.
+
+**Merge check at integrate (F-003).** `integrate` stays a conditional gate, but `merged`
+is a fact, not a default. The gate (`gate_policy.merge_gate`) passes on its own only when
+the recorded pre-merge range head (`meta.pre_merge_range.head`) is an ancestor of `main`
+(`git merge-base --is-ancestor`). Otherwise the automatic ack pauses with "not merged into
+main", and `klc go` needs an explicit `--pick 1`: a squash merge never puts the branch tip on
+main, and a ticket with no recorded range has nothing to check, so a human confirms. The
+outcome is recorded in `meta.integrate` (`merge_verified`, `confirmed_by_pick`).
+
+A rework pick (`request-changes`, `failed`, `regression`, `rollback`,
+`revise-impl-plan`, `klc back`) clears the fact it undoes and every later one. `rollback`
+at observe returns to `build:work` (clearing from `steps_green`): the rolled-back code goes
+through build and review again, like a regression. An
+older meta without `facts` is derived in memory from `phase_history` on read and is
+never rewritten by a read. The retired phases (the XS fast path and the L-only
+detailed test plan) survive only as old history, read through that derivation.
+
+`klc status <KEY>` prints one line per required fact (`✓` done, `·` pending), the
+`blocked_on` decision when a `--pick` is needed, and the next move from the rule
+table; `--json` carries `facts`, `lane`, `blocked_on` and `next_move`.
+
+**Branch guard (KLC-140).** `scope_delta.compare` refuses to scan the diff of another
+ticket's branch: a live review-path call while HEAD is on a foreign branch returns
+`skipped` with the branch reason, which the gate treats as dirty (fail-closed).
 
 ---
 
 ## Phase map
 
-All phases are defined in `config/phases.yml`. `klc next` advances from `:ack` →
-the next phase's `:work`; `klc ack --pick N` closes `:ack-needed`.
+`config/phases.yml` is the prompt table: id, prompt, inputs, outputs and pick labels.
+`klc go <key>` asks the rule table for the first missing fact and enters that phase's
+`:work`; `klc go <key> --pick N` closes a decision point.
 
-| Phase id               | Tracks      | Agent prompt                      | Picks at `:ack-needed`                                    |
+| Phase id               | Lanes       | Agent prompt                      | Picks at `:ack-needed`                                    |
 |------------------------|-------------|-----------------------------------|------------------------------------------------------------|
-| `intake`               | XS S M L    | _(no agent; `klc intake` is deterministic — optional `intake-triage.md`)_ | 1 = confirm-route · 2 = force-full-discovery · 3 = force-xs-skip (XS only) |
-| `discovery-lite`       | XS S        | `core/agents/discovery-lite.md`   | 1 = approve · 2 = needs-rework · 3 = upgrade-to-full      |
-| `discovery`            | M L         | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
-| `acceptance-test-plan` | M L         | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
-| `design`               | M L         | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
-| `detailed-test-plan`   | L           | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework (M: tests folded into impl-plan steps) |
-| `xs-build`             | XS          | `core/agents/xs-fasttrack.md`     | 1 = approve · 2 = upgrade-to-S                            |
-| `build`                | S M L       | `core/agents/impl.md`             | 1 = approve                                                |
-| `review-lite`          | XS          | `core/agents/review-lite.md`      | 1 = approve · 2 = request-changes · 3 = override          |
-| `review`               | S M L       | `core/agents/review.md`           | 1 = approve · 2 = request-changes (→ build:work)          |
-| `manual`               | M L         | `core/agents/manual-check.md`     | 1 = passed · 2 = failed (→ build:work)                    |
-| `integrate`            | XS S M L    | _(checklist, no agent)_           | 1 = merged                                                 |
-| `observe`              | S M L       | _(monitoring checklist)_          | 1 = clean · 2 = regression · 3 = rollback                 |
-| `learn`                | XS S M L    | `core/agents/retrospective.md`    | 1 = archive · 2 = extract-to-CLAUDE.md                    |
+| `intake`               | all         | _(no agent; `klc intake` is deterministic — optional `intake-triage.md`)_ | 1 = confirm-route · 2 = force-full-discovery |
+| `discovery-lite`       | light       | `core/agents/discovery-lite.md`   | 1 = approve · 2 = needs-rework · 3 = upgrade-to-full      |
+| `discovery`            | full        | `core/agents/discovery.md`        | 1 = approve · 2 = needs-rework                            |
+| `acceptance-test-plan` | full        | `core/agents/test-planner.md`     | 1 = approve · 2 = needs-rework                            |
+| `design`               | full        | `core/agents/design.md`           | 1 = option-A · 2 = option-B · 3 = option-C · 4 = rework · 5 = revise-impl-plan |
+| `build`                | light, full | `core/agents/impl.md`             | 1 = approve                                                |
+| `review`               | light, full | `core/agents/review.md`           | 1 = approve · 2 = request-changes (→ build:work)          |
+| `manual`               | full        | `core/agents/manual-check.md`     | 1 = passed · 2 = failed (→ build:work)                    |
+| `integrate`            | all         | _(checklist, no agent)_           | 1 = merged                                                 |
+| `observe`              | full        | _(monitoring checklist)_          | 1 = clean · 2 = regression · 3 = rollback                 |
+| `learn`                | all         | `core/agents/retrospective.md`    | 1 = archive · 2 = extract-to-CLAUDE.md                    |
 
 The per-phase sections below give the human context (purpose, inputs, outputs, ack
 options, pitfalls) that the agent prompts link to.
@@ -97,7 +184,7 @@ cheap `intake-triage` agent.
   `intake:ack-needed`. Intake prints `route=<track> confidence=<low|medium|high>`
   (from `route_heuristic.py`) — the track is a **provisional floor**.
 - **Ack options:** `--pick 1` confirm-route → discovery(-lite):work · `--pick 2`
-  force-full-discovery · `--pick 3` force-xs-skip (XS only).
+  force-full-discovery.
 - **Pitfalls:** missing Goals/Problem section in raw.md → validation failure;
   ambiguous requirements → rework in discovery. A short description means
   under-specified, not necessarily simple.
@@ -115,8 +202,8 @@ track assignment. On S/XS this is `discovery-lite`, which also writes
   estimate, layer, `affected_modules`, and `risk_tags`.
 - **Completion criteria:** spec.md has all required sections; every AC is testable;
   the estimate total matches the track.
-- **Ack options:** `--pick 1` approve (seals spec.md; XS → xs-build, S/M/L →
-  acceptance-test-plan or, on S, build) · `--pick 2` needs-rework · (lite) `--pick
+- **Ack options:** `--pick 1` approve (seals spec.md; full →
+  acceptance-test-plan, light → build) · `--pick 2` needs-rework · (lite) `--pick
   3` upgrade-to-full.
 - **Pitfalls:** non-testable ACs ("improve performance" with no metric); wrong
   track; scope creep (`affected_modules` too broad).
@@ -150,8 +237,8 @@ implementation detail yet.
   when `estimate.manual ≥ 2`.
 - **Completion criteria:** every AC has a row; test types are e2e/acceptance/manual
   (no unit/integration yet); manual checklist populated when needed.
-- **Ack options:** `--pick 1` approve (S → build, M/L → design) · `--pick 2`
-  needs-rework.
+- **Ack options:** `--pick 1` approve (the next missing fact: design on the full lane) ·
+  `--pick 2` needs-rework.
 - **Pitfalls:** a missing AC in the table is a phase failure; using unit/
   integration types too early.
 
@@ -171,43 +258,13 @@ see [Independent spec/test-plan/impl-plan review](#independent-spectest-planimpl
   hallucinated APIs) and names the pick with its rationale; `impl-plan.md` passes
   the plan-completeness gate.
 - **Ack options:** `--pick 1/2/3` option-A/B/C · `--pick 4` needs-rework · `--pick
-  5` revise-impl-plan. Approving seals the design and advances to detailed-test-plan
-  (L) or build (M).
+  5` revise-impl-plan. Approving seals the design and advances to build.
 - **Pitfalls:** only one option (not enough exploration); a chosen option that
   depends on a nonexistent library/API; a missing rationale.
 
 An **independent impl-plan review** (KLC-094) runs at the ack that finalizes
 `impl-plan.md` — see
 [Independent spec/test-plan/impl-plan review](#independent-spectest-planimpl-plan-review).
-
-## Detailed-test-plan
-
-**Purpose (L only; M folds it into impl-plan steps).** Add unit/integration tests
-keyed to impl-plan steps, extending `test-plan.md`.
-
-- **Inputs:** existing `test-plan.md` (acceptance section), `impl-plan.md`,
-  `design.md`.
-- **Outputs:** `test-plan.md` with a `## Detailed coverage` table (step → unit/
-  integration/characterisation test → location → target symbol(s)).
-- **Completion criteria:** every impl-plan step has a row or a `covered-by: AC-N`
-  note; target symbols verified via LSP (no hallucinated names).
-- **Ack options:** `--pick 1` approve → build · `--pick 2` needs-rework.
-- **Pitfalls:** a missing step with no covered-by note; a hallucinated target
-  symbol; duplicating acceptance tests at the detailed level.
-
-## XS-build
-
-**Purpose (XS).** Fast path that combines test writing and implementation in a
-single agent call. No `impl-plan.md`, no TDD loop.
-
-- **Inputs:** `spec.md` + `raw.md` + root `CLAUDE.md`.
-- **Outputs:** code + tests + a git commit. The agent locates code via LSP, writes
-  the fix and test, commits, and emits `XS_IMPL_DONE` or `XS_BLOCKED`.
-- **Ack options:** `--pick 1` approve → review-lite · `--pick 2` upgrade-to-S.
-- **Pitfalls:** over-complicating a trivial change; skipping the test (even XS needs
-  coverage). If scope expands beyond `affected_modules` the agent emits
-  `XS_BLOCKED`; the human runs `klc jump acceptance-test-plan:work --yes` to upgrade
-  (discovery is already done).
 
 ## Build
 
@@ -223,7 +280,7 @@ directly; M/L follow the plan steps).
 - **Completion criteria:** all tests green; every AC has a passing test; impl-plan
   fully ticked (M/L). For each plan step the agent commits RED, commits GREEN, then
   runs `klc step verify <KEY> N`, which executes the step's allowlisted `VERIFY:`
-  once and records the result in `build/steps.json`. `klc ack` only READS that file
+  once and records the result in `build/steps.json`. `klc go` only READS that file
   and re-executes nothing: it blocks a step whose recorded verify is missing, failed,
   differs from the plan's `VERIFY:` or predates the latest commit on the step. The file
   is untrusted input — commits, TDD order and state are recomputed from git
@@ -236,7 +293,7 @@ directly; M/L follow the plan steps).
   a sandbox, because the test code itself still runs (a committed `conftest.py` can
   execute anything); git history must show a
   failing-test commit before the implementation commit for each behaviour step
-  (verified mechanically by `klc ack` via `core/skills/tdd_order.py`; steps marked
+  (verified mechanically by `klc go` via `core/skills/tdd_order.py`; steps marked
   `RED: not applicable` are exempt). A FACT item in `spec.md`, `design.md`
   or `impl-plan.md` must cite a real project code or config file as `src=<path>:<line>`;
   for a ticket created on or after `items_verify.FACT_SOURCE_RULE_EPOCH`, or any item
@@ -315,10 +372,10 @@ directly; M/L follow the plan steps).
    re-reviewed (capped at `PER_STEP_REREVIEW_CAP`); MEDIUM/LOW are logged to
    `step-N-review.md` without blocking. Runs as a post-green hook in the
    `klc build-run` orchestrator (`core/skills/per_step_review.py`).
-4. Repeat until all steps are green, then `klc ack <key> --pick 1`.
+4. Repeat until all steps are green, then `klc go <key> --pick 1`.
 
 **`build-log.md`** is optional free notes from the impl agent (decisions, deviations,
-finding assessments). Nothing gates on it; `klc ack` does not read it. The reviewer and
+finding assessments). Nothing gates on it; `klc go` does not read it. The reviewer and
 the retrospective agent may use it as context.
 
 **Review signal rule.** `APPROVED` / `REVIEW_LITE_PASS` means "this iteration found
@@ -370,8 +427,9 @@ completeness, quality, security, and scope.
 - **Outputs:** `review-report.md` (findings + verdict).
 - **Completion criteria:** `review-report.md` exists with a verdict; all critical
   findings resolved or accepted.
-- **Ack options:** `--pick 1` approve (S → integrate, M/L → manual) · `--pick 2`
-  request-changes → build:work.
+- **Ack options:** `--pick 1` approve (the next missing fact: manual when risk tags
+  demand it, else integrate; over a `CHANGES_REQUESTED` report it is a recorded override) ·
+  `--pick 2` request-changes → build:work.
 - **Pitfalls:** scope creep not caught; a missing AC test; a security issue missed.
 
 Findings are ranked using the four levels in [`severity-rubric.md`](../config/severity-rubric.md)
@@ -472,24 +530,13 @@ host lacks — an unset API key for `openai`/`google`, or a missing `claude` CLI
 for `anthropic` (graceful; `klc doctor`'s `external-reviewer-key` check warns on
 the same two conditions).
 
-## Review-lite
-
-**Purpose (XS).** Fast sanity check — ACs met, tests pass, no obvious issue. Blocks
-only on CRITICAL (security, API break, data corruption).
-
-- **Inputs:** the xs-build diff, `spec.md`. **Outputs:** a review decision; emits
-  `REVIEW_LITE_PASS` or `REVIEW_LITE_CRITICAL`.
-- **Ack options:** `--pick 1` approve → integrate · `--pick 2` request-changes →
-  xs-build:work · `--pick 3` override.
-- **Pitfalls:** over-analysing an XS ticket defeats the fast path.
-
 ## Manual
 
 **Purpose (M/L, high manual estimate).** Human manual validation before
 integration.
 
 - **Inputs:** the build+review diff, the `test-plan.md` manual checklist, `spec.md`.
-- **Outputs:** none as a file. `klc ack --note` records the verdict, note and time
+- **Outputs:** none as a file. `klc go --note` records the verdict, note and time
   in `meta.json` under `manual`.
 - **Ack options:** `--pick 1` passed → integrate · `--pick 2` failed → build:work.
 - **Pitfalls:** skipping validation; a vague checklist; no rollback plan.
@@ -505,10 +552,10 @@ guardrails).
   the ack, usually the feature-branch tip) and `main_head` (local `main`, null when it
   does not resolve). A squash merge puts neither of them on main, so neither is called
   "the merge commit".
-- **Ack options:** `--pick 1` merged (XS → learn, S/M/L → observe) · `--pick 2`
-  conflict (human resolves, retry).
+- **Ack options:** `--pick 1` merged (→ observe on the full lane with one of the four
+  observe tags, else learn or archive) · `--pick 2` conflict (human resolves, retry).
 - **What the integrate ack scores.** The drift check, the retrieval evaluator and
-  the integrate scope guard share one ground truth, resolved once per `klc ack`
+  the integrate scope guard share one ground truth, resolved once per `klc go`
   run in this order: `live-merge-base` (the branch diff against origin/main, used
   whenever it is non-empty), then `recorded-range` (the `pre_merge_range` that the
   build, review and manual acks record while the branch is unmerged; the latest
@@ -530,8 +577,8 @@ catch regressions early.
 
 - **Inputs:** merged code + baseline metrics. **Outputs:** `observe.md` (metrics,
   alerts, rollback assessment).
-- **Ack options:** `--pick 1` stable → learn · `--pick 2`/`3` regression/rollback →
-  build:work.
+- **Ack options:** `--pick 1` clean → learn · `--pick 2`/`3` regression/rollback →
+  build:work (both clear from `steps_green`).
 - **Pitfalls:** ignoring an error-rate spike; no rollback plan; too short a window.
 
 ## Learn
@@ -556,44 +603,68 @@ learned, recommendations, action items — and archive.
 
 ```
 klc intake <key> [--kind feature|bug|tech] "<desc>"
-klc status <key>               # vertical path view
-klc next   <key>               # :ack → next phase :work
-klc ack    <key> [--pick N]    # :ack-needed → :ack
-klc ship   <key> [--pick N]    # ack + next in one step
-klc step   <key> <N>           # regenerate minimal TDD step card (build only)
-klc work   <key>               # read-only: the next action (card/outputs/verify)
-klc jump   <phase> <key> [--yes]   # cross-cut to any phase :work
-klc abort  <key>               # cancel current :work → previous :ack
-klc abort  <key> --cancel --reason "<why>"   # terminate to the `cancelled` terminal
-klc run    <key> [--cap N] [--json]   # autonomous runner (single-user / feature-off)
+klc status <key>               # vertical path view + the one next action
+klc go     <key> [--pick N] [--dry-run]   # one move forward from ANY state
+klc go     <key> --until <phase> [--cap N]   # keep going through clean gates, never dispatches an agent
+klc back   <key> <phase> --reason "<why>"    # return to an earlier phase (reworks it)
+klc back   <key> --cancel --reason "<why>"   # terminate to the `cancelled` terminal
+klc step verify <key> <N>      # run a build step's VERIFY once and record it
 klc publish <key> [--branch B] # read-only: push the review verdict to the ticket's GitHub PR
-klc steal  <key> [--ttl-minutes M]    # take over a stale holder slot (TTL-gated)
-klc retrack <key> <XS|S|M|L> --reason "..."   # operator-only track change, audited
+klc fix <key> track <XS|S|M|L> --reason "..."      # audited correction of a ticket's meta
+klc fix <key> modules (--set a,b | --add a,b | --remove a,b) --reason "..."
+klc fix <key> (risk-tags|kind|epic|blocked-by) <value> --reason "..."
+klc doctor                     # check install health
+klc doctor --install <root>    # bootstrap a project (add --force to regenerate)
+klc doctor --index             # refresh the code index and report its freshness
 ```
 
-`klc abort --cancel` moves a ticket that will never ship to the terminal
+`klc go` reads the same next-action line `klc status` shows. From `:ack` it moves
+to the next phase's `:work`; from `:ack-needed` it acks (alone when the gate is
+conditional and clean, otherwise it wants `--pick N`); from `:work` with complete
+outputs it acks in one move, and with outputs missing it changes nothing, prints
+the card path and exits 2. Exit codes are the same in `go` and `back`: 0 moved or
+done; 2 for a refused call or a human stop (bad arguments, an unknown ticket or
+phase, a forward target for `back`, a terminal ticket, a pick that is needed, an
+`--until` target that is off the track or behind the ticket); 1 for an unexpected
+error (unreadable `meta.json`, a locked or conflicting state). `--until` stops with
+one line that carries exactly one reason, chosen by priority: guardrail, pick,
+clarify, build not green, agent card. `--pick` with `--until` is the pick of the
+first move and is refused when the first move needs none. `klc back` to `build`
+also renders the build step card with the `## Rework request` section, because
+that is the card `go` and `status` point at. `klc back --cancel` moves a ticket that will never ship to the terminal
 `cancelled` state (parallel to `archived` but NOT counted as completed work by
-metrics); `--reason` is required. `klc run` walks a ticket through the state machine
-on its own, auto-acking clean conditional gates and pausing at every decision gate
-/ guardrail (see [Autonomous runner](#autonomous-runner-klc-run)); it refuses when
-the multi-user state feature is ON. `klc publish` and `klc work` are strictly
-read-only (no phase advance, no meta write, no Jira drain).
+metrics); `--reason` is required. `klc publish` and `klc go --dry-run` are strictly
+read-only (no phase advance, no meta write). `klc go --dry-run` and `klc status`
+also skip the Jira queue drain that every other verb runs first; with `--until`,
+`--dry-run` prints the first move only and never loops.
+
+The lifecycle verbs are intake, status, go, back and step; `klc fix` corrects a
+ticket's meta and `klc doctor` checks, bootstraps and indexes the install. Also:
+board, jira, publish. Maintainer and hook verbs (task-brief, build-run, jira-sync, reindex,
+metrics, migrate-notes, skeleton, plugin-gen, steal, step-card)
+live under `klc internal <name>`; the old top-level spellings still work.
+The hook verbs `remind` and `heartbeat` were deleted in KLC-180: the single hook
+(see "Single hook" below) does their work.
+
+The old verbs `next`, `ack`, `ship`, `jump`, `abort` and `run` are deprecated
+aliases: each still works but prints one stderr line naming its replacement, and
+all are removed after wave 3. The same holds for the old bootstrap and correction
+verbs (retrack, scope-fix, install, init, update, setup, state): each is a
+deprecated alias that prints a pointer to `klc fix` or `klc doctor`; the old index
+rebuild is now `klc doctor --index`. The agent-driven doc passes that `doctor` does not
+cover stay reachable as `klc internal init --auto`, `klc internal init --finalize` and
+`klc internal update --regen`. The read-only view moved to `klc go --dry-run`.
 
 Operational (non-phase):
 
 ```
 klc board                      # kanban view across tickets
 klc board --epic <ROOT>        # epic-scoped view (state / ready set) — see Epics
-klc doctor                     # install health check
 klc metrics <key>              # per-ticket JSON
 klc metrics --rollup           # 30-day aggregate
-klc init [--scan-only|--auto|--finalize]
-klc update [--regen] [--force]
-klc state init [<remote>]      # materialize the klc-state branch as a .klc/ worktree
 klc jira-sync [--dry-run]      # flush Jira push queue
 klc jira-sync status           # queue size + oldest entry age
-klc scope-fix <key> (--modules a,b,c | --add a,b | --remove a,b) [--reason ...]
-klc scope-fix --migrate-vocabulary [--dry-run] [--json]   # batch: rewrite every
+klc fix --migrate-vocabulary [--dry-run] [--json]   # batch: rewrite every
                                           # archived ticket's affected_modules to
                                           # the module vocabulary (see below)
 klc migrate-notes [--dry-run] [--json]   # one-time: cap over-long phase-history
@@ -601,38 +672,38 @@ klc migrate-notes [--dry-run] [--json]   # one-time: cap over-long phase-history
                                           # advisory artifact (see below)
 ```
 
-**Happy path (clean S ticket).** Every forward `klc ack --pick 1` also advances to
-the next phase's `:work` (the pick's `goto` is `next`), so the happy path is
-**ack-only** — you never run `klc next` from a `:work` state:
+**Happy path (clean S ticket).** Every forward `klc go --pick 1` also advances to
+the next phase's `:work` (the rule table enters the first missing fact), so the happy path is
+**go-only** (the former ack-only walk, now with one verb from any state):
 
 ```text
 klc intake <KEY> "one-line description"   # → intake:ack-needed
-klc ack    <KEY> --pick 1                 # confirm-route → discovery-lite:work
+klc go     <KEY> --pick 1                 # confirm-route → discovery-lite:work
    # agent writes spec.md (## Approaches: >=2 approaches + a recorded "Picked:"), impl-plan.md
-klc ack    <KEY> --pick 1                 # approve → build:work
+klc go     <KEY> --pick 1                 # approve → build:work
    # on a feature branch: write code. Commit the failing test BEFORE the fix for each step,
-   # then run `klc step verify <KEY> N` — build ack enforces red-before-green from git history
+   # then run `klc step verify <KEY> N` — build go enforces red-before-green from git history
    # and reads the recorded verify from build/steps.json.
-klc ack    <KEY> --pick 1                 # approve → review:work   (agent writes review-report.md)
-klc ack    <KEY> --pick 1                 # approve → integrate:work ; merge the feature branch
-klc ack    <KEY>                          # merged → archived (observe + learn condition-skipped for a clean S)
+klc go     <KEY> --pick 1                 # approve → review:work   (agent writes review-report.md)
+klc go     <KEY> --pick 1                 # approve → integrate:work ; merge the feature branch
+klc go     <KEY>                          # merged → archived (observe + learn condition-skipped for a clean S)
 ```
 
-### Post-archive scope correction — `klc scope-fix`
+### Post-archive scope correction — `klc fix <key> modules`
 
 `meta.affected_modules` records a ticket's planning slice. During work it is
 corrected at `ack` (each `ack` runs a `state_tx` that commits and CAS-pushes the
 ticket subtree). Once a ticket is **archived** no further `ack` runs, so an edit to
-the slice has no `state_tx` to sweep it. `klc scope-fix` is the first-class durable
+the slice has no `state_tx` to sweep it. `klc fix <key> modules` is the first-class durable
 path: it edits `affected_modules` inside the same `acquire_lock → state_tx` envelope
-every state write uses. It **refuses any non-archived ticket** (correct those at
-`ack` — update `affected_modules` rather than fighting it, since it drives the
-scope-expansion hard-fail). Three mutually-exclusive modes: `--modules a,b,c`
+every state write uses. Unlike the retired `scope-fix`, it works in ANY state, so a
+live ticket can be corrected the same way when the scope-expansion hard-fail
+names unplanned modules. Three mutually-exclusive modes: `--set a,b,c`
 (replace), `--add a,b` (union), `--remove a,b` (drop). Malformed lists are rejected
 before any write; unknown module names are a non-fatal advisory; each correction is
-a `scope-fix` entry in `meta.phase_history`.
+a `fix` entry in `meta.fixes`.
 
-### One-time vocabulary migration — `klc scope-fix --migrate-vocabulary`
+### One-time vocabulary migration — `klc fix --migrate-vocabulary`
 
 A fourth mode on the same verb (KLC-111), for the one-time cut-over from the
 pre-KLC-074 file-stem `modules.json` to the deterministic directory-level one. It
@@ -646,8 +717,7 @@ reported **unmappable**. Both lists are printed, never silently dropped. Each
 rewritten ticket is corrected inside its own `acquire_lock → state_tx`, exactly
 like the three ticket-scoped modes, and gets exactly one `vocabulary-migration`
 entry in `meta.phase_history`; a re-run over an already-migrated ticket is a true
-no-op (the audit entry is the sentinel). A live (non-archived) ticket is refused,
-same as the three ticket-scoped modes.
+no-op (the audit entry is the sentinel). A live (non-archived) ticket is left alone: the batch only rewrites archived ones.
 
 The operator sequence, run once, from `/home/ek/projects/klc` (or your
 `PROJECT_ROOT`):
@@ -657,7 +727,7 @@ The operator sequence, run once, from `/home/ek/projects/klc` (or your
 #    This replaces the STALE, pre-KLC-074, 29-name file-stem modules.json with
 #    the current directory-level module set — review this step on its own
 #    before any archived ticket is rewritten against it.
-klc init --scan-only
+klc doctor --index
 
 # 2. commit the rebuilt index on klc-state
 git -C .klc add index/
@@ -665,8 +735,8 @@ git -C .klc commit -m "KLC-111: rebuild modules.json at directory granularity"
 
 # 3. dry-run the migration first — read the unmappable and ambiguous lists,
 #    and confirm the projected in-vocabulary share, before applying
-klc scope-fix --migrate-vocabulary --dry-run --json
-klc scope-fix --migrate-vocabulary
+klc fix --migrate-vocabulary --dry-run --json
+klc fix --migrate-vocabulary
 ```
 
 ---
@@ -676,20 +746,18 @@ klc scope-fix --migrate-vocabulary
 Every phase with `pick_required: true` is a gate — the human must choose a pick
 before `next` proceeds.
 
-| Gate              | Phase                          | Tracks  |
-|-------------------|--------------------------------|---------|
-| confirm intake    | `intake:ack-needed`            | all     |
-| pull-ready        | `discovery:ack-needed`         | XS S M L |
-| accept test plan  | `acceptance-test-plan:ack-needed` | S M L |
-| direction         | `design:ack-needed`            | M L     |
-| detail test plan  | `detailed-test-plan:ack-needed`| M L     |
-| xs build          | `xs-build:ack-needed`          | XS      |
-| build             | `build:ack-needed`             | S M L   |
-| review-lite       | `review-lite:ack-needed`       | XS      |
-| merge approval    | `review:ack-needed`            | S M L   |
-| manual check      | `manual:ack-needed`            | M L     |
-| observe outcome   | `observe:ack-needed`           | S M L   |
-| learn outcome     | `learn:ack-needed`             | all     |
+| Gate              | Phase                          | Lanes       | Needs `--pick` |
+|-------------------|--------------------------------|-------------|----------------|
+| confirm intake    | `intake:ack-needed`            | all         | no, when the route is confident |
+| spec              | `discovery:ack-needed`         | light, full | yes (decision) |
+| accept test plan  | `acceptance-test-plan:ack-needed` | full     | no, when clean |
+| design            | `design:ack-needed`            | full        | yes (decision) |
+| build             | `build:ack-needed`             | light, full | no, when clean |
+| merge approval    | `review:ack-needed`            | light, full | no, when clean |
+| manual check      | `manual:ack-needed`            | full, risk tags | yes (decision) |
+| merge             | `integrate:ack-needed`         | light, full | no, when the merge check passes |
+| observe outcome   | `observe:ack-needed`           | full, four observe tags | no, when clean |
+| learn outcome     | `learn:ack-needed`             | full, or light after overrun | no |
 
 Mechanical pre-conditions block `ack` before the human pick is offered:
 - **discovery-lite ack (S)**: spec self-review clean; ≥2 approaches + pick in
@@ -699,7 +767,7 @@ Mechanical pre-conditions block `ack` before the human pick is offered:
 - **build ack (S/M/L)**: every plan step must be green in `step_state` — RED then
   GREEN commits, and a valid `klc step verify` result in `build/steps.json`.
 
-The design agent and test-planner (M detailed mode) self-review `impl-plan.md`
+The design agent self-reviews `impl-plan.md`
 before emitting their completion signal — scanning every `## step-N` for missing
 `REQUIRED_STEP_FIELDS`, placeholder tokens, and empty fences — a first line of
 defence before the mechanical gate at ack.
@@ -728,7 +796,7 @@ missing key reads as clean only when the ticket history records the phase
 reaching `ack-needed` and that entry does not say `advisories: write-failed`; an
 unreadable `advisories.json` is moved aside to `advisories.corrupt-<ts>.json`
 and, while that file exists, every phase of the ticket reads dirty; the sibling is local evidence (never committed to klc-state), and the operator deletes it after inspection, which returns the gate to normal. A **read-only probe**
-(`persist=False` — `klc remind`, gate-policy signal collection) writes nothing.
+(`persist=False` — the klc hook's pending line, gate-policy signal collection) writes nothing.
 The gate's return value is a one-line **summary** in place of the old joined
 prose — `2 high · 3 medium · 11 info — see <path>`, or the empty string when no
 producer emitted anything; `high`/`medium` counts always render, `low`/`info`
@@ -742,9 +810,10 @@ the gate-policy `advisory` signal is dirty is an operator-settable knob,
 `advisory.threshold` (default `medium`), resolved through the same
 project-over-framework `settings.yml` ladder as every other knob (see
 `config/settings.yml`; validated by `klc doctor`). `klc status` and
-`klc work` print every `high`/`medium` record in full and a bare count of the
-rest, reading the artifact only (never the gate, so neither verb spawns a git
-subprocess on a routine call). A one-time, operator-invoked verb,
+`klc go --dry-run` read the advisory artifact only; `klc go --dry-run` prints one
+line (the next action), while `status` lists the `high`/`medium` records in full
+with a bare count of the rest. Both verbs do read the other gate signals, so they
+run `git diff` for the scope and sentinel checks. A one-time, operator-invoked verb,
 `klc migrate-notes`, replaces every already-stored note over the cap with a
 truncated note plus a pointer to its phase's artifact — idempotent (a second run
 is byte-identical) and archive-aware (an archived ticket is migrated exactly
@@ -754,24 +823,18 @@ like an active one, since it lives in the same `.klc/tickets/<KEY>/` tree).
 
 ## Conditional phases
 
-Some phases are skipped automatically based on `meta.json` fields set by discovery
-agents. Skipped phases are recorded in `phase_history` as `event: skipped`.
+The rule table skips a phase when its fact is not required. A skipped phase is recorded
+in `phase_history` as `event: skipped` and counts as satisfied.
 
 | Phase     | Runs when                                                              |
 |-----------|------------------------------------------------------------------------|
-| `observe` | `meta.risk_tags` contains any of: `user-facing`, `data`, `security`, `migration` |
-| `learn`   | Always for M/L. For XS/S: when `meta.rework_count` > 0, OR `meta.regression_observed == 1`, OR `meta.budgets` any overrun |
+| `manual`  | full lane and `meta.risk_tags` is not empty                            |
+| `observe` | full lane and `meta.risk_tags` holds at least one of `user-facing`, `data`, `security`, `migration` (any other tag does not run it) |
+| `learn`   | always on full. On light: `meta.rework_count` > 0, OR `meta.regression_observed == 1`, OR `meta.budgets` shows an overrun |
 
 Discovery agents must set `risk_tags: [...]` in `meta.json` (use `[]` for pure
-tooling/config changes). The `phases.yml condition:` expression language:
-
-```
-meta.<path> in ['v1', 'v2']      # true if value or any list element matches
-meta.<path> not in ['v1', 'v2']
-meta.<path> > N   |   >= N   |   == N
-meta.<path> any_overrun           # true if any dict value > 0
-<expr> OR <expr>                  # short-circuit or
-```
+tooling/config changes). The conditions live in the rule table
+(`core/skills/rules.py`), not in `phases.yml`.
 
 ---
 
@@ -782,8 +845,7 @@ meta.<path> any_overrun           # true if any dict value > 0
 - `rework_count[phase] ≥ 3` — recommend escalation to lead.
 - Scope creep: the diff touches modules outside `affected_modules`, or files outside
   all known module prefixes (`unknown_files` in scope_delta). At `review:ack`,
-  missing `modules.json` is a hard failure — run `klc init --scan-only`.
-- XS: `XS_BLOCKED` from xs-fasttrack or review-lite.
+  missing `modules.json` is a hard failure — run `klc doctor --index`.
 
 ---
 
@@ -933,7 +995,7 @@ pre-KLC-127 findings files and verdict blocks is KLC-154.
 ## Gate-policy layer
 
 Every pick in `phases.yml` carries an explicit `gate` level that classifies how much
-human judgment it needs; the classification drives `klc ack --auto`.
+human judgment it needs; the classification drives `klc go`'s automatic pick.
 
 | Level | Meaning | Auto-proceed? |
 |-------|---------|---------------|
@@ -946,10 +1008,10 @@ approve (spec sign-off); design (all option picks + rework + revise-impl-plan);
 manual (passed/failed); integrate (merge is always human). All other picks are
 `conditional`.
 
-`klc ack <KEY> --auto` applies the gate policy to the unambiguous forward pick: an
+`klc go <KEY>` applies the gate policy to the unambiguous forward pick: an
 `auto` pick always proceeds; a `decision` pick always pauses (exits non-zero naming
 the gate); a `conditional` pick proceeds only when all seven signals are clean.
-Plain `klc ack <KEY> [--pick N]` consults no policy.
+`klc go <KEY> --pick N` consults no policy.
 
 **Seven signals** (`gate_policy.collect_signals`):
 
@@ -970,12 +1032,14 @@ failure (no git, no `modules.json`, no `review-report.md`) also yields a dirty v
 
 ## Autonomous runner (`klc run`)
 
-`klc run <KEY>` is a headless, single-user Python driver that walks a ticket through
-the state machine on its own, reusing the gate-policy through the SAME
-`klc ack --auto` path a human takes. Each iteration reads `meta.json:phase`, and at
-a `:work` state dispatches the phase agent (build via the orchestrator, others via
-`runner.run_agent`), then calls `klc ack --auto` — which auto-detects completion,
-walks `:work → :ack-needed`, and applies the gate policy in one call.
+`klc run <KEY>` is the deprecated headless path, reachable as `klc internal run`.
+It is a single-user Python driver that walks a ticket through the state machine on
+its own, reusing the gate-policy through the same `ack --auto` transition a human
+gets from `klc go`. Each iteration reads `meta.json:phase`, and at a `:work` state
+dispatches the phase agent (build via the orchestrator, others via
+`runner.run_agent`), then calls `ack --auto` — which auto-detects completion,
+walks `:work → :ack-needed`, and applies the gate policy in one call. The
+interactive replacement is `klc go <KEY> --until <phase>` driven by `/klc:go`.
 
 **Guardrails (the loop PAUSES, never proceeds):**
 
@@ -997,21 +1061,34 @@ runaway backstop kept in the framework `config/budgets.yml`, deliberately out of
 
 ---
 
-## Orchestrator (`/klc:run`)
+## Orchestrator (`/klc:go`)
 
-`/klc:run <KEY>` runs a ticket through its lifecycle without a human re-reading every
-phase's artifacts. It is **prompt-driven main-loop instructions**
-(`klc-plugin/skills/run/SKILL.md`), not a hidden Python driver — interactive phases
-(clarify / human gates) can only be run from the CC main-loop or Task-tool;
-`runner.py` (headless) is forbidden from touching them.
+The `go` skill (`/klc:go <KEY>`) runs a ticket through its lifecycle without a human
+re-reading every phase's artifacts. It is **prompt-driven main-loop instructions**
+generated into `klc-plugin/skills/go/SKILL.md`, not a hidden Python driver:
+interactive phases (clarify and human gates) can only be run from the Claude Code
+main loop, and `runner.py` (headless) is forbidden from touching them. The old
+standalone run skill is retired; its loop now lives in `go`.
 
-Each iteration: `klc status <KEY> --json` → `phase_resolver.resolve_phase` (the
-single phase→agent source of truth: prompt, model, `agent_type`, `runs_inline`,
-`interactive`, derived from `phases.yml` + `models.yml` + `meta.json:track`). If
-`resolved.interactive`, stop and hand to the human; otherwise dispatch (inline for
-XS fast-track, else `Task(subagent_type=resolved.agent_type, …)`), parse the
-subagent's structured completion signal, and on a clean `"done"` with no blocking
-questions run `klc ack --auto` + `klc next`.
+Each iteration: `klc go <KEY> --until integrate` runs until it stops at an agent
+card or a human gate (exit 2). At an agent stop it prints, after the stop line, one
+machine-readable line:
+
+```text
+dispatch: agent=klc-review model=sonnet card=.klc/tickets/KLC-1/_prompt_review.md
+```
+
+The orchestrator starts the agent with `Task(subagent_type=<agent>, model=<model>,
+prompt=<card text>)` and copies both values from that line. The line comes from
+`core/skills/dispatch_spec.py` (`dispatch_spec(ticket, phase)`), which sits on top of
+`phase_resolver.resolve_phase`, the single phase-to-agent source of truth (prompt,
+model, `agent_type`, `runs_inline`, `interactive`, derived from `phases.yml`,
+`models.yml` and `meta.json:track`). The model is the one for the ticket's track:
+`per_track` wins over `phase_roles`, so an XS and an M ticket may dispatch the same
+phase on different models. The intake clarify pass is its own stop
+(`clarify needed`), run by the skill before any dispatch. Otherwise the skill works
+inline for the XS fast-track, parses the subagent's structured completion signal,
+and on a clean `"done"` with no blocking questions calls `klc go` again.
 
 **Completion signal.** Every `klc-<phase>` subagent ends with one fenced JSON block:
 
@@ -1042,6 +1119,71 @@ the clarify pass (one `AskUserQuestion`, style from `config/clarify.yml`, fail-c
 
 ---
 
+## Single hook (UserPromptSubmit)
+
+The plugin ships one prompt hook, `klc-plugin/hooks/klc.py`, next to the separate
+`git_guard.py`. It does three small things on every user prompt: it finds the active
+ticket (from the branch, then from the holder), starts a heartbeat push when one is
+due, and tells the user when the ticket waits for a human decision.
+
+- **It never blocks.** The exit code is always 0 and stderr stays empty. A watchdog
+  stops the run at 1.8 s, below the 3 s timeout in `hooks.json`, even if git hangs.
+- **It speaks through `systemMessage`.** When something is pending it prints one JSON
+  object `{"systemMessage": "<line>"}`; otherwise it prints nothing.
+- **The heartbeat is a detached process.** `klc_hook.spawn_heartbeat` starts it and
+  does not wait for it, so a slow push cannot hold the prompt.
+- **It never calls the `klc` CLI.** All logic is `core/skills/klc_hook.py`, imported
+  in process.
+- **It heartbeats every held ticket.** One detached process per `:work` ticket this
+  identity holds and whose heartbeat is due, not only the active one (the retired
+  `klc heartbeat` did the same, so no held ticket goes stale).
+- **It names `/klc:go`.** The pending line says `/klc:go <KEY>` (for a pick,
+  `/klc:go <KEY> --pick N` with the CLI form in parentheses).
+- **Lookup order.** Claude Code runs an installed plugin from its cache, not from the
+  checkout, so the hook cannot rely on its own path. The project is the nearest
+  directory with `.klc/` above the payload `cwd`. The framework root is read from that
+  project's shim `.klc/bin/klc` (the `KLC_FW=` line written by `klc doctor --install`),
+  else `KLC_FRAMEWORK_ROOT`, else the path relative to the hook file.
+  `PROJECT_ROOT` is set from the resolved project, for the helper and for the
+  heartbeat child.
+
+Why: the old three hooks started several processes per prompt and one of them could
+block the user. The hook scripts `gate.py`, `remind.py` and `heartbeat.py` and the `KLC_GATE` and `KLC_TICKET` switches are retired.
+
+## Plugin surface
+
+The deployed plugin under `klc-plugin/` is generated from source (see
+"Regenerating the plugin delivery layer" below). Since KLC-180 it contains:
+
+- six commands: `intake`, `status`, `go`, `back`, `fix`, `doctor`;
+- seven skills: one passthrough skill per command plus the handwritten
+  `discuss-feature`;
+- 14 agents: eight owned by a phase in `phases.yml` and six dispatched by name
+  (`intake-triage`, `spec-reviewer`, `test-plan-reviewer`, `impl-plan-reviewer`,
+  `drift-reviewer`, `external-review`); an agent nobody dispatches is not shipped;
+- the two hooks above;
+- version 0.2.0 in `.claude-plugin/plugin.json`.
+
+## Agents symlink convention
+
+A project that works on klc itself links `.claude/agents` to `klc-plugin/agents`.
+The generated plugin agents are then the only prompts a session sees. The sources in
+`core/agents/` are inputs to `plugin_gen.py` and are never loaded as agents; a second
+copy under `.claude/agents` would drift from them silently, which is why the link
+replaces the directory instead of mirroring it.
+
+## Frontmatter `model:` in agent files
+
+Open question, recorded as unconfirmed (`evidence=assumed`): does Claude Code apply
+the `model:` line of an agent file's frontmatter when the agent is started through
+`Task`? Nobody has probed it, and the answer may change between client versions.
+
+The question is made irrelevant instead of answered. The orchestrator passes
+`model=<alias>` to `Task` explicitly, taken from the `dispatch:` line of `klc go`, so
+the frontmatter value is a harmless default and nothing depends on it.
+
+---
+
 ## Token telemetry & budget guard
 
 **Warn-only real-spend check (KLC-174).** The old card-size gate (an estimate of
@@ -1051,7 +1193,7 @@ stop a dispatch for no real reason. In its place `budget_guard.real_spend_warnin
 (track, ticket)` looks at REAL spend. It sums the measured input of the current
 ticket (`provider` and `transcript` attempts) and compares it with 1.5 times the
 median per-ticket total of the last 10 archived tickets on the same track. If the
-ticket is above that line, the `/klc:run` orchestrator shows one warning line and
+ticket is above that line, the `/klc:go` orchestrator shows one warning line and
 carries on. With no measured data the check says nothing. It never blocks. The
 window and the factor live in `config/budgets.yml` under `real_spend_warn`.
 
@@ -1099,9 +1241,9 @@ verb down, and the journal simply keeps the attempt for a later retry.
 | headless runner, envelope with input and output tokens | the CLI's own `usage` and `total_cost_usd` | `provider` |
 | headless runner, failed run that still reported usage | the same, with `failed: true` | `provider` |
 | headless runner, no or malformed envelope | the prompt's measured size | `estimated` |
-| `/klc:run` Task dispatch | the dispatch card's measured size | `estimated` |
+| `/klc:go` Task dispatch | the dispatch card's measured size | `estimated` |
 | a subagent whose host reports its own usage | the completion signal's `tokens` | `signal` |
-| human copy-paste (`klc next` / `klc step` / `klc jump`) | the paste card's measured size | `estimated` |
+| human copy-paste (`klc go` / `klc step` / `klc back`) | the paste card's measured size | `estimated` |
 | in-session agents, the hand-run external reviewer (F-009), the ticketless indexing agents of `scripts/init.py` | no envelope exists at all | `estimated`, or nothing (no ticket to attribute to) |
 
 The `provider` row lands in `meta.json` only on the ticket's *next*
@@ -1178,7 +1320,7 @@ dispatches every reviewer card through `scripts/review-runner.py` (see
 writes a real `provider` attempt per dispatch instead of a byte estimate.
 
 A Claude Code Task subagent is not shown its own token usage, so on this host
-the interactive `/klc:run` path is **`estimated`-only** — the completion
+the interactive `/klc:go` path is **`estimated`-only** — the completion
 signal's `tokens` field is a forward-compatible channel for a host that DOES
 expose usage to the agent (the shared `completion-signal.md` include asks for
 it only conditionally, exactly for this reason), and it is expected to record
@@ -1250,19 +1392,19 @@ steps: `_prompt_step_N.md`), OUTSIDE the ticket directory. The card root
 defaults to `.klc/scratch/` and is overridable with `KLC_CARD_ROOT`. A card
 root that cannot be created or written degrades to the ticket directory with
 a warning rather than failing the phase transition. Every reader (`klc
-status`, `klc work --json`, `klc step`, `klc jump`, the headless runner, the
+status`, `klc go --dry-run`, `klc step`, `klc back`, the headless runner, the
 VS Code extension) resolves the same path through
 `core/skills/artefacts.py:card_path()`.
 
 **Render mode.** `write_prompt_card(..., mode=...)` renders one of two
 shapes:
 
-- `paste` (the default, and `klc next` / `klc step` / `klc jump`'s human
+- `paste` (the default, and `klc go` / `klc step` / `klc back`'s human
   output): the role prompt is fully inlined, exactly as before KLC-118. Used
   by the headless providers (`claude --print`, the OpenAI HTTP API,
   `ollama`), which receive one flat prompt string and cannot follow a
   filesystem reference, and by a human pasting the card into a chat.
-- `dispatch` (`/klc:run`'s Task-tool dispatch only): the role prompt is
+- `dispatch` (`/klc:go`'s Task-tool dispatch only): the role prompt is
   OMITTED — the generated subagent definition
   (`klc-plugin/agents/<phase>.md`) already carries it — and the `## Role
   prompt` section instead names the role-prompt file by absolute path.
@@ -1290,7 +1432,7 @@ card — holds either way.)
 
 Every render also measures itself: `card_bytes` and an estimated token count
 go into `meta.json:metrics.tokens.<phase>` via `budget_guard.write_token_metrics`
-(never downgrading a `provider`-sourced record), and `klc next` prints both
+(never downgrading a `provider`-sourced record), and `klc go` prints both
 numbers alongside the card path.
 
 Prompt cards are DERIVED — rendered fresh on every dispatch, never read back
@@ -1323,11 +1465,11 @@ and on an external conflict offers a 3-way choice. Non-TTY records the divergenc
 `meta.json:jira_sync.conflicts` and warns — it never pushes silently. `klc doctor`
 surfaces unresolved conflicts. `push()` finds a single direct transition or records
 `transition-blocked`; a `pull`/`force-pull` moves klc to match Jira (forward walks
-phase-by-phase, auto-skipping `condition=False`; backward supersedes downstream and
+phase-by-phase, skipping phases the rule table does not require; backward supersedes downstream and
 needs confirmation). `jira-pull` events suppress the klc→Jira push hook so a pull
 never triggers a circular push. Setup lives in `.klc/config/jira.yml`
 (`status_mapping.klc_to_jira` / `jira_to_klc`, `gitlab.blob_url`, transport
-`rest`/`mcp`). The `cancelled` status is a terminal sentinel for `klc abort --cancel`.
+`rest`/`mcp`). The `cancelled` status is a terminal sentinel for `klc back --cancel`.
 
 The legacy push queues failed sends to `.klc/jira-queue.jsonl` (no command is
 blocked) and drains opportunistically on any `klc` command, the pre-commit hook, or
@@ -1380,10 +1522,9 @@ and optionally `:ack-needed` / `:ack` sub-phases. **Track (XS/S/M/L)** — size 
 from the four-axis estimate that decides which phases run. **Acceptance Criteria
 (AC)** — testable conditions listed in `spec.md` as AC-1, AC-2, …. **Artefact** — a
 file a phase produces (spec.md, test-plan.md, impl-plan.md, review-report.md, …).
-**Ack** — a human gate (`klc ack <KEY> --pick N`) to approve / rework / cancel.
+**Ack** — a human gate (`klc go <KEY> --pick N`) to approve / rework / cancel.
 
-**Rework** — returning to `:work` after a needs-rework ack (or a backward `klc jump`
-/ `klc abort`). `meta.json:rework_count` is a `{phase: count}` map, initialised to
+**Rework** — returning to `:work` after a needs-rework ack (or a backward `klc back`). `meta.json:rework_count` is a `{phase: count}` map, initialised to
 `{}` at intake; the engine increments it on every backward/rework transition
 (KLC-081). A ticket with no backward moves keeps `rework_count == {}`.
 

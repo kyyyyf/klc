@@ -55,7 +55,7 @@ def test_resolved_phase_publishes_card_mode_and_path_from_one_call(
 def test_no_second_source_of_truth_for_the_mode_string(tmp_path):
     """C-001: neither the orchestrator skill nor the headless-side wiring
     hardcodes a mode string outside a `resolve_phase` call."""
-    skill = (_FW_ROOT / "klc-plugin" / "skills" / "run" / "SKILL.md").read_text(
+    skill = (_FW_ROOT / "klc-plugin" / "skills" / "go" / "SKILL.md").read_text(
         encoding="utf-8")
     autorunner_src = (_FW_ROOT / "core" / "skills" / "autorunner.py").read_text(
         encoding="utf-8")

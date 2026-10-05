@@ -151,7 +151,7 @@ def test_next_state_tx_drains_journal_into_meta_json_in_same_commit_and_empties_
         tmp_path, monkeypatch):
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     klc = _init_repo(tmp_path, {
-        "KLC-J003": _meta("KLC-J003", phase="review-lite:ack-needed", track="XS",
+        "KLC-J003": _meta("KLC-J003", phase="build:ack-needed", track="S",
                          holder={"id": ALICE, "machine": "box",
                                  "since": "2026-01-01T00:00:00Z"}),
     })
@@ -160,7 +160,7 @@ def test_next_state_tx_drains_journal_into_meta_json_in_same_commit_and_empties_
     token_journal.append("KLC-J003", {
         "id": "att-drain-1", "ts": "2026-01-01T00:00:00Z",
         "in": 10, "out": 2, "cache_hit": 0, "source": "estimated",
-        "card_bytes": 40, "phase": "review-lite",
+        "card_bytes": 40, "phase": "build",
     })
     assert token_journal.read("KLC-J003"), "fixture must actually seed the journal"
 
@@ -173,7 +173,7 @@ def test_next_state_tx_drains_journal_into_meta_json_in_same_commit_and_empties_
         "the drain must ride the SAME commit as the transition, not a second one"
 
     meta = _remote_meta(klc, "KLC-J003")
-    attempts = meta["metrics"]["tokens"]["review-lite"]["attempts"]
+    attempts = meta["metrics"]["tokens"]["build"]["attempts"]
     assert any(a["id"] == "att-drain-1" for a in attempts), \
         "the buffered attempt must be drained into the committed meta.json"
     # The journal is emptied of the DRAINED attempt; ack.py's own post-tx
@@ -269,7 +269,7 @@ def test_drain_failure_restores_meta_json_leaves_journal_intact_and_worktree_cle
     with exit code 0."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     klc = _init_repo(tmp_path, {
-        "KLC-J006": _meta("KLC-J006", phase="review-lite:ack-needed", track="XS",
+        "KLC-J006": _meta("KLC-J006", phase="build:ack-needed", track="S",
                          holder={"id": ALICE, "machine": "box",
                                  "since": "2026-01-01T00:00:00Z"}),
     })
@@ -278,14 +278,14 @@ def test_drain_failure_restores_meta_json_leaves_journal_intact_and_worktree_cle
     token_journal.append("KLC-J006", {
         "id": "att-fail-1", "ts": "2026-01-01T00:00:00Z",
         "in": 5, "out": 1, "cache_hit": 0, "source": "estimated",
-        "card_bytes": 20, "phase": "review-lite",
+        "card_bytes": 20, "phase": "build",
     })
 
     def _boom(ticket):
         # A partial write BEFORE failing — proves the restore actually
         # reverts a half-completed drain, not just a no-op.
         budget_guard.write_token_metrics(
-            ticket, "review-lite", 999, 999, 0, source="estimated",
+            ticket, "build", 999, 999, 0, source="estimated",
             card_bytes=1, attempt_id="partial-write")
         raise RuntimeError("simulated drain failure mid-write")
 
@@ -303,10 +303,10 @@ def test_drain_failure_restores_meta_json_leaves_journal_intact_and_worktree_cle
 
     meta = _remote_meta(klc, "KLC-J006")
     attempts = meta.get("metrics", {}).get("tokens", {}) \
-                   .get("review-lite", {}).get("attempts", [])
+                   .get("build", {}).get("attempts", [])
     assert not any(a.get("id") == "partial-write" for a in attempts), \
         "the partial drain write must be rolled back"
-    assert meta["phase"] != "review-lite:ack-needed", \
+    assert meta["phase"] != "build:ack-needed", \
         "the verb's own transition must still go through despite the drain failure"
     assert token_journal.read("KLC-J006"), \
         "the journal must still hold the undrained attempt"

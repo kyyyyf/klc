@@ -320,9 +320,9 @@ class TestIndexDegraded(unittest.TestCase):
         self.assertIn("degradation metadata is not present", r.stdout)
 
 
-@_skills_executable
 class TestProjectToolsWarn(unittest.TestCase):
-    """AC-4: `project-tools` warns instead of passing silently."""
+    """AC-4 (revised by KLC-178 AC-9): `project-tools` says so out loud but is
+    informational: never WARN, never FAIL, not even under --strict."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="klc-test-klc107-doctor-")
@@ -331,9 +331,9 @@ class TestProjectToolsWarn(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_project_tools_warns_then_fails_strict_when_deps_absent(self):
-        """AC-4: no project-deps.json → WARN naming the file and `klc setup`
-        by default; the same fixture under --strict FAILs the run."""
+    def test_project_tools_informational_when_deps_absent(self):
+        """No project-deps.json → an informational line naming the file;
+        the same fixture under --strict still does not fail on it."""
         repo = _make_repo(self.tmp_path)
         (repo / ".klc" / "index" / ".last-run").write_text(_head(repo) + "\n",
                                                             encoding="utf-8")
@@ -341,14 +341,22 @@ class TestProjectToolsWarn(unittest.TestCase):
         self.assertFalse((repo / ".klc" / "index" / "project-deps.json").exists())
 
         r = _run_doctor(repo)
-        self.assertIn("WARN project-tools", r.stdout)
+        self.assertIn("PASS project-tools", r.stdout)
         self.assertIn("project-deps.json", r.stdout)
-        self.assertIn("klc setup", r.stdout)
-        self.assertEqual(r.returncode, 0)
 
         r_strict = _run_doctor(repo, "--strict")
-        self.assertIn("FAIL project-tools", r_strict.stdout)
-        self.assertNotEqual(r_strict.returncode, 0)
+        self.assertIn("PASS project-tools", r_strict.stdout)
+        self.assertNotIn("FAIL project-tools", r_strict.stdout)
+
+    @_skills_executable
+    def test_project_tools_does_not_change_the_exit_code(self):
+        """Exit-code half of the pin: needs the skills +x bit, the text half
+        above does not (review round 1, F-009: it must run in every checkout)."""
+        repo = _make_repo(self.tmp_path)
+        (repo / ".klc" / "index" / ".last-run").write_text(_head(repo) + "\n",
+                                                            encoding="utf-8")
+        _write_views(repo)
+        self.assertEqual(_run_doctor(repo).returncode, 0)
 
 
 def _write_settings(repo: Path, mode: str, location: str) -> None:
@@ -357,7 +365,6 @@ def _write_settings(repo: Path, mode: str, location: str) -> None:
         encoding="utf-8")
 
 
-@_skills_executable
 class TestIndexHook(unittest.TestCase):
     """AC-5: doctor's index-hook check reads the mode/location settings
     recorded, and nothing else (AC-17 single-source-of-truth)."""
@@ -386,7 +393,7 @@ class TestIndexHook(unittest.TestCase):
         _write_settings(repo, "direct", str(hooks_dir / "pre-commit"))
         r = _run_doctor(repo)
         self.assertIn("FAIL index-hook", r.stdout)
-        self.assertIn(f"klc install {repo} --force", r.stdout)
+        self.assertIn(f"klc doctor --install {repo}", r.stdout)
 
         # direct + klc invocation present (the MARKER) -> PASS
         repo2 = self._fresh_repo()
@@ -404,7 +411,7 @@ class TestIndexHook(unittest.TestCase):
         _write_settings(repo3, "snippet", "husky")
         r3 = _run_doctor(repo3)
         self.assertIn("WARN index-hook", r3.stdout)
-        self.assertIn(f"klc install {repo3} --force", r3.stdout)
+        self.assertIn(f"klc doctor --install {repo3}", r3.stdout)
 
         # snippet + manager config DOES mention klc -> PASS
         repo4 = self._fresh_repo()
@@ -452,7 +459,7 @@ class TestJsonSchema(unittest.TestCase):
         _commit(repo, "extra.txt")   # FAIL index-freshness
         # index-views: FAIL (nothing written)
         # index-degraded: PASS (no metadata)
-        # project-tools: WARN (absent)
+        # project-tools: PASS (informational)
         _write_settings(repo, "disabled", "none")  # index-hook: PASS
 
         r = _run_doctor(repo, "--json")

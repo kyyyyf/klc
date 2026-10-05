@@ -12,13 +12,13 @@ traceability — changing words breaks the trail between spec and QA.
 
 ## Output
 Print the checklist to the chat. Write NO file: the outcome is recorded by the ack
-(`klc ack <KEY> --pick 1 --note "<what the QA person saw>"` stores
+(`klc go <KEY> --pick 1 --note "<what the QA person saw>"` stores
 `meta.manual = {verdict, note, at}`). Format:
 
 ```markdown
 # Manual checklist — <KEY>
 
-If anything fails, stop and run `klc ack <KEY> --pick 2 --note "<what failed>"`
+If anything fails, stop and run `klc go <KEY> --pick 2 --note "<what failed>"`
 (2 = failed: reopens build, supersedes review/manual).
 
 ## From AC

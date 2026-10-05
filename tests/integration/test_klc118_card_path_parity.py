@@ -4,7 +4,7 @@
 Cards move to a scratch root outside the ticket tree
 (`<card root>/<KEY>/<phase>/_prompt.md`, default `.klc/scratch/`). This test
 renders one phase card (via `klc jump`) and one build step card (via
-`klc step`), then asserts `klc status`, `klc work --json`, the path `klc jump`
+`klc step`), then asserts `klc status`, `klc go --dry-run`, the path `klc jump`
 / `klc step` print, and `resolve_phase(...).card_path` all agree on the
 written file — first at the default root, then again with `KLC_CARD_ROOT`
 pointed at an override directory.
@@ -70,10 +70,9 @@ def _check_parity(tmp_path: Path, env: dict) -> None:
     assert rc == 0, status_out
     status_card = _card_from_cat_line(status_out)
 
-    rc, work_out = _run(["work", "KLC-PAR1", "--json"], env)
+    rc, work_out = _run(["go", "KLC-PAR1", "--dry-run"], env)
     assert rc == 0, work_out
-    work_info = json.loads(work_out)
-    work_card = str((tmp_path / work_info["prompt"]).resolve())
+    work_card = str(Path(_card_from_cat_line(work_out)).resolve())
 
     import phase_resolver as pr
     resolved = pr.resolve_phase("KLC-PAR1", "design")
@@ -98,10 +97,9 @@ def _check_parity(tmp_path: Path, env: dict) -> None:
     assert rc == 0, status_out
     status_card2 = _card_from_cat_line(status_out)
 
-    rc, work_out = _run(["work", "KLC-PAR2", "--json"], env)
+    rc, work_out = _run(["go", "KLC-PAR2", "--dry-run"], env)
     assert rc == 0, work_out
-    work_info2 = json.loads(work_out)
-    work_card2 = str((tmp_path / work_info2["prompt"]).resolve())
+    work_card2 = str(Path(_card_from_cat_line(work_out)).resolve())
 
     resolved2 = pr.resolve_phase("KLC-PAR2", "build")
 

@@ -163,23 +163,23 @@ def test_supersede_moves_are_captured_by_the_subtree_commit(tmp_path, monkeypatc
     without wedging the tree."""
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
     klc = _init_repo(tmp_path, {
-        "KLC-3002": _meta("KLC-3002", phase="review-lite:ack-needed", track="XS",
+        "KLC-3002": _meta("KLC-3002", phase="manual:ack-needed", track="M",
                          holder={"id": ALICE, "machine": "box",
                                  "since": "2026-01-01T00:00:00Z"}),
     })
-    _commit_file(klc, "tickets/KLC-3002/review-lite-report.md", "old report\n")
+    _commit_file(klc, "tickets/KLC-3002/review-report.md", "old report\n")
     committed = _git(klc, "rev-parse", "HEAD").strip()
     assert state_feature.enabled() is True
 
     import ack as ack_mod
-    rc = ack_mod.run(["KLC-3002", "--pick", "2"])  # request-changes → supersede
+    rc = ack_mod.run(["KLC-3002", "--pick", "2"])  # manual failed → supersede review + manual
     assert rc == 0, "supersede ack must succeed"
 
     rm = _remote_meta(klc, "KLC-3002")
-    assert rm["phase"] == "xs-build:work"
-    assert not _remote_has(klc, "tickets/KLC-3002/review-lite-report.md"), \
+    assert rm["phase"] == "build:work"
+    assert not _remote_has(klc, "tickets/KLC-3002/review-report.md"), \
         "the superseded original must be removed from the pushed tree"
-    assert {"phase": "review-lite", "commit": committed} in rm["superseded"]
+    assert {"phase": "review", "commit": committed} in rm["superseded"]
     listing = _git(klc, "ls-tree", "-r", "--name-only", "origin/klc-state")
     assert "_superseded/" not in listing, "no copy directory is pushed"
     assert _status(klc) == "", "tree must be clean after a supersede ack"

@@ -153,6 +153,15 @@ def klc_verbs(dispatcher: Path | None = None) -> set[str]:
         m = re.search(rf"{tup_name}\s*=\s*\(([\s\S]*?)\)\n", text)
         if m:
             verbs.update(re.findall(r'"([a-z][a-z0-9-]*)"', m.group(1)))
+    # KLC-177: the `klc internal` names stay callable. The DEPRECATED aliases
+    # (ack, next, ship, jump, abort, run) are deliberately NOT accepted: they still
+    # run for a while, but a prompt must teach `klc go` / `klc back`.
+    m = re.search(r"INTERNAL_CMDS\s*=\s*\(([\s\S]*?)\)\n", text)
+    if m:
+        verbs.update(re.findall(r'"([a-z][a-z0-9-]*)"', m.group(1)))
+    m = re.search(r"DEPRECATED\s*=\s*\{([\s\S]*?)\}\n", text)
+    if m:
+        verbs -= set(re.findall(r'"([a-z][a-z0-9-]*)"\s*:', m.group(1)))
     for m in re.finditer(r'if cmd == "([a-z][a-z0-9-]*)"', text):
         verbs.add(m.group(1))
     return verbs

@@ -88,15 +88,18 @@ def test_retrack_records_audit() -> None:
         assert ev.get("from_track") == "L" and ev.get("to_track") == "S"
 
 
-def test_retrack_refuses_incompatible_phase() -> None:
-    """Cannot retrack to a track whose phase set excludes the current phase."""
+def test_retrack_to_a_lane_without_the_phase_switches_instead_of_refusing() -> None:
+    """KLC-179: a target lane that lacks the current phase is no longer a refusal. The ticket
+    keeps its facts and lands on the first missing fact of the new lane; it never archives."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp); kd = root / ".klc"; kd.mkdir()
-        # discovery exists only on M/L; retracking to XS (no discovery) must refuse
+        # discovery exists only on the full lane; retracking to XS (light) used to refuse
         meta_p = _bootstrap(kd, "T-RT-5", phase="discovery:work", track="L")
-        r = _run(["retrack", "T-RT-5", "XS", "--reason", "should refuse"], root)
-        assert r.returncode != 0, "must refuse incompatible track"
-        assert json.loads(meta_p.read_text())["track"] == "L", "track must be unchanged on refusal"
+        r = _run(["retrack", "T-RT-5", "XS", "--reason", "smaller than thought"], root)
+        assert r.returncode == 0, r.stderr
+        meta = json.loads(meta_p.read_text())
+        assert meta["track"] == "XS" and meta["facts"]["track"] == "light"
+        assert meta["phase"] == "discovery-lite:work"
 
 
 def test_retrack_json() -> None:
@@ -106,4 +109,6 @@ def test_retrack_json() -> None:
         r = _run(["retrack", "T-RT-6", "M", "--reason", "x", "--json"], root)
         assert r.returncode == 0, f"stderr={r.stderr}"
         data = json.loads(r.stdout)
-        assert data.get("track") == "M" and data.get("ticket") == "T-RT-6"
+        # KLC-178: retrack delegates to `klc fix`, whose --json is the audit record
+        assert data.get("field") == "track" and data.get("after") == "M"
+        assert data.get("before") == "L" and data.get("reason") == "x"

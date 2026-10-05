@@ -90,15 +90,15 @@ def _finalize(index_dir: Path) -> int:
                 stale.unlink()
     except _index_lock.IndexBusy as busy:
         print(f"INIT_BUSY another index refresh is in progress (PID {busy.pid}); "
-              f"re-run `klc init --finalize` once it completes")
+              f"re-run `klc internal init --finalize` once it completes")
         return 0
     log(f"Recorded {head} in .klc/index/.last-run")
 
     # Print next steps
     log("")
     log("Next steps:")
-    log("  1. klc setup    # detect languages, show required tool install commands")
-    log("  2. klc doctor   # verify installation health")
+    log("  1. klc doctor   # detect languages, show required tool install commands")
+    log("  2. klc doctor --index   # confirm the index is fresh")
 
     return 0
 
@@ -355,7 +355,7 @@ def main(argv: list[str]) -> int:
                 return rc
             log("Scan-only init complete. No LLM agents were run.")
             log("CLAUDE.md files will be generated on first ticket (klc intake)")
-            log("or run `klc init --auto` to generate them now.")
+            log("or run `klc internal init --auto` to generate them now.")
             print("INIT_SCAN_OK")
             return 0
 
@@ -406,11 +406,11 @@ def main(argv: list[str]) -> int:
             print(f"           trailer: {ok}")
 
         log("Step 5/5: record baseline sha after the agents finish")
-        log(f"  klc init --finalize     # writes HEAD to {index_dir / '.last-run'}")
+        log(f"  klc internal init --finalize     # writes HEAD to {index_dir / '.last-run'}")
         log("init done. Next: run the agents above inside Claude Code.")
         log("")
         log("TIP: for a quick start without LLM, run:")
-        log("  klc init --scan-only")
+        log("  klc doctor --index")
         log("  (generates structural.json + depgraph.json, no CLAUDE.md files)")
         return 0
 

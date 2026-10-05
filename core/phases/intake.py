@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills"))
 import identity  # noqa: E402
 import holder  # noqa: E402
 import lifecycle as _lc  # noqa: E402
+import rules as _rules  # noqa: E402  (KLC-179)
 import phases as _ph  # noqa: E402
 import state_sync  # noqa: E402
 import state_tx  # noqa: E402
@@ -272,7 +273,7 @@ def run(argv: list[str]) -> int:
         if not (meta.get("phase") or "").startswith("intake"):
             sys.stderr.write(
                 f"klc intake: ticket {args.ticket} already in phase "
-                f"{meta.get('phase')!r}. Use `klc status` or `klc abort`.\n"
+                f"{meta.get('phase')!r}. Use `klc status` or `klc back --cancel`.\n"
             )
             return 1
         sys.stderr.write(
@@ -342,6 +343,7 @@ def run(argv: list[str]) -> int:
         "phase":         "intake:ack-needed",
         "phase_history": [{"phase": "intake:ack-needed", "started_at": _now()}],
         "track":         route_hint,
+        "facts":         {"track": _rules.legacy_track(route_hint)},   # KLC-179
         "estimate":      None,
         "layer":         None,
         "affected_modules": [],
@@ -524,11 +526,11 @@ def run(argv: list[str]) -> int:
             if decision == "triage":
                 print(f"  ⚠ {route['confidence']}-confidence routing — the hint may under-size the ticket.")
                 print(f"     Recommended: run the cheap intake triage (core/agents/intake-triage.md)")
-                print(f"     to disambiguate scope, or `klc ack {args.ticket} --pick 2` to force full discovery.")
+                print(f"     to disambiguate scope, or `klc go {args.ticket} --pick 2` to force full discovery.")
             elif decision == "full-discovery":
                 print(f"  ⚠ low-confidence routing, triage disabled.")
-                print(f"     Recommended: `klc ack {args.ticket} --pick 2` (force-full-discovery).")
-            print(f"  picks:  klc ack {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery, 3=force-xs-skip]")
+                print(f"     Recommended: `klc go {args.ticket} --pick 2` (force-full-discovery).")
+            print(f"  picks:  klc go {args.ticket} --pick 1  [1=confirm-route, 2=force-full-discovery]")
     except LockedError as e:
         sys.stderr.write(f"klc intake: {e}\n")
         return 1
@@ -697,7 +699,7 @@ def _warn_stale_modules() -> None:
         f"\n  ⚠  {len(modules)} module doc(s) may be outdated{tail}: "
         f"{', '.join(modules[:5])}"
         + (" …" if len(modules) > 5 else "") + "\n"
-        f"     Run `klc update --regen` to refresh CLAUDE.md files.\n\n"
+        f"     Run `klc internal update --regen` to refresh CLAUDE.md files.\n\n"
     )
 
 

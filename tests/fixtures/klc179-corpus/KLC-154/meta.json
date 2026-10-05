@@ -1,0 +1,299 @@
+{
+  "ticket": "KLC-154",
+  "kind": "tech",
+  "kind_source": "user",
+  "phase": "archived",
+  "phase_history": [
+    {
+      "phase": "intake:ack-needed",
+      "started_at": "2026-09-30T14:38:46Z",
+      "finished_at": "2026-10-01T08:59:11Z"
+    },
+    {
+      "phase": "intake:ack",
+      "started_at": "2026-10-01T08:59:11Z",
+      "event": "ack",
+      "note": "pick=1:confirm-route",
+      "pick": {
+        "id": 1,
+        "label": "confirm-route"
+      },
+      "finished_at": "2026-10-01T08:59:11Z"
+    },
+    {
+      "phase": "discovery:work",
+      "started_at": "2026-10-01T08:59:11Z",
+      "event": "advance",
+      "note": "ack:confirm-route",
+      "finished_at": "2026-10-02T05:02:11Z"
+    },
+    {
+      "phase": "discovery:ack-needed",
+      "started_at": "2026-10-02T05:02:11Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py; 1 high · 1 medium · 18 info — see .klc/tickets/KLC-154/discovery/ack-advisories.json",
+      "finished_at": "2026-10-02T05:02:13Z"
+    },
+    {
+      "phase": "discovery:ack",
+      "started_at": "2026-10-02T05:02:13Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "pick": {
+        "id": 1,
+        "label": "approve"
+      },
+      "finished_at": "2026-10-02T05:02:13Z"
+    },
+    {
+      "phase": "acceptance-test-plan:work",
+      "started_at": "2026-10-02T05:02:13Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-10-02T05:09:15Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack-needed",
+      "started_at": "2026-10-02T05:09:15Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py; 2 high · 1 medium — see .klc/tickets/KLC-154/acceptance-test-plan/ack-advisories.json",
+      "finished_at": "2026-10-02T05:09:16Z"
+    },
+    {
+      "phase": "acceptance-test-plan:ack",
+      "started_at": "2026-10-02T05:09:16Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "pick": {
+        "id": 1,
+        "label": "approve"
+      },
+      "finished_at": "2026-10-02T05:09:16Z"
+    },
+    {
+      "phase": "design:work",
+      "started_at": "2026-10-02T05:09:16Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-10-02T05:36:02Z"
+    },
+    {
+      "phase": "design:ack-needed",
+      "started_at": "2026-10-02T05:36:02Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py; 1 high · 1 medium · 7 info — see .klc/tickets/KLC-154/design/ack-advisories.json",
+      "finished_at": "2026-10-02T05:36:03Z"
+    },
+    {
+      "phase": "design:ack",
+      "started_at": "2026-10-02T05:36:03Z",
+      "event": "ack",
+      "note": "pick=1:option-A-minimal",
+      "pick": {
+        "id": 1,
+        "label": "option-A-minimal"
+      },
+      "finished_at": "2026-10-02T05:36:03Z"
+    },
+    {
+      "phase": "build:work",
+      "started_at": "2026-10-02T05:36:03Z",
+      "event": "advance",
+      "note": "ack:option-A-minimal",
+      "finished_at": "2026-10-02T06:29:34Z"
+    },
+    {
+      "phase": "build:ack-needed",
+      "started_at": "2026-10-02T06:29:34Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py; 0 high · 0 medium · 4 info — see .klc/tickets/KLC-154/build/ack-advisories.json",
+      "finished_at": "2026-10-02T06:29:36Z"
+    },
+    {
+      "phase": "build:ack",
+      "started_at": "2026-10-02T06:29:36Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "pick": {
+        "id": 1,
+        "label": "approve"
+      },
+      "finished_at": "2026-10-02T06:29:36Z"
+    },
+    {
+      "phase": "review:work",
+      "started_at": "2026-10-02T06:29:36Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-10-02T07:58:39Z"
+    },
+    {
+      "phase": "review:ack-needed",
+      "started_at": "2026-10-02T07:58:39Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-10-02T07:58:48Z"
+    },
+    {
+      "phase": "review:ack",
+      "started_at": "2026-10-02T07:58:48Z",
+      "event": "ack",
+      "note": "pick=1:approve",
+      "pick": {
+        "id": 1,
+        "label": "approve"
+      },
+      "finished_at": "2026-10-02T07:58:48Z"
+    },
+    {
+      "phase": "manual:work",
+      "started_at": "2026-10-02T07:58:48Z",
+      "event": "advance",
+      "note": "ack:approve",
+      "finished_at": "2026-10-02T08:00:04Z"
+    },
+    {
+      "phase": "manual:ack-needed",
+      "started_at": "2026-10-02T08:00:04Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-10-02T08:00:06Z"
+    },
+    {
+      "phase": "manual:ack",
+      "started_at": "2026-10-02T08:00:06Z",
+      "event": "ack",
+      "note": "pick=1:passed",
+      "pick": {
+        "id": 1,
+        "label": "passed"
+      },
+      "finished_at": "2026-10-02T08:00:06Z"
+    },
+    {
+      "phase": "integrate:work",
+      "started_at": "2026-10-02T08:00:06Z",
+      "event": "advance",
+      "note": "ack:passed",
+      "finished_at": "2026-10-02T08:00:46Z"
+    },
+    {
+      "phase": "integrate:ack-needed",
+      "started_at": "2026-10-02T08:00:46Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py; 0 high · 2 medium — see .klc/tickets/KLC-154/integrate/ack-advisories.json",
+      "finished_at": "2026-10-02T08:00:49Z"
+    },
+    {
+      "phase": "integrate:ack",
+      "started_at": "2026-10-02T08:00:49Z",
+      "event": "ack",
+      "note": "pick=1:merged",
+      "pick": {
+        "id": 1,
+        "label": "merged"
+      },
+      "finished_at": "2026-10-02T08:00:49Z"
+    },
+    {
+      "phase": "observe:work",
+      "started_at": "2026-10-02T08:00:49Z",
+      "event": "advance",
+      "note": "ack:merged",
+      "finished_at": "2026-10-02T08:19:38Z"
+    },
+    {
+      "phase": "observe:ack-needed",
+      "started_at": "2026-10-02T08:19:38Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-10-02T08:19:40Z"
+    },
+    {
+      "phase": "observe:ack",
+      "started_at": "2026-10-02T08:19:40Z",
+      "event": "ack",
+      "note": "pick=1:clean",
+      "pick": {
+        "id": 1,
+        "label": "clean"
+      },
+      "finished_at": "2026-10-02T08:19:40Z"
+    },
+    {
+      "phase": "learn:work",
+      "started_at": "2026-10-02T08:19:40Z",
+      "event": "advance",
+      "note": "ack:clean",
+      "finished_at": "2026-10-02T08:26:24Z"
+    },
+    {
+      "phase": "learn:ack-needed",
+      "started_at": "2026-10-02T08:26:24Z",
+      "event": "manual-completion",
+      "note": "artifacts detected by phase_completion.py",
+      "finished_at": "2026-10-02T08:26:26Z"
+    },
+    {
+      "phase": "learn:ack",
+      "started_at": "2026-10-02T08:26:26Z",
+      "event": "ack",
+      "note": "pick=1:archive",
+      "pick": {
+        "id": 1,
+        "label": "archive"
+      },
+      "finished_at": "2026-10-02T08:26:26Z"
+    },
+    {
+      "phase": "archived",
+      "started_at": "2026-10-02T08:26:26Z",
+      "event": "ack",
+      "note": "pick=archive"
+    }
+  ],
+  "track": "M",
+  "layer": "code",
+  "affected_modules": [
+    "core/skills",
+    "tests",
+    "tests/integration",
+    "tests/fixtures",
+    "tests/fixtures/klc154-corpus"
+  ],
+  "created": "2026-09-30T14:38:46Z",
+  "owner": "owner@example.com",
+  "jira_url": null,
+  "links": [],
+  "rework_count": {},
+  "route_hint": "M",
+  "route_confidence": "high",
+  "route_decision": "trust",
+  "clarify_required": false,
+  "blocked_by": [
+    {
+      "on": "KLC-127",
+      "point": "integrated",
+      "phase": "discovery"
+    }
+  ],
+  "epic": "KLC-105",
+  "track_source": "discovery",
+  "related_tickets": [
+    "KLC-127",
+    "KLC-111",
+    "KLC-165",
+    "KLC-152"
+  ],
+  "risk_tags": [
+    "data",
+    "migration"
+  ],
+  "design_choice": "option-A-minimal",
+  "pre_merge_range": {
+    "base": "ca7c241fdcb19bcfd23b6471e978d99475820a82",
+    "head": "afdb764ec7505c1e20bfc88f5aa249730d68a8e3",
+    "recorded_at_phase": "manual",
+    "recorded_at": "2026-10-02T08:00:03Z"
+  }
+}

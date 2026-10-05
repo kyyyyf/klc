@@ -164,10 +164,11 @@ def test_status_build_work_defaults_step_1(monkeypatch, tmp_path):
 
 
 def test_status_build_work_names_required_pick(monkeypatch, tmp_path):
-    """The build:work 'when done' hint names the required single pick (--pick 1)."""
+    """KLC-177: the build:work 'when done' hint is the one `klc go` line (go picks
+    the single required pick itself, so no `--pick 1` is printed any more)."""
     _seed(tmp_path, "KLC-902", phase="build:work", impl_step=1)
     out = _status_out("KLC-902", monkeypatch, tmp_path)
-    assert "--pick 1" in out, out
+    assert "klc go KLC-902" in out, out
 
 
 def test_status_nonbuild_work_flat_card(monkeypatch, tmp_path):
@@ -188,7 +189,7 @@ def test_status_multipick_phase_uses_placeholder(monkeypatch, tmp_path):
     phase (build) names the id. Guards the multi-pick branch of _ack_command."""
     _seed(tmp_path, "KLC-904", phase="review-lite:work")
     out = _status_out("KLC-904", monkeypatch, tmp_path)
-    assert "--pick N" in out, out
+    assert "klc go KLC-904" in out, out
     assert "--pick 1" not in out, out
     assert "--pick 2" not in out and "--pick 3" not in out, out
 

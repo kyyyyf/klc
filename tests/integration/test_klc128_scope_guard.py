@@ -35,7 +35,7 @@ def test_integrate_scope_guard_blocks_a_merged_ticket_whose_recorded_range_has_a
     KLC-128 step-8 (review MEDIUM): at integrate the ticket is ALREADY
     MERGED, so 'use `klc jump` to restart review' (review's own wording) is
     actively misleading here — the message must instead say the ticket is
-    merged and point at `klc scope-fix`."""
+    merged and point at `klc fix <KEY> modules --add` (KLC-178)."""
     _bare_and_clone(tmp_path)
     clone = tmp_path / "clone"
     ticket = "KLC-940"
@@ -59,7 +59,7 @@ def test_integrate_scope_guard_blocks_a_merged_ticket_whose_recorded_range_has_a
     assert "already merged" in err
     assert "klc jump" not in err
     assert "restart review" not in err
-    assert "klc scope-fix" in err
+    assert f"klc fix {ticket} modules --add gadgets" in err
     assert ticket in err
 
 

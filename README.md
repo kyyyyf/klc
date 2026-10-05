@@ -6,22 +6,22 @@ every turn. Two moving parts:
 1. **Indexing loop** (`scripts/init.py` + `scripts/update.py`) —
    deterministic, no LLM in the hot path. Produces a stable module
    map, per-module `CLAUDE.md`, dep graph, and stale tracker.
-   Freshness is guaranteed by the lifecycle verbs: `klc intake`, `klc next`
-   and `klc ack` refresh the index themselves when `HEAD` has moved since the
+   Freshness is guaranteed by the lifecycle verbs: `klc intake` and `klc go`
+   refresh the index themselves when `HEAD` has moved since the
    last run, bounded by `index.refresh_budget_seconds` and suppressible with
    `--no-index-refresh`. Only one refresh writes the index at a time; a second
    one reports that a refresh is in progress and gets out of the way. The
    pre-commit hook is an optional accelerator that keeps that refresh off the
-   critical path; `klc install` wires it only where no other hook manager owns
+   critical path; `klc doctor --install` wires it only where no other hook manager owns
    the slot, prints a snippet to paste where one does, and the hook it writes
    warns and exits zero rather than blocking a commit if klc has moved.
    `klc doctor` reports whether the index is fresh, complete and wired.
 
 2. **Ticket workflow** — dispatcher `scripts/klc`. The lifecycle verbs
-   (`intake / status / next / ack / ship / step / work / jump / abort`) drive
-   a data-driven state machine defined in `config/phases.yml`; further verbs
-   (`run / publish / retrack / steal / scope-fix / jira-sync`, plus
-   `board --epic`) cover autonomy, forge publishing, and the epic layer. See
+   (`intake / status / go / back / step`) drive a data-driven state machine
+   defined in `config/phases.yml`; `fix` corrects a ticket's meta with an audit
+   record, `doctor` checks and bootstraps the install, and `publish`, `jira` and
+   `board --epic` cover forge publishing and the epic layer. See
    [`docs/process.md`](docs/process.md) for the full verb reference.
 
 Pure Python throughout. Runs on Linux, macOS, and Windows 11
@@ -35,7 +35,7 @@ projects.
 
 ### 1. Bootstrap framework (minimal dependencies)
 
-Install only what's needed to run `klc init`:
+Install only what's needed to run `klc doctor --install`:
 
 ```bash
 # Unix / macOS:
@@ -52,7 +52,7 @@ This installs only: Python 3.11+, git, jinja2.
 ### 2. Install klc into your project
 
 ```bash
-/opt/klc/scripts/klc install /path/to/my-project
+/opt/klc/scripts/klc doctor --install /path/to/my-project
 ```
 
 Creates `.klc/` state directory, config stubs, and the `klc` shim.
@@ -61,36 +61,41 @@ otherwise prints a copy-ready snippet and records which of the two
 happened in `.klc/config/settings.yml`, so `klc doctor` can verify it
 later. The hook is an accelerator, not the freshness guarantee — that
 guarantee comes from the lifecycle verbs themselves (see "Indexing
-loop" above). Idempotent; `--force` regenerates configs.
+loop" above). Idempotent; add `--force` to regenerate configs.
 
 ### 3. Initialize project and detect languages
 
 ```bash
 cd /path/to/my-project
-./.klc/bin/klc init --scan-only      # scan files, build inventory
-./.klc/bin/klc setup                  # detect languages, show required tools
+./.klc/bin/klc doctor --index        # scan files, build the index
+./.klc/bin/klc doctor                 # health check; lists language tools worth installing
 ```
 
-`klc setup` will print install commands for language-specific tools
-(LSP servers, analyzers, etc.). Example output:
+`klc doctor --install` scans a fresh project first, then runs the language-tool
+detection and records what your project needs in `.klc/index/project-deps.json`
+(a language needs at least 10 source files to be detected). Plain `klc doctor`
+then lists the languages it found and any tool that is still missing. This
+part is informational: it never fails the check, even with `--strict`.
+Example of that block:
 
 ```
-[setup] Detected languages: python, cpp
-[setup] Required tools:
-  python:
-    - uv         (missing) — install: curl -LsSf https://astral.sh/uv/install.sh | sh
-    - pylsp      (missing) — install: uv tool install python-lsp-server
-  cpp:
-    - clangd     (found: /usr/bin/clangd)
+  PASS project-tools
+       - languages: cpp, python
+       - uv (for python) — not found (informational)
+       - pylsp (for python) — not found (informational)
 ```
+
+The agent-driven documentation passes (`klc internal init --auto`,
+`klc internal init --finalize`, `klc internal update --regen`) are not part of
+`doctor`; they stay under `klc internal` until the doc generation is reworked.
 
 ### 4. Install missing tools
 
-Run the printed install commands manually, then verify:
+Install the tools you want by hand (language tools are optional), then verify:
 
 ```bash
 ./.klc/bin/klc doctor          # verify installation (warnings only)
-./.klc/bin/klc doctor --strict # verify installation (fails on missing tools)
+./.klc/bin/klc doctor --strict # verify installation (warnings, e.g. a missing ast-grep, fail)
 ```
 
 **Optional**: For klc framework contributors, install dev tools:
@@ -104,7 +109,7 @@ This installs mutation testing tools (mutmut, stryker, cargo-mutants, mull-runne
 ### 5. (Optional) Install the Claude Code plugin
 
 klc ships a thin Claude Code plugin that wraps every lifecycle verb as a native
-slash command (`/klc:intake`, `/klc:status`, `/klc:run`, …) and subagent. It has
+slash command (`/klc:intake`, `/klc:status`, `/klc:go`, …) and subagent. It has
 no MCP server — it shells out to the `klc` binary via Bash. Generate the deployed
 `agents/` directory from source, then install the plugin folder into Claude Code:
 
@@ -123,8 +128,8 @@ roles or any `core/agents/*.md` prompt.
 
 Framework config lives in `config/` (per-project overrides go in `.klc/config/` and
 win). The operational front door is `config/settings.yml` — one file for the SYSTEM
-knobs you flip most (profile, Jira on/off + mode, clarify style, the `klc run`
-autorun cap); each knob falls back to its legacy file when a key is absent, so an
+knobs you flip most (profile, Jira on/off + mode, clarify style, the autorun
+cap); each knob falls back to its legacy file when a key is absent, so an
 un-migrated install behaves byte-for-byte as before. The FUNCTIONAL files define the
 process itself (`phases.yml`, `constitution.yml`, `coverage-taxonomy.yml`, …). Run
 `klc doctor` to validate every config file.
@@ -136,14 +141,13 @@ cd /path/to/my-project
 alias klc='./.klc/bin/klc'   # or use the full shim path
 
 klc doctor                    # verify the install
-klc init --scan-only          # deterministic index (no LLM; incl. modules_build)
-klc init --auto               # + inventory / docgen agents (annotation only)
+klc doctor --index            # deterministic index (no LLM; incl. modules_build)
 
 klc intake PROJ-123 --kind feature "short description"
 klc status PROJ-123
-klc next   PROJ-123           # advance :ack → next phase :work
-klc ack    PROJ-123 --pick N  # confirm :ack-needed with pick choice
-klc ship   PROJ-123 --pick N  # ack + next in one step
+klc go     PROJ-123 --pick N  # one move forward; --pick N confirms a decision gate
+klc go     PROJ-123 --until review   # keep going through clean gates (never runs an agent)
+klc back   PROJ-123 design --reason "why"   # return to an earlier phase
 ```
 
 Windows: replace `klc` with `.\.klc\bin\klc.ps1`.
@@ -170,26 +174,20 @@ verbs, gate list, and build-loop details.
 ```
 klc intake <key> [--kind feature|bug|tech] "<desc>"
 klc status <key>
-klc next   <key>
-klc ack    <key> [--pick N]
-klc ship   <key> [--pick N]       # ack + next atomically
-klc step   <key> <N>              # minimal TDD step card (build only)
-klc work   <key>                  # read-only: the next action
-klc jump   <phase> <key> [--yes]
-klc abort  <key> [--cancel --reason "..."]   # cancel :work, or terminate to `cancelled`
-klc run    <key> [--cap N]        # autonomous runner (single-user / feature-off)
-klc publish <key>                 # push the review verdict to the ticket's GitHub PR
-klc retrack <key> <track> --reason "..."     # operator-only track change
-klc steal  <key>                  # take over a stale holder slot
-klc scope-fix <key> (--modules|--add|--remove ...)  # correct affected_modules
-klc scope-fix --migrate-vocabulary [--dry-run]      # batch: legacy names -> module vocabulary
-klc board [--epic <ROOT>]         # kanban, or epic-scoped view
-klc doctor
-klc metrics <key> / --rollup
-klc jira-sync [--dry-run|status]
-klc init [--scan-only|--auto|--finalize]
-klc update [--regen] [--force]
+klc go     <key> [--pick N] [--dry-run]       # one move forward from any state
+klc go     <key> --until <phase> [--cap N]    # loop through clean gates, never dispatches an agent
+klc back   <key> <phase> --reason "..."       # return to an earlier phase (or --cancel)
+klc step verify <key> <N>         # run a build step's VERIFY once and record it
+klc fix    <key> <field> <value> --reason "..."   # audited meta correction (track, modules, risk-tags, kind, epic, blocked-by)
+klc doctor [--install <root> [--force] | --index]    # install health, bootstrap, index refresh
+klc fix    --migrate-vocabulary [--dry-run]     # one-time batch rewrite of archived tickets' modules
 ```
+
+Also: `publish`, `board`, `jira`. Maintainer and hook verbs live under `klc internal <name>`
+(task-brief, build-run, jira-sync, reindex, metrics, migrate-notes, skeleton,
+plugin-gen, remind, heartbeat, steal, step-card, run). The older `next`, `ack`, `ship`,
+`jump`, `abort` and `run` still work as deprecated aliases that print their replacement; so do the old `retrack`, `scope-fix`, `install`, `init`, `update`, `setup` and `state` (deprecated, pointing at `klc fix` or `klc doctor`).
+
 
 ## MCP
 
@@ -199,7 +197,7 @@ Symbol navigation in agents uses Claude Code's native **LSP tool**
 no external MCP server needed for LSP.
 
 Profile config at `.mcp.json` (copied from the active profile on
-`klc install`).
+`klc doctor --install`).
 
 ## Profiles
 

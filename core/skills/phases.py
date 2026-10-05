@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""phases.py — data-driven state machine over config/phases.yml.
+"""phases.py — the prompt table (config/phases.yml) and the state-string helpers.
 
-The klc CLI (next / ack / jump / abort / status) holds no knowledge of
-phase names. This module is the only place that loads phases.yml and
-interprets it. Everything else asks:
+Since KLC-179 this module no longer walks a transition matrix. The next phase is
+decided by the facts rule table in core/skills/rules.py; phases.yml only holds
+each phase's prompt, inputs, outputs and pick labels. Callers ask:
 
     ph = load_phases()
-    ph.next_phase(track="M", phase_id="design")
+    ph.by_id("design").prompt
+    ph.track_phases("M")          # ids in lifecycle order, taken from the rule table
 
 States per phase: `<id>:work`, `<id>:ack-needed`, `<id>:ack`. Plus two
 terminal pseudo-states that no phase owns: `archived` (the ticket finished
@@ -17,7 +18,7 @@ YAML parser is a small subset tailored to the shape of phases.yml:
   - top-level mapping;
   - lists of mappings;
   - string scalars (quoted or bare), bool, null, integer;
-  - nested lists inside a mapping (e.g. tracks: [XS, S, M, L]).
+  - nested lists inside a mapping (e.g. picks: [approve, needs-rework]).
 
 PyYAML is a hard dep of nothing else in the framework; we keep it out.
 """
@@ -25,15 +26,18 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # Add project root to sys.path for core.shared imports
 _file_dir = Path(__file__).resolve().parent
 _project_root = _file_dir.parent.parent  # current -> parent -> project root
 sys.path.insert(0, str(_project_root))
+if str(_file_dir) not in sys.path:
+    sys.path.insert(0, str(_file_dir))
 from core.shared.paths import framework_root  # noqa: E402
 from core.shared.yaml import parse as _yaml_parse  # noqa: E402
+import rules as _rules  # noqa: E402  (KLC-179: the order and the lanes live in the rule table)
 
 
 STATE_WORK        = "work"
@@ -54,31 +58,35 @@ TRACK_ORDER = ("XS", "S", "M", "L")
 
 # --- data classes -------------------------------------------------------------
 
-_GATES = {"auto", "conditional", "decision"}
+_DECISION_FACTS = ("spec_approved", "design_approved", "manual_passed")   # the human decision points
 
 
 @dataclass
 class Pick:
-    id:    int
-    label: str
-    goto:  str                 # "next" or "<phase>:work"
-    supersede: list[str] = field(default_factory=list)
-    gate: str = "decision"
+    """A `--pick N` choice. `forward` picks approve (the ticket moves to the next
+    missing fact); the others rework, change route or loop a phase (rules.py decides
+    where each leads). The gate is derived: only the approvals of the spec, the
+    design and (when it runs) the manual check are `decision`; every other approval is `conditional`; a pick that is
+    not an approval is always a `decision`."""
+    id:      int
+    label:   str
+    forward: bool = True
+    gate:    str = "conditional"
+
+    @property
+    def goto(self) -> str:
+        """`next` for an approving pick, `rework` for any other (a marker, not a target)."""
+        return "next" if self.forward else "rework"
 
 
 @dataclass
 class Phase:
     id:            str
-    tracks:        list[str]
     prompt:        str
-    auto_to_ack:   bool
     pick_required: bool
     picks:         list[Pick]
-    pick_records_to: str | None
     inputs:        list[str]
     outputs:       list[str]
-    auto_ack_after: str | None
-    condition:     str | None = None   # e.g. "meta.risk_tags in ['security']"
 
     def pick_by_id(self, pick_id: int) -> Pick | None:
         for p in self.picks:
@@ -86,25 +94,19 @@ class Phase:
                 return p
         return None
 
-    def should_run(self, meta: dict) -> bool:
-        """Evaluate condition against meta. Returns True if phase should run.
+    @property
+    def tracks(self) -> list[str]:
+        """Tracks whose lane can visit this phase (derived from the rule table)."""
+        return [t for t in TRACK_ORDER if self.id in _rules.lane_phase_ids(t)]
 
-        Supported expression forms:
-          meta.<dotted.path> in ['v1', 'v2']
-          meta.<dotted.path> not in ['v1', 'v2']
-          meta.<dotted.path> == value
-          meta.<dotted.path> > N
-          meta.<dotted.path> >= N
-          meta.<dotted.path> any_overrun   (true if any value in dict > 0)
-        """
-        if self.condition is None:
-            return True
-        return _eval_condition(self.condition, meta)
+    def should_run(self, meta: dict) -> bool:
+        """False when the rule table would never enter this phase for this ticket."""
+        return _rules.phase_applies(self.id, meta)
 
 
 @dataclass
 class Phases:
-    """The loaded model. Iteration order = file order = lifecycle order."""
+    """The loaded prompt table. Iteration order = file order = lifecycle order."""
     ordered: list[Phase]
 
     def by_id(self, phase_id: str) -> Phase:
@@ -114,132 +116,10 @@ class Phases:
         raise KeyError(f"unknown phase: {phase_id!r}")
 
     def track_phases(self, track: str) -> list[Phase]:
-        """Ordered list of phases that apply to the given track."""
-        return [p for p in self.ordered if track in p.tracks]
-
-    def next_phase(self, track: str, phase_id: str) -> Phase | None:
-        """The next phase in the track after `phase_id`. Returns None
-        if phase_id is the last one for this track (→ archived)."""
-        seq = self.track_phases(track)
-        ids = [p.id for p in seq]
-        if phase_id not in ids:
-            return None
-        idx = ids.index(phase_id)
-        return seq[idx + 1] if idx + 1 < len(seq) else None
-
-    def prev_phase(self, track: str, phase_id: str) -> Phase | None:
-        """The previous phase in the track before `phase_id`. None if first."""
-        seq = self.track_phases(track)
-        ids = [p.id for p in seq]
-        if phase_id not in ids:
-            return None
-        idx = ids.index(phase_id)
-        return seq[idx - 1] if idx > 0 else None
-
-
-# --- condition evaluator ------------------------------------------------------
-
-def _get_nested(meta: dict, path: str):
-    """Traverse dotted path in meta dict. Returns None if not found."""
-    parts = path.split(".")
-    cur = meta
-    for p in parts:
-        if not isinstance(cur, dict):
-            return None
-        cur = cur.get(p)
-    return cur
-
-
-def _eval_condition(expr: str, meta: dict) -> bool:
-    """Evaluate a condition expression against a meta dict.
-
-    Grammar (whitespace-insensitive):
-      meta.<path> in [<quoted-list>]
-      meta.<path> not in [<quoted-list>]
-      meta.<path> == <value>
-      meta.<path> > <number>
-      meta.<path> >= <number>
-      meta.<path> any_overrun
-      <cond> OR <cond>
-    """
-    import re as _re
-
-    expr = expr.strip()
-
-    # OR combinator (short-circuit)
-    if " OR " in expr:
-        parts = expr.split(" OR ")
-        return any(_eval_condition(p.strip(), meta) for p in parts)
-
-    # meta.<path> in ['a', 'b', ...]
-    m = _re.match(
-        r"meta\.([a-z_A-Z0-9.]+)\s+(not\s+in|in)\s+\[([^\]]*)\]", expr
-    )
-    if m:
-        path, op, raw_vals = m.group(1), m.group(2).strip(), m.group(3)
-        vals = {v.strip().strip("'\"") for v in raw_vals.split(",")}
-        value = _get_nested(meta, path)
-        if isinstance(value, list):
-            overlap = set(value) & vals
-        else:
-            overlap = {str(value)} & vals if value is not None else set()
-        if op == "in":
-            return bool(overlap)
-        else:  # not in
-            return not bool(overlap)
-
-    # meta.<path> any_overrun
-    m = _re.match(r"meta\.([a-z_A-Z0-9.]+)\s+any_overrun", expr)
-    if m:
-        value = _get_nested(meta, m.group(1))
-        if isinstance(value, dict):
-            return any(v > 0 for v in value.values() if isinstance(v, (int, float)))
-        return False
-
-    # meta.<path> >= N  or  meta.<path> > N
-    m = _re.match(r"meta\.([a-z_A-Z0-9.]+)\s*(>=|>|==)\s*(\S+)", expr)
-    if m:
-        path, op, raw = m.group(1), m.group(2), m.group(3)
-        value = _get_nested(meta, path)
-        try:
-            threshold = int(raw)
-            lhs = int(value) if value is not None else 0
-        except (ValueError, TypeError):
-            return False
-        if op == ">":
-            return lhs > threshold
-        if op == ">=":
-            return lhs >= threshold
-        if op == "==":
-            return lhs == threshold
-
-    # Fallback: unknown expression → always run (safe default)
-    return True
-
-
-def _is_known_condition(expr: str) -> bool:
-    """Return True if the expression matches at least one known grammar pattern.
-
-    Used by validate_config to detect typos in condition: fields.
-    Runtime stays fail-open (_eval_condition returns True); this is static
-    validation only.
-    """
-    import re as _re
-
-    expr = expr.strip()
-    if not expr:
-        return False
-
-    # OR combinator — check each part
-    if " OR " in expr:
-        return all(_is_known_condition(p.strip()) for p in expr.split(" OR "))
-
-    patterns = [
-        r"meta\.[a-z_A-Z0-9.]+\s+(not\s+in|in)\s+\[[^\]]*\]",
-        r"meta\.[a-z_A-Z0-9.]+\s+any_overrun",
-        r"meta\.[a-z_A-Z0-9.]+\s*(>=|>|==)\s*\S+",
-    ]
-    return any(_re.fullmatch(pat, expr) for pat in patterns)
+        """The phases a ticket of `track` can visit, in lifecycle order. The order comes
+        from the rule table (rules.py), not from this file."""
+        by_id = {p.id: p for p in self.ordered}
+        return [by_id[pid] for pid in _rules.lane_phase_ids(track) if pid in by_id]
 
 
 # --- parsing ------------------------------------------------------------------
@@ -253,66 +133,34 @@ def _load_raw(path: Path) -> dict:
     return parsed
 
 
-def _build_pick(d: dict, phase_id: str) -> Pick:
-    try:
-        pid = int(d["id"])
-    except (KeyError, TypeError, ValueError) as e:
-        raise ValueError(f"phase {phase_id!r}: pick missing integer id ({e})")
-    label = d.get("label")
-    if not label or not isinstance(label, str):
-        raise ValueError(f"phase {phase_id!r} pick {pid}: missing label")
-    goto = d.get("goto")
-    if not goto or not isinstance(goto, str):
-        raise ValueError(f"phase {phase_id!r} pick {pid}: missing goto")
-    supersede = d.get("supersede") or []
-    if not isinstance(supersede, list):
-        raise ValueError(f"phase {phase_id!r} pick {pid}: supersede must be a list")
-    gate = d.get("gate", "decision")
-    if gate not in _GATES:
-        raise ValueError(f"phase {phase_id!r} pick {pid}: bad gate {gate!r}")
-    return Pick(id=pid, label=label, goto=goto, supersede=list(supersede), gate=gate)
-
-
 def _build_phase(d: dict) -> Phase:
     pid = d.get("id")
     if not pid or not isinstance(pid, str):
         raise ValueError("phase entry missing string id")
-    tracks = d.get("tracks") or []
-    if not isinstance(tracks, list) or not all(isinstance(t, str) for t in tracks):
-        raise ValueError(f"phase {pid!r}: tracks must be a list of strings")
-    for t in tracks:
-        if t not in TRACK_ORDER:
-            raise ValueError(f"phase {pid!r}: unknown track {t!r}")
-
-    work  = d.get("work") or {}
-    prompt = work.get("prompt", "") or ""
-    auto_to_ack = bool(work.get("auto_to_ack", False))
-
-    ack = d.get("ack") or {}
-    pick_required = bool(ack.get("pick_required", False))
-    pick_records_to = ack.get("pick_records_to") or None
-    raw_picks = ack.get("picks") or []
-    if not isinstance(raw_picks, list):
-        raise ValueError(f"phase {pid!r}: ack.picks must be a list")
-    picks = [_build_pick(p, pid) for p in raw_picks]
-
-    inputs  = d.get("inputs")  or []
+    # Tolerant of the pre-KLC-179 shape `work: {prompt: ...}` (fixture trees, old overrides).
+    legacy_work = d.get("work") if isinstance(d.get("work"), dict) else {}
+    prompt = d.get("prompt") or legacy_work.get("prompt") or ""
+    raw_picks = d.get("picks") or []
+    if not isinstance(raw_picks, list) or not all(isinstance(x, str) and x for x in raw_picks):
+        raise ValueError(f"phase {pid!r}: picks must be a list of labels")
+    fact = _rules.PHASE_FACT.get(pid)
+    picks = []
+    for i, label in enumerate(raw_picks, start=1):
+        forward = _rules.pick_is_forward(label)
+        decision = (not forward) or fact in _DECISION_FACTS
+        picks.append(Pick(id=i, label=label, forward=forward,
+                          gate="decision" if decision else "conditional"))
+    inputs = d.get("inputs") or []
     outputs = d.get("outputs") or []
     if not isinstance(inputs, list) or not isinstance(outputs, list):
         raise ValueError(f"phase {pid!r}: inputs/outputs must be lists")
-
     return Phase(
         id=pid,
-        tracks=list(tracks),
         prompt=prompt,
-        auto_to_ack=auto_to_ack,
-        pick_required=pick_required,
+        pick_required=bool(picks) and bool(d.get("pick_required", True)),
         picks=picks,
-        pick_records_to=pick_records_to,
         inputs=list(inputs),
         outputs=list(outputs),
-        auto_ack_after=d.get("auto_ack_after") or None,
-        condition=d.get("condition") or None,
     )
 
 
@@ -330,43 +178,9 @@ def load_phases(force: bool = False) -> Phases:
         raise ValueError("phases.yml: 'phases' must be a non-empty list")
 
     phases = [_build_phase(p) for p in seq]
-    # sanity: unique ids
     ids = [p.id for p in phases]
     if len(set(ids)) != len(ids):
         raise ValueError(f"phases.yml: duplicate phase ids: {ids}")
-
-    # sanity: every goto pointer is resolvable
-    id_set = set(ids)
-    for p in phases:
-        for pk in p.picks:
-            if pk.goto == "next":
-                continue
-            if pk.goto == "archived":
-                continue
-            if ":" in pk.goto:
-                target_id, state = pk.goto.split(":", 1)
-                if target_id not in id_set:
-                    raise ValueError(
-                        f"phase {p.id!r} pick {pk.id}: goto references "
-                        f"unknown phase {target_id!r}"
-                    )
-                if state not in VALID_STATES:
-                    raise ValueError(
-                        f"phase {p.id!r} pick {pk.id}: goto state {state!r} "
-                        f"invalid; expected one of {sorted(VALID_STATES)}"
-                    )
-            else:
-                raise ValueError(
-                    f"phase {p.id!r} pick {pk.id}: goto must be 'next', "
-                    f"'archived', or '<phase>:<state>'"
-                )
-            for sup in pk.supersede:
-                if sup not in id_set:
-                    raise ValueError(
-                        f"phase {p.id!r} pick {pk.id}: supersede references "
-                        f"unknown phase {sup!r}"
-                    )
-
     _CACHE = Phases(ordered=phases)
     return _CACHE
 
@@ -428,7 +242,11 @@ def position(track: str, phase_state: str) -> int | None:
         pid, st = parse_state(phase_state)
     except ValueError:
         return None
-    seq = [p.id for p in load_phases().track_phases(track)]
+    seq = _rules.lane_phase_ids(track)
+    if pid == "observe" and pid not in seq and "learn" in seq:
+        # A legacy S ticket can still stand at observe (it left the light lane in KLC-179):
+        # rank it where it always was, just before learn, so epic milestones keep working.
+        seq = seq[:seq.index("learn")] + ["observe"] + seq[seq.index("learn"):]
     if pid not in seq:
         return None
     return seq.index(pid) * 3 + _POSITION_STATE_RANK.get(st, 0)
@@ -463,8 +281,8 @@ def _main(argv: list[str]) -> int:
         print(json.dumps({
             "id": p.id, "tracks": p.tracks, "prompt": p.prompt,
             "pick_required": p.pick_required,
-            "picks": [{"id": pk.id, "label": pk.label, "goto": pk.goto,
-                       "supersede": pk.supersede} for pk in p.picks],
+            "picks": [{"id": pk.id, "label": pk.label, "gate": pk.gate}
+                      for pk in p.picks],
             "inputs": p.inputs, "outputs": p.outputs,
         }, indent=2))
         return 0

@@ -201,7 +201,7 @@ def finish(ticket: str, phase_id: str, sources, persist: bool = True):
     """Collect, persist (ack path only) and render. Returns (records, summary).
 
     C-002: when `persist` is False NOTHING is written (the probe path used by
-    `klc remind` and gate-policy signal collection stays write-free). C-001: an
+    the klc hook's pending line and gate-policy signal collection stays write-free). C-001: an
     unwritable path (OSError) degrades to an extra info record rather than
     raising, so the ack always completes.
 

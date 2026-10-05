@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """`klc ack <ticket> [--pick N]` — confirm work and move on.
 
-Only valid from `<X>:ack-needed`. The state machine (phases.yml)
-decides what `--pick` values are allowed and where each one leads
-(usually `next`, sometimes a jump back into `<phase>:work` with
-supersede). This script has no phase-specific knowledge.
+Only valid from `<X>:ack-needed`. The prompt table (phases.yml)
+lists the `--pick` values; the rule table (rules.py) decides where each one leads
+(usually the next missing fact, sometimes back into `<phase>:work` with facts cleared
+and files superseded). This script has no phase-specific knowledge.
 """
 from __future__ import annotations
 
@@ -155,7 +155,7 @@ def _run(argv: list[str]) -> int:
                     except state_sync.StaleStateError:
                         sys.stderr.write(
                             "klc ack: remote state advanced since you started — "
-                            f"re-run `klc ack {args.ticket}`.\n"
+                            f"re-run `klc go {args.ticket}`.\n"
                         )
                         return 1
                     except state_sync.StashConflictError:
@@ -193,27 +193,15 @@ def _run(argv: list[str]) -> int:
                     sys.stderr.write(
                         f"klc ack: ticket is in `{cur}`; cannot complete:\n"
                         f"  {advisory}\n"
-                        f"(or `klc abort {args.ticket}` to cancel).\n"
+                        f"(or rework with `klc back {args.ticket} <phase> --reason <why>`).\n"
                     )
                     return 1
             if state == _ph.STATE_ACK:
                 sys.stderr.write(
                     f"klc ack: ticket is already in `{cur}`; run "
-                    f"`klc next {args.ticket}` to advance.\n"
+                    f"`klc go {args.ticket}` to advance.\n"
                 )
                 return 1
-
-            # force-xs-skip guard: pick 3 on intake only allowed when route_hint=="XS".
-            if pid == "intake" and args.pick == 3:
-                meta = _lc.read_meta(args.ticket)
-                route_hint = meta.get("route_hint")
-                if route_hint != "XS":
-                    sys.stderr.write(
-                        f"klc ack: force-xs-skip (pick 3) is only allowed when "
-                        f"route_hint==\"XS\"; current route_hint={route_hint!r}.\n"
-                        f"Use pick 1 (confirm-route) or pick 2 (force-full-discovery).\n"
-                    )
-                    return 1
 
             # Scope-expansion guard before approving review / integrate.
             if pid in _SCOPE_GUARD_PHASES:
@@ -231,7 +219,7 @@ def _run(argv: list[str]) -> int:
                         sys.stderr.write(
                             f"klc ack: scope comparison unavailable "
                             f"({skipped_reason}) — cannot verify scope for "
-                            f"{pid}. Run `klc init --scan-only` to build "
+                            f"{pid}. Run `klc doctor --index` to build "
                             f"modules.json first.\n"
                         )
                         return 1
@@ -249,16 +237,20 @@ def _run(argv: list[str]) -> int:
                     # is ALREADY MERGED — "use `klc jump` to restart review"
                     # is actively misleading there (nothing to restart; the
                     # merge already happened). review keeps its own wording.
+                    mods = ",".join(delta["expansion"])
                     if pid == "integrate":
                         remedy = (
                             f"{args.ticket} is already merged; update "
-                            f"meta.json:affected_modules (e.g. `klc scope-fix "
-                            f"{args.ticket} --add <module>`) and re-run "
-                            f"`klc ack {args.ticket}`.\n"
+                            f"meta.json:affected_modules with `klc fix "
+                            f"{args.ticket} modules --add {mods} "
+                            f"--reason \"<why>\"` and re-run "
+                            f"`klc go {args.ticket}`.\n"
                         )
                     else:
                         remedy = (
-                            f"Update meta.json:affected_modules or use `klc jump` "
+                            f"Update meta.json:affected_modules with `klc fix "
+                            f"{args.ticket} modules --add {mods} "
+                            f"--reason \"<why>\"`, or use `klc back {args.ticket} review --reason <why>` "
                             f"to restart review with the correct scope.\n"
                         )
                     sys.stderr.write(
@@ -282,17 +274,18 @@ def _run(argv: list[str]) -> int:
                 pick = _resolve_auto_pick(phase)
                 if pick is None:
                     sys.stderr.write(
-                        "klc ack --auto: no unambiguous forward pick\n"
+                        "klc ack: --auto — no unambiguous forward pick\n"
                     )
                     return 2
                 decision = _gp.evaluate(
                     pick.gate,
                     _gp.collect_signals(args.ticket, pid),
                 )
-                if not decision.proceed:
+                merge_reasons = _gp.merge_gate(args.ticket, pid)   # F-003
+                if not decision.proceed or merge_reasons:
                     sys.stderr.write(
-                        "klc ack --auto: paused — "
-                        + "; ".join(decision.reasons) + "\n"
+                        "klc ack: --auto — paused — "
+                        + "; ".join([*decision.reasons, *merge_reasons]) + "\n"
                     )
                     return 2
                 pick_id = pick.id
@@ -330,7 +323,7 @@ def _run(argv: list[str]) -> int:
             except state_sync.StaleStateError:
                 sys.stderr.write(
                     "klc ack: remote state advanced since you started — "
-                    f"re-run `klc ack {args.ticket}`.\n"
+                    f"re-run `klc go {args.ticket}`.\n"
                 )
                 return 1
             except state_sync.StashConflictError:
@@ -400,7 +393,7 @@ def _run(argv: list[str]) -> int:
                 if new_pid == "build":
                     print(f"    # paste into your agent; use `klc step {args.ticket} N` for subsequent steps")
                 else:
-                    print(f"    # paste into your agent, then run `klc ack {args.ticket}`")
+                    print(f"    # paste into your agent, then run `klc go {args.ticket}`")
             else:
                 print(f"→ {new_state}")
             return 0
@@ -453,7 +446,7 @@ def _write_scope_conflict(ticket: str, phase_id: str, delta: dict) -> None:
         f"  actual modules:  {delta['actual']}\n"
         f"  unplanned:       {delta['expansion']}\n"
         f"Resolve: update meta.json:affected_modules to include all touched "
-        f"modules, then re-run `klc ack {ticket}`.\n"
+        f"modules, then re-run `klc go {ticket}`.\n"
     )
     try:
         with open(report, "a", encoding="utf-8") as fh:

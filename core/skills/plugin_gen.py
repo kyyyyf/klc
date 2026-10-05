@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """plugin_gen.py — generate klc-plugin/agents/ from core/agents/*.md.
 
-Reads each top-level .md file in core/agents/, resolves the model: from the
+Reads the top-level .md files of core/agents/ that something dispatches (a
+phase owns the prompt in phases.yml, or the name is in DISPATCHED_AGENTS),
+resolves the model: from the
 phase(s) that own it in phases.yml (work.prompt names "core/agents/<file>",
 compared after POSIX path normalisation; a prompt with no owner falls back
 to stem-then-defaults resolution, KLC-131), and writes the file into the
@@ -57,17 +59,75 @@ _cc_alias = cc_alias
 # ---------------------------------------------------------------------------
 # Verb-dictionary (single source for skills + shared command descriptions).
 #
-# `VERB_SPECS` holds the {short, use_when} strings for the 8 PASSTHROUGH verbs.
+# `VERB_SPECS` holds the {short, use_when} strings for the 6 PASSTHROUGH verbs.
 # The strings are lifted VERBATIM from the current committed
 # `klc-plugin/skills/<verb>/SKILL.md` (constraint C-003 — the generator
 # reproduces the delivery layer byte-for-byte, it does not "improve" it).
 #
 # Three verb sets are kept DISTINCT because they genuinely differ:
 #   * SKILL_VERBS    — skills are generated for exactly these (== VERB_SPECS).
-#   * BESPOKE_SKILLS — handwritten skills (run, discuss-feature); never
+#   * BESPOKE_SKILLS — handwritten skills (discuss-feature); never
 #     generated, only presence-guarded (constraint C-001: no Python driver).
-#   * command verbs  — `_LIFECYCLE_CMDS` (incl. command-only `publish`) + run.
+#   * command verbs  — `_LIFECYCLE_CMDS` (== VERB_SPECS). `step verify` and
+#     `publish` stay CLI-only (KLC-180): no command stub, no skill.
 # ---------------------------------------------------------------------------
+_GO_AFTER = """\
+
+## Driving a ticket to integrate (`klc go <KEY> --until integrate`)
+
+You are the main agent. `klc go` decides every move; you only dispatch phase
+agents and ask the human. This one skill is the whole orchestrator loop.
+
+1. Run `klc go <KEY> --until integrate`. Exit 0: the ticket reached
+   `integrate:work`. Tell the human: merge the branch per the project's rules,
+   then run `klc go <KEY> --pick 1`, then run `klc go` again for the remaining
+   phases; stop. Exit 1: show stderr verbatim and stop.
+2. Exit 2: the stop line carries exactly ONE reason. Check them in this order.
+   - **Guardrail** (`integrate`, `cap`, `budget-ceiling`): STOP, show the line verbatim.
+   - **Clarify** (`clarify needed`): go to step 3a.
+   - **Pick** (`klc go <KEY> --pick N`): STOP and ask the human, with the options
+     shown. Never guess a pick. For an advisory stop, read
+     `<ticket-dir>/advisories.json`, report the phase's `high` and `medium`
+     records plus a bare count of the rest; never parse the phase-history note.
+   - **Build not green** (`build is not green`): go to step 3 with phase `build`.
+   - **Agent card** (`<phase>:work needs the agent`): go to step 3.
+   - Anything else: STOP, show the line verbatim.
+3. Dispatch the phase agent.
+   a. **Clarify gate** (the `clarify needed` stop; phase `intake`, `meta.json:clarify_required` true):
+      follow `core/agents/intake-triage.md` "Interactive clarify (main-loop
+      only)" now: ask via `AskUserQuestion` per
+      `clarify_config.load_clarify_style()`, write the answers into `raw.md`,
+      re-run `route_heuristic.classify()`, clear `clarify_required`, run
+      `klc go <KEY> --pick 1`, then go to step 1. Never dispatch discovery in the same breath.
+   b. Resolve: `core.skills.phase_resolver.resolve_phase(<KEY>, phase_id,
+      executor="task")` gives `runs_inline`, `agent_type`, `card_mode`. The mode
+      is decided there and nowhere else. An agent stop of `klc go` also prints
+      one line `dispatch: agent=<klc-…> model=<alias> card=<path>`; its `model` is
+      the models.yml role for the ticket's TRACK and is the one you pass below.
+   c. Unless inline, re-render the card with `core.skills.artefacts.render_card(
+      <KEY>, phase_id, meta, step=<build only>, mode=resolved.card_mode)`
+      (`klc go` wrote a stale paste card). Show the warn-only
+      `core.skills.budget_guard.real_spend_warning(track, ticket=<KEY>)` line, if any.
+   d. If `resolved.runs_inline` (XS): do the work yourself and end with the
+      completion-signal JSON. Otherwise
+      `Task(subagent_type=<agent>, model=<model>, prompt=<card text>)` with the
+      `agent` and `model` of the `dispatch:` line (never omit `model=`: the
+      agent file's frontmatter `model:` is not relied on), then `core.skills.run_signal.record_signal_tokens`.
+   e. Parse with `core.skills.run_signal.parse_signal(result, expected_phase=
+      phase_id)`. `None` is a failure: retry the same phase once
+      (`should_retry`); on the second failure STOP and show the raw result.
+   f. Non-empty `blocking_questions`: STOP and show them unchanged.
+   g. Build only: run `klc step verify <KEY> N` for each step missing or stale in
+      `build/steps.json` and report failures verbatim (not after a retry).
+   h. Review: the agent gets `--diff recorded` and plans three layers. If the
+      plan refuses over the cap, STOP; never pass `--over-cap` yourself.
+4. Go to step 1 (`klc go` acks the finished phase).
+
+Rules: never merge and never push (`integrate:work` is where the human merges);
+every reviewer is a fresh subagent (not a fork) and may not write to git; never
+guess a pick, invent an answer, or skip the clarify pass.
+"""
+
 VERB_SPECS: dict[str, dict[str, str]] = {
     "intake": {
         "short": "Create a new klc ticket and start the lifecycle",
@@ -77,51 +137,81 @@ VERB_SPECS: dict[str, dict[str, str]] = {
         "short": "Show current phase and track for a ticket",
         "use_when": "Use when the user wants to check what phase or track a klc ticket is in.",
     },
-    "next": {
-        "short": "Advance the ticket to the next work phase",
-        "use_when": "Use when the user wants to move a klc ticket forward to its next phase.",
+    "go": {
+        "short": "Move the ticket one step forward, or until a phase",
+        "use_when": "Use when the user wants to advance a klc ticket.",
+        "allowed_tools": "Bash, Task, AskUserQuestion",
+        "after": _GO_AFTER,
     },
-    "ack": {
-        "short": "Confirm phase work is done (optionally with --pick N or --auto for gate-policy)",
-        "use_when": "Use when the user wants to confirm/approve that the current phase work is done, optionally picking a gate option.",
+    "back": {
+        "short": "Return the ticket to an earlier phase with a reason",
+        "use_when": "Use when the user wants to redo an earlier phase of a klc ticket.",
     },
-    "ship": {
-        "short": "Ack + next in one step",
-        "use_when": "Use when the user wants to acknowledge the current phase and advance in one step.",
+    "fix": {
+        "short": "Correct a ticket's meta field with an audited record",
+        "use_when": "Use when the user wants to change a klc ticket's track, modules, risk tags, kind, epic or blockers.",
+        "operator_only": "true",
     },
-    "jump": {
-        "short": "Jump the ticket to a specific phase",
-        "use_when": "Use when the user wants to jump a klc ticket to a specific phase.",
-    },
-    "abort": {
-        "short": "Cancel current work and return to the previous ack state",
-        "use_when": "Use when the user wants to cancel the current klc work and return to the previous ack state.",
-    },
-    "step": {
-        "short": "Show or advance the current build step",
-        "use_when": "Use when the user wants to show or advance the current build step of a klc ticket.",
+    "doctor": {
+        "short": "Check install health, bootstrap a project or refresh the index",
+        "use_when": "Use when the user wants to check klc health, set klc up in a project or refresh the code index.",
+        "argument_hint": "[--install <root>] [--index]",
+        "operator_only": "true",
+        "args_note": "Pass any options straight through; surface the CLI's check, install and index output, including any advisory or blocking lines, to the user.",
     },
 }
 
 SKILL_VERBS: set[str] = set(VERB_SPECS)
-BESPOKE_SKILLS: set[str] = {"run", "discuss-feature"}
+BESPOKE_SKILLS: set[str] = {"discuss-feature"}
 
-# The fixed passthrough SKILL.md template. Only {v}, {short}, {use_when} vary.
+# Optional per-verb keys in VERB_SPECS (everything else is the fixed template):
+#   argument_hint  - overrides the default `<TICKET-ID> [options]` (skill AND command stub)
+#   operator_only  - "true" adds `disable-model-invocation: true` to the skill frontmatter:
+#                    the verb changes audited state (`fix`) or bootstraps a repo (`doctor
+#                    --install`), so the model must never run it on its own initiative.
+#                    The command stub stays: a human typing /klc:<verb> is the intended path.
+#   allowed_tools  - overrides the default `Bash` (skill AND command stub); `go` also
+#                    dispatches phase agents (Task) and asks the human (AskUserQuestion)
+#   after          - markdown appended to the skill body (the instructions the model
+#                    follows after the CLI call); the `run` loop now lives in `go`
+#   args_note      - replaces the default "Pass the ticket key and any options ..." sentence
+_DEFAULT_HINT = "<TICKET-ID> [options]"
+_DEFAULT_ARGS_NOTE = (
+    "Pass the ticket key and any options straight through; surface\n"
+    "the CLI's phase/gate output, including any advisory or blocking lines, to the user.\n"
+)
+
+# The fixed passthrough SKILL.md template. {v}, {short}, {use_when}, {hint}, {extra}
+# and {note} vary.
 _SKILL_TMPL = (
     "---\n"
     "name: klc-{v}\n"
     "description: {short}. {use_when}\n"
-    "argument-hint: <TICKET-ID> [options]\n"
-    "allowed-tools: Bash\n"
+    "argument-hint: {hint}\n"
+    "{extra}"
+    "allowed-tools: {tools}\n"
     "---\n"
     "\n"
     "# /klc:{v} — {short}\n"
     "\n"
     "Run `klc {v} $ARGUMENTS` via Bash and show the result verbatim. This is a thin\n"
     "adapter over the `klc` CLI (the plugin shells out to the existing binary — no logic\n"
-    "is reimplemented here). Pass the ticket key and any options straight through; surface\n"
-    "the CLI's phase/gate output, including any advisory or blocking lines, to the user.\n"
+    "is reimplemented here). {note}{after}"
 )
+
+
+def _hint(v: str) -> str:
+    return VERB_SPECS[v].get("argument_hint", _DEFAULT_HINT)
+
+
+def _render_skill(v: str) -> str:
+    spec = VERB_SPECS[v]
+    extra = "disable-model-invocation: true\n" if spec.get("operator_only") == "true" else ""
+    note = spec["args_note"] + "\n" if "args_note" in spec else _DEFAULT_ARGS_NOTE
+    return _SKILL_TMPL.format(v=v, short=spec["short"], use_when=spec["use_when"],
+                              hint=_hint(v), extra=extra, note=note,
+                              tools=spec.get("allowed_tools", "Bash"),
+                              after=spec.get("after", ""))
 
 
 def generate_skills(output_dir: Path | None = None) -> list[Path]:
@@ -146,7 +236,7 @@ def generate_skills(output_dir: Path | None = None) -> list[Path]:
         d.mkdir(parents=True, exist_ok=True)
         spec = VERB_SPECS[v]
         dest = d / "SKILL.md"
-        dest.write_text(_SKILL_TMPL.format(v=v, **spec), encoding="utf-8")
+        dest.write_text(_render_skill(v), encoding="utf-8")
         written.append(dest)
     return written
 
@@ -158,7 +248,7 @@ _MANIFEST = (
     "{\n"
     '  "name": "klc",\n'
     '  "displayName": "klc — ticket lifecycle",\n'
-    '  "version": "0.1.0",\n'
+    '  "version": "0.2.0",\n'
     '  "description": "Thin adapter that wraps the klc CLI as native Claude Code slash commands, subagents, and skills. Drives a ticket through its lifecycle (intake → discovery → build → review → integrate → archive) with TDD-ordered, track-scaled gates. No MCP server — shells out to the klc binary via Bash.",\n'
     '  "keywords": ["klc", "ticket", "lifecycle", "tdd", "workflow", "orchestration"]\n'
     "}\n"
@@ -275,6 +365,23 @@ def _owns_prompt(phase_prompt: str, agent_name: str) -> bool:
     )
 
 
+# Agents dispatched outside any phase (ReviewKind judges, intake triage, the
+# external reviewer). A phase-owned prompt is read from phases.yml at generation
+# time; these six have no phase, so they are named here. Anything else in
+# core/agents/ has no plugin copy (KLC-180).
+DISPATCHED_AGENTS: frozenset[str] = frozenset({
+    "intake-triage", "spec-reviewer", "test-plan-reviewer",
+    "impl-plan-reviewer", "drift-reviewer", "external-review",
+})
+
+
+def plugin_agent_names(phase_prompts: list[str]) -> set[str]:
+    """Stems of the agents the plugin ships: the prompt of every phase plus
+    DISPATCHED_AGENTS. An empty prompt (a phase with no agent) is skipped."""
+    owned = {posixpath.basename(p)[:-3] for p in phase_prompts if p}
+    return owned | set(DISPATCHED_AGENTS)
+
+
 def generate_agents(
     output_dir: Path | None = None,
     *,
@@ -321,8 +428,16 @@ def generate_agents(
 
     agents_src = fw / "core" / "agents"
     generated: list[Path] = []
+    wanted = plugin_agent_names([p.prompt for p in phases_model.ordered])
+
+    # Remove plugin copies of agents that no longer ship (KLC-180).
+    for old in output_dir.glob("*.md"):
+        if old.stem not in wanted:
+            old.unlink()
 
     for src in sorted(agents_src.glob("*.md")):
+        if src.stem not in wanted:
+            continue
         phase_id = src.stem  # agent identity: name/description stay stem-based
         # KLC-131 (AC-1): resolve model from the phase(s) that own this
         # prompt (Phase.prompt == "core/agents/<file>"); a prompt no phase
@@ -352,18 +467,13 @@ def generate_agents(
     return generated
 
 
-_LIFECYCLE_CMDS = (
-    "intake", "status", "next", "ack", "ship", "jump", "abort", "step",
-    "publish",
-)
+_LIFECYCLE_CMDS = ("intake", "status", "go", "back", "fix", "doctor")
 
 
-# Command-only verbs (∉ VERB_SPECS): they have a command stub but no skill.
-# Shared verbs read their description from VERB_SPECS[verb]["short"] instead
+# Command-only verbs (∉ VERB_SPECS): none since KLC-180 (`publish` is CLI-only).
+# Shared verbs read their description from VERB_SPECS[verb]["short"]
 # (AC-4 single source), so reconciling VERB_SPECS also reconciles the command.
-_COMMAND_ONLY_DESC = {
-    "publish": "Publish the review verdict to the ticket's GitHub PR",
-}
+_COMMAND_ONLY_DESC: dict[str, str] = {}
 
 
 def _cmd_desc(verb: str) -> str:
@@ -385,34 +495,30 @@ def _generate_commands(output_dir: Path) -> list[Path]:
             generated.append(dest)
             continue
         desc = _cmd_desc(verb)
+        body = f"Run `klc {verb} $ARGUMENTS` via Bash and show the result.\n"
+        if VERB_SPECS.get(verb, {}).get("after"):
+            # `go` must reach the dispatch loop from the slash command itself.
+            body = (
+                "Run `klc go <KEY> --until integrate` for the ticket named in `$ARGUMENTS`\n"
+                "(keep any explicit option such as `--pick N`, `--until`, `--dry-run` as given),\n"
+                "then follow the dispatch loop below.\n"
+                + VERB_SPECS[verb]["after"]
+            )
         content = (
             f"---\n"
             f"description: {desc}\n"
-            f"argument-hint: <TICKET-ID> [options]\n"
-            f"allowed-tools: [Bash]\n"
+            f"argument-hint: {_hint(verb) if verb in VERB_SPECS else _DEFAULT_HINT}\n"
+            f"allowed-tools: [{VERB_SPECS.get(verb, {}).get('allowed_tools', 'Bash')}]\n"
             f"---\n\n"
-            f"Run `klc {verb} $ARGUMENTS` via Bash and show the result.\n"
+            f"{body}"
         )
         dest.write_text(content, encoding="utf-8")
         generated.append(dest)
 
-    # `run` is not a CLI passthrough — it's the prompt-driven orchestrator
-    # loop (KLC-052, C-001: no Python driver). Point at the canonical
-    # instructions in klc-plugin/skills/run/SKILL.md instead of duplicating
-    # them here (single source of truth for the loop).
-    run_dest = output_dir / "run.md"
-    if not run_dest.exists():
-        run_content = (
-            "---\n"
-            "description: Run a ticket through its lifecycle (orchestrator loop)\n"
-            "argument-hint: <TICKET-ID>\n"
-            "allowed-tools: [Bash, Task, AskUserQuestion]\n"
-            "---\n\n"
-            "Read `klc-plugin/skills/run/SKILL.md` and follow its orchestrator "
-            "loop instructions for ticket `$ARGUMENTS`.\n"
-        )
-        run_dest.write_text(run_content, encoding="utf-8")
-    generated.append(run_dest)
+    # Command stubs of retired verbs (run, step, publish, ...) are removed.
+    for old in output_dir.glob("*.md"):
+        if old.stem not in _LIFECYCLE_CMDS:
+            old.unlink()
 
     return generated
 
@@ -467,9 +573,11 @@ def check_sync(committed_root: Path | None = None) -> list[str]:
 
     Each finding is ``MISSING: <rel>`` (no committed copy), ``DRIFT: <rel>``
     (committed bytes differ from the regenerated bytes), or
-    ``CMD-DESC-DRIFT: commands/<verb>.md`` (a shared verb's committed command
+    ``STALE: agents/<file>`` (a committed agent file the generator does not
+    produce), ``CMD-DESC-DRIFT: commands/<verb>.md`` (a shared verb's committed command
     stub description no longer equals ``VERB_SPECS[verb]["short"]`` — review
-    LOW-2; command stubs are skip-if-exists so we ASSERT the description, we do
+    LOW-2; ``CMD-TOOLS-DRIFT: commands/<verb>.md`` is the same for the
+    ``allowed-tools`` line; command stubs are skip-if-exists so we ASSERT the description, we do
     not byte-regenerate them, D-001).
     """
     if committed_root is None:
@@ -489,6 +597,15 @@ def check_sync(committed_root: Path | None = None) -> list[str]:
                 findings.append(f"MISSING: {rel}")
             elif dst.read_bytes() != gen.read_bytes():
                 findings.append(f"DRIFT: {rel}")
+
+        # stale agents — a committed agent file the generator no longer emits
+        # (KLC-180: only phase-owned and DISPATCHED_AGENTS prompts ship).
+        generated_names = {g.name for g in (t / "agents").glob("*.md")}
+        agents_dir = committed_root / "agents"
+        if agents_dir.is_dir():
+            for f in sorted(agents_dir.glob("*.md")):
+                if f.name not in generated_names:
+                    findings.append(f"STALE: agents/{f.name}")
 
         # skills — byte-exact (SKILL_VERBS only)
         for v in sorted(SKILL_VERBS):
@@ -520,6 +637,19 @@ def check_sync(committed_root: Path | None = None) -> list[str]:
             continue
         if _stub_description(cmd) != VERB_SPECS[v]["short"]:
             findings.append(f"CMD-DESC-DRIFT: commands/{v}.md")
+        want = f"allowed-tools: [{VERB_SPECS[v].get('allowed_tools', 'Bash')}]"
+        if want not in cmd.read_text(encoding="utf-8").splitlines():
+            findings.append(f"CMD-TOOLS-DRIFT: commands/{v}.md")
+
+    # stale stubs — a command stub whose verb the generator no longer emits
+    # (KLC-177: next/ack/ship/jump/abort were removed). skip-if-exists would keep
+    # them forever, so the check is what notices the leftover file.
+    known = set(_LIFECYCLE_CMDS)
+    cmd_dir = committed_root / "commands"
+    if cmd_dir.is_dir():
+        for cmd in sorted(cmd_dir.glob("*.md")):
+            if cmd.stem not in known:
+                findings.append(f"STALE: commands/{cmd.name}")
 
     return findings
 

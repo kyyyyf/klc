@@ -153,12 +153,12 @@ def test_empty_live_diff_at_a_recording_ack_does_not_clobber_the_prior_range(tmp
 
 
 @pytest.mark.parametrize("track,phase,output_name", [
-    ("XS", "review-lite:work", "review-lite-report.md"),
+    ("XS", "review:work", "review-report.md"),
     ("S", "review:work", "review-report.md"),
 ])
 def test_track_skipped_ticket_records_no_range(tmp_path, monkeypatch, track, phase, output_name):
     """AC-4/Q-001 edge case (regression pin): a track whose integrate
-    evaluators never run (XS at review-lite, or S with no escalation signal
+    evaluators never run (XS at review, or S with no escalation signal
     at review) never stages a `pre_merge_range`, regardless of a non-empty
     live diff."""
     _bare_and_clone(tmp_path)

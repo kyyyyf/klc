@@ -67,8 +67,12 @@ _SKILL = _FW_ROOT / "core" / "skills" / "planning-retriever.py"
 _FILES = ("modules.json", "file_roles.json", "module_edges.json",
           "test_map.json", "inventory.json")
 
+# KLC-178 review round 1: token `index_health` replaced by `hook_location`. The plugin
+# command/skill stubs for `doctor` (KLC-178) legitimately say "index" and "health", so the
+# old token pulled `klc-plugin/commands` to 8.2 vs core/skills 29.5 (< the 4.0x separation
+# bar). Same invariants, query text only.
 _QUERY_SUBSTITUTED = ("artifact_degraded threshold_for universe_for verdict "
-                      "index_health hook_mode")
+                      "hook_location hook_mode")
 _QUERY_LITERAL = ("index_coverage verdict threshold_for universe_for "
                   "artifact_degraded degraded_inputs")
 

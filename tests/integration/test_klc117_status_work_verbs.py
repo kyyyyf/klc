@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KLC-117 step-6 — AC-13: `klc status`/`klc work` print high+medium records in
+"""KLC-117 step-6 — AC-13: `klc status` print high+medium records in
 full and a bare count of the rest, reading the persisted artifact only.
 """
 from __future__ import annotations
@@ -56,22 +56,6 @@ def test_status_json_prints_high_medium_in_full_and_counts_remainder(tmp_path):
     env = _make_env(tmp_path)
     result = subprocess.run(
         [sys.executable, str(KLC), "status", ticket, "--json"],
-        capture_output=True, text=True, env=env, cwd=str(tmp_path),
-    )
-    assert result.returncode == 0, result.stderr
-    data = json.loads(result.stdout)
-    adv = data["advisories"]
-    assert len(adv["high"]) == 2
-    assert len(adv["medium"]) == 1
-    assert adv["other_count"] == 9
-
-
-def test_work_json_prints_high_medium_in_full_and_counts_remainder(tmp_path):
-    ticket = "KLC-SW02"
-    _bootstrap(tmp_path, ticket)
-    env = _make_env(tmp_path)
-    result = subprocess.run(
-        [sys.executable, str(KLC), "work", ticket, "--json"],
         capture_output=True, text=True, env=env, cwd=str(tmp_path),
     )
     assert result.returncode == 0, result.stderr

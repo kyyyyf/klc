@@ -1,47 +1,18 @@
 #!/usr/bin/env python3
 """klc — unified dispatcher for the Codebase Intelligence Framework.
 
-The ticket lifecycle is driven by seven verbs:
+The ticket lifecycle is driven by a handful of verbs:
 
-    intake   — create a ticket (puts it in `intake:ack-needed`)
-    status   — show the current path through the ticket's track
-    next     — advance from `:ack` to the next `:work`
-    ack      — confirm `:ack-needed`; optionally pick a variant
-    ship     — ack + next in one step (shortcut for no-pick or known pick)
-    jump     — cross-cut from `<X>:ack` to any `<phase>:work`
-    abort    — cancel `<X>:work`, return to the previous `:ack`
-    steal    — take over a stale holder slot (TTL-gated, warns first)
-    step     — generate minimal build step card (step N context only)
-    work     — print the next required action (read-only; card/outputs/verify)
-    publish  — publish the review verdict to the ticket's GitHub PR
-               (read-only; degrade-not-fail; label/comment/commit-status)
-    retrack  — operator-only: change a ticket's track (both directions), audited
-    scope-fix — correct meta.affected_modules durably (incl. after archive),
-               state_tx-wrapped; --modules/--add/--remove
-    run      — autonomous runner: drive a ticket through the state machine,
-               auto-acking clean conditional gates and pausing at decision gates,
-               guardrails (integrate/merge, budget ceiling, consecutive-auto cap),
-               and dirty gates (single-user / feature-off only)
-    migrate-notes — one-time: truncate over-cap phase-history notes to a
-               pointer at their phase's advisory artifact (idempotent,
-               archive-aware, operator-invoked; KLC-117)
+    intake       — create a ticket (puts it in `intake:ack-needed`)
+    status       — show the current path through the ticket's track and the next action
+    go           — move a ticket one step forward from any state (`--pick N`,
+                   `--dry-run`, `--until <phase>`)
+    back         — return a ticket to an earlier phase with a reason (`--cancel` cancels)
+    step verify  — run a build step's VERIFY once and record the result
+    fix          — correct a ticket's track, modules, risk-tags, kind, epic or
+                   blocked-by with a reason; every change is audited in meta.fixes
 
-Plus a few operational commands:
-
-    board      — kanban view across tickets
-    doctor     — install-level health check
-    metrics    — per-ticket or rollup metrics
-    reindex    — rebuild a ticket's .index.json
-    jira-sync  — flush the Jira status push queue
-    state      — materialize the klc-state branch as a .klc/ worktree
-    skeleton   — outline one file with [start-end] line ranges; computed on
-                 demand, never stored (read-only)
-
-And install-time:
-
-    install  — bootstrap a project to use this klc checkout
-    init     — scan project + prepare inventory
-    update   — incremental refresh after commits
+Also: board, doctor, jira, publish
 
 Each subcommand has its own --help.
 """
@@ -103,46 +74,63 @@ def _project_root() -> str:
 
 # --- subcommand dispatch ------------------------------------------------------
 
-LIFECYCLE_CMDS = (
-    "intake", "status", "next", "ack", "ship", "jump", "abort", "step", "work",
-    "retrack", "scope-fix", "task-brief", "build-run", "steal", "remind",
-    "heartbeat", "run", "publish", "migrate-notes",
-)
+LIFECYCLE_CMDS = ("intake", "status", "go", "back", "step", "fix")
 # Only verbs that have a real core/phases/<name>.py belong here — the dispatch
-# below routes these through the generic `_run_phase`. `metrics`, `reindex`, and
-# `jira-sync` are deliberately absent: they have no phase file (metrics/reindex
-# are served by explicit handlers below; jira-sync's wrapper is
-# `jira_sync_cmd.py`, routed explicitly). Listing them here would let the
-# generic route shadow their handlers → "command not implemented" (KLC-072).
+# below routes these through the generic `_run_phase`. `jira-sync`, `metrics`,
+# `reindex` have no phase file of that name, so they are served by explicit
+# handlers (KLC-072); listing them here would shadow those handlers.
 OPERATIONAL_CMDS = (
-    "board", "doctor", "install", "jira", "setup",
-    "state",
+    "board", "doctor", "jira", "publish",
 )
 
+# Bootstrap verbs folded into `klc doctor` (KLC-178). They stay hidden aliases:
+# the dispatcher prints ONE stderr pointer, then does the old work unchanged.
+# `state` has `init` as its only subcommand, so the whole verb is an alias.
+# Value = the replacement command line shown in the pointer.
+_DEPRECATED_BOOTSTRAP = {
+    "install": "klc doctor --install <root>",
+    "init": "klc doctor --index (agent doc passes: klc internal init --auto, klc internal init --finalize)",
+    "update": "klc doctor --index (doc regeneration: klc internal update --regen)",
+    "setup": "klc doctor",
+    "state": "klc doctor --install <root>",
+}
+_BOOTSTRAP_PHASES = ("install", "setup", "state")
+
+# Old forward/backward verbs (KLC-177). They stay callable for one release and
+# print ONE deprecation line from the dispatcher (never from a phase module's
+# run(): `go` calls next/ack in-process with captured output). `run` keeps its
+# old headless-dispatch behaviour; it is not an alias of `go --until`.
+# The value is the replacement command line, shown as-is in the one deprecation line.
+DEPRECATED = {
+    "next": "go <KEY>", "ack": "go <KEY> [--pick N]", "ship": "go <KEY> [--pick N]",
+    "run": "go <KEY> --until <phase>",
+    "jump": "back <KEY> <phase> --reason TEXT",
+    "abort": "back <KEY> <phase> --reason TEXT (or back <KEY> --cancel --reason TEXT)",
+    "retrack": "fix <KEY> track <TRACK> --reason TEXT",
+    "scope-fix": "fix <KEY> modules --add|--remove|--set <m1,m2> --reason TEXT",
+}
+_DEPRECATED_PHASES = tuple(DEPRECATED)
+
+# Maintainer and hook verbs, reachable as `klc internal <name>` and left out of
+# the public help. They are also still served under their old top-level spelling
+# without a deprecation line, because existing scripts call them. KLC-178 removes
+# the top-level spellings. (`remind` and `heartbeat` are gone: the single plugin
+# hook calls `core/skills/klc_hook.py` in-process, KLC-180.)
+INTERNAL_CMDS = (
+    "task-brief", "build-run", "jira-sync", "reindex", "metrics", "migrate-notes",
+    "skeleton", "plugin-gen", "steal", "step-card", "run",
+    "init", "update",
+)
+_INTERNAL_PHASES = ("task-brief", "build-run", "migrate-notes", "steal")
 
 # Commands that must NOT trigger the opportunistic Jira-queue drain:
 #   jira-sync — drains explicitly itself.
-#   remind    — a pure read-only advisory verb run on every UserPromptSubmit
-#               via the hook; draining here would spend the Jira transport
-#               timeout / perform writes on every prompt submit.
-#   heartbeat — likewise a per-UserPromptSubmit advisory verb (KLC-064); it is
-#               throttled to <=1 push per window and must not spend the Jira
-#               drain timeout on every prompt.
-#   work      — a read-only "what's next?" query (KLC-047). It advertises a pure
-#               read contract, so it must not push queued Jira updates or rewrite
-#               the queue file as a side effect (like remind).
-#   publish   — a read-only forge-publish verb (KLC-003). Like `work` it makes no
-#               lifecycle writes (no phase advance, no meta write); draining the
-#               Jira queue here would be an unadvertised write side effect.
-#   skeleton  — a read-only outline of one file (KLC-139). Like `work`, it makes
-#               no writes, so it must not drain the Jira queue.
-#   status    — a read-only phase/state query (KLC-153), also run on every
-#               UserPromptSubmit via the gate hook. Like remind/heartbeat it
-#               must not spend the Jira transport timeout on every prompt —
-#               that would eat into the hook's own STATUS_TIMEOUT_S budget and
-#               make the gate flakier exactly when Jira is slow.
-NO_DRAIN_CMDS = ("jira-sync", "remind", "heartbeat", "work", "publish", "skeleton",
-                 "status")
+#   publish   — a read-only forge-publish verb (KLC-003); it makes no lifecycle
+#               writes, so a drain would be an unadvertised write side effect.
+#   skeleton  — a read-only outline of one file (KLC-139); makes no writes.
+#   status    — a read-only phase/state query (KLC-153); it must not spend the
+#               Jira transport timeout.
+NO_DRAIN_CMDS = ("jira-sync", "publish", "skeleton", "status")
 
 
 def _drain_jira_queue() -> None:
@@ -156,22 +144,43 @@ def _drain_jira_queue() -> None:
         pass
 
 
-def _dispatch(argv: list[str]) -> int:
+def _dispatch(argv: list[str], *, internal: bool = False) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         _print_help()
         return 0
     cmd, rest = argv[0], argv[1:]
 
+    if cmd == "internal":
+        if not rest or rest[0] not in INTERNAL_CMDS:
+            sys.stderr.write("usage: klc internal <name> [args]\n"
+                             f"  names: {', '.join(INTERNAL_CMDS)}\n")
+            return 2
+        return _dispatch(rest, internal=True)
+
+    if cmd in DEPRECATED and not internal:
+        sys.stderr.write(f"klc {cmd} is deprecated: use klc {DEPRECATED[cmd]} "
+                         f"(removed after wave 3)\n")
+
+    if cmd in _DEPRECATED_BOOTSTRAP and not internal:
+        name = "state init" if cmd == "state" else cmd
+        sys.stderr.write(f"klc {name} is deprecated: use {_DEPRECATED_BOOTSTRAP[cmd]}\n")
+
     # drain Jira queue opportunistically, except for advisory/self-draining verbs
-    if cmd not in NO_DRAIN_CMDS:
+    # `go --dry-run` only reads, so it skips the drain like `status`.
+    if cmd not in NO_DRAIN_CMDS and not (cmd == "go" and "--dry-run" in rest):
         _drain_jira_queue()
 
     if cmd in ("--version", "-V"):
         print("klc 0.2")
         return 0
 
-    if cmd in LIFECYCLE_CMDS or cmd in OPERATIONAL_CMDS:
+    if cmd in LIFECYCLE_CMDS or cmd in OPERATIONAL_CMDS or cmd in _DEPRECATED_PHASES \
+            or cmd in _BOOTSTRAP_PHASES \
+            or cmd in _INTERNAL_PHASES:
         return _run_phase(cmd, rest)
+
+    if cmd == "step-card":
+        return _run_phase("step", rest)
 
     # jira-sync's wrapper module is core/phases/jira_sync_cmd.py, so it cannot be
     # routed by name via OPERATIONAL_CMDS (that would look for jira_sync.py).

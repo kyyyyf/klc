@@ -24,7 +24,7 @@ def test_dispatch_decision_derives_from_meta_and_phases_yml(tmp_path, monkeypatc
     from core.skills import phase_resolver as pr
 
     _make_ticket(tmp_path, "KLC-XS01", "XS")
-    resolved_xs = pr.resolve_phase("KLC-XS01", "xs-build")
+    resolved_xs = pr.resolve_phase("KLC-XS01", "discovery-lite")   # XS runs on the light lane (KLC-179)
     assert resolved_xs.runs_inline is True
 
     _make_ticket(tmp_path, "KLC-M01", "M")
@@ -37,7 +37,7 @@ def test_dispatch_decision_derives_from_meta_and_phases_yml(tmp_path, monkeypatc
 # Regression (fresh-review finding, post-step-7): agent_type must derive from
 # phase.prompt's filename stem, not phase_id — several phases share one
 # agent file (build -> impl.md, manual -> manual-check.md, learn ->
-# retrospective.md, acceptance-test-plan/detailed-test-plan -> test-planner.md).
+# retrospective.md, acceptance-test-plan -> test-planner.md).
 # The bug returned agent_type=None for all of these, silently breaking
 # Task-tool dispatch (AC-2) for the majority of non-XS phase executions.
 # ---------------------------------------------------------------------------
@@ -47,9 +47,7 @@ _EXPECTED_AGENT_BY_PHASE = {
     "discovery":            "klc-discovery",
     "acceptance-test-plan": "klc-test-planner",
     "design":               "klc-design",
-    "detailed-test-plan":   "klc-test-planner",
     "build":                "klc-impl",
-    "review-lite":          "klc-review-lite",
     "review":               "klc-review",
     "manual":               "klc-manual-check",
     "learn":                "klc-retrospective",

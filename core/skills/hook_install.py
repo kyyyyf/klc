@@ -188,7 +188,7 @@ def _shim(framework_root, chained_to: str | None = None) -> str:
         # commit.
         'if [ ! -x "$KLC_FRAMEWORK_ROOT/hooks/pre-commit" ]; then',
         '  echo "klc pre-commit: framework not found at $KLC_FRAMEWORK_ROOT'
-        ' — skipping klc checks (re-run \\`klc install\\` to re-wire)" >&2',
+        ' — skipping klc checks (re-run \\`klc doctor --install <root> --force\\` to re-wire)" >&2',
         "  exit 0",
         "fi",
         'exec "$KLC_FRAMEWORK_ROOT/hooks/pre-commit" "$@"',
@@ -223,7 +223,7 @@ def write_hook(hooks_dir, framework_root) -> str:
                     f"{chain_path} already holds a DIFFERENT chained hook; "
                     f"refusing to overwrite it by chaining the current "
                     f"{target} — move or rename the existing file, then "
-                    "re-run `klc install`."
+                    "re-run `klc doctor --install <root> --force`."
                 )
             # identical content already chained — safe to replace in place,
             # no data would be lost.

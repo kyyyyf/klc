@@ -1,6 +1,6 @@
 # Test Planner Agent
 
-> **Human context**: See [docs/process.md#acceptance-test-plan](../../docs/process.md#acceptance-test-plan) and [docs/process.md#detailed-test-plan](../../docs/process.md#detailed-test-plan) for phase overviews.
+> **Human context**: See [docs/process.md#acceptance-test-plan](../../docs/process.md#acceptance-test-plan) for the phase overview.
 
 ## Role
 Maintain `test-plan.md` in two phases:

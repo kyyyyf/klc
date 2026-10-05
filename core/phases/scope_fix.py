@@ -1,33 +1,11 @@
 #!/usr/bin/env python3
 """`klc scope-fix <KEY> (--modules a,b,c | --add a,b | --remove a,b) [--reason ...]`
 
-A first-class, durable path for correcting an ARCHIVED ticket's planning slice
-(`meta.affected_modules`).
-
-Why this verb exists (KLC-075 defect-2): once a ticket is `archived` no further
-`ack` runs, so there is no state_tx to sweep an out-of-band edit to
-`affected_modules` (e.g. dropping a temporarily-widened scope-guard entry). The
-correction previously needed a manual `klc-state` commit + push. This verb wraps
-the edit in the SAME `acquire_lock → state_tx` envelope ack/jira-sync use, so
-the correction is durable and CAS-pushed to the bound upstream immediately
-(feature-ON) and a byte-identical direct local write (feature-OFF).
-
-Archived-only by design. `affected_modules` is enforcement input (it drives the
-scope-expansion hard-fail at ack), so a LIVE ticket must correct its slice at
-ack — the sanctioned flow where the change rides ack's own state_tx and holder
-discipline. scope-fix refuses any non-archived ticket. An archived ticket holds
-no holder, so — like `jira sync --apply` (KLC-065) — scope-fix takes NO holder
-authorization; the archived gate is what closes the authority hole. The three
-edit modes are mutually exclusive:
-
-    --modules a,b,c   replace affected_modules with exactly this set
-    --add a,b         union the listed modules into affected_modules
-    --remove a,b      drop the listed modules from affected_modules
-
-Malformed module lists (empty entries such as `a,,b` or `a, ,b`) are rejected
-before any write. Unknown module names (not in the project's modules.json) are a
-non-fatal advisory — the index may be absent or stale, and correcting an
-archived ticket must not be blocked by a drifted index.
+Deprecated alias of `klc fix <KEY> modules --set/--add/--remove ... --reason ...`
+(KLC-178). It is no longer archived-only: `fix` edits affected_modules in any
+state. This module keeps the shared helpers (`_parse_modules`,
+`_known_module_names`) and the KLC-111 vocabulary migration (`_run_migrate`)
+that `fix` reuses.
 """
 from __future__ import annotations
 
@@ -109,211 +87,46 @@ class _NoChange(Exception):
         self.modules = modules
 
 
+
+
 def run(argv: list[str]) -> int:
+    """Hidden alias of `klc fix <KEY> modules ...` (KLC-178). The dispatcher prints
+    the one deprecation line; this only translates argv and delegates, so the edit,
+    the lock envelope and the meta.fixes[] audit record are fix's own."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import fix as _fix  # lazy: fix imports this module's helpers
     ap = argparse.ArgumentParser(prog="klc scope-fix", description=__doc__)
-    # nargs="?": a ticket-less batch invocation (--migrate-vocabulary) carries
-    # no ticket at all. The three per-ticket modes re-raise argparse's own
-    # missing-positional error explicitly below, so their exit code (2) and
-    # message shape are unchanged (KLC-111 D-201).
     ap.add_argument("ticket", nargs="?")
     grp = ap.add_mutually_exclusive_group(required=True)
     grp.add_argument("--modules", help="replace affected_modules with this comma list")
     grp.add_argument("--add", help="union these comma-listed modules into affected_modules")
     grp.add_argument("--remove", help="drop these comma-listed modules from affected_modules")
     grp.add_argument("--migrate-vocabulary", action="store_true",
-                     help="KLC-111: batch-rewrite every archived ticket's affected_modules "
+                     help="batch-rewrite every archived ticket's affected_modules "
                           "to the module vocabulary; takes no ticket argument")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="with --migrate-vocabulary: report only, write nothing")
-    ap.add_argument("--reason", default="",
-                    help="why the slice is being corrected (recorded in the audit trail)")
-    ap.add_argument("--json", action="store_true", help="machine-readable JSON output")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--reason", default="")
+    ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
-    # Mode dispatch FIRST. Everything below this block assumes a real ticket
-    # and one of --modules/--add/--remove: klc_ticket_meta_file(None) and
-    # _parse_modules(None) both raise on a ticket-less batch invocation.
-    # Routing here also covers the feature-OFF fallback at the bottom of
-    # run(), which has no batch branch of its own and never needs one
-    # (KLC-111 D-201, impl-plan-review F-1).
     if args.migrate_vocabulary:
         if args.ticket is not None:
             ap.error("--migrate-vocabulary is a batch mode and takes no ticket argument")
-        return _run_migrate(args)
+        out = (["--migrate-vocabulary"] + (["--dry-run"] if args.dry_run else [])
+               + (["--json"] if args.json else []))
+        return _fix.run(out)
     if args.ticket is None:
-        # nargs="?" removed argparse's own missing-positional error, so the
-        # three per-ticket modes raise it here instead: same message shape,
-        # same exit code 2.
         ap.error("the following arguments are required: ticket")
     if args.dry_run:
         ap.error("--dry-run is only valid with --migrate-vocabulary")
+    flag, raw = next((f, v) for f, v in (("--set", args.modules), ("--add", args.add),
+                                         ("--remove", args.remove)) if v is not None)
+    out = [args.ticket, "modules", flag, raw, "--reason",
+           args.reason.strip() or "(no reason given; via deprecated klc scope-fix)"]
+    if args.json:
+        out.append("--json")
+    return _fix.run(out)
 
-    if not klc_ticket_meta_file(args.ticket).exists():
-        sys.stderr.write(
-            f"klc scope-fix: unknown ticket {args.ticket!r}; run `klc intake` first\n")
-        return 1
-
-    # Structural validation FIRST. Malformed syntax (an empty entry from a stray
-    # comma) needs no state, so hard-fail before reading meta / acquiring the
-    # lock / touching git — the guard the AC asks for. JSON-aware (P2-B).
-    raw = (args.modules if args.modules is not None
-           else args.add if args.add is not None else args.remove)
-    try:
-        _parse_modules(raw)
-    except ValueError as e:
-        if args.json:
-            print(json.dumps({"ticket": args.ticket, "status": "error",
-                              "reason": "malformed-modules", "detail": str(e)}))
-        else:
-            sys.stderr.write(f"klc scope-fix: {e}\n")
-        return 1
-
-    def _apply(old: list) -> list:
-        if args.modules is not None:
-            return _parse_modules(args.modules)
-        if args.add is not None:
-            add = _parse_modules(args.add)
-            return old + [x for x in add if x not in old]
-        drop = set(_parse_modules(args.remove))  # --remove
-        return [x for x in old if x not in drop]
-
-    def _warn_unknown(new: list) -> None:
-        # Advisory only: warn about names unknown to the module index but do NOT
-        # block — the index may be absent/stale and an archived correction must
-        # still go through (the whole point of this verb).
-        known = _known_module_names()
-        if known is not None:
-            unknown = [x for x in new if x not in known]
-            if unknown:
-                sys.stderr.write(
-                    f"klc scope-fix: note — module(s) not found in modules.json: "
-                    f"{unknown} (proceeding; verify the names)\n")
-
-    def _write(m: dict, old: list, new: list) -> None:
-        _warn_unknown(new)
-        m["affected_modules"] = new
-        m.setdefault("phase_history", []).append({
-            "event":        "scope-fix",
-            "phase":        m.get("phase", ""),
-            "from_modules": old,
-            "to_modules":   new,
-            "reason":       args.reason,
-            "ts":           _now_iso(),
-        })
-        _lc.write_meta(args.ticket, m)
-
-    # --- JSON-aware emit helpers, shared by the feature-ON and feature-OFF
-    #     paths so every exit route (applied / noop / refused) has one schema.
-    def _emit_refused(phase: str) -> int:
-        if args.json:
-            print(json.dumps({"ticket": args.ticket, "status": "refused",
-                              "reason": "not-archived", "phase": phase}))
-        else:
-            sys.stderr.write(
-                f"klc scope-fix: is for post-archive correction; ticket "
-                f"{args.ticket} is at {phase!r} — correct scope at ack instead.\n")
-        return 1
-
-    def _emit_noop(modules: list) -> int:
-        if args.json:
-            print(json.dumps({"ticket": args.ticket, "status": "noop",
-                              "affected_modules": modules,
-                              "from_modules": modules, "reason": args.reason}))
-        else:
-            print(f"→ {args.ticket} affected_modules already {modules}; "
-                  f"nothing to change.")
-        return 0
-
-    def _emit_applied(old: list, new: list) -> int:
-        if args.json:
-            print(json.dumps({"ticket": args.ticket, "status": "applied",
-                              "affected_modules": new, "from_modules": old,
-                              "reason": args.reason}))
-        else:
-            print(f"→ {args.ticket} affected_modules: {old} → {new}")
-            if args.reason:
-                print(f"  reason: {args.reason}")
-        return 0
-
-    # Persist. Feature-ON, the slice correction is a write to the SHARED branch,
-    # so it must be durable immediately — the SAME acquire_lock → state_tx
-    # envelope ack/jira-sync use (preserve → stale-guard → glob-commit the ticket
-    # subtree → CAS-push to the BOUND upstream). This is what removes the manual
-    # klc-state commit for post-archive corrections.
-    if state_feature.enabled():
-        # P2 (re-review): the archived gate + no-op decision run INSIDE the
-        # envelope, against the SYNCED (post-pull) meta — never a stale local read
-        # (FIX-1/P2-A). The non-applied paths RAISE to abort the tx (see _Refuse/
-        # _NoChange) so state_tx rolls back and pushes nothing; only `applied`
-        # exits cleanly and is committed + CAS-pushed. The decision read is
-        # READ-ONLY so a legacy-phase migration is never written during a decision
-        # that may refuse/no-op; only the applied branch takes a writable read.
-        holder: dict = {"old": None, "new": None}
-        try:
-            with acquire_lock(args.ticket):
-                with state_tx.state_tx(args.ticket, f"scope-fix {args.ticket}"):
-                    meta = _lc.read_meta_ro(args.ticket)
-                    phase0 = (meta.get("phase") or "").split(":")[0]
-                    if phase0 != _ph.STATE_ARCHIVED:
-                        raise _Refuse(meta.get("phase", ""))
-                    old = list(meta.get("affected_modules") or [])
-                    new = _apply(old)
-                    holder["old"], holder["new"] = old, new
-                    if new == old:
-                        raise _NoChange(new)
-                    wmeta = _lc.read_meta(args.ticket)  # writable copy to mutate
-                    _write(wmeta, old, new)
-                    # clean exit → state_tx commits + CAS-pushes (applied only)
-            return _emit_applied(holder["old"], holder["new"])
-        except _Refuse as r:
-            return _emit_refused(r.phase)
-        except _NoChange as n:
-            return _emit_noop(n.modules)
-        except state_sync.StaleStateError:
-            sys.stderr.write(
-                f"klc scope-fix: remote state advanced since you started — "
-                f"re-run `klc scope-fix {args.ticket}`.\n")
-            return 1
-        except state_sync.NothingToCommitError:
-            # Harmless safety net: the applied write produced no net change. Not
-            # expected (new != old is checked), but treat as a clean no-op.
-            return _emit_noop(holder.get("new") or [])
-        except state_sync.StashConflictError:
-            sys.stderr.write(
-                "klc scope-fix: local changes conflict with the remote — "
-                "resolve manually; your work is saved in the git stash.\n")
-            return 1
-        except state_sync.StateConflictError:
-            sys.stderr.write(
-                "klc scope-fix: concurrent update — another writer moved this "
-                "ticket; retry.\n")
-            return 1
-        except LockedError as e:
-            sys.stderr.write(f"klc scope-fix: {e}\n")
-            return 1
-        except Exception as e:
-            # FIX-3: broad terminal handler (mirror jira.py). Besides the named
-            # state_sync.* errors, commit_and_push_cas_subtree can raise a BARE
-            # ValueError when `git add -A` refuses the subtree (corrupt index /
-            # disk-full / permission). ValueError is NOT a RuntimeError, so a
-            # specific tuple would let it escape as a raw traceback. state_tx has
-            # already rolled the subtree back, so this is data-safe.
-            sys.stderr.write(f"klc scope-fix: state sync failed — {e}\n")
-            return 1
-
-    # Feature-OFF: no upstream to be stale against and no tx that could sweep the
-    # subtree, so decide + write directly against the local read (no lock, no
-    # git). Same archived gate for contract parity — non-archived is refused too.
-    meta = _lc.read_meta(args.ticket)
-    phase0 = (meta.get("phase") or "").split(":")[0]
-    if phase0 != _ph.STATE_ARCHIVED:
-        return _emit_refused(meta.get("phase", ""))
-    old = list(meta.get("affected_modules") or [])
-    new = _apply(old)
-    if new == old:
-        return _emit_noop(new)
-    _write(meta, old, new)
-    return _emit_applied(old, new)
 
 
 def _classify_ticket(old: list, modules_data: dict):
